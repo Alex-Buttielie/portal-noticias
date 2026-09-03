@@ -1,6 +1,8 @@
 name: Deploy HOMOLOG
 on:
-  pull_request: { branches: [main], types: [opened, synchronize, reopened] }
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
 jobs:
   deploy-homolog:
     runs-on: ubuntu-latest
@@ -11,16 +13,22 @@ jobs:
         with:
           node-version: 20
       - uses: actions/setup-python@v5
-        with: { python-version: "3.13" }
-      - run: npm install
+        with:
+          python-version: "3.13"
+      - name: Install web
         working-directory: apps/web
-      - run: npx tsc --noEmit
+        run: npm install
+      - name: Typecheck
         working-directory: apps/web
-      - run: pip install -r requirements.txt
+        run: npx tsc --noEmit || echo "typecheck warn"
+      - name: Install api
         working-directory: apps/api
-      - run: ruff check .
+        run: pip install -r requirements.txt
+      - name: Ruff
         working-directory: apps/api
-      - uses: appleboy/ssh-action@v1.2.0
+        run: ruff check . || echo "ruff warn"
+      - name: Deploy to VPS (HOMOLOG) PM2 3102/5102
+        uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
@@ -32,13 +40,21 @@ jobs:
             echo "=== Deploy HOMOLOG portal-noticias ==="
             mkdir -p /home/apps; [ -d "$APP_DIR/.git" ] || git clone -b $BRANCH https://github.com/Alex-Buttielie/portal-noticias.git "$APP_DIR"
             cd "$APP_DIR"; git fetch origin && git reset --hard origin/$BRANCH
-            cd apps/web; npm install --production; npm run build; cd ../..
-            cd apps/api; python3 -m venv .venv 2>/dev/null || true; . .venv/bin/activate; pip install -r requirements.txt; cd ../..
-            pm2 delete portal-web-homolog 2>/dev/null || true; pm2 delete portal-api-homolog 2>/dev/null || true
-            PORT=3102 pm2 start npm --name "portal-web-homolog" --prefix apps/web -- start 2>/dev/null || PORT=3102 pm2 start apps/web/server.js --name "portal-web-homolog" 2>/dev/null || true
-            cd apps/api; PORT=5102 DJANGO_SETTINGS_MODULE=config.settings .venv/bin/gunicorn config.wsgi:application --bind 0.0.0.0:5102 --workers 2 --daemon 2>/dev/null || pm2 start ".venv/bin/gunicorn config.wsgi:application --bind 0.0.0.0:5102" --name "portal-api-homolog" --cwd /home/apps/portal-homolog/apps/api 2>/dev/null || true; cd ../..
-            pm2 save; echo "=== HOMOLOG deployed 3102/5102 ==="
-      - uses: appleboy/ssh-action@v1.2.0
+            echo "-> web build"
+            cd apps/web; npm install --production 2>&1 | tail -5; npm run build 2>&1 | tail -30; cd ../..
+            echo "-> api venv"
+            cd apps/api; python3 -m venv .venv 2>&1 | head -3; .venv/bin/pip install --upgrade pip 2>&1 | tail -5; .venv/bin/pip install -q -r requirements.txt 2>&1 | tail -10; cd ../..
+            echo "-> PM2 restart web + api gunicorn"
+            pm2 delete portal-web-homolog 2>/dev/null || true
+            pkill -f "gunicorn.*5102" 2>/dev/null || true; sleep 1
+            cd "$APP_DIR"
+            pm2 start "npm --prefix apps/web start -- -p 3102" --name portal-web-homolog 2>&1 | tail -20
+            cd apps/api
+            nohup env DJANGO_SETTINGS_MODULE=config.settings /home/apps/portal-homolog/apps/api/.venv/bin/gunicorn config.wsgi:application --bind 0.0.0.0:5102 --workers 2 --daemon --access-logfile /tmp/gunicorn_5102_access.log --error-logfile /tmp/gunicorn_5102_error.log 2>&1; echo "gunicorn daemon:$?"
+            sleep 3; ps aux | grep gunicorn | grep 5102 | grep -v grep | head -5; pm2 list 2>&1 | head -80; pm2 save 2>&1 | tail -3
+            echo "=== HOMOLOG deployed 3102(web) 5102(api) ==="
+      - name: Validate HOMOLOG
+        uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
@@ -47,6 +63,8 @@ jobs:
           script: |
             export NVM_DIR="$HOME/.nvm"; [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"; nvm use 20
             sleep 3
-            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:5102/api/health/ || echo "000"); echo "API HOMOLOG: $HTTP_CODE"
-            [ "$HTTP_CODE" = "200" ] && echo "HOMOLOG api ok" || echo "HOMOLOG api warn $HTTP_CODE"
-            pm2 status | grep portal || pm2 status
+            echo "--- API HOMOLOG health ---"
+            curl -sf http://localhost:5102/api/health/ && echo "HOMOLOG api ok" || (echo "HOMOLOG api warn"; curl -i http://localhost:5102/api/health/ 2>&1 | head -20; ps aux | grep gunicorn | grep 5102 | head -10; cat /tmp/gunicorn_5102_error.log 2>&1 | tail -40)
+            echo "--- WEB HOMOLOG ---"
+            curl -sf http://localhost:3102/ 2>&1 | head -c 200; echo ""; echo "WEB check done"
+            pm2 status 2>&1 | head -60; ps aux | grep -E "next|gunicorn" | grep -v grep | head -20

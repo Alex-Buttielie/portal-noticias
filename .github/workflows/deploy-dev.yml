@@ -39,16 +39,15 @@ jobs:
             echo "-> web build"
             cd apps/web; npm install --production 2>&1 | tail -5; npm run build 2>&1 | tail -30; cd ../..
             echo "-> api venv"
-            cd apps/api; python3 -m venv .venv 2>&1 | head -3; . .venv/bin/activate; pip install -q -r requirements.txt 2>&1 | tail -10; cd ../..
-            echo "-> PM2 restart"
+            cd apps/api; python3 -m venv .venv 2>&1 | head -3; .venv/bin/pip install --upgrade pip 2>&1 | tail -5; .venv/bin/pip install -q -r requirements.txt 2>&1 | tail -10; cd ../..
+            echo "-> PM2 restart web + api gunicorn"
             pm2 delete portal-web-dev 2>/dev/null || true
-            pm2 delete portal-api-dev 2>/dev/null || true
+            pkill -f "gunicorn.*5101" 2>/dev/null || true; sleep 1
             cd "$APP_DIR"
-            pm2 start "npm --prefix apps/web start -- -p 3101" --name portal-web-dev 2>&1 | tail -20 || PORT=3101 pm2 start apps/web/server.js --name portal-web-dev 2>&1 | tail -20
+            pm2 start "npm --prefix apps/web start -- -p 3101" --name portal-web-dev 2>&1 | tail -20
             cd apps/api
-            DJANGO_SETTINGS_MODULE=config.settings PORT=5101 "$APP_DIR/apps/api/.venv/bin/python" -m gunicorn config.wsgi:application --bind 0.0.0.0:5101 --workers 2 --daemon 2>&1 | head -20 || DJANGO_SETTINGS_MODULE=config.settings PORT=5101 .venv/bin/gunicorn config.wsgi:application --bind 0.0.0.0:5101 --workers 2 --daemon 2>&1 | head -20
-            sleep 2; ps aux | grep gunicorn | grep -v grep 2>&1 | head -10; pm2 list 2>&1 | head -80
-            pm2 save 2>&1 | tail -5
+            nohup env DJANGO_SETTINGS_MODULE=config.settings /home/apps/portal-dev/apps/api/.venv/bin/gunicorn config.wsgi:application --bind 0.0.0.0:5101 --workers 2 --daemon --access-logfile /tmp/gunicorn_5101_access.log --error-logfile /tmp/gunicorn_5101_error.log 2>&1; echo "gunicorn daemon:$?"
+            sleep 3; ps aux | grep gunicorn | grep 5101 | grep -v grep | head -5; pm2 list 2>&1 | head -80; pm2 save 2>&1 | tail -3
             echo "=== DEV deployed 3101(web) 5101(api) ==="
       - name: Validate DEV
         uses: appleboy/ssh-action@v1.2.0
@@ -61,7 +60,7 @@ jobs:
             export NVM_DIR="$HOME/.nvm"; [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"; nvm use 20
             sleep 3
             echo "--- API health ---"
-            curl -sf http://localhost:5101/api/health/ && echo "DEV api ok" || (echo "DEV api warn"; curl -i http://localhost:5101/api/health/ 2>&1 | head -20; ps aux | grep gunicorn | head -10)
+            curl -sf http://localhost:5101/api/health/ && echo "DEV api ok" || (echo "DEV api warn"; curl -i http://localhost:5101/api/health/ 2>&1 | head -20; ps aux | grep gunicorn | grep 5101 | head -10; cat /tmp/gunicorn_5101_error.log 2>&1 | tail -40)
             echo "--- WEB ---"
             curl -sf http://localhost:3101/ 2>&1 | head -c 200; echo ""; echo "WEB check done"
-            pm2 status 2>&1 | head -40; ps aux | grep -E "next|gunicorn" | grep -v grep | head -20
+            pm2 status 2>&1 | head -60; ps aux | grep -E "next|gunicorn" | grep -v grep | head -20
