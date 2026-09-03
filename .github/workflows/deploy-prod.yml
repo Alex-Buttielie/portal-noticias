@@ -1,23 +1,18 @@
 name: Deploy PROD
 on:
-  push:
-    tags: ["v*"]
+  push: { tags: ["v*"] }
 jobs:
   deploy-prod:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
+    permissions: { contents: write }
     environment: production
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: main
+        with: { ref: main }
       - uses: actions/setup-node@v4
-        with:
-          node-version: 20
+        with: { node-version: 20 }
       - uses: actions/setup-python@v5
-        with:
-          python-version: "3.13"
+        with: { python-version: "3.13" }
       - name: Install web
         working-directory: apps/web
         run: npm install
@@ -57,10 +52,8 @@ jobs:
             echo "-> PM2 restart web + api gunicorn"
             pm2 delete portal-web-prod 2>/dev/null || true
             pkill -f "gunicorn.*5103" 2>/dev/null || true; sleep 1
-            cd "$APP_DIR"
-            pm2 start "npm --prefix apps/web start -- -p 3103" --name portal-web-prod 2>&1 | tail -20
-            cd apps/api
-            nohup env DJANGO_SETTINGS_MODULE=config.settings /home/apps/portal-prod/apps/api/.venv/bin/gunicorn config.wsgi:application --bind 0.0.0.0:5103 --workers 2 --daemon --access-logfile /tmp/gunicorn_5103_access.log --error-logfile /tmp/gunicorn_5103_error.log 2>&1; echo "gunicorn daemon:$?"
+            cd "$APP_DIR/apps/web"; PORT=3103 pm2 start node_modules/next/dist/bin/next --name portal-web-prod -- start -p 3103 2>&1 | tail -20
+            cd "$APP_DIR/apps/api"; DJANGO_SETTINGS_MODULE=config.settings /home/apps/portal-prod/apps/api/.venv/bin/gunicorn config.wsgi:application --bind 0.0.0.0:5103 --workers 2 --daemon --access-logfile /tmp/gunicorn_5103_access.log --error-logfile /tmp/gunicorn_5103_error.log 2>&1; echo "gunicorn daemon:$?"
             sleep 3; ps aux | grep gunicorn | grep 5103 | grep -v grep | head -5; pm2 list 2>&1 | head -80; pm2 save 2>&1 | tail -3
             echo "=== PROD $VERSION deployed 3103(web) 5103(api) ==="
       - name: Validate PROD
