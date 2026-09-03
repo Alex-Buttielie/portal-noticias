@@ -1,0 +1,1 @@
+export default function Page(){ return <main className="p-8"><h1 className="text-2xl font-bold">Portal - Toda informacao que importa</h1><p>Free/Premium parametrizado via /api/config. Auth via Firebase ID Token.</p></main> }

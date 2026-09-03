@@ -1,0 +1,10 @@
+apps/api/media/
+apps/api/db.sqlite3
+.env
+.env.*
+!.env.example
+__pycache__/
+.venv/
+node_modules/
+.next/
+dist/
