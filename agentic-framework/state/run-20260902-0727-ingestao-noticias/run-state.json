@@ -1,0 +1,36 @@
+{
+  "run_id": "20260902-0727-ingestao-noticias",
+  "task_title": "Ingestão e Curadoria de Notícias",
+  "status": "blocked",
+  "current_phase": "remediation",
+  "iteration_count": 3,
+  "max_iterations": 3,
+  "requested_by": "usuário (buttielle3@gmail.com)",
+  "source_spec": "agentic-framework/specs/ingestao-curadoria-noticias.md",
+  "phases": {
+    "planning": { "status": "done", "agent": "orchestrator", "started_at": "2026-09-02T07:27:00-03:00", "finished_at": "2026-09-02T07:40:00-03:00", "notes": "task-plan.md e implementation-contract.md produzidos e validados. Fontes-semente e critério de relevância definidos com o usuário via AskUserQuestion." },
+    "implementation": { "status": "done", "agent": "executor", "started_at": "2026-09-02T07:40:00-03:00", "finished_at": "2026-09-02T08:30:00-03:00", "notes": "7/7 critérios técnicos implementados. Config de relevância via settings/env var (não modelo admin-editável — opção explicitamente permitida pelo contrato). Sem Redis/Postgres reais no ambiente; validado estruturalmente + SQLite." },
+    "testing": { "status": "done", "agent": "tester", "started_at": "2026-09-02T08:30:00-03:00", "finished_at": "2026-09-02T09:10:00-03:00", "notes": "83/84 testes passed (1 xfail estrito, deixado como evidência). AC-4 FAILED: nada impede resumo_proprio idêntico ao conteudo_bruto — gap real de direitos autorais (BRD §18). Demais 6 critérios passed." },
+    "review": { "status": "done", "agent": "reviewer", "started_at": "2026-09-02T12:10:00-03:00", "finished_at": "2026-09-02T12:45:00-03:00", "notes": "3ª passada (última permitida). Veredito: changes_requested (0 blocker). Finding 2/4/5 confirmados resolvidos. Finding 1 (falso-positivo de agrupamento) PERSISTE pela 3ª vez com vocabulário novo — reviewer classifica a abordagem de lista curada como estruturalmente whack-a-mole e recomenda mudança de estratégia: exigir token de peso pleno em comum antes de agrupar, OU forçar 'pendente' (revisão humana) para clusters pequenos/poucas fontes em vez de tentar aperfeiçoar a similaridade." },
+    "remediation": { "status": "blocked", "agent": "orchestrator (agindo como remediator — Agent/Bash de execução indisponíveis)", "started_at": "2026-09-02T12:45:00-03:00", "finished_at": null, "notes": "Iteração 3/3. Correção aplicada via Edit direto (mudança de estratégia: SummarizationProvider chamado por item, não por grupo — elimina misattribution de conteúdo estruturalmente; critério de _eh_alta_relevancia mantido intacto após reverter uma tentativa que quebraria AC-7). Validação por execução (pytest) NÃO REALIZADA — classificador de execução de código indisponível de forma sustentada nesta sessão. Ver implementation-history.md, Iteração 5, para o relato completo." },
+    "documentation": { "status": "pending", "agent": "documenter", "started_at": null, "finished_at": null, "notes": "" },
+    "closing": { "status": "pending", "agent": "historian", "started_at": null, "finished_at": null, "notes": "" }
+  },
+  "findings": { "blocker": 0, "major": 1, "minor": 1, "nit": 0, "resolved": 7 },
+  "artifacts": {
+    "task_plan": "task-plan.md",
+    "implementation_contract": "implementation-contract.md",
+    "implementation_history": "implementation-history.md",
+    "code_review_contract": "code-review-contract.md"
+  },
+  "blocked_reason": "A correção do Finding 1 (major, agrupamento indevido de notícias de fatos diferentes — BRD §18) foi implementada (iteração 3/3, teto do orchestrator) por leitura/edição direta de código, mas NÃO PÔDE SER VALIDADA POR EXECUÇÃO: o classificador de segurança que autoriza Bash executando pytest e o Agent tool (para delegar a um tester/reviewer) ficou indisponível de forma sustentada por mais de uma hora (múltiplas tentativas registradas), mesmo com operações de arquivo funcionando normalmente. Antes de prosseguir para uma 4ª passada do reviewer, documentation e closing, é necessário: (1) rodar `cd backend && DJANGO_DB_ENGINE=sqlite3 .venv/Scripts/python.exe -m pytest -q` e confirmar que os ~108 testes esperados passam; (2) se passarem, mandar para uma 4ª passada do reviewer (ainda dentro do escopo da iteração 3, já que só a validação ficou pendente, não uma nova rodada de correção); (3) só então documenter/historian. Ver implementation-history.md Iteração 5 para o relato completo, incluindo uma regressão real que o orchestrator encontrou e corrigiu por leitura manual (tensão com o critério de aceite 7) antes mesmo de tentar validar.",
+  "follow_ups": [
+    "PRIORITÁRIO: rodar a suíte de testes (pytest) para validar a correção da Iteração 5 assim que ferramentas de execução estiverem disponíveis — ver blocked_reason.",
+    "Validação jurídica dos termos de uso das 4 fontes RSS (G1, UOL, CNN Brasil, Folha) antes de qualquer uso em produção real (BRD §18).",
+    "Validar Celery/Redis com broker real (só validado estruturalmente neste ambiente sandbox).",
+    "Credenciais reais de um provedor de LLM concreto para o SummarizationProvider (hoje só validado com provider mockado).",
+    "Decisão de produto (não bloqueante): aceitar o residual de que um NewsCluster de 2 itens abaixo do limiar de fontes configurado pode continuar sendo publicado automaticamente (sem risco de conteúdo incorreto, mas com possível imprecisão de agrupamento/exibição) — ver implementation-history.md Iteração 5."
+  ],
+  "created_at": "2026-09-02T07:27:00-03:00",
+  "updated_at": "2026-09-02T13:30:00-03:00"
+}

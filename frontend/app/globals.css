@@ -1,0 +1,1545 @@
+:root {
+  --cor-fundo: #ffffff;
+  --cor-fundo-elevado: #ffffff;
+  --cor-texto: #1a1a1a;
+  --cor-texto-suave: #5c5c5c;
+  --cor-borda: #e2e2e2;
+  --cor-primaria: #0b5fff;
+  --cor-primaria-hover: #0847c4;
+  --cor-primaria-suave: #e8effe;
+  --cor-erro: #c62828;
+  --cor-sucesso: #1b7f3a;
+  --cor-fundo-card: #fafafa;
+  --cor-premium: #b8860b;
+  --cor-foco: #0b5fff;
+  --cor-sombra: 15, 23, 42;
+  --cor-skeleton-base: #eceef1;
+  --cor-skeleton-brilho: #f8f9fb;
+
+  /* escala de espaçamento — mantém ritmo vertical/horizontal consistente */
+  --espaco-1: 0.25rem;
+  --espaco-2: 0.5rem;
+  --espaco-3: 0.75rem;
+  --espaco-4: 1rem;
+  --espaco-5: 1.5rem;
+  --espaco-6: 2rem;
+  --espaco-7: 3rem;
+  --espaco-8: 4rem;
+
+  /* Extensão da escala de espaçamento (correção do achado do tester,
+     critério de aceite 7, run 20260903-1134-seo-lgpd-design-system) — os
+     componentes novos (Badge/Chip/Tooltip/Dropdown/Tabs) usavam padding
+     menor que --espaco-1 ou entre dois degraus existentes. Em vez de
+     arredondar para um valor mais distante (o que alteraria o visual já
+     implementado), a escala ganhou 3 degraus extras, na mesma unidade
+     (rem) e mesmo espírito da escala original. */
+  --espaco-0: 0.15rem;
+  --espaco-1-5: 0.3rem;
+  --espaco-2-5: 0.6rem;
+
+  --raio-sm: 6px;
+  --raio-md: 10px;
+  --raio-lg: 16px;
+  --raio-completo: 999px; /* pílulas/círculos — selo, avatar, botão de tema */
+
+  --sombra-1: 0 1px 2px rgba(var(--cor-sombra), 0.06);
+  --sombra-2: 0 6px 20px -8px rgba(var(--cor-sombra), 0.18);
+  --sombra-3: 0 16px 40px -12px rgba(var(--cor-sombra), 0.28); /* elevação máxima — Modal */
+
+  /* durações pensadas para reforçar hierarquia, não para chamar atenção à toa */
+  --duracao-rapida: 120ms;
+  --duracao-normal: 220ms;
+  --duracao-lenta: 420ms;
+  --curva-padrao: cubic-bezier(0.2, 0.7, 0.3, 1);
+
+  /* ---------------------------------------------------------------------
+     Escala tipográfica (implementation-contract.md run
+     20260903-1134-seo-lgpd-design-system, escopo D) — usada pelos
+     componentes novos e disponível para o restante do projeto migrar aos
+     poucos, em vez de tamanhos de fonte soltos em rem por componente.
+     --------------------------------------------------------------------- */
+  --fonte-tamanho-xs: 0.75rem;
+  --fonte-tamanho-sm: 0.85rem;
+  --fonte-tamanho-md: 1rem;
+  --fonte-tamanho-lg: 1.15rem;
+  --fonte-tamanho-xl: 1.5rem;
+  --fonte-tamanho-xxl: 2rem;
+
+  --fonte-peso-normal: 400;
+  --fonte-peso-medio: 600;
+  --fonte-peso-negrito: 700;
+
+  --linha-altura-compacta: 1.25;
+  --linha-altura-padrao: 1.5;
+  --linha-altura-solta: 1.7;
+
+  /* ---------------------------------------------------------------------
+     Escala de z-index — nomeada por PAPEL (não por número mágico) para que
+     cada camada empilhada do site (cabeçalho fixo, painéis flutuantes,
+     modal, toast/banner) tenha uma única fonte de verdade sobre quem fica
+     acima de quem. Valores existentes no CSS abaixo (.cabecalho, .toast-
+     container etc.) foram consolidados para usar estas variáveis.
+     --------------------------------------------------------------------- */
+  --z-conteudo-elevado: 10; /* cartão em hover/foco, leve destaque local */
+  --z-cabecalho: 40; /* .cabecalho, sticky no topo */
+  --z-painel-flutuante: 30; /* Dropdown, Tooltip, explicação de IA */
+  --z-banner: 20; /* banner de atualização do feed */
+  --z-modal-fundo: 900; /* camada de fundo (overlay) do Modal */
+  --z-modal: 910; /* conteúdo do Modal, acima do próprio overlay */
+  --z-toast: 1000; /* toast/notificação — sempre no topo de tudo */
+  --z-cookies: 1000; /* banner de consentimento de cookies — mesmo nível do toast */
+
+  /* ---------------------------------------------------------------------
+     Tokens de tamanho/deslocamento de componente (correção do achado do
+     tester, critério de aceite 7, run 20260903-1134-seo-lgpd-design-system)
+     — dimensões fixas específicas de um componente, que não seguem a
+     escala de espaçamento incremental (não são padding/gap/margin), mas
+     precisavam de nome em vez de literal solto espalhado pelas regras dos
+     7 componentes novos.
+     --------------------------------------------------------------------- */
+  --deslocamento-flutuante: 6px; /* distância entre âncora e painel flutuante — Tooltip, Dropdown */
+  --espaco-minimo: 2px; /* menor espaçamento do sistema — gap entre itens do menu do Dropdown */
+  --tamanho-botao-icone: 28px; /* botão circular pequeno — fechar do Modal */
+  --altura-min-item-menu: 36px; /* altura mínima de um item do Dropdown */
+  --largura-min-menu: 200px; /* largura mínima do menu do Dropdown */
+  --largura-max-tooltip: 240px; /* largura máxima do balão do Tooltip */
+  --largura-max-modal: 520px; /* largura máxima do Modal */
+  --altura-max-modal: 700px; /* altura máxima do Modal (combinada com 80vh) */
+}
+
+/* Tema escuro: segue a preferência do sistema por padrão (menor consumo de
+   energia em telas OLED/AMOLED, alinhado ao princípio de design sustentável)
+   e pode ser fixado manualmente via [data-theme] através do ThemeToggle. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --cor-fundo: #101214;
+    --cor-fundo-elevado: #17191c;
+    --cor-texto: #f2f3f5;
+    --cor-texto-suave: #a6acb5;
+    --cor-borda: #2b2e33;
+    --cor-primaria: #5b9dff;
+    --cor-primaria-hover: #7fb1ff;
+    --cor-primaria-suave: #17233d;
+    --cor-erro: #ff6b6b;
+    --cor-sucesso: #4fd17a;
+    --cor-fundo-card: #17191c;
+    --cor-premium: #e0ac2b;
+    --cor-foco: #7fb1ff;
+    --cor-sombra: 0, 0, 0;
+    --cor-skeleton-base: #21242a;
+    --cor-skeleton-brilho: #2b2f36;
+  }
+}
+
+:root[data-theme="dark"] {
+  --cor-fundo: #101214;
+  --cor-fundo-elevado: #17191c;
+  --cor-texto: #f2f3f5;
+  --cor-texto-suave: #a6acb5;
+  --cor-borda: #2b2e33;
+  --cor-primaria: #5b9dff;
+  --cor-primaria-hover: #7fb1ff;
+  --cor-primaria-suave: #17233d;
+  --cor-erro: #ff6b6b;
+  --cor-sucesso: #4fd17a;
+  --cor-fundo-card: #17191c;
+  --cor-premium: #e0ac2b;
+  --cor-foco: #7fb1ff;
+  --cor-sombra: 0, 0, 0;
+  --cor-skeleton-base: #21242a;
+  --cor-skeleton-brilho: #2b2f36;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  padding: 0;
+  margin: 0;
+}
+
+html {
+  color-scheme: light dark;
+}
+
+body {
+  font-family: var(--fonte-corpo, -apple-system), BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  color: var(--cor-texto);
+  background: var(--cor-fundo);
+  line-height: 1.5;
+  transition: background var(--duracao-normal) var(--curva-padrao), color var(--duracao-normal) var(--curva-padrao);
+}
+
+/* Serifada nos títulos — identidade editorial (jornalismo), contraste com a
+   sans-serif do corpo/interface. Aplica-se a qualquer heading e ao título
+   de cartão, sem precisar anotar cada um manualmente. */
+h1,
+h2,
+h3,
+.cartao-titulo,
+.cartao-hero-titulo {
+  font-family: var(--fonte-titulo, Georgia), "Times New Roman", serif;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+a {
+  color: var(--cor-primaria);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+/* ---------------------------------------------------------------------
+   Acessibilidade: navegação multimodal (teclado, leitor de tela, toque)
+   --------------------------------------------------------------------- */
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.pular-para-conteudo {
+  position: fixed;
+  top: -3rem;
+  left: var(--espaco-4);
+  z-index: var(--z-toast);
+  background: var(--cor-primaria);
+  color: #fff;
+  padding: 0.6rem 1rem;
+  border-radius: var(--raio-sm);
+  font-weight: 600;
+  transition: top var(--duracao-rapida) var(--curva-padrao);
+}
+
+.pular-para-conteudo:focus {
+  top: var(--espaco-4);
+  text-decoration: none;
+}
+
+:focus-visible {
+  outline: 2px solid var(--cor-foco);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+main:focus {
+  outline: none;
+}
+
+button,
+a.botao,
+input,
+select,
+textarea {
+  min-height: 40px;
+}
+
+button {
+  color: inherit;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+.container {
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 0 1.25rem;
+}
+
+.cabecalho {
+  border-bottom: 1px solid var(--cor-borda);
+  padding: 0.9rem 0;
+  position: sticky;
+  top: 0;
+  background: color-mix(in srgb, var(--cor-fundo) 92%, transparent);
+  backdrop-filter: blur(8px);
+  z-index: var(--z-cabecalho);
+}
+
+.cabecalho-conteudo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.cabecalho-logo {
+  font-weight: 700;
+  font-size: 1.1rem;
+  color: var(--cor-texto);
+}
+
+.cabecalho-nav {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.cabecalho-nav a[aria-current="page"] {
+  color: var(--cor-texto);
+  font-weight: 700;
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 4px;
+}
+
+.botao-menu-mobile {
+  display: none;
+  background: transparent;
+  border: 1px solid var(--cor-borda);
+  border-radius: var(--raio-sm);
+  padding: 0.4rem 0.6rem;
+}
+
+@media (max-width: 720px) {
+  .botao-menu-mobile {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+
+  .cabecalho-nav {
+    display: none;
+    width: 100%;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.75rem;
+    padding-top: 0.75rem;
+  }
+
+  .cabecalho-nav.aberto {
+    display: flex;
+  }
+}
+
+.botao-tema {
+  background: transparent;
+  border: 1px solid var(--cor-borda);
+  border-radius: var(--raio-completo);
+  width: 40px;
+  height: 40px;
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: transform var(--duracao-rapida) var(--curva-padrao), background var(--duracao-rapida);
+}
+
+.botao-tema:hover {
+  background: var(--cor-primaria-suave);
+  transform: rotate(12deg);
+}
+
+.selo-premium {
+  background: var(--cor-premium);
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 0.15rem 0.5rem;
+  border-radius: var(--raio-completo);
+  text-transform: uppercase;
+}
+
+.selo-free {
+  background: #e2e2e2;
+  color: #444;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 0.15rem 0.5rem;
+  border-radius: var(--raio-completo);
+  text-transform: uppercase;
+}
+
+main {
+  padding: 1.5rem 0 3rem;
+}
+
+/* ---------------------------------------------------------------------
+   Animações com propósito: reforçam a chegada de conteúdo novo (feed) e
+   transições de estado, nunca decoração gratuita. Todas respeitam
+   prefers-reduced-motion via a regra global acima.
+   --------------------------------------------------------------------- */
+
+@keyframes entrada-suave {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes brilho-esqueleto {
+  from {
+    background-position: -200px 0;
+  }
+  to {
+    background-position: calc(200px + 100%) 0;
+  }
+}
+
+.faixa-publicidade {
+  background: #fff3cd;
+  border: 1px solid #ffe8a1;
+  padding: 0.5rem 0.9rem;
+  border-radius: var(--raio-sm);
+  font-size: 0.85rem;
+  margin-bottom: 1rem;
+  color: #6b5300;
+}
+
+/* Grade responsiva de cartões — substitui a lista empilhada única em telas
+   largas, dando fluidez e melhor aproveitamento do espaço. */
+.grade-cartoes {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: var(--espaco-4);
+  align-items: start;
+}
+
+.grade-cartoes > * {
+  margin-bottom: 0;
+}
+
+.cartao {
+  border: 1px solid var(--cor-borda);
+  border-radius: var(--raio-md);
+  padding: 1rem 1.1rem;
+  margin-bottom: 0.9rem;
+  background: var(--cor-fundo-card);
+  animation: entrada-suave var(--duracao-normal) var(--curva-padrao) both;
+  transition: transform var(--duracao-normal) var(--curva-padrao), box-shadow var(--duracao-normal) var(--curva-padrao), border-color var(--duracao-normal);
+}
+
+a:has(> .cartao) {
+  display: block;
+}
+
+.cartao:hover,
+.cartao:focus-within {
+  box-shadow: var(--sombra-2);
+  border-color: var(--cor-primaria);
+}
+
+@media (hover: hover) {
+  .cartao:hover {
+    transform: translateY(-2px);
+  }
+}
+
+/* Imperfeição proposicional: uma leve inclinação alternada em parte dos
+   cartões quebra a rigidez da grade perfeita e dá textura humana ao feed —
+   some sob foco/hover para não atrapalhar a leitura nem a precisão de quem
+   navega por teclado. */
+.cartao--organico:nth-child(4n + 1) {
+  transform: rotate(-0.35deg);
+}
+
+.cartao--organico:nth-child(4n + 3) {
+  transform: rotate(0.3deg);
+}
+
+.cartao--organico:hover,
+.cartao--organico:focus-within {
+  transform: rotate(0deg) translateY(-2px);
+}
+
+.cartao-titulo {
+  font-size: 1.05rem;
+  font-weight: 600;
+  margin: 0 0 0.35rem;
+}
+
+.cartao-meta {
+  font-size: 0.78rem;
+  color: var(--cor-texto-suave);
+  margin-bottom: 0.4rem;
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.badge-urgente {
+  background: var(--cor-erro);
+  color: #fff;
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  text-transform: uppercase;
+}
+
+.badge-categoria {
+  background: var(--cor-primaria-suave);
+  color: var(--cor-primaria);
+  font-size: 0.7rem;
+  padding: 0.1rem 0.45rem;
+  border-radius: 4px;
+}
+
+.controles-feed {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  margin-bottom: 1.1rem;
+  align-items: flex-end;
+}
+
+.campo-controle {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.campo-controle label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--cor-texto-suave);
+}
+
+/* ---------------------------------------------------------------------
+   IA visível e transparente ("Por que estou vendo isso?")
+   --------------------------------------------------------------------- */
+
+.explicacao-ia {
+  position: relative;
+  display: inline-flex;
+}
+
+.explicacao-ia-gatilho {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  background: transparent;
+  border: 1px dashed var(--cor-borda);
+  color: var(--cor-texto-suave);
+  border-radius: var(--raio-completo);
+  padding: 0.15rem 0.55rem;
+  font-size: 0.72rem;
+  min-height: 28px;
+  cursor: pointer;
+}
+
+.explicacao-ia-gatilho:hover,
+.explicacao-ia-gatilho[aria-expanded="true"] {
+  border-style: solid;
+  border-color: var(--cor-primaria);
+  color: var(--cor-primaria);
+}
+
+.explicacao-ia-painel {
+  position: absolute;
+  z-index: var(--z-painel-flutuante);
+  top: calc(100% + 6px);
+  left: 0;
+  min-width: 220px;
+  max-width: 280px;
+  background: var(--cor-fundo-elevado);
+  border: 1px solid var(--cor-borda);
+  border-radius: var(--raio-md);
+  box-shadow: var(--sombra-2);
+  padding: 0.7rem 0.8rem;
+  animation: entrada-suave var(--duracao-rapida) var(--curva-padrao) both;
+}
+
+.explicacao-ia-painel h3 {
+  margin: 0 0 0.35rem;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--cor-texto-suave);
+}
+
+.explicacao-ia-painel ul {
+  margin: 0;
+  padding-left: 1.1rem;
+  font-size: 0.82rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+/* ---------------------------------------------------------------------
+   Design orientado à intenção: sugestão adaptativa baseada no
+   comportamento de leitura, sempre com opção explícita de dispensar.
+   --------------------------------------------------------------------- */
+
+.sugestao-adaptativa {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  background: var(--cor-primaria-suave);
+  border: 1px solid var(--cor-primaria);
+  border-radius: var(--raio-md);
+  padding: 0.65rem 0.9rem;
+  margin-bottom: 1rem;
+  font-size: 0.85rem;
+  animation: entrada-suave var(--duracao-normal) var(--curva-padrao) both;
+}
+
+.sugestao-adaptativa-acoes {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+/* ---------------------------------------------------------------------
+   Estados de carregamento fluidos (esqueleto)
+   --------------------------------------------------------------------- */
+
+.esqueleto {
+  background: linear-gradient(90deg, var(--cor-skeleton-base) 25%, var(--cor-skeleton-brilho) 37%, var(--cor-skeleton-base) 63%);
+  background-size: 400px 100%;
+  animation: brilho-esqueleto 1.4s ease-in-out infinite;
+  border-radius: var(--raio-sm);
+  display: block;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .esqueleto {
+    animation: none;
+    background: var(--cor-skeleton-base);
+  }
+}
+
+.esqueleto-cartao {
+  border: 1px solid var(--cor-borda);
+  border-radius: var(--raio-md);
+  padding: 1rem 1.1rem;
+  background: var(--cor-fundo-card);
+}
+
+.esqueleto-linha {
+  height: 0.85rem;
+  margin-bottom: 0.5rem;
+}
+
+.esqueleto-linha:last-child {
+  margin-bottom: 0;
+  width: 60%;
+}
+
+input,
+select,
+button,
+textarea {
+  font: inherit;
+}
+
+input[type="text"],
+input[type="email"],
+input[type="password"],
+input[type="search"],
+select,
+textarea {
+  border: 1px solid var(--cor-borda);
+  border-radius: var(--raio-sm);
+  padding: 0.5rem 0.7rem;
+  width: 100%;
+  background: var(--cor-fundo-elevado);
+  color: var(--cor-texto);
+  transition: border-color var(--duracao-rapida);
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: var(--cor-primaria);
+}
+
+.campo {
+  margin-bottom: 0.9rem;
+}
+
+.campo label {
+  display: block;
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin-bottom: 0.3rem;
+}
+
+.formulario {
+  max-width: 420px;
+}
+
+button.botao,
+a.botao {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--cor-primaria);
+  color: #fff;
+  border: none;
+  border-radius: var(--raio-sm);
+  padding: 0.55rem 1.1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--duracao-rapida) var(--curva-padrao), transform var(--duracao-rapida) var(--curva-padrao);
+}
+
+button.botao:hover,
+a.botao:hover {
+  background: var(--cor-primaria-hover);
+  text-decoration: none;
+}
+
+button.botao:active,
+a.botao:active {
+  transform: scale(0.97);
+}
+
+button.botao:disabled {
+  background: #9db6e8;
+  cursor: not-allowed;
+  transform: none;
+}
+
+button.botao-secundario {
+  background: transparent;
+  color: var(--cor-primaria);
+  border: 1px solid var(--cor-primaria);
+}
+
+button.botao-perigo {
+  background: var(--cor-erro);
+}
+
+.mensagem-erro {
+  color: var(--cor-erro);
+  background: #fdecea;
+  border: 1px solid #f5c6c2;
+  border-radius: var(--raio-sm);
+  padding: 0.55rem 0.8rem;
+  font-size: 0.85rem;
+  margin-bottom: 0.9rem;
+}
+
+:root[data-theme="dark"] .mensagem-erro {
+  background: #3a1f1f;
+  border-color: #5c2b2b;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .mensagem-erro {
+    background: #3a1f1f;
+    border-color: #5c2b2b;
+  }
+}
+
+.mensagem-sucesso {
+  color: var(--cor-sucesso);
+  background: #e9f7ee;
+  border: 1px solid #bfe6cc;
+  border-radius: var(--raio-sm);
+  padding: 0.55rem 0.8rem;
+  font-size: 0.85rem;
+  margin-bottom: 0.9rem;
+}
+
+.texto-suave {
+  color: var(--cor-texto-suave);
+  font-size: 0.85rem;
+}
+
+.tabela {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+}
+
+.tabela th,
+.tabela td {
+  text-align: left;
+  padding: 0.5rem 0.6rem;
+  border-bottom: 1px solid var(--cor-borda);
+}
+
+.paginacao {
+  display: flex;
+  justify-content: center;
+  gap: 1rem;
+  margin-top: 1.2rem;
+}
+
+.plano-cartao {
+  border: 1px solid var(--cor-borda);
+  border-radius: var(--raio-lg);
+  padding: 1.2rem;
+  text-align: center;
+  margin-bottom: 1rem;
+}
+
+.plano-preco {
+  font-size: 1.6rem;
+  font-weight: 700;
+  margin: 0.4rem 0;
+}
+
+/* ---------------------------------------------------------------------
+   Feedback dinâmico: notificações (toasts) e banners de atualização
+   --------------------------------------------------------------------- */
+
+@keyframes entrada-toast {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.toast-container {
+  position: fixed;
+  bottom: var(--espaco-4);
+  right: var(--espaco-4);
+  z-index: var(--z-toast);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-width: min(360px, calc(100vw - 2rem));
+}
+
+.toast {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.6rem;
+  background: var(--cor-fundo-elevado);
+  border: 1px solid var(--cor-borda);
+  border-left: 4px solid var(--cor-primaria);
+  border-radius: var(--raio-md);
+  box-shadow: var(--sombra-2);
+  padding: 0.7rem 0.8rem;
+  font-size: 0.85rem;
+  animation: entrada-toast var(--duracao-normal) var(--curva-padrao) both;
+}
+
+.toast--sucesso {
+  border-left-color: var(--cor-sucesso);
+}
+
+.toast--erro {
+  border-left-color: var(--cor-erro);
+}
+
+.toast-fechar {
+  background: transparent;
+  border: none;
+  color: var(--cor-texto-suave);
+  cursor: pointer;
+  min-height: auto;
+  padding: 0;
+  line-height: 1;
+  font-size: 0.9rem;
+}
+
+.banner-atualizacao {
+  position: sticky;
+  top: 64px;
+  z-index: var(--z-banner);
+  display: flex;
+  justify-content: center;
+  margin-bottom: 1rem;
+}
+
+.banner-atualizacao button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: var(--cor-primaria);
+  color: #fff;
+  border: none;
+  border-radius: var(--raio-completo);
+  padding: 0.5rem 1rem;
+  font-weight: 600;
+  font-size: 0.85rem;
+  cursor: pointer;
+  box-shadow: var(--sombra-2);
+  animation: entrada-toast var(--duracao-normal) var(--curva-padrao) both;
+}
+
+.sentinela-carregamento {
+  display: flex;
+  justify-content: center;
+  padding: var(--espaco-4) 0;
+}
+
+/* ---------------------------------------------------------------------
+   Salvar para ler depois — ação puramente local, sem round-trip ao
+   backend, então o estado muda na hora (sem "carregando").
+   --------------------------------------------------------------------- */
+
+.cartao-acoes {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.botao-salvar {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  background: transparent;
+  border: 1px dashed var(--cor-borda);
+  color: var(--cor-texto-suave);
+  border-radius: var(--raio-completo);
+  padding: 0.15rem 0.55rem;
+  font-size: 0.72rem;
+  min-height: 28px;
+  cursor: pointer;
+  transition: transform var(--duracao-rapida) var(--curva-padrao);
+}
+
+.botao-salvar:hover {
+  border-style: solid;
+  border-color: var(--cor-premium);
+  color: var(--cor-premium);
+}
+
+.botao-salvar--ativo {
+  border-style: solid;
+  border-color: var(--cor-premium);
+  color: var(--cor-premium);
+  background: color-mix(in srgb, var(--cor-premium) 12%, transparent);
+}
+
+.botao-salvar:active {
+  transform: scale(0.94);
+}
+
+.controles-salvos {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 0.75rem;
+}
+
+@media print {
+  .cabecalho,
+  .botao,
+  .botao-tema,
+  .explicacao-ia,
+  .sugestao-adaptativa,
+  .faixa-publicidade,
+  .botao-salvar,
+  .controles-salvos {
+    display: none !important;
+  }
+}
+
+/* ---------------------------------------------------------------------
+   Rodapé (implementation-contract.md run
+   20260903-1134-seo-lgpd-design-system) — hospeda os links de privacidade
+   exigidos pelo task-plan.md (política de privacidade, preferências de
+   cookies), sempre acessíveis independente da página atual.
+   --------------------------------------------------------------------- */
+
+.rodape {
+  border-top: 1px solid var(--cor-borda);
+  margin-top: var(--espaco-8);
+  padding: var(--espaco-5) 0 var(--espaco-7);
+}
+
+.rodape-conteudo {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--espaco-3);
+}
+
+.rodape-links {
+  display: flex;
+  gap: var(--espaco-4);
+  flex-wrap: wrap;
+}
+
+/* ---------------------------------------------------------------------
+   Consentimento de cookies (LGPD) — banner fixo + painel de gerenciamento
+   (reaproveitado também pela página /privacidade/preferencias-cookies via
+   o modificador `--pagina`, que remove o posicionamento fixo).
+   --------------------------------------------------------------------- */
+
+.banner-cookies {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: var(--z-cookies);
+  background: var(--cor-fundo-elevado);
+  border-top: 1px solid var(--cor-borda);
+  box-shadow: var(--sombra-3);
+  padding: var(--espaco-4);
+  animation: entrada-toast var(--duracao-normal) var(--curva-padrao) both;
+}
+
+.banner-cookies-conteudo {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--espaco-4);
+  max-width: 1000px;
+  margin: 0 auto;
+}
+
+.banner-cookies-conteudo p {
+  margin: 0;
+  font-size: var(--fonte-tamanho-sm);
+  flex: 1 1 320px;
+}
+
+.banner-cookies-acoes {
+  display: flex;
+  gap: var(--espaco-2);
+  flex-wrap: wrap;
+}
+
+.banner-cookies-painel {
+  max-width: 1000px;
+  margin: var(--espaco-4) auto 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--espaco-3);
+  border-top: 1px solid var(--cor-borda);
+  padding-top: var(--espaco-4);
+}
+
+.banner-cookies-painel--pagina {
+  border-top: none;
+  padding-top: 0;
+  margin: var(--espaco-4) 0 0;
+  max-width: 560px;
+  border: 1px solid var(--cor-borda);
+  border-radius: var(--raio-md);
+  padding: var(--espaco-4);
+  background: var(--cor-fundo-card);
+}
+
+.campo-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--espaco-4);
+}
+
+.campo-toggle p {
+  margin: 0.15rem 0 0;
+}
+
+.campo-toggle input[type="checkbox"] {
+  min-height: auto;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  accent-color: var(--cor-primaria);
+}
+
+@media print {
+  .rodape,
+  .banner-cookies {
+    display: none !important;
+  }
+}
+
+/* ---------------------------------------------------------------------
+   Design system — 7 componentes reutilizáveis (implementation-contract.md
+   run 20260903-1134-seo-lgpd-design-system, escopo D). Só usam os tokens
+   definidos no topo deste arquivo — nenhuma cor/espaçamento literal.
+   --------------------------------------------------------------------- */
+
+/* Badge — rótulo de status, não interativo (ex.: "Publicado", "Pendente"). */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--espaco-1);
+  padding: var(--espaco-0) var(--espaco-3);
+  border-radius: var(--raio-completo);
+  font-size: var(--fonte-tamanho-xs);
+  font-weight: var(--fonte-peso-negrito);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  background: var(--cor-primaria-suave);
+  color: var(--cor-primaria);
+  line-height: var(--linha-altura-compacta);
+}
+
+.badge--sucesso {
+  background: color-mix(in srgb, var(--cor-sucesso) 16%, transparent);
+  color: var(--cor-sucesso);
+}
+
+.badge--erro {
+  background: color-mix(in srgb, var(--cor-erro) 14%, transparent);
+  color: var(--cor-erro);
+}
+
+.badge--neutro {
+  background: var(--cor-fundo-card);
+  color: var(--cor-texto-suave);
+  border: 1px solid var(--cor-borda);
+}
+
+.badge--premium {
+  background: color-mix(in srgb, var(--cor-premium) 18%, transparent);
+  color: var(--cor-premium);
+}
+
+/* Chip — tag interativa (selecionável e/ou removível), ex.: filtro ativo,
+   interesse selecionado no onboarding. */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--espaco-2);
+  padding: var(--espaco-1-5) var(--espaco-3);
+  border-radius: var(--raio-completo);
+  border: 1px solid var(--cor-borda);
+  background: var(--cor-fundo-elevado);
+  color: var(--cor-texto);
+  font-size: var(--fonte-tamanho-sm);
+  cursor: pointer;
+  transition: background var(--duracao-rapida) var(--curva-padrao), border-color var(--duracao-rapida) var(--curva-padrao);
+}
+
+.chip:hover:not(:disabled) {
+  border-color: var(--cor-primaria);
+}
+
+.chip--selecionado {
+  background: var(--cor-primaria-suave);
+  border-color: var(--cor-primaria);
+  color: var(--cor-primaria);
+}
+
+.chip:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.chip-remover {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  min-height: auto;
+  padding: 0;
+  line-height: 1;
+  font-size: var(--fonte-tamanho-xs);
+  border-radius: var(--raio-completo);
+}
+
+.chip-remover:hover {
+  color: var(--cor-erro);
+}
+
+/* Tooltip — dica curta associada a um elemento, aparece no hover/foco. */
+.tooltip {
+  position: relative;
+  display: inline-flex;
+}
+
+.tooltip-balao {
+  position: absolute;
+  z-index: var(--z-painel-flutuante);
+  bottom: calc(100% + var(--deslocamento-flutuante));
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--cor-texto);
+  color: var(--cor-fundo);
+  font-size: var(--fonte-tamanho-xs);
+  padding: var(--espaco-1-5) var(--espaco-2-5);
+  border-radius: var(--raio-sm);
+  box-shadow: var(--sombra-2);
+  white-space: nowrap;
+  max-width: var(--largura-max-tooltip);
+  white-space: normal;
+  animation: entrada-suave var(--duracao-rapida) var(--curva-padrao) both;
+  pointer-events: none;
+}
+
+.tooltip-balao--baixo {
+  bottom: auto;
+  top: calc(100% + var(--deslocamento-flutuante));
+}
+
+/* Dropdown — menu de ações/opções ancorado a um botão. */
+.dropdown {
+  position: relative;
+  display: inline-block;
+}
+
+.dropdown-menu {
+  position: absolute;
+  z-index: var(--z-painel-flutuante);
+  top: calc(100% + var(--deslocamento-flutuante));
+  left: 0;
+  min-width: var(--largura-min-menu);
+  background: var(--cor-fundo-elevado);
+  border: 1px solid var(--cor-borda);
+  border-radius: var(--raio-md);
+  box-shadow: var(--sombra-2);
+  padding: var(--espaco-2);
+  display: flex;
+  flex-direction: column;
+  gap: var(--espaco-minimo);
+  animation: entrada-suave var(--duracao-rapida) var(--curva-padrao) both;
+}
+
+.dropdown-menu--direita {
+  left: auto;
+  right: 0;
+}
+
+.dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: var(--espaco-2);
+  text-align: left;
+  background: transparent;
+  border: none;
+  padding: var(--espaco-2) var(--espaco-2-5);
+  border-radius: var(--raio-sm);
+  cursor: pointer;
+  font-size: var(--fonte-tamanho-sm);
+  color: var(--cor-texto);
+  min-height: var(--altura-min-item-menu);
+}
+
+.dropdown-item:hover:not(:disabled),
+.dropdown-item:focus-visible {
+  background: var(--cor-primaria-suave);
+  color: var(--cor-primaria);
+}
+
+.dropdown-item:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Modal — diálogo modal com overlay, foco preso e fechamento por Escape/
+   clique fora (comportamento em components/Modal.tsx). */
+.modal-fundo {
+  position: fixed;
+  inset: 0;
+  background: rgba(var(--cor-sombra), 0.5);
+  z-index: var(--z-modal-fundo);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--espaco-4);
+  animation: entrada-suave var(--duracao-rapida) var(--curva-padrao) both;
+}
+
+.modal {
+  position: relative;
+  z-index: var(--z-modal);
+  background: var(--cor-fundo-elevado);
+  border-radius: var(--raio-lg);
+  box-shadow: var(--sombra-3);
+  width: 100%;
+  max-width: min(var(--largura-max-modal), 100%);
+  max-height: min(80vh, var(--altura-max-modal));
+  overflow-y: auto;
+  padding: var(--espaco-5);
+  animation: entrada-toast var(--duracao-normal) var(--curva-padrao) both;
+}
+
+.modal-cabecalho {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--espaco-3);
+  margin-bottom: var(--espaco-4);
+}
+
+.modal-titulo {
+  font-size: var(--fonte-tamanho-lg);
+  font-weight: var(--fonte-peso-negrito);
+  margin: 0;
+}
+
+.modal-fechar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--cor-texto-suave);
+  font-size: var(--fonte-tamanho-lg);
+  padding: 0;
+  min-height: auto;
+  width: var(--tamanho-botao-icone);
+  height: var(--tamanho-botao-icone);
+  border-radius: var(--raio-completo);
+}
+
+.modal-fechar:hover {
+  background: var(--cor-primaria-suave);
+  color: var(--cor-primaria);
+}
+
+.modal-rodape {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--espaco-2);
+  margin-top: var(--espaco-5);
+}
+
+/* Tabs — navegação entre painéis mutuamente exclusivos. */
+.tabs-lista {
+  display: flex;
+  gap: var(--espaco-2);
+  border-bottom: 1px solid var(--cor-borda);
+  flex-wrap: wrap;
+}
+
+.tabs-aba {
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  padding: var(--espaco-2-5) var(--espaco-3);
+  cursor: pointer;
+  color: var(--cor-texto-suave);
+  font-weight: var(--fonte-peso-medio);
+  font-size: var(--fonte-tamanho-sm);
+  margin-bottom: -1px;
+}
+
+.tabs-aba:hover:not(:disabled) {
+  color: var(--cor-texto);
+}
+
+.tabs-aba[aria-selected="true"] {
+  color: var(--cor-primaria);
+  border-bottom-color: var(--cor-primaria);
+}
+
+.tabs-aba:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.tabs-painel {
+  padding-top: var(--espaco-4);
+  animation: entrada-suave var(--duracao-rapida) var(--curva-padrao) both;
+}
+
+/* Accordion — seções expansíveis/colapsáveis. */
+.accordion-item {
+  border: 1px solid var(--cor-borda);
+  border-radius: var(--raio-md);
+  margin-bottom: var(--espaco-2);
+  overflow: hidden;
+}
+
+.accordion-cabecalho {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--espaco-3);
+  background: var(--cor-fundo-card);
+  border: none;
+  padding: var(--espaco-3) var(--espaco-4);
+  cursor: pointer;
+  font-weight: var(--fonte-peso-medio);
+  font-size: var(--fonte-tamanho-md);
+  text-align: left;
+  color: var(--cor-texto);
+}
+
+.accordion-cabecalho:hover:not(:disabled) {
+  background: var(--cor-primaria-suave);
+}
+
+.accordion-cabecalho:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.accordion-icone {
+  transition: transform var(--duracao-rapida) var(--curva-padrao);
+  flex-shrink: 0;
+}
+
+.accordion-cabecalho[aria-expanded="true"] .accordion-icone {
+  transform: rotate(180deg);
+}
+
+.accordion-painel {
+  padding: var(--espaco-4);
+  animation: entrada-suave var(--duracao-rapida) var(--curva-padrao) both;
+}
+
+/* ---------------------------------------------------------------------
+   Redesenho editorial do feed: história de destaque, filtro por chips e
+   cartões com identidade de cor por categoria.
+   --------------------------------------------------------------------- */
+
+.filtro-categorias {
+  display: flex;
+  gap: var(--espaco-2);
+  flex-wrap: wrap;
+  margin-bottom: var(--espaco-4);
+}
+
+.cartao-hero {
+  display: block;
+  border: 1px solid var(--cor-borda);
+  border-radius: var(--raio-lg);
+  padding: var(--espaco-6) var(--espaco-6) var(--espaco-5);
+  margin-bottom: var(--espaco-5);
+  background: var(--cor-fundo-card);
+  position: relative;
+  overflow: hidden;
+  animation: entrada-suave var(--duracao-normal) var(--curva-padrao) both;
+  transition: box-shadow var(--duracao-normal) var(--curva-padrao), transform var(--duracao-normal) var(--curva-padrao);
+}
+
+.cartao-hero::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 5px;
+  background: var(--acento, var(--cor-primaria));
+}
+
+.cartao-hero:hover,
+.cartao-hero:focus-within {
+  box-shadow: var(--sombra-3);
+}
+
+@media (hover: hover) {
+  .cartao-hero:hover {
+    transform: translateY(-2px);
+  }
+}
+
+.cartao-hero-rotulo {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: var(--fonte-tamanho-xs);
+  font-weight: var(--fonte-peso-negrito);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--acento, var(--cor-primaria));
+  margin-bottom: var(--espaco-3);
+}
+
+.cartao-hero-titulo {
+  font-size: clamp(1.5rem, 2.5vw + 1rem, var(--fonte-tamanho-xxl));
+  line-height: var(--linha-altura-compacta);
+  margin: 0 0 var(--espaco-3);
+}
+
+.cartao-hero-resumo {
+  font-size: var(--fonte-tamanho-md);
+  color: var(--cor-texto-suave);
+  line-height: var(--linha-altura-solta);
+  max-width: 65ch;
+  margin: 0 0 var(--espaco-4);
+}
+
+.cartao-acento {
+  border-left: 3px solid var(--acento, var(--cor-borda));
+  padding-left: calc(1.1rem - 3px);
+}
+
+.cartao-emoji {
+  font-size: 1.05em;
+  margin-right: 0.3rem;
+}
+
+/* ---------------------------------------------------------------------
+   Página de notícia: progresso de leitura, tempo estimado, compartilhar.
+   --------------------------------------------------------------------- */
+
+.barra-progresso-leitura {
+  position: fixed;
+  top: 0;
+  left: 0;
+  height: 3px;
+  background: var(--cor-primaria);
+  z-index: var(--z-cabecalho, 40);
+  transition: width 80ms linear;
+}
+
+.info-leitura {
+  display: flex;
+  align-items: center;
+  gap: var(--espaco-2);
+  color: var(--cor-texto-suave);
+  font-size: var(--fonte-tamanho-sm);
+}
+
+.botao-compartilhar {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: transparent;
+  border: 1px solid var(--cor-borda);
+  color: var(--cor-texto);
+  border-radius: var(--raio-completo);
+  padding: 0.4rem 0.85rem;
+  font-size: var(--fonte-tamanho-sm);
+  cursor: pointer;
+  transition: border-color var(--duracao-rapida), color var(--duracao-rapida);
+}
+
+.botao-compartilhar:hover {
+  border-color: var(--cor-primaria);
+  color: var(--cor-primaria);
+}
+
+.artigo-corpo {
+  font-family: var(--fonte-titulo, Georgia), serif;
+  font-size: var(--fonte-tamanho-lg);
+  line-height: var(--linha-altura-solta);
+  max-width: 68ch;
+}
+
+@media print {
+  .barra-progresso-leitura,
+  .botao-compartilhar,
+  .filtro-categorias {
+    display: none !important;
+  }
+}

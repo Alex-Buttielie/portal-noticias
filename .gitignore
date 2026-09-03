@@ -1,0 +1,6 @@
+# Segredos de produção — nunca commitar.
+.env.production
+
+# Artefatos de backup gerados localmente (infra/backup/pg_backup.sh).
+infra/backup/*.dump
+infra/backup/*.tar.gz

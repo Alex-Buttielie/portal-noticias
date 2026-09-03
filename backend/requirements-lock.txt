@@ -1,0 +1,54 @@
+# Gerado via `pip freeze` do venv `backend/.venv`, validado por
+# `manage.py check` + suíte pytest completa (195 testes) rodando contra
+# estas versões exatas. Regenerado em 2026-09-03 (nova arquitetura de
+# infra) — acrescentou django-redis, gunicorn, whitenoise e sentry-sdk;
+# as versões anteriores (incl. django-cors-headers, que nunca tinha sido
+# congelada de verdade) foram confirmadas nesta rodada.
+amqp==5.3.1
+asgiref==3.12.1
+billiard==4.2.4
+celery==5.6.0
+certifi==2026.7.22
+cffi==2.1.1
+charset-normalizer==3.5.1
+click==8.5.0
+click-didyoumean==0.3.1
+click-plugins==1.1.1.2
+click-repl==0.3.0
+colorama==0.4.6
+cryptography==50.0.1
+Django==5.2.17
+django-allauth==65.19.2
+django-cors-headers==4.9.0
+django-redis==5.4.0
+djangorestframework==3.16.1
+exceptiongroup==1.3.1
+feedparser==6.0.11
+gunicorn==23.0.0
+idna==3.19
+iniconfig==2.3.0
+kombu==5.6.2
+oauthlib==3.3.1
+packaging==26.3
+pluggy==1.6.0
+prompt_toolkit==3.0.53
+psycopg2-binary==2.9.12
+pycparser==3.0
+Pygments==2.21.0
+PyJWT==2.13.0
+pytest==9.1.1
+pytest-django==4.14.0
+python-dateutil==2.9.0.post0
+python-dotenv==1.0.1
+redis==6.4.0
+requests==2.34.2
+sentry-sdk==2.19.2
+sgmllib3k==1.0.0
+six==1.17.0
+sqlparse==0.6.0
+tzdata==2026.3
+tzlocal==5.4.4
+urllib3==2.7.0
+vine==5.1.0
+wcwidth==0.8.3
+whitenoise==6.8.2

@@ -1,0 +1,31 @@
+{
+  "run_id": "20260902-1534-frontend-comunidade-credenciamento",
+  "task_title": "Frontend de Credenciamento e Comunidade",
+  "status": "blocked",
+  "current_phase": "implementation",
+  "iteration_count": 0,
+  "max_iterations": 3,
+  "requested_by": "usuário (buttielle3@gmail.com)",
+  "source_spec": "agentic-framework/specs/credenciamento-jornalistas.md, agentic-framework/specs/comunidade-blog.md",
+  "phases": {
+    "planning": { "status": "done", "agent": "orchestrator", "started_at": "2026-09-02T15:34:00-03:00", "finished_at": "2026-09-02T15:36:00-03:00", "notes": "" },
+    "implementation": { "status": "blocked", "agent": "orchestrator (agindo como executor)", "started_at": "2026-09-02T15:36:00-03:00", "finished_at": null, "notes": "6/6 critérios implementados. Corrigida lacuna de backend (endpoint de detalhe de publicação) encontrada ao construir a tela." },
+    "testing": { "status": "pending", "agent": "tester", "started_at": null, "finished_at": null, "notes": "" },
+    "review": { "status": "pending", "agent": "reviewer", "started_at": null, "finished_at": null, "notes": "" },
+    "remediation": { "status": "pending", "agent": "remediator", "started_at": null, "finished_at": null, "notes": "" },
+    "documentation": { "status": "pending", "agent": "documenter", "started_at": null, "finished_at": null, "notes": "" },
+    "closing": { "status": "pending", "agent": "historian", "started_at": null, "finished_at": null, "notes": "" }
+  },
+  "findings": { "blocker": 0, "major": 0, "minor": 0, "nit": 0, "resolved": 0 },
+  "artifacts": {
+    "task_plan": "task-plan.md",
+    "implementation_history": "implementation-history.md"
+  },
+  "blocked_reason": "Implementação completa (6/6 critérios), validação por execução pendente (mesma limitação de sessão).",
+  "follow_ups": [
+    "Rodar npm run build (frontend) e pytest (backend) assim que possível.",
+    "Frontend de Radar, Newsletter, Landing/Lista de Espera, B2B e Métricas ainda não existe — pendente para uma próxima leva."
+  ],
+  "created_at": "2026-09-02T15:34:00-03:00",
+  "updated_at": "2026-09-02T15:36:00-03:00"
+}

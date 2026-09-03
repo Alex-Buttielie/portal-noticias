@@ -1,0 +1,69 @@
+# Dependências do backend Django do Portal de Notícias.
+# módulo identidade/: aprovadas em implementation-contract.md
+# (run-20260901-2135-cadastro-auth).
+# módulo catalogo_noticias/: aprovadas em implementation-contract.md
+# (run-20260902-0727-ingestao-noticias) — ver implementation-history.md
+# desse run para a justificativa de cada uma.
+# Qualquer dependência nova precisa ser justificada em
+# implementation-history.md e sinalizada ao reviewer.
+#
+# Para reprodutibilidade total do ambiente (transitivas fixadas por versão,
+# incluindo as do extra [socialaccount]), ver `requirements-lock.txt`.
+
+Django==5.2.17
+djangorestframework==3.16.1
+# extra "socialaccount" traz requests/oauthlib/pyjwt, exigidos pelo provider
+# do Google (login social) — transitivo de uma dependência já aprovada, não
+# uma escolha nova de arquitetura.
+django-allauth[socialaccount]==65.19.2
+psycopg2-binary==2.9.12
+
+# catalogo_noticias/ — ingestão RSS, cliente HTTP do SummarizationProvider,
+# jobs assíncronos (ARCHITECTURE.md seção 1 e 6).
+feedparser==6.0.11
+# requests já é trazida transitivamente por django-allauth[socialaccount],
+# mas agora é também dependência DIRETA de catalogo_noticias (cliente HTTP
+# do RSSNewsSourceProvider e do LLMHttpSummarizationProvider) — declarada
+# explicitamente por isso, mesma versão já resolvida no ambiente.
+requests==2.34.2
+celery==5.6.0
+redis==6.4.0
+
+# config/settings.py CACHES — cache de aplicação (feed/listagens) sobre o
+# mesmo Redis já usado pelo Celery (nova arquitetura de infra, 2026-09-03).
+django-redis==5.4.0
+
+# Servidor WSGI de produção — `manage.py runserver` não é apto a produção
+# (single-threaded, sem worker pool). Usado por backend/Dockerfile.
+gunicorn==23.0.0
+
+# Serve arquivos estáticos (principalmente CSS/JS do admin) direto do
+# processo Gunicorn — evita precisar de um servidor de arquivos dedicado
+# só para os poucos MB de estático deste projeto (config/settings.py MIDDLEWARE).
+whitenoise==6.8.2
+
+# Rastreamento de erro em produção (opcional — só inicializa se SENTRY_DSN
+# estiver definida, ver config/settings.py). Mitiga a lacuna de validação
+# documentada em project-portal-noticias-tool-outage: muito deste projeto
+# foi escrito sem poder executar/testar de verdade.
+sentry-sdk==2.19.2
+
+# frontend/ (run 20260902-1448-frontend-mvp-web) — CORS, já que o Next.js
+# roda em origem diferente do backend (config/settings.py, CORS_ALLOWED_ORIGINS).
+django-cors-headers==4.9.0
+
+# Testes (usado pelo tester, não pelo runtime da aplicação)
+pytest-django==4.14.0
+
+# Carrega backend/.env automaticamente (config/settings.py, topo do
+# arquivo) — sem isso, `cp .env.example .env` (passo documentado no README)
+# não tinha efeito nenhum: nada no projeto lia o arquivo .env, só variáveis
+# já exportadas no ambiente. Gap encontrado ao escrever o script de
+# inicialização local (init-local.ps1).
+python-dotenv==1.0.1
+
+# NOTA: django-cors-headers foi adicionada a este arquivo sem poder rodar
+# `pip install`/`pip freeze` nesta sessão (ferramentas de execução
+# indisponíveis) — a versão acima é uma referência razoável, não confirmada.
+# `requirements-lock.txt` NÃO foi regenerado; precisa ser refeito (pip freeze)
+# assim que o ambiente puder instalar de verdade.

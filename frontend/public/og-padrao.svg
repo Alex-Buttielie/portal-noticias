@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <!--
+    RASCUNHO — imagem Open Graph/Twitter Card padrão usada quando um
+    conteúdo não tem imagem própria (implementation-contract.md run
+    20260903-1134-seo-lgpd-design-system). Não é um asset de design final:
+    precisa ser substituída por uma peça visual real antes de produção (ver
+    implementation-history.md desta run).
+  -->
+  <rect width="1200" height="630" fill="#0b5fff" />
+  <text x="60" y="330" font-family="Arial, Helvetica, sans-serif" font-size="72" font-weight="700" fill="#ffffff">Portal de Notícias</text>
+  <text x="60" y="400" font-family="Arial, Helvetica, sans-serif" font-size="32" fill="#e8effe">Toda a informação que importa, organizada em um só lugar.</text>
+</svg>

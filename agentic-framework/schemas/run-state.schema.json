@@ -1,0 +1,124 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://brd-portal-noticias.local/agentic-framework/schemas/run-state.schema.json",
+  "title": "RunState",
+  "description": "Estado de uma execução do agentic-framework. Uma instância vive em agentic-framework/state/run-<run_id>/run-state.json e é mantida pelo orchestrator (e finalizada pelo historian).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["run_id", "task_title", "status", "current_phase", "phases", "iteration_count", "created_at", "updated_at"],
+  "properties": {
+    "run_id": {
+      "type": "string",
+      "description": "Identificador único da execução, formato AAAAMMDD-HHmm-slug-curto.",
+      "pattern": "^[0-9]{8}-[0-9]{4}-[a-z0-9-]+$"
+    },
+    "task_title": {
+      "type": "string",
+      "description": "Título curto da tarefa, igual ao do task-plan.md."
+    },
+    "status": {
+      "type": "string",
+      "description": "Estado geral da execução.",
+      "enum": ["planning", "in_progress", "blocked", "closed", "cancelled"]
+    },
+    "current_phase": {
+      "type": "string",
+      "description": "Fase ativa no momento.",
+      "enum": ["planning", "implementation", "testing", "review", "remediation", "documentation", "closing", "done"]
+    },
+    "iteration_count": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Número de voltas do loop implementação-revisão-remediação nesta execução. O orchestrator escala para humano ao ultrapassar o limite definido (padrão: 3)."
+    },
+    "max_iterations": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 3,
+      "description": "Teto de iterações antes de escalar para intervenção humana."
+    },
+    "requested_by": {
+      "type": "string",
+      "description": "Quem originou o pedido (humano, spec, ou outra execução)."
+    },
+    "source_spec": {
+      "type": ["string", "null"],
+      "description": "Caminho relativo para a spec de origem em agentic-framework/specs/, ou null se não houver."
+    },
+    "phases": {
+      "type": "object",
+      "description": "Registro por fase do pipeline.",
+      "additionalProperties": false,
+      "properties": {
+        "planning": { "$ref": "#/$defs/phaseRecord" },
+        "implementation": { "$ref": "#/$defs/phaseRecord" },
+        "testing": { "$ref": "#/$defs/phaseRecord" },
+        "review": { "$ref": "#/$defs/phaseRecord" },
+        "remediation": { "$ref": "#/$defs/phaseRecord" },
+        "documentation": { "$ref": "#/$defs/phaseRecord" },
+        "closing": { "$ref": "#/$defs/phaseRecord" }
+      }
+    },
+    "findings": {
+      "type": "object",
+      "description": "Contagem agregada de findings do code-review-contract.md mais recente.",
+      "additionalProperties": false,
+      "properties": {
+        "blocker": { "type": "integer", "minimum": 0, "default": 0 },
+        "major": { "type": "integer", "minimum": 0, "default": 0 },
+        "minor": { "type": "integer", "minimum": 0, "default": 0 },
+        "nit": { "type": "integer", "minimum": 0, "default": 0 },
+        "resolved": { "type": "integer", "minimum": 0, "default": 0 }
+      }
+    },
+    "artifacts": {
+      "type": "object",
+      "description": "Caminhos relativos (a partir de agentic-framework/state/run-<run_id>/) para os contratos instanciados nesta execução. Ausente/omitido = ainda não gerado.",
+      "additionalProperties": false,
+      "properties": {
+        "task_plan": { "type": "string" },
+        "implementation_contract": { "type": "string" },
+        "implementation_history": { "type": "string" },
+        "code_review_contract": { "type": "string" },
+        "documentation_update": { "type": "string" },
+        "report": { "type": "string" }
+      }
+    },
+    "blocked_reason": {
+      "type": ["string", "null"],
+      "description": "Motivo do bloqueio, obrigatório quando status = blocked. Deve ser específico o suficiente para um humano decidir sem precisar reconstruir o contexto."
+    },
+    "follow_ups": {
+      "type": "array",
+      "description": "Pendências identificadas mas não resolvidas nesta execução, a migrar para specs/backlog futuro.",
+      "items": { "type": "string" }
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "updated_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "$defs": {
+    "phaseRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["pending", "in_progress", "done", "skipped", "blocked"]
+        },
+        "agent": {
+          "type": "string",
+          "description": "Nome do agente responsável por esta fase (ex: executor, tester, reviewer, remediator, documenter, historian)."
+        },
+        "started_at": { "type": ["string", "null"], "format": "date-time" },
+        "finished_at": { "type": ["string", "null"], "format": "date-time" },
+        "notes": { "type": "string" }
+      }
+    }
+  }
+}

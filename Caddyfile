@@ -1,0 +1,51 @@
+# Nova arquitetura de infra (2026-09-03). Caddy termina TLS automaticamente
+# (Let's Encrypt, renovação automática — zero custo, zero configuração
+# manual de certificado) e faz proxy reverso para o backend/frontend
+# rodando nos outros containers. DOMAIN_API/DOMAIN_FRONTEND vêm de
+# .env.production (ver .env.production.example).
+#
+# Se estiver atrás do Cloudflare (proxy laranja ativado): configure o modo
+# SSL/TLS do Cloudflare como "Full (strict)" para que a ponta
+# Cloudflare->VPS também seja criptografada com o certificado que o Caddy
+# já emite sozinho — ver infra/DEPLOY.md.
+
+{$DOMAIN_API} {
+	# API JSON não deve ser armazenada em cache por proxies intermediários
+	# por padrão — cada app decide seu próprio Cache-Control (ver
+	# feed/views.py). Aqui só definimos os headers de segurança que fazem
+	# sentido para TODAS as respostas do backend.
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		# HSTS já é enviado pelo Django (SECURE_HSTS_SECONDS em
+		# config/settings.py) quando DEBUG=False — não duplicar aqui.
+	}
+
+	encode zstd gzip
+
+	# Estático/mídia direto do volume compartilhado, sem passar pelo Django/
+	# Gunicorn — mais rápido e mais barato em CPU do que servir binário via
+	# WhiteNoise para o volume alto de leitura esperado (thumbnails de
+	# notícias, documentos de credenciamento).
+	handle_path /static/* {
+		root * /srv/static
+		file_server
+	}
+	handle_path /media/* {
+		root * /srv/media
+		file_server
+	}
+
+	reverse_proxy web:8000
+}
+
+{$DOMAIN_FRONTEND} {
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+	}
+
+	encode zstd gzip
+
+	reverse_proxy frontend:3000
+}
