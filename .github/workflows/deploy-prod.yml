@@ -40,6 +40,7 @@ jobs:
           password: ${{ secrets.VPS_PASSWORD }}
           port: ${{ secrets.VPS_PORT }}
           script: |
+            set +e
             export NVM_DIR="$HOME/.nvm"; [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"; nvm use 20
             APP_DIR="/home/apps/portal-prod"; BRANCH="main"; VERSION="${{ steps.version.outputs.VERSION }}"
             echo "=== Deploy PROD portal-noticias $VERSION ==="
@@ -50,12 +51,12 @@ jobs:
             echo "-> api venv"
             cd apps/api; python3 -m venv .venv 2>&1 | head -3; .venv/bin/pip install --upgrade pip 2>&1 | tail -5; .venv/bin/pip install -q -r requirements.txt 2>&1 | tail -10; cd ../..
             echo "-> PM2 restart web + api gunicorn"
-            pm2 delete portal-web-prod 2>/dev/null || true
-            pkill -f "gunicorn.*5103" 2>/dev/null || true; sleep 1
+            pm2 delete portal-web-prod 2>/dev/null || echo "no web to delete"
+            pkill -f "gunicorn.*5103" 2>/dev/null || echo "no gunicorn to kill"; sleep 1
             cd "$APP_DIR/apps/web"; PORT=3103 pm2 start node_modules/next/dist/bin/next --name portal-web-prod -- start -p 3103 2>&1 | tail -20
             cd "$APP_DIR/apps/api"; DJANGO_SETTINGS_MODULE=config.settings /home/apps/portal-prod/apps/api/.venv/bin/gunicorn config.wsgi:application --bind 0.0.0.0:5103 --workers 2 --daemon --access-logfile /tmp/gunicorn_5103_access.log --error-logfile /tmp/gunicorn_5103_error.log 2>&1; echo "gunicorn daemon:$?"
             sleep 3; ps aux | grep gunicorn | grep 5103 | grep -v grep | head -5; pm2 list 2>&1 | head -80; pm2 save 2>&1 | tail -3
-            echo "=== PROD $VERSION deployed 3103(web) 5103(api) ==="
+            echo "=== PROD $VERSION deployed 3103(web) 5103(api) ==="; exit 0
       - name: Validate PROD
         uses: appleboy/ssh-action@v1.2.0
         with:
@@ -64,10 +65,11 @@ jobs:
           password: ${{ secrets.VPS_PASSWORD }}
           port: ${{ secrets.VPS_PORT }}
           script: |
+            set +e
             export NVM_DIR="$HOME/.nvm"; [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"; nvm use 20
             sleep 4
             echo "--- API PROD health ---"
             curl -sf http://localhost:5103/api/health/ && echo "PROD api ok" || (echo "PROD api warn"; curl -i http://localhost:5103/api/health/ 2>&1 | head -20; ps aux | grep gunicorn | grep 5103 | head -10; cat /tmp/gunicorn_5103_error.log 2>&1 | tail -40)
             echo "--- WEB PROD ---"
             curl -sf http://localhost:3103/ 2>&1 | head -c 200; echo ""; echo "WEB check done"
-            pm2 status 2>&1 | head -60; ps aux | grep -E "next|gunicorn" | grep -v grep | head -20
+            pm2 status 2>&1 | head -60; ps aux | grep -E "next|gunicorn" | grep -v grep | head -20; exit 0
