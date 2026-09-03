@@ -1,26 +1,40 @@
 name: CI
 on:
-  push: { branches: [develop, main] }
-  pull_request: { branches: [develop, main] }
+  push:
+    branches: [develop, main]
+  pull_request:
+    branches: [develop, main]
 jobs:
   ci:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with: { node-version: "20" }
+        with:
+          node-version: 20
       - uses: actions/setup-python@v5
-        with: { python-version: "3.13" }
-      - run: npm install
+        with:
+          python-version: "3.13"
+      - name: Install web
         working-directory: apps/web
-      - run: npx tsc --noEmit || echo "typecheck warn"
+        run: npm install
+      - name: Typecheck
         working-directory: apps/web
-      - run: pip install -r requirements.txt
+        run: npx tsc --noEmit || echo "typecheck warn"
+      - name: Install api
         working-directory: apps/api
-      - run: ruff check . || echo "ruff warn"
+        run: pip install -r requirements.txt
+      - name: Ruff
         working-directory: apps/api
-      - run: pytest -q --cov=. --cov-report=term --cov-fail-under=0 || echo "pytest warn"
+        run: ruff check . || echo "ruff warn"
+      - name: Pytest
         working-directory: apps/api
-        env: { FIRESTORE_EMULATOR_HOST: localhost:8080, PAYMENT_PROVIDER: fake, OPENAI_API_KEY: mock, FIREBASE_PROJECT_ID: profissional-os-app }
-      - run: npm run build || echo "build warn"
+        run: pytest -q --cov=. --cov-report=term --cov-fail-under=0 || echo "pytest warn"
+        env:
+          FIRESTORE_EMULATOR_HOST: localhost:8080
+          PAYMENT_PROVIDER: fake
+          OPENAI_API_KEY: mock
+          FIREBASE_PROJECT_ID: profissional-os-app
+      - name: Build web
         working-directory: apps/web
+        run: npm run build || echo "build warn"
