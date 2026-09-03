@@ -4,7 +4,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start",
+    "start": "next start -p 3101",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --coverage"

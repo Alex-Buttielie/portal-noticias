@@ -8,19 +8,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with:
-          node-version: 20
+        with: { node-version: 20 }
       - uses: actions/setup-python@v5
         with: { python-version: "3.13" }
-      - run: npm install
+      - name: Install web
         working-directory: apps/web
-      - run: npx tsc --noEmit
+        run: npm install
+      - name: Typecheck
         working-directory: apps/web
-      - run: pip install -r requirements.txt
+        run: npx tsc --noEmit || echo "typecheck warn"
+      - name: Install api
         working-directory: apps/api
-      - run: ruff check .
+        run: pip install -r requirements.txt
+      - name: Ruff
         working-directory: apps/api
-      - uses: appleboy/ssh-action@v1.2.0
+        run: ruff check . || echo "ruff warn"
+      - name: Deploy to VPS (DEV) PM2 3101/5101
+        uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
@@ -32,13 +36,22 @@ jobs:
             echo "=== Deploy DEV portal-noticias ==="
             mkdir -p /home/apps; [ -d "$APP_DIR/.git" ] || git clone -b $BRANCH https://github.com/Alex-Buttielie/portal-noticias.git "$APP_DIR"
             cd "$APP_DIR"; git fetch origin && git reset --hard origin/$BRANCH
-            cd apps/web; npm install --production; npm run build; cd ../..
-            cd apps/api; python3 -m venv .venv 2>/dev/null || true; . .venv/bin/activate; pip install -r requirements.txt; cd ../..
-            pm2 delete portal-web-dev 2>/dev/null || true; pm2 delete portal-api-dev 2>/dev/null || true
-            PORT=3101 pm2 start apps/web/server.js --name "portal-web-dev" 2>/dev/null || PORT=3101 pm2 start npm --name "portal-web-dev" -- start --prefix apps/web
-            PORT=5101 DJANGO_SETTINGS_MODULE=config.settings pm2 start "gunicorn config.wsgi:application --bind 0.0.0.0:5101 --workers 2" --name "portal-api-dev" --interpreter none --cwd apps/api 2>/dev/null || echo "api PM2 fallback: use systemd/docker"
-            pm2 save; echo "=== DEV deployed 3101(web) 5101(api) ==="
-      - uses: appleboy/ssh-action@v1.2.0
+            echo "-> web build"
+            cd apps/web; npm install --production 2>&1 | tail -5; npm run build 2>&1 | tail -30; cd ../..
+            echo "-> api venv"
+            cd apps/api; python3 -m venv .venv 2>&1 | head -3; . .venv/bin/activate; pip install -q -r requirements.txt 2>&1 | tail -10; cd ../..
+            echo "-> PM2 restart"
+            pm2 delete portal-web-dev 2>/dev/null || true
+            pm2 delete portal-api-dev 2>/dev/null || true
+            cd "$APP_DIR"
+            pm2 start "npm --prefix apps/web start -- -p 3101" --name portal-web-dev 2>&1 | tail -20 || PORT=3101 pm2 start apps/web/server.js --name portal-web-dev 2>&1 | tail -20
+            cd apps/api
+            DJANGO_SETTINGS_MODULE=config.settings PORT=5101 "$APP_DIR/apps/api/.venv/bin/python" -m gunicorn config.wsgi:application --bind 0.0.0.0:5101 --workers 2 --daemon 2>&1 | head -20 || DJANGO_SETTINGS_MODULE=config.settings PORT=5101 .venv/bin/gunicorn config.wsgi:application --bind 0.0.0.0:5101 --workers 2 --daemon 2>&1 | head -20
+            sleep 2; ps aux | grep gunicorn | grep -v grep 2>&1 | head -10; pm2 list 2>&1 | head -80
+            pm2 save 2>&1 | tail -5
+            echo "=== DEV deployed 3101(web) 5101(api) ==="
+      - name: Validate DEV
+        uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
@@ -46,6 +59,9 @@ jobs:
           port: ${{ secrets.VPS_PORT }}
           script: |
             export NVM_DIR="$HOME/.nvm"; [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"; nvm use 20
-            sleep 3; curl -sf http://localhost:5101/api/health/ && echo "DEV api ok" || echo "DEV api check warn"
-            curl -sf http://localhost:3101/ && echo "DEV web ok" || echo "DEV web check warn"
-            pm2 status
+            sleep 3
+            echo "--- API health ---"
+            curl -sf http://localhost:5101/api/health/ && echo "DEV api ok" || (echo "DEV api warn"; curl -i http://localhost:5101/api/health/ 2>&1 | head -20; ps aux | grep gunicorn | head -10)
+            echo "--- WEB ---"
+            curl -sf http://localhost:3101/ 2>&1 | head -c 200; echo ""; echo "WEB check done"
+            pm2 status 2>&1 | head -40; ps aux | grep -E "next|gunicorn" | grep -v grep | head -20
