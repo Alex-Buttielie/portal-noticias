@@ -1,11 +1,24 @@
 name: Deploy DEV
-on: { push: { branches: [develop] } }
+on:
+  push: { branches: [develop] }
 jobs:
   deploy-dev:
     runs-on: ubuntu-latest
     environment: development
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, cache: npm, cache-dependency-path: apps/web/package-lock.json }
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.13" }
+      - run: npm ci
+        working-directory: apps/web
+      - run: npx tsc --noEmit
+        working-directory: apps/web
+      - run: pip install -r requirements.txt
+        working-directory: apps/api
+      - run: ruff check .
+        working-directory: apps/api
       - uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.VPS_HOST }}
@@ -13,7 +26,25 @@ jobs:
           key: ${{ secrets.VPS_SSH_KEY }}
           port: ${{ secrets.VPS_PORT }}
           script: |
-            cd /home/apps/portal-noticias-dev || git clone -b develop https://github.com/Alex-Buttielie/portal-noticias.git /home/apps/portal-noticias-dev; cd /home/apps/portal-noticias-dev
-            git fetch origin && git reset --hard origin/develop
-            docker compose -f docker-compose.yml up -d --build
-            sleep 8; curl -sf http://localhost:5000/api/health/ && echo "DEV ok" || docker logs portal-noticias-dev-backend-1 --tail 50
+            export NVM_DIR="$HOME/.nvm"; [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"; nvm use 20
+            APP_DIR="/home/apps/portal-dev"; BRANCH="develop"
+            echo "=== Deploy DEV portal-noticias ==="
+            mkdir -p /home/apps; [ -d "$APP_DIR/.git" ] || git clone -b $BRANCH https://github.com/Alex-Buttielie/portal-noticias.git "$APP_DIR"
+            cd "$APP_DIR"; git fetch origin && git reset --hard origin/$BRANCH
+            cd apps/web; npm install --production; npm run build; cd ../..
+            cd apps/api; python3 -m venv .venv 2>/dev/null || true; . .venv/bin/activate; pip install -r requirements.txt; cd ../..
+            pm2 delete portal-web-dev 2>/dev/null || true; pm2 delete portal-api-dev 2>/dev/null || true
+            PORT=3101 pm2 start apps/web/server.js --name "portal-web-dev" 2>/dev/null || PORT=3101 pm2 start npm --name "portal-web-dev" -- start --prefix apps/web
+            PORT=5101 DJANGO_SETTINGS_MODULE=config.settings pm2 start "gunicorn config.wsgi:application --bind 0.0.0.0:5101 --workers 2" --name "portal-api-dev" --interpreter none --cwd apps/api 2>/dev/null || echo "api PM2 fallback: use systemd/docker"
+            pm2 save; echo "=== DEV deployed 3101(web) 5101(api) ==="
+      - uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT }}
+          script: |
+            export NVM_DIR="$HOME/.nvm"; [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"; nvm use 20
+            sleep 3; curl -sf http://localhost:5101/api/health/ && echo "DEV api ok" || echo "DEV api check warn"
+            curl -sf http://localhost:3101/ && echo "DEV web ok" || echo "DEV web check warn"
+            pm2 status

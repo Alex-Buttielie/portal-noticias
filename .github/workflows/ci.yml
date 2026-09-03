@@ -21,6 +21,6 @@ jobs:
         working-directory: apps/api
       - run: pytest -q --cov=. --cov-fail-under=70
         working-directory: apps/api
-        env: { FIRESTORE_EMULATOR_HOST: localhost:8080, PAYMENT_PROVIDER: fake, OPENAI_API_KEY: mock }
+        env: { FIRESTORE_EMULATOR_HOST: localhost:8080, PAYMENT_PROVIDER: fake, OPENAI_API_KEY: mock, FIREBASE_PROJECT_ID: profissional-os-app }
       - run: npm run build
         working-directory: apps/web

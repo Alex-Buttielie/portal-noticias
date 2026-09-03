@@ -1,5 +1,6 @@
 name: Deploy PROD
-on: { push: { tags: ["v*"] } }
+on:
+  push: { tags: ["v*"] }
 jobs:
   deploy-prod:
     runs-on: ubuntu-latest
@@ -10,10 +11,16 @@ jobs:
         with: { ref: main }
       - uses: actions/setup-node@v4
         with: { node-version: 20, cache: npm, cache-dependency-path: apps/web/package-lock.json }
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.13" }
       - run: npm ci
         working-directory: apps/web
       - run: npx tsc --noEmit
         working-directory: apps/web
+      - run: pip install -r requirements.txt
+        working-directory: apps/api
+      - run: ruff check .
+        working-directory: apps/api
       - id: version
         run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
       - run: gh release create ${{ steps.version.outputs.VERSION }} --title "Release ${{ steps.version.outputs.VERSION }}" --generate-notes
@@ -25,7 +32,27 @@ jobs:
           key: ${{ secrets.VPS_SSH_KEY }}
           port: ${{ secrets.VPS_PORT }}
           script: |
-            cd /home/apps/portal-noticias-prod || git clone -b main https://github.com/Alex-Buttielie/portal-noticias.git /home/apps/portal-noticias-prod; cd /home/apps/portal-noticias-prod
-            git fetch --all --tags; git reset --hard origin/main; git checkout ${{ steps.version.outputs.VERSION }}
-            docker compose up -d --build
-            sleep 10; curl -sf http://localhost:5002/api/health/ && echo "PROD ok" || (docker logs portal-noticias-prod-backend-1 --tail 80; exit 1)
+            export NVM_DIR="$HOME/.nvm"; [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"; nvm use 20
+            APP_DIR="/home/apps/portal-prod"; BRANCH="main"; VERSION="${{ steps.version.outputs.VERSION }}"
+            echo "=== Deploy PROD portal-noticias $VERSION ==="
+            mkdir -p /home/apps; [ -d "$APP_DIR/.git" ] || git clone -b $BRANCH https://github.com/Alex-Buttielie/portal-noticias.git "$APP_DIR"
+            cd "$APP_DIR"; git fetch --all --tags; git reset --hard origin/$BRANCH; git checkout $VERSION
+            cd apps/web; npm install --production; npm run build; cd ../..
+            cd apps/api; python3 -m venv .venv 2>/dev/null || true; . .venv/bin/activate; pip install -r requirements.txt; cd ../..
+            pm2 delete portal-web-prod 2>/dev/null || true; pm2 delete portal-api-prod 2>/dev/null || true
+            PORT=3103 pm2 start npm --name "portal-web-prod" --prefix apps/web -- start 2>/dev/null || true
+            PORT=5103 DJANGO_SETTINGS_MODULE=config.settings pm2 start ".venv/bin/gunicorn config.wsgi:application --bind 0.0.0.0:5103 --workers 2" --name "portal-api-prod" --cwd /home/apps/portal-prod/apps/api 2>/dev/null || true
+            pm2 save; echo "=== PROD $VERSION deployed 3103/5103 ==="
+      - uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT }}
+          script: |
+            export NVM_DIR="$HOME/.nvm"; [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"; nvm use 20
+            sleep 5
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:5103/api/health/ || echo "000")
+            echo "PROD api: $HTTP_CODE"
+            if [ "$HTTP_CODE" = "200" ]; then echo "PROD ok"; else echo "PROD FAIL"; pm2 logs portal-api-prod --lines 30 --nostream 2>/dev/null || pm2 logs --lines 30 --nostream; exit 1; fi
+            pm2 status | grep portal || pm2 status

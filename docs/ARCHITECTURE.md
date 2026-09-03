@@ -102,19 +102,20 @@ State machine: `trial → active → past_due (+grace) → unpaid → canceled �
 - Rules: `firestore.rules` geradas pelo architect-agent, validadas em CI (`firebase emulators:exec`)
 - Storage: upload direto com signed URL → webhook salva metadata
 
-## 9. Infra VPS Hostgator
+## 9. Infra VPS Hostgator (espelha profissional-os)
 
-VPS Ubuntu 22.04, Docker + Compose, Nginx (reverse + certbot), 2GB+ RAM.
-Deploy sem k8s: `docker compose -f infra/compose.prod.yml pull && up -d --remove-orphans`.
-GH Actions → `appleboy/ssh-action` com `HOST, USER, SSH_KEY` secrets.
-Zero-downtime: `blue-green` simples (2 compose projects) ou `traefik` se escalar.
-Backups: `cron` dump Firestore via `gcloud` + `pg_dump` se houver Postgres + snapshots VPS.
+VPS Ubuntu + PM2 + Nginx reverse + certbot (3 envs isolados). Padrão profissional-os:
+`develop→DEV 3101(web)/5101(api)`, `PR→HOMOLOG 3102/5102`, `tag v*→PROD 3103/5103`.
+Local: `docker compose up --build` (redis+api+web) ou `FIRESTORE_EMULATOR_HOST=localhost:8080`.
+GH Actions → `appleboy/ssh-action` com `VPS_HOST/USER/PORT/SSH_KEY` (mesmos secrets do profissional-os).
 
-## 10. CI/CD (GitHub Actions)
+## 10. CI/CD (GitHub Actions — espelha profissional-os)
 
-`ci.yml` (PR): `lint → typecheck → test (matrix) → coverage gate → SAST → build preview`
-`cd.yml` (main): `build → push GHCR → ssh deploy → migrate → smoke e2e (playwright) → notify`
-Branch protection: exige `ci` verde.
+`ci.yml` (push/PR develop,main): `lint→typecheck→ruff→pytest cov≥70%→build`
+`deploy-dev.yml` (push develop): `develop → /home/apps/portal-dev` PM2 `3101/5101`
+`deploy-homolog.yml` (PR → main): `develop → /home/apps/portal-homolog` PM2 `3102/5102`
+`deploy-prod.yml` (tag v*): `main → /home/apps/portal-prod` PM2 `3103/5103` + Release
+Branch protection: exige `ci` verde. Scripts: `scripts/setup-vps.sh` (one-shot VPS).
 
 ## 11. Qualidade & Compliance
 

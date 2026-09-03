@@ -7,6 +7,18 @@ jobs:
     environment: homolog
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, cache: npm, cache-dependency-path: apps/web/package-lock.json }
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.13" }
+      - run: npm ci
+        working-directory: apps/web
+      - run: npx tsc --noEmit
+        working-directory: apps/web
+      - run: pip install -r requirements.txt
+        working-directory: apps/api
+      - run: ruff check .
+        working-directory: apps/api
       - uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.VPS_HOST }}
@@ -14,8 +26,26 @@ jobs:
           key: ${{ secrets.VPS_SSH_KEY }}
           port: ${{ secrets.VPS_PORT }}
           script: |
-            APP_DIR="/home/apps/portal-noticias-homolog"
-            mkdir -p /home/apps; [ -d "$APP_DIR/.git" ] || git clone -b develop https://github.com/Alex-Buttielie/portal-noticias.git "$APP_DIR"
-            cd "$APP_DIR"; git fetch origin && git reset --hard origin/develop
-            docker compose up -d --build
-            sleep 8; curl -sf http://localhost:5001/api/health/ && echo "HOMOLOG ok" || docker logs portal-noticias-homolog-backend-1 --tail 80 || true
+            export NVM_DIR="$HOME/.nvm"; [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"; nvm use 20
+            APP_DIR="/home/apps/portal-homolog"; BRANCH="develop"
+            echo "=== Deploy HOMOLOG portal-noticias ==="
+            mkdir -p /home/apps; [ -d "$APP_DIR/.git" ] || git clone -b $BRANCH https://github.com/Alex-Buttielie/portal-noticias.git "$APP_DIR"
+            cd "$APP_DIR"; git fetch origin && git reset --hard origin/$BRANCH
+            cd apps/web; npm install --production; npm run build; cd ../..
+            cd apps/api; python3 -m venv .venv 2>/dev/null || true; . .venv/bin/activate; pip install -r requirements.txt; cd ../..
+            pm2 delete portal-web-homolog 2>/dev/null || true; pm2 delete portal-api-homolog 2>/dev/null || true
+            PORT=3102 pm2 start npm --name "portal-web-homolog" --prefix apps/web -- start 2>/dev/null || PORT=3102 pm2 start apps/web/server.js --name "portal-web-homolog" 2>/dev/null || true
+            cd apps/api; PORT=5102 DJANGO_SETTINGS_MODULE=config.settings .venv/bin/gunicorn config.wsgi:application --bind 0.0.0.0:5102 --workers 2 --daemon 2>/dev/null || pm2 start ".venv/bin/gunicorn config.wsgi:application --bind 0.0.0.0:5102" --name "portal-api-homolog" --cwd /home/apps/portal-homolog/apps/api 2>/dev/null || true; cd ../..
+            pm2 save; echo "=== HOMOLOG deployed 3102/5102 ==="
+      - uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT }}
+          script: |
+            export NVM_DIR="$HOME/.nvm"; [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"; nvm use 20
+            sleep 3
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:5102/api/health/ || echo "000"); echo "API HOMOLOG: $HTTP_CODE"
+            [ "$HTTP_CODE" = "200" ] && echo "HOMOLOG api ok" || echo "HOMOLOG api warn $HTTP_CODE"
+            pm2 status | grep portal || pm2 status
