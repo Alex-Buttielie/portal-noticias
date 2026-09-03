@@ -41,6 +41,7 @@ jobs:
           port: ${{ secrets.VPS_PORT }}
           script: |
             set +e
+            set +e
             export NVM_DIR="$HOME/.nvm"; [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"; nvm use 20
             APP_DIR="/home/apps/portal-prod"; BRANCH="main"; VERSION="${{ steps.version.outputs.VERSION }}"
             echo "=== Deploy PROD portal-noticias $VERSION ==="
@@ -56,7 +57,7 @@ jobs:
             cd "$APP_DIR/apps/web"; PORT=3103 pm2 start node_modules/next/dist/bin/next --name portal-web-prod -- start -p 3103 2>&1 | tail -20
             cd "$APP_DIR/apps/api"; DJANGO_SETTINGS_MODULE=config.settings /home/apps/portal-prod/apps/api/.venv/bin/gunicorn config.wsgi:application --bind 0.0.0.0:5103 --workers 2 --daemon --access-logfile /tmp/gunicorn_5103_access.log --error-logfile /tmp/gunicorn_5103_error.log 2>&1; echo "gunicorn daemon:$?"
             sleep 3; ps aux | grep gunicorn | grep 5103 | grep -v grep | head -5; pm2 list 2>&1 | head -80; pm2 save 2>&1 | tail -3
-            echo "=== PROD $VERSION deployed 3103(web) 5103(api) ==="; exit 0
+            echo "=== PROD $VERSION deployed 3103(web) 5103(api) ==="; exit 0; exit 0
       - name: Validate PROD
         uses: appleboy/ssh-action@v1.2.0
         with:
@@ -65,6 +66,7 @@ jobs:
           password: ${{ secrets.VPS_PASSWORD }}
           port: ${{ secrets.VPS_PORT }}
           script: |
+            set +e
             set +e
             export NVM_DIR="$HOME/.nvm"; [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"; nvm use 20
             sleep 4

@@ -34,6 +34,7 @@ jobs:
           port: ${{ secrets.VPS_PORT }}
           script: |
             set +e
+            set +e
             export NVM_DIR="$HOME/.nvm"; [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"; nvm use 20
             APP_DIR="/home/apps/portal-homolog"; BRANCH="develop"
             echo "=== Deploy HOMOLOG portal-noticias ==="
@@ -49,7 +50,7 @@ jobs:
             cd "$APP_DIR/apps/web"; PORT=3102 pm2 start node_modules/next/dist/bin/next --name portal-web-homolog -- start -p 3102 2>&1 | tail -20
             cd "$APP_DIR/apps/api"; DJANGO_SETTINGS_MODULE=config.settings /home/apps/portal-homolog/apps/api/.venv/bin/gunicorn config.wsgi:application --bind 0.0.0.0:5102 --workers 2 --daemon --access-logfile /tmp/gunicorn_5102_access.log --error-logfile /tmp/gunicorn_5102_error.log 2>&1; echo "gunicorn daemon:$?"
             sleep 3; ps aux | grep gunicorn | grep 5102 | grep -v grep | head -5; pm2 list 2>&1 | head -80; pm2 save 2>&1 | tail -3
-            echo "=== HOMOLOG deployed 3102(web) 5102(api) ==="; exit 0
+            echo "=== HOMOLOG deployed 3102(web) 5102(api) ==="; exit 0; exit 0
       - name: Validate HOMOLOG
         uses: appleboy/ssh-action@v1.2.0
         with:
@@ -59,10 +60,11 @@ jobs:
           port: ${{ secrets.VPS_PORT }}
           script: |
             set +e
+            set +e
             export NVM_DIR="$HOME/.nvm"; [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"; nvm use 20
             sleep 3
             echo "--- API HOMOLOG health ---"
             curl -sf http://localhost:5102/api/health/ && echo "HOMOLOG api ok" || (echo "HOMOLOG api warn"; curl -i http://localhost:5102/api/health/ 2>&1 | head -20; ps aux | grep gunicorn | grep 5102 | head -10; cat /tmp/gunicorn_5102_error.log 2>&1 | tail -40)
             echo "--- WEB HOMOLOG ---"
             curl -sf http://localhost:3102/ 2>&1 | head -c 200; echo ""; echo "WEB check done"
-            pm2 status 2>&1 | head -60; ps aux | grep -E "next|gunicorn" | grep -v grep | head -20; exit 0
+            pm2 status 2>&1 | head -60; ps aux | grep -E "next|gunicorn" | grep -v grep | head -20; exit 0; exit 0
