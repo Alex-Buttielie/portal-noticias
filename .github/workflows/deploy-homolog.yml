@@ -1,0 +1,21 @@
+name: Deploy HOMOLOG
+on:
+  pull_request: { branches: [main], types: [opened, synchronize, reopened] }
+jobs:
+  deploy-homolog:
+    runs-on: ubuntu-latest
+    environment: homolog
+    steps:
+      - uses: actions/checkout@v4
+      - uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT }}
+          script: |
+            APP_DIR="/home/apps/portal-noticias-homolog"
+            mkdir -p /home/apps; [ -d "$APP_DIR/.git" ] || git clone -b develop https://github.com/Alex-Buttielie/portal-noticias.git "$APP_DIR"
+            cd "$APP_DIR"; git fetch origin && git reset --hard origin/develop
+            docker compose up -d --build
+            sleep 8; curl -sf http://localhost:5001/api/health/ && echo "HOMOLOG ok" || docker logs portal-noticias-homolog-backend-1 --tail 80 || true

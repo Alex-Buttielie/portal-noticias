@@ -1,0 +1,34 @@
+version: '3.8'
+services:
+  redis:
+    image: redis:7-alpine
+    ports: ["6380:6379"]
+  backend:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    ports: ["5000:5000"]
+    depends_on: [redis]
+    environment:
+      - DJANGO_DEBUG=True
+      - FIREBASE_PROJECT_ID=${FIREBASE_PROJECT_ID:-profissional-os-app}
+      - FIREBASE_CREDENTIALS=${FIREBASE_CREDENTIALS:-}
+      - FIRESTORE_EMULATOR_HOST=${FIRESTORE_EMULATOR_HOST:-}
+      - SECRET_KEY=${SECRET_KEY:-dev-secret-key-change-in-production}
+      - SENTRY_DSN=${SENTRY_DSN:-}
+      - SENTRY_ENV=development
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - PAYMENT_PROVIDER=${PAYMENT_PROVIDER:-fake}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-mock}
+    volumes: ["backend-data:/app/media"]
+  frontend:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+    ports: ["3000:3000"]
+    depends_on: [backend]
+    environment:
+      - NEXT_PUBLIC_API_URL=http://backend:5000
+      - NEXT_PUBLIC_FIREBASE_PROJECT_ID=${FIREBASE_PROJECT_ID:-profissional-os-app}
+volumes:
+  backend-data:
