@@ -1,34 +1,34 @@
 {
   "run_id": "20260902-1426-assinatura-premium",
   "task_title": "Assinatura Premium",
-  "status": "blocked",
-  "current_phase": "implementation",
-  "iteration_count": 0,
+  "status": "closed",
+  "current_phase": "done",
+  "iteration_count": 1,
   "max_iterations": 3,
   "requested_by": "usuário (buttielle3@gmail.com)",
   "source_spec": "agentic-framework/specs/assinatura-premium.md",
   "phases": {
     "planning": { "status": "done", "agent": "orchestrator", "started_at": "2026-09-02T14:26:00-03:00", "finished_at": "2026-09-02T14:40:00-03:00", "notes": "" },
-    "implementation": { "status": "blocked", "agent": "orchestrator (agindo como executor — Agent/Bash indisponíveis)", "started_at": "2026-09-02T14:40:00-03:00", "finished_at": null, "notes": "12/12 critérios implementados. Módulo de maior risco desta sessão (máquina de estados financeira + migration manual de 5 modelos). 14 testes de sanidade escritos. Validação por execução NÃO REALIZADA — recomendo ser o primeiro a validar assim que possível." },
-    "testing": { "status": "pending", "agent": "tester", "started_at": null, "finished_at": null, "notes": "" },
-    "review": { "status": "pending", "agent": "reviewer", "started_at": null, "finished_at": null, "notes": "" },
-    "remediation": { "status": "pending", "agent": "remediator", "started_at": null, "finished_at": null, "notes": "" },
-    "documentation": { "status": "pending", "agent": "documenter", "started_at": null, "finished_at": null, "notes": "" },
-    "closing": { "status": "pending", "agent": "historian", "started_at": null, "finished_at": null, "notes": "" }
+    "implementation": { "status": "done", "agent": "orchestrator (agindo como executor — Agent/Bash indisponíveis)", "execution_mode": "self_executed_fallback", "started_at": "2026-09-02T14:40:00-03:00", "finished_at": "2026-09-02T14:40:00-03:00", "notes": "12/12 critérios implementados. Módulo de maior risco da sessão (máquina de estados financeira + migration manual de 5 modelos)." },
+    "testing": { "status": "done", "agent": "orchestrator (via run-20260903-1350-validacao-real-suite-completa e pytest completo pós-remediação em 2026-09-04)", "execution_mode": "delegated", "started_at": "2026-09-03T13:50:00-03:00", "finished_at": "2026-09-04T00:00:00-03:00", "notes": "257 passed, 0 failed. A run de validação de 03/09 já havia encontrado e corrigido um bug real na máquina de estados (grace period derrubando acesso Premium em vez de preservar em renovação recusada)." },
+    "review": { "status": "done", "agent": "reviewer (revisão de segurança dedicada, 2026-09-04)", "execution_mode": "delegated", "started_at": "2026-09-04T00:00:00-03:00", "finished_at": "2026-09-04T00:00:00-03:00", "notes": "Veredito original: changes_requested. Finding MAJOR: a checagem 'usuário já tem assinatura em andamento' em assinar_plano era check-then-act sem lock/constraint de banco — com um gateway de pagamento real (confirmação assíncrona, diferente do ManualPaymentGatewayProvider síncrono atual), duas requisições quase simultâneas (duplo clique, replay de rede) podiam criar duas Subscription/cobranças para o mesmo usuário. Preço sempre validado no servidor (Plan.preco), sem vetor de manipulação — sem findings aí." },
+    "remediation": { "status": "done", "agent": "orchestrator", "execution_mode": "delegated", "started_at": "2026-09-04T00:00:00-03:00", "finished_at": "2026-09-04T00:00:00-03:00", "notes": "Adicionada UniqueConstraint de banco (Subscription.Meta, migration 0002) impedindo mais de uma Subscription com status em {teste, ativa, pagamento_pendente} por usuário — garantia no nível do banco, não só na aplicação, então vale mesmo sob concorrência real. assinar_plano envolve a criação em transaction.atomic() e traduz IntegrityError para o mesmo AssinaturaJaExisteError já existente, mantendo a mensagem de erro amigável no caminho sem concorrência." },
+    "documentation": { "status": "done", "agent": "documenter", "execution_mode": "delegated", "started_at": "2026-09-03T00:00:00-03:00", "finished_at": "2026-09-04T00:00:00-03:00", "notes": "Endpoints de assinatura documentados em README.md." },
+    "closing": { "status": "done", "agent": "orchestrator (reconciliação retroativa)", "started_at": "2026-09-04T00:00:00-03:00", "finished_at": "2026-09-04T00:00:00-03:00", "notes": "Fechamento após revisão de segurança dedicada e remediação do finding major (gatilho obrigatório de review-triggers.md — cobrança/pagamento/assinatura)." }
   },
-  "findings": { "blocker": 0, "major": 0, "minor": 0, "nit": 0, "resolved": 0 },
+  "findings": { "blocker": 0, "major": 1, "minor": 0, "nit": 0, "resolved": 1 },
   "artifacts": {
     "task_plan": "task-plan.md",
     "implementation_contract": "implementation-contract.md",
-    "implementation_history": "implementation-history.md"
+    "implementation_history": "implementation-history.md",
+    "report": "report.md"
   },
-  "blocked_reason": "Implementação completa (12/12 critérios), mas validação por execução não pôde ser realizada — mesmo bloqueio de ferramentas dos runs anteriores. Módulo de MAIOR risco da sessão (financeiro + migration manual de 5 modelos) — deve ser o PRIMEIRO a ser validado quando as ferramentas voltarem, antes de ir para qualquer ambiente real.",
+  "blocked_reason": null,
   "follow_ups": [
-    "MÁXIMA PRIORIDADE: rodar `manage.py makemigrations --check --dry-run` e a suíte de testes completa assim que possível — este módulo não deve ir para produção sem isso.",
-    "Decisão de produto pendente de confirmação: cancelamento mantém acesso Premium até o fim do período pago (interpretação do orchestrator, não estava explícito na spec) — confirmar com o dono do produto.",
+    "Decisão de produto pendente de confirmação: cancelamento mantém acesso Premium até o fim do período pago (interpretação do orchestrator, não estava explícito na spec).",
     "3 lacunas de cobertura de teste sinalizadas em implementation-history.md (task Celery direta, renovação automática bem-sucedida, cancelamento via APIClient de ponta a ponta).",
-    "Provedor de pagamento real ainda não escolhido (ARCHITECTURE.md §8) — ManualPaymentGatewayProvider é só um placeholder de desenvolvimento."
+    "Provedor de pagamento real ainda não escolhido (ARCHITECTURE.md §8) — ManualPaymentGatewayProvider é só um placeholder de desenvolvimento; a nova UniqueConstraint importa mais ainda quando o gateway real (assíncrono) entrar em cena."
   ],
   "created_at": "2026-09-02T14:26:00-03:00",
-  "updated_at": "2026-09-02T14:40:00-03:00"
+  "updated_at": "2026-09-04T00:00:00-03:00"
 }

@@ -1,32 +1,32 @@
 {
   "run_id": "20260902-1503-credenciamento-jornalistas",
   "task_title": "Credenciamento de Jornalistas",
-  "status": "blocked",
-  "current_phase": "implementation",
+  "status": "closed",
+  "current_phase": "done",
   "iteration_count": 0,
   "max_iterations": 3,
   "requested_by": "usuário (buttielle3@gmail.com)",
   "source_spec": "agentic-framework/specs/credenciamento-jornalistas.md",
   "phases": {
     "planning": { "status": "done", "agent": "orchestrator", "started_at": "2026-09-02T15:03:00-03:00", "finished_at": "2026-09-02T15:08:00-03:00", "notes": "" },
-    "implementation": { "status": "blocked", "agent": "orchestrator (agindo como executor)", "started_at": "2026-09-02T15:08:00-03:00", "finished_at": null, "notes": "7/7 critérios implementados. Validação por execução não realizada (mesma limitação de sessão)." },
-    "testing": { "status": "pending", "agent": "tester", "started_at": null, "finished_at": null, "notes": "" },
-    "review": { "status": "pending", "agent": "reviewer", "started_at": null, "finished_at": null, "notes": "" },
-    "remediation": { "status": "pending", "agent": "remediator", "started_at": null, "finished_at": null, "notes": "" },
-    "documentation": { "status": "pending", "agent": "documenter", "started_at": null, "finished_at": null, "notes": "" },
-    "closing": { "status": "pending", "agent": "historian", "started_at": null, "finished_at": null, "notes": "" }
+    "implementation": { "status": "done", "agent": "orchestrator (agindo como executor)", "execution_mode": "self_executed_fallback", "started_at": "2026-09-02T15:08:00-03:00", "finished_at": "2026-09-02T15:08:00-03:00", "notes": "7/7 critérios implementados." },
+    "testing": { "status": "done", "agent": "orchestrator (via run-20260903-1350-validacao-real-suite-completa)", "execution_mode": "delegated", "started_at": "2026-09-03T13:50:00-03:00", "finished_at": "2026-09-03T15:20:00-03:00", "notes": "pytest completo (190 passed), incluindo o bug real de cache do acessor reverso (user.perfil_jornalista) encontrado e corrigido nessa validação — pode_publicar agora consulta o banco diretamente." },
+    "review": { "status": "done", "agent": "reviewer (revisão de segurança dedicada, 2026-09-04)", "execution_mode": "delegated", "started_at": "2026-09-04T00:00:00-03:00", "finished_at": "2026-09-04T00:00:00-03:00", "notes": "Veredito: approve, sem findings. Confirmado: decisão de aprovar/reprovar (services.decidir) só é acionável via Django Admin, nunca por endpoint de API; pode_publicar consulta o banco diretamente (não via cache do acessor reverso), com teste de regressão para o bug já corrigido." },
+    "remediation": { "status": "skipped", "agent": "orchestrator", "started_at": null, "finished_at": null, "notes": "Nenhum finding a remediar." },
+    "documentation": { "status": "done", "agent": "documenter", "execution_mode": "delegated", "started_at": "2026-09-03T00:00:00-03:00", "finished_at": "2026-09-03T00:00:00-03:00", "notes": "Endpoints de credenciamento documentados em README.md." },
+    "closing": { "status": "done", "agent": "orchestrator (reconciliação retroativa)", "started_at": "2026-09-04T00:00:00-03:00", "finished_at": "2026-09-04T00:00:00-03:00", "notes": "Fechamento tardio após revisão de segurança dedicada (gatilho obrigatório de review-triggers.md — controla quem ganha poder de publicação editorial, BRD §13)." }
   },
-  "findings": { "blocker": 0, "major": 0, "minor": 0, "nit": 0, "resolved": 0 },
+  "findings": { "blocker": 0, "major": 0, "minor": 0, "nit": 0, "resolved": 1 },
   "artifacts": {
     "task_plan": "task-plan.md",
     "implementation_contract": "implementation-contract.md",
-    "implementation_history": "implementation-history.md"
+    "implementation_history": "implementation-history.md",
+    "report": "report.md"
   },
-  "blocked_reason": "Implementação completa (7/7 critérios), validação por execução pendente (mesma limitação de sessão desde 20260902-0727-ingestao-noticias).",
+  "blocked_reason": null,
   "follow_ups": [
-    "Rodar suíte de testes e manage.py makemigrations --check assim que possível.",
     "Storage de arquivo em produção real deveria ser um serviço dedicado (S3 etc.), não FileSystemStorage local — decisão em aberto."
   ],
   "created_at": "2026-09-02T15:03:00-03:00",
-  "updated_at": "2026-09-02T15:08:00-03:00"
+  "updated_at": "2026-09-04T00:00:00-03:00"
 }
