@@ -13,7 +13,7 @@ function CartaoPublicacao({ publicacao }: { publicacao: api.Publicacao }) {
           {publicacao.categoria && <span className="badge-categoria">{publicacao.categoria}</span>}
         </div>
         <h2 className="cartao-titulo">{publicacao.titulo}</h2>
-        <p className="texto-suave">por {publicacao.autor_email}</p>
+        <p className="texto-suave">por {publicacao.autor_nome}</p>
       </article>
     </Link>
   );

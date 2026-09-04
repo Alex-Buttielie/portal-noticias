@@ -445,7 +445,7 @@ export type StatusPublicacao = "rascunho" | "enviado" | "publicado";
 export interface Publicacao {
   id: number;
   autor: number;
-  autor_email: string;
+  autor_nome: string;
   titulo: string;
   conteudo: string;
   tipo: TipoPublicacao;
@@ -462,7 +462,7 @@ export interface Publicacao {
 export interface Comentario {
   id: number;
   autor: number;
-  autor_email: string;
+  autor_nome: string;
   conteudo: string;
   publicacao: number | null;
   news_item: number | null;

@@ -360,6 +360,13 @@ REST_FRAMEWORK = {
     # mitigação de risco), configurável sem alteração de código.
     "DEFAULT_THROTTLE_RATES": {
         "escrita_publica": os.environ.get("THROTTLE_ESCRITA_PUBLICA_RATE", "20/min"),
+        # Achado de revisão de segurança (major): login/recuperação de
+        # senha/verificação de e-mail/login social não tinham throttle
+        # nenhum — ver config/throttling.py:AuthSensivelAnonThrottle.
+        "auth_sensivel": os.environ.get("THROTTLE_AUTH_SENSIVEL_RATE", "10/min"),
+        # Achado de revisão de segurança (minor): denúncia sem limite por
+        # usuário autenticado — ver config/throttling.py:DenunciaUserThrottle.
+        "denuncia": os.environ.get("THROTTLE_DENUNCIA_RATE", "20/hour"),
     },
 }
 

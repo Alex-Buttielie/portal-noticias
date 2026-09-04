@@ -18,7 +18,7 @@ publicação (`comunidade`) e lista de espera (`landing`).
 afetados por esta classe.
 """
 
-from rest_framework.throttling import AnonRateThrottle
+from rest_framework.throttling import AnonRateThrottle, UserRateThrottle
 
 
 class EscritaPublicaAnonThrottle(AnonRateThrottle):
@@ -32,3 +32,30 @@ class EscritaPublicaAnonThrottle(AnonRateThrottle):
     """
 
     scope = "escrita_publica"
+
+
+class AuthSensivelAnonThrottle(AnonRateThrottle):
+    """
+    Achado de revisão de segurança (major): login e os demais endpoints de
+    autenticação (recuperação/redefinição de senha, verificação de e-mail,
+    login social) não tinham NENHUM rate limit — nada impedia um atacante de
+    testar milhares de combinações de e-mail/senha por minuto (brute force /
+    credential stuffing). `AnonRateThrottle` só limita quem ainda não está
+    autenticado, exatamente o caso de um atacante tentando entrar. Taxa mais
+    apertada que `escrita_publica` de propósito (esses endpoints não têm
+    volume legítimo alto por IP), configurável via `THROTTLE_AUTH_SENSIVEL_RATE`.
+    """
+
+    scope = "auth_sensivel"
+
+
+class DenunciaUserThrottle(UserRateThrottle):
+    """
+    Achado de revisão de segurança (minor): `DenunciarView` exige apenas
+    `IsAuthenticated`, sem limite de taxa — uma única conta podia enviar um
+    volume arbitrário de denúncias, inflando a fila de moderação (NFR de
+    anti-spam do BRD §30). `UserRateThrottle` (não `AnonRateThrottle`, que não
+    se aplica a endpoints autenticados) limita por usuário autenticado.
+    """
+
+    scope = "denuncia"

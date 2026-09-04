@@ -45,6 +45,15 @@ class Publicacao(models.Model):
 
     destaque = models.BooleanField(default=False)
 
+    # BRD §16, requisito 3 ("remoção de conteúdo" como ação de moderação) —
+    # setado por moderacao.services.aplicar_acao via a GenericForeignKey de
+    # Denuncia.alvo (moderacao nunca importa este model diretamente, ver
+    # comentário em moderacao/models.py). Achado de revisão de segurança:
+    # antes desta correção, uma ação de remoção só descontava reputação, sem
+    # nunca de fato ocultar o conteúdo denunciado das listagens públicas.
+    oculto = models.BooleanField(default=False)
+    ocultado_em = models.DateTimeField(null=True, blank=True)
+
     criado_em = models.DateTimeField(auto_now_add=True)
     atualizado_em = models.DateTimeField(auto_now=True)
     publicado_em = models.DateTimeField(null=True, blank=True)
@@ -81,6 +90,10 @@ class Comentario(models.Model):
     resposta_de = models.ForeignKey(
         "self", null=True, blank=True, on_delete=models.CASCADE, related_name="respostas"
     )
+
+    # Ver comentário equivalente em Publicacao.oculto.
+    oculto = models.BooleanField(default=False)
+    ocultado_em = models.DateTimeField(null=True, blank=True)
 
     criado_em = models.DateTimeField(auto_now_add=True)
 

@@ -111,6 +111,27 @@ class Subscription(models.Model):
         verbose_name = "assinatura"
         verbose_name_plural = "assinaturas"
         ordering = ["-criado_em"]
+        constraints = [
+            # Achado de revisão de segurança (major): a checagem de
+            # "usuário já tem assinatura em andamento" em
+            # services.assinar_plano era check-then-act sem lock nem
+            # constraint de banco — com um gateway de pagamento real
+            # (confirmação assíncrona/com latência de rede, ao contrário do
+            # ManualPaymentGatewayProvider atual), duas requisições quase
+            # simultâneas (duplo clique, replay de rede) podiam passar pela
+            # checagem antes de qualquer uma criar sua Subscription,
+            # resultando em duas assinaturas ativas e duas cobranças para o
+            # mesmo usuário. Esta constraint garante a regra no nível do
+            # banco, não só na aplicação — a única defesa que não depende de
+            # nenhuma janela de tempo entre checar e agir. Valores literais
+            # (não as constantes STATUS_*) porque `Meta` é uma classe aninhada
+            # e não enxerga o namespace de `Subscription` por nome simples.
+            models.UniqueConstraint(
+                fields=["user"],
+                condition=models.Q(status__in=["teste", "ativa", "pagamento_pendente"]),
+                name="assinatura_uma_em_andamento_por_usuario",
+            ),
+        ]
 
     def __str__(self):
         return f"Assinatura de {self.user} — {self.plan.nome} ({self.status})"

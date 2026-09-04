@@ -9,7 +9,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from config.throttling import EscritaPublicaAnonThrottle
+from config.throttling import AuthSensivelAnonThrottle, EscritaPublicaAnonThrottle
 
 from . import services
 from .emails import enviar_email_redefinicao_senha, enviar_email_verificacao
@@ -66,6 +66,9 @@ class VerificarEmailView(APIView):
     """POST /api/auth/verificar-email/ — confirmação via token (critério de aceite 2)."""
 
     permission_classes = [AllowAny]
+    # Achado de revisão de segurança (minor): sem throttle, nada impede
+    # tentativas de força bruta/enumeração do token de verificação.
+    throttle_classes = [AuthSensivelAnonThrottle]
 
     def post(self, request):
         serializer = VerificarEmailSerializer(data=request.data)
@@ -99,6 +102,10 @@ class LoginView(APIView):
     """
 
     permission_classes = [AllowAny]
+    # Achado de revisão de segurança (major): login não tinha NENHUM rate
+    # limit — nada impedia brute force/credential stuffing contra qualquer
+    # e-mail testado em volume. Ver config/throttling.py:AuthSensivelAnonThrottle.
+    throttle_classes = [AuthSensivelAnonThrottle]
 
     def post(self, request):
         serializer = LoginSerializer(data=request.data)
@@ -144,6 +151,10 @@ class RecuperarSenhaView(APIView):
     """
 
     permission_classes = [AllowAny]
+    # Achado de revisão de segurança (minor): sem throttle, cada chamada
+    # dispara um `send_mail` síncrono — nada impede abuso para enviar e-mails
+    # em volume ou enumerar contas por tempo de resposta.
+    throttle_classes = [AuthSensivelAnonThrottle]
 
     def post(self, request):
         serializer = RecuperarSenhaSerializer(data=request.data)
@@ -165,6 +176,9 @@ class RedefinirSenhaView(APIView):
     """POST /api/auth/redefinir-senha/ — conclui a redefinição de senha (critério de aceite 7)."""
 
     permission_classes = [AllowAny]
+    # Achado de revisão de segurança (minor): sem throttle, nada impede
+    # força bruta contra o token de redefinição de senha.
+    throttle_classes = [AuthSensivelAnonThrottle]
 
     def post(self, request):
         serializer = RedefinirSenhaSerializer(data=request.data)
@@ -224,6 +238,9 @@ class GoogleLoginView(APIView):
     """
 
     permission_classes = [AllowAny]
+    # Achado de revisão de segurança (minor): mesma lacuna de throttle das
+    # demais views de autenticação.
+    throttle_classes = [AuthSensivelAnonThrottle]
 
     def post(self, request):
         serializer = GoogleLoginSerializer(data=request.data)

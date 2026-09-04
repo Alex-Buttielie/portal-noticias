@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from django.contrib.contenttypes.models import ContentType
-from django.db.models import Q
+from django.db.models import Q, Value
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 from .models import AcaoModeracao, Denuncia, RecursoModeracao, Reputacao, ReputacaoEventoLog
@@ -36,9 +37,17 @@ def fila_de_moderacao():
     Critério de aceite 2: fila pendente, priorizada por reputação do
     denunciante (não usada como único critério de DECISÃO — só de ordenação
     de fila, ver `services.aplicar_acao`, que sempre exige um moderador
-    humano).
+    humano). Achado de revisão: a implementação original era FIFO puro, sem
+    nenhuma referência a reputação, contrariando este próprio docstring e o
+    requisito funcional 2 do spec — corrigido para de fato ordenar por
+    reputação do denunciante primeiro (denúncias de usuários mais confiáveis
+    aparecem antes), com `criado_em` como desempate.
     """
-    return Denuncia.objects.filter(status=Denuncia.STATUS_PENDENTE).order_by("criado_em")
+    return (
+        Denuncia.objects.filter(status=Denuncia.STATUS_PENDENTE)
+        .annotate(_reputacao_denunciante=Coalesce("denunciante__reputacao__pontuacao", Value(100)))
+        .order_by("-_reputacao_denunciante", "criado_em")
+    )
 
 
 def resolver_denuncia(denuncia: Denuncia, moderador, procedente: bool, motivo: str = "") -> Denuncia:
@@ -118,7 +127,30 @@ def aplicar_acao(
     delta = DELTA_POR_TIPO_ACAO.get(tipo, 0)
     if delta:
         registrar_evento_reputacao(usuario_alvo, delta, motivo=f"Ação de moderação: {tipo}")
+
+    if tipo == AcaoModeracao.TIPO_REMOCAO and denuncia is not None:
+        _ocultar_conteudo_denunciado(denuncia)
+
     return acao
+
+
+def _ocultar_conteudo_denunciado(denuncia: Denuncia) -> None:
+    """
+    Achado de revisão de segurança (blocker, BRD §16): uma ação de tipo
+    "remocao_conteudo" só descontava reputação — o Comentario/Publicacao
+    denunciado continuava 100% visível nas listagens públicas. Usa o
+    GenericForeignKey `denuncia.alvo` (nunca importa `comunidade` aqui, ver
+    comentário em models.py) para setar o mesmo campo `oculto` que existe em
+    ambos os models denunciáveis. O registro em si nunca é apagado (BRD §16,
+    requisito 8 — "não apagar silenciosamente"): fica fora das listagens
+    públicas, mas auditável via AcaoModeracao/Denuncia.
+    """
+    alvo = denuncia.alvo
+    if alvo is None or not hasattr(alvo, "oculto"):
+        return
+    alvo.oculto = True
+    alvo.ocultado_em = timezone.now()
+    alvo.save(update_fields=["oculto", "ocultado_em"])
 
 
 def criar_recurso(acao: AcaoModeracao, usuario, texto: str) -> RecursoModeracao:

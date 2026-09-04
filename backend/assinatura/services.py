@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from .models import (
@@ -83,6 +83,15 @@ def assinar_plano(user, plan: Plan, payment_gateway: PaymentGatewayProvider | No
     """
     payment_gateway = payment_gateway or ManualPaymentGatewayProvider()
 
+    # A checagem abaixo (`ja_tem_assinatura_em_andamento`) é só a mensagem de
+    # erro amigável no caminho feliz/sem concorrência — a garantia real
+    # contra duas assinaturas simultâneas para o mesmo usuário é a
+    # UniqueConstraint de banco em Subscription.Meta (achado de revisão de
+    # segurança: sem ela, duas requisições quase simultâneas conseguiam
+    # passar por esta checagem antes de qualquer uma persistir sua
+    # Subscription). `transaction.atomic()` é necessário aqui porque, sem
+    # ele, um IntegrityError deixa a conexão numa transação abortada
+    # inutilizável até o próximo rollback.
     ja_tem_assinatura_em_andamento = Subscription.objects.filter(
         user=user,
         status__in=[
@@ -94,13 +103,18 @@ def assinar_plano(user, plan: Plan, payment_gateway: PaymentGatewayProvider | No
     if ja_tem_assinatura_em_andamento:
         raise AssinaturaJaExisteError("Usuário já possui uma assinatura ativa ou pendente.")
 
-    subscription = Subscription.objects.create(
-        user=user,
-        plan=plan,
-        status=Subscription.STATUS_PAGAMENTO_PENDENTE,
-        preco_cobrado=plan.preco,
-        duracao_dias_no_momento=plan.duracao_dias,
-    )
+    try:
+        with transaction.atomic():
+            subscription = Subscription.objects.create(
+                user=user,
+                plan=plan,
+                status=Subscription.STATUS_PAGAMENTO_PENDENTE,
+                preco_cobrado=plan.preco,
+                duracao_dias_no_momento=plan.duracao_dias,
+            )
+    except IntegrityError as exc:
+        raise AssinaturaJaExisteError("Usuário já possui uma assinatura ativa ou pendente.") from exc
+
     _registrar_mudanca_estado(
         subscription, "", Subscription.STATUS_PAGAMENTO_PENDENTE, "Assinatura criada, aguardando confirmação de pagamento."
     )

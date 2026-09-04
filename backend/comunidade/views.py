@@ -6,7 +6,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from config.throttling import EscritaPublicaAnonThrottle
+from config.throttling import DenunciaUserThrottle, EscritaPublicaAnonThrottle
 from credenciamento.services import pode_publicar
 
 from . import services
@@ -30,7 +30,7 @@ class PublicacoesListCreateView(APIView):
         return []
 
     def get(self, request):
-        qs = Publicacao.objects.filter(status=Publicacao.STATUS_PUBLICADO)
+        qs = Publicacao.objects.filter(status=Publicacao.STATUS_PUBLICADO, oculto=False)
         if request.query_params.get("destaque"):
             qs = qs.filter(destaque=True)
         autor_id = request.query_params.get("autor")
@@ -67,10 +67,14 @@ class PublicacaoDetailView(APIView):
         except Publicacao.DoesNotExist:
             return Response(status=status.HTTP_404_NOT_FOUND)
 
-        if publicacao.status != Publicacao.STATUS_PUBLICADO:
-            eh_autor = request.user.is_authenticated and request.user.id == publicacao.autor_id
-            if not eh_autor:
-                return Response(status=status.HTTP_404_NOT_FOUND)
+        eh_autor = request.user.is_authenticated and request.user.id == publicacao.autor_id
+        if publicacao.status != Publicacao.STATUS_PUBLICADO and not eh_autor:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        # Removida por moderação (BRD §16): some das listagens/links públicos,
+        # mas o próprio autor ainda consegue ver (nunca apagamento silencioso
+        # — ele precisa poder contestar via canal de recurso).
+        if publicacao.oculto and not eh_autor:
+            return Response(status=status.HTTP_404_NOT_FOUND)
 
         return Response(PublicacaoSerializer(publicacao).data)
 
@@ -113,7 +117,7 @@ class ComentariosListCreateView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request):
-        qs = Comentario.objects.all()
+        qs = Comentario.objects.filter(oculto=False)
         publicacao_id = request.query_params.get("publicacao")
         news_item_id = request.query_params.get("news_item")
         if publicacao_id:
@@ -187,6 +191,10 @@ class DenunciarView(APIView):
     """Critério de aceite 7."""
 
     permission_classes = [IsAuthenticated]
+    # Achado de revisão de segurança (minor): sem throttle, uma única conta
+    # podia enviar volume arbitrário de denúncias, inflando a fila de
+    # moderação (NFR anti-spam, BRD §30).
+    throttle_classes = [DenunciaUserThrottle]
 
     def post(self, request):
         motivo = request.data.get("motivo", "")

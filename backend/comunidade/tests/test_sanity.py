@@ -191,6 +191,39 @@ def test_detalhe_de_rascunho_nao_e_visivel_a_outro_usuario():
     assert resposta.status_code == 404
 
 
+def test_listagem_publica_nao_expoe_email_do_autor():
+    """
+    Achado de revisão de segurança (blocker): `autor_email` era retornado em
+    endpoints AllowAny, vazando o e-mail de qualquer autor/comentarista para
+    visitante anônimo. Corrigido para `autor_nome` (mesmo campo já usado
+    publicamente em PerfilAutorPublicoView).
+    """
+    from rest_framework.test import APIClient
+
+    jornalista = _jornalista(email="jorn-privacidade@example.com")
+    jornalista.nome = "Jornalista Exemplo"
+    jornalista.save(update_fields=["nome"])
+    rascunho = services.criar_rascunho(jornalista, titulo="Título", conteudo="Corpo", tipo=Publicacao.TIPO_ANALISE)
+    publicada = services.enviar_para_publicacao(rascunho)
+    leitor = _usuario("leitor-privacidade@example.com")
+    leitor.nome = "Leitor Exemplo"
+    leitor.save(update_fields=["nome"])
+    services.comentar(leitor, "Comentário público", publicacao=publicada)
+
+    client = APIClient()
+
+    resposta_publicacoes = client.get("/api/comunidade/publicacoes/")
+    assert "jorn-privacidade@example.com" not in resposta_publicacoes.content.decode()
+    assert resposta_publicacoes.data[0]["autor_nome"] == "Jornalista Exemplo"
+
+    resposta_comentarios = client.get("/api/comunidade/comentarios/")
+    assert "leitor-privacidade@example.com" not in resposta_comentarios.content.decode()
+    assert resposta_comentarios.data[0]["autor_nome"] == "Leitor Exemplo"
+
+    resposta_detalhe = client.get(f"/api/comunidade/publicacoes/{publicada.id}/")
+    assert "jorn-privacidade@example.com" not in resposta_detalhe.content.decode()
+
+
 def test_seguir_e_idempotente():
     jornalista = _jornalista(email="jorn3@example.com")
     leitor = _usuario("leitor4@example.com")

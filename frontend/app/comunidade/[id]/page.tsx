@@ -66,7 +66,7 @@ export default function PaginaDetalhePublicacao({ params }: { params: { id: stri
     const comentarioOtimista: api.Comentario = {
       id: idTemporario,
       autor: usuario.id,
-      autor_email: usuario.email,
+      autor_nome: usuario.nome,
       conteudo,
       publicacao: publicacaoId,
       news_item: null,
@@ -166,7 +166,7 @@ export default function PaginaDetalhePublicacao({ params }: { params: { id: stri
         <>
           <h1>{publicacao.titulo}</h1>
           <p className="texto-suave">
-            por <Link href={`/autor/${publicacao.autor}`}>{publicacao.autor_email}</Link>
+            por <Link href={`/autor/${publicacao.autor}`}>{publicacao.autor_nome}</Link>
             {ehAutor && (
               <>
                 {" — "}
@@ -200,7 +200,7 @@ export default function PaginaDetalhePublicacao({ params }: { params: { id: stri
           style={comentario.id < 0 ? { opacity: 0.6 } : undefined}
         >
           <div className="cartao-meta">
-            <strong>{comentario.autor_email}</strong>
+            <strong>{comentario.autor_nome}</strong>
             {comentario.id < 0 && <span className="texto-suave">Enviando...</span>}
           </div>
           <p>{comentario.conteudo}</p>
