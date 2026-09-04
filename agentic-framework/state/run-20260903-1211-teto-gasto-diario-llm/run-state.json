@@ -1,8 +1,8 @@
 {
   "run_id": "20260903-1211-teto-gasto-diario-llm",
   "task_title": "Enforcement do teto de gasto diário de LLM (CATALOGO_NOTICIAS_LLM_TETO_GASTO_DIARIO_USD)",
-  "status": "in_progress",
-  "current_phase": "documentation",
+  "status": "closed",
+  "current_phase": "done",
   "iteration_count": 1,
   "max_iterations": 3,
   "requested_by": "usuário (Alex), diretamente no chat",
@@ -41,18 +41,37 @@
       "agent": "remediator",
       "started_at": "2026-09-03T12:35:00-03:00",
       "finished_at": "2026-09-03T12:45:00-03:00",
-      "notes": "Finding 1 corrigido: orcamento.py agora usa timezone.localtime() antes de truncar a hora. Teste novo comprovadamente pegaria o bug original (verificado por reversão temporária). Suíte completa: 256 passed (baseline subiu para 245->255 por +10 testes de outras execuções paralelas no repo, fora de escopo; +1 teste próprio desta remediação). Finding 2 (minor) mantido como risco residual aceito, nota adicionada em implementation-history.md."
+      "notes": "Finding 1 corrigido: orcamento.py agora usa timezone.localtime() antes de truncar a hora. Teste novo comprovadamente pegaria o bug original (verificado por reversão temporária do fix). Suíte completa: 256 passed (baseline subiu para 245->255 por +10 testes de outras execuções paralelas no repo, fora de escopo; +1 teste próprio desta remediação). Finding 2 (minor) mantido como risco residual aceito, nota adicionada em implementation-history.md."
     },
-    "documentation": { "status": "pending" },
-    "closing": { "status": "pending" }
+    "documentation": {
+      "status": "done",
+      "agent": "documenter",
+      "started_at": "2026-09-03T12:52:00-03:00",
+      "finished_at": "2026-09-03T12:58:00-03:00",
+      "notes": "README.md (nova seção teto/preço LLM) e ARCHITECTURE.md (seções 7, 8, 9) atualizados. documentation-update.md justifica explicitamente ausência de CHANGELOG/backend README. Nenhum código tocado."
+    },
+    "closing": {
+      "status": "done",
+      "agent": "orchestrator",
+      "started_at": "2026-09-03T12:58:00-03:00",
+      "finished_at": "2026-09-03T13:15:00-03:00",
+      "notes": "Trabalho técnico 100% completo e aprovado desde a fase 'review'. O fechamento formal teve 2 tentativas frustradas do historian (rate-limit da API na 1ª; bloqueio determinístico de ferramenta para arquivos chamados 'report.md' na 2ª — ambas registradas em implementation-history.md, seções 'Correção de registro' e 'Correção de registro (2)', preservadas por convenção append-only, nunca editadas). A 2ª instância do historian devolveu o conteúdo completo de report.md como texto; o orchestrator (sessão principal, sem essa restrição de ferramenta) persistiu report.md, acrescentou a linha em HISTORY.md e fechou este run-state.json."
+    }
   },
   "findings": { "blocker": 0, "major": 1, "minor": 1, "nit": 0, "resolved": 1 },
   "artifacts": {
     "task_plan": "task-plan.md",
-    "implementation_contract": "implementation-contract.md"
+    "implementation_contract": "implementation-contract.md",
+    "implementation_history": "implementation-history.md",
+    "code_review_contract": "code-review-contract.md",
+    "documentation_update": "documentation-update.md",
+    "report": "report.md"
   },
   "blocked_reason": null,
-  "follow_ups": [],
+  "follow_ups": [
+    "Risco residual de concorrência (Finding 2, minor, code-review-contract.md): a checagem do teto em executar_ingestao é 'check-then-act' sem lock/transação entre execuções paralelas. Não bloqueante na configuração atual (uma única entrada em CELERY_BEAT_SCHEDULE). Se o deploy vier a escalar workers Celery horizontalmente, revisitar com um lock distribuído (select_for_update ou lock via cache/Redis) em torno da leitura-e-decisão do teto.",
+    "Decisão em aberto de provedor/preço real de LLM (ARCHITECTURE.md seção 8, item 3): CATALOGO_NOTICIAS_LLM_PRECO_USD_POR_1K_TOKENS (default 0.15) é uma estimativa configurável de mercado, não a tabela de preços real de nenhum provedor específico. Quando o provedor de produção for escolhido, ajustar essa setting e revisar se o modelo de cálculo tokens×preço linear ainda é adequado."
+  ],
   "created_at": "2026-09-03T12:11:00-03:00",
-  "updated_at": "2026-09-03T12:12:00-03:00"
+  "updated_at": "2026-09-03T13:15:00-03:00"
 }

@@ -41,3 +41,14 @@ Restante do BRD (fases Comunidade/Inteligência/B2B/Escala do roadmap §31) — 
 - `painel-metricas-negocio.md`
 
 Todo o BRD agora tem spec, backend implementado e alguma tela de frontend (13/13 apps). Pendência real única e crítica: validação por execução de TUDO — backend e frontend — nunca realizada nesta sessão inteira (Bash/Agent/Browser bloqueados pelo classificador de segurança desde o meio de `ingestao-curadoria-noticias`; ver `agentic-framework/state/run-*/implementation-history.md` de cada módulo para o detalhe). Antes de qualquer lançamento: `manage.py check`, `makemigrations --check --dry-run`, `migrate`, `pytest -q` no backend e `npm install && npm run build` no frontend, seguidos de teste manual de cada fluxo — nada disso rodou de fato até aqui.
+
+## Camada transversal fora do BRD original
+
+A run `20260903-1134-seo-lgpd-design-system` (ver `agentic-framework/state/run-20260903-1134-seo-lgpd-design-system/`) entregou uma base transversal que **não corresponde a nenhuma seção do BRD nem a nenhuma spec desta pasta** — foi um pedido do usuário, feito diretamente na conversa, para começar um backlog maior de UX/produto (a ser implementado por completo em runs futuras) por uma base compartilhada que as próximas telas vão consumir:
+
+- SEO técnico (Next.js Metadata API, JSON-LD schema.org, `sitemap.xml`, `robots.txt`, `rss.xml`, canonical) — ver "SEO técnico" no `README.md`.
+- Conformidade de privacidade/cookies (LGPD) — banner de consentimento, página de preferências, sincronização entre dispositivos — ver "Privacidade e cookies (LGPD)" no `README.md`. A política de privacidade publicada é um rascunho, ainda sem revisão jurídica.
+- Rate limiting básico nos endpoints públicos de escrita — ver "Rate limiting" no `README.md`.
+- Design system: tokens estendidos (`frontend/app/globals.css`) e 7 componentes reutilizáveis novos (`Badge`, `Chip`, `Tooltip`, `Dropdown`, `Modal`, `Tabs`, `Accordion`) — ver "Design system" no `README.md`.
+
+Runs futuras do backlog de UX/produto devem **reutilizar esses tokens e componentes em vez de reimplementar** algo equivalente — essa foi a motivação explícita de fazer esta run antes das demais (ver `agentic-framework/state/run-20260903-1134-seo-lgpd-design-system/task-plan.md`, seção "Objetivo"). Se um novo tipo de componente genérico for necessário, ele deve seguir a mesma convenção (só tokens de `globals.css`, sem cor/espaçamento hardcoded, acessível por teclado) documentada no `README.md`.

@@ -4,3 +4,6 @@
 # Artefatos de backup gerados localmente (infra/backup/pg_backup.sh).
 infra/backup/*.dump
 infra/backup/*.tar.gz
+
+# Estado de runtime local do Claude Code, não do projeto.
+.claude/scheduled_tasks.lock

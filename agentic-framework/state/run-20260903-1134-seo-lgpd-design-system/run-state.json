@@ -23,12 +23,12 @@
       "notes": "Escopo A-D implementado. Lacuna de backend corrigida: identidade ganhou services.py (não existia) + endpoint de preferências de cookies. Validação real: tsc --noEmit limpo, manage.py check/makemigrations limpos, pytest identidade/comunidade/landing 57 passed, next build de produção 25 rotas, verificação funcional real de sitemap/robots/rss/JSON-LD via next start + backend. Execução concorrente com outra sessão editando settings.py/comunidade/views.py/Rodape.tsx no mesmo repo — mudanças preservadas via Edit, revalidado depois."
     },
     "testing": { "status": "done", "agent": "tester", "started_at": "2026-09-03T12:05:00-03:00", "finished_at": "2026-09-03T16:20:00-03:00", "notes": "Veredito original: failed no critério 7 (valores hardcoded fora dos tokens em globals.css). Critérios 3,4,5,6 e suíte backend completa (221 passed, throttle real ativo via DJANGO_CACHE_BACKEND=locmem) passaram de primeira. Critério 7 corrigido pelo remediator (Iteração 3) e revalidado via tsc --noEmit + next build isolado (25 rotas, sem erro) — todos os 7 critérios de aceite agora satisfeitos." },
-    "review": { "status": "in_progress", "agent": "reviewer", "started_at": "2026-09-03T16:56:00-03:00", "finished_at": null, "notes": "Reverificação após remediação dos 3 findings major da primeira rodada de review." },
+    "review": { "status": "done", "agent": "reviewer", "started_at": "2026-09-03T16:56:00-03:00", "finished_at": "2026-09-03T17:05:00-03:00", "notes": "Reverificação independente (reproduziu os 3 fixes, não só leu o relato): confirmados. Veredito final: approve_with_comments — 0 blocker, 0 major, 2 nits de contagem (imprecisão numérica no implementation-history.md do remediator, não funcional) para o documenter/historian corrigirem ao fechar." },
+    "documentation": { "status": "in_progress", "agent": "documenter", "started_at": "2026-09-03T17:06:00-03:00", "finished_at": null, "notes": "" },
     "remediation": { "status": "done", "agent": "remediator", "started_at": "2026-09-03T16:36:00-03:00", "finished_at": "2026-09-03T16:55:00-03:00", "notes": "3 findings major resolvidos: (1) DJANGO_REDIS_LOG_IGNORED_EXCEPTIONS=True adicionado, validado com Redis genuinamente inacessível — log ERROR dispara; (2) importarPreferenciasDoBackendSeNecessario agora chamada em auth-context.tsx (login + restauração de sessão); (3) 9 testes novos em identidade/tests/test_preferencias_cookies.py. pytest identidade 54 passed, suíte completa 255 passed, tsc/next build limpos." },
-    "documentation": { "status": "pending", "agent": "documenter", "started_at": null, "finished_at": null, "notes": "" },
     "closing": { "status": "pending", "agent": "historian", "started_at": null, "finished_at": null, "notes": "" }
   },
-  "findings": { "blocker": 0, "major": 3, "minor": 0, "nit": 0, "resolved": 0 },
+  "findings": { "blocker": 0, "major": 3, "minor": 0, "nit": 2, "resolved": 4 },
   "artifacts": {
     "task_plan": "task-plan.md",
     "implementation_contract": "implementation-contract.md",

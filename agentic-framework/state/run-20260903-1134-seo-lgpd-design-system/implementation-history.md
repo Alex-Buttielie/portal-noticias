@@ -612,7 +612,7 @@ nova introduzida agora.
 ### Finding 3 — zero testes para o endpoint de preferências de cookies (major) → RESOLVIDO
 
 **Arquivo novo:** `backend/identidade/tests/test_preferencias_cookies.py`
-(9 testes), seguindo a convenção já usada em
+(10 testes), seguindo a convenção já usada em
 `identidade/tests/test_acceptance_criteria.py` (pytest-django, `APIClient`,
 `force_authenticate`). Cobre, além do pedido mínimo do
 `orchestrator`/finding, também as duas verificações extras sugeridas pelo
@@ -640,7 +640,7 @@ próprio `reviewer` no finding (cross-user e allow-list):
 ```
 cd backend && DJANGO_DB_ENGINE=sqlite3 DJANGO_CACHE_BACKEND=locmem \
   .venv/Scripts/python.exe -m pytest identidade -q
-  → 54 passed in 33.23s   # inclui os 9 testes novos deste finding, sem falhas
+  → 54 passed in 33.23s   # inclui os 10 testes novos deste finding, sem falhas
 
 cd backend && DJANGO_DB_ENGINE=sqlite3 .venv/Scripts/python.exe manage.py check
   → System check identified no issues (0 silenced).
@@ -651,9 +651,9 @@ cd backend && DJANGO_DB_ENGINE=sqlite3 .venv/Scripts/python.exe manage.py check
 ```
 cd backend && DJANGO_DB_ENGINE=sqlite3 DJANGO_CACHE_BACKEND=locmem \
   .venv/Scripts/python.exe -m pytest -q
-  → 255 passed, 7 warnings in 130.48s
+  → 256 passed, 7 warnings in 130.48s
 ```
-255 testes (toda a suíte, todos os apps) passaram com o throttle
+256 testes (toda a suíte, todos os apps) passaram com o throttle
 genuinamente ativo (`DJANGO_CACHE_BACKEND=locmem`, mesma configuração do
 `.github/workflows/ci.yml`) — nenhuma regressão introduzida pelas 3
 correções desta iteração (a mudança de `settings.py` do Finding 1 é só no
@@ -666,8 +666,8 @@ estão corrigidos e revalidados com execução real (não leitura de código):
 Finding 1 com prova de log disparando contra Redis genuinamente
 inacessível; Finding 2 com `tsc --noEmit` limpo + `next build` real (25
 rotas) confirmando que a nova chamada não quebra tipos nem o build; Finding
-3 com 9 testes novos executados com sucesso (54 passed em `identidade`,
-255 passed na suíte completa, sem regressão).
+3 com 10 testes novos executados com sucesso (54 passed em `identidade`,
+256 passed na suíte completa, sem regressão).
 
 **Arquivos tocados nesta iteração:**
 - `backend/config/settings.py` (Finding 1).

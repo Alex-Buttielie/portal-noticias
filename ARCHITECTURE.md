@@ -73,16 +73,16 @@ Nenhuma spec de feature deve amarrar código de negócio diretamente a um SDK de
 
 ## 7. Requisitos não-funcionais transversais
 
-- **LGPD:** consentimento explícito no cadastro/onboarding; direito de exclusão de dados do usuário mesmo com assinatura ativa/expirada (BRD §9, §18).
+- **LGPD:** consentimento explícito no cadastro/onboarding; direito de exclusão de dados do usuário mesmo com assinatura ativa/expirada (BRD §9, §18). Implementado também: consentimento de cookies não essenciais (analytics/personalização), com banner, página de gestão de preferências e sincronização entre dispositivos para usuário autenticado (`identidade.services.atualizar_preferencias_cookies`) — ver "Privacidade e cookies (LGPD)" no `README.md`. A política de privacidade publicada é um rascunho funcional, **ainda não revisado juridicamente** — tratar como tal até uma validação jurídica real.
 - **Direitos autorais:** todo `NewsItem` deve manter referência rastreável à fonte original; resumo deve ser conteúdo próprio, não cópia integral (BRD §18) — validar isso como critério de aceite em qualquer feature de ingestão/resumo.
-- **Custo de IA controlado:** chamadas ao `SummarizationProvider` devem ser observáveis (contagem/custo por execução) desde o MVP — risco alto listado no BRD §30.
+- **Custo de IA controlado:** chamadas ao `SummarizationProvider` devem ser observáveis (contagem/custo por execução) desde o MVP — risco alto listado no BRD §30. Implementado: `custo_estimado_usd` é calculado por chamada (tokens × preço configurável, `CATALOGO_NOTICIAS_LLM_PRECO_USD_POR_1K_TOKENS`) e a ingestão para de chamar o provedor assim que o gasto do dia corrente ultrapassa `CATALOGO_NOTICIAS_LLM_TETO_GASTO_DIARIO_USD` (`catalogo_noticias/services/orcamento.py`); o gasto do dia é consultável via `metricas.services.painel()`.
 - **Auditoria:** alteração de preço/limite pelo admin deve ficar registrada (quem, quando, valor anterior/novo) — decorre da seção 17 do BRD (auditoria de alterações relevantes), mesmo estando fora do escopo de governança editorial completa.
 
 ## 8. Decisões em aberto (precisam de resposta humana antes ou durante a implementação)
 
 1. ~~Django+DRF vs. outra combinação Python~~ — **resolvido**: mantido Django+DRF (ver seção 9).
 2. Provedor concreto de gateway de pagamento — ainda em aberto.
-3. Provedor concreto de LLM para resumo/classificação — ainda em aberto (interface `SummarizationProvider` já pronta para receber a chave real).
+3. Provedor concreto de LLM para resumo/classificação — ainda em aberto (interface `SummarizationProvider` já pronta para receber a chave real). O preço usado para estimar `custo_estimado_usd` (`CATALOGO_NOTICIAS_LLM_PRECO_USD_POR_1K_TOKENS`) é uma estimativa configurável, não a tabela de preços real de nenhum provedor específico — ajustar essa setting quando o provedor de produção for escolhido.
 4. ~~Provedor de cloud específico~~ — **resolvido**: self-hosted na VPS HostGator já contratada, sem serviços gerenciados pagos adicionais (ver seção 9).
 5. Fontes de notícia iniciais — **resolvido**: G1, UOL, CNN Brasil, Folha (RSS público), configuradas em `CATALOGO_NOTICIAS_FONTES_RSS`.
 
@@ -128,7 +128,7 @@ Toda a stack sobe com `docker compose --env-file .env.production up -d
 
 | Requisito | Decisão |
 |---|---|
-| **Custo** | Self-hosted numa VPS já paga; Cloudflare (CDN/WAF/DDoS) e Sentry/UptimeRobot no tier gratuito; mídia em disco local (não S3) até o volume justificar migração; chamadas ao LLM em lote com teto de tokens (já existente) + teto de gasto diário (`CATALOGO_NOTICIAS_LLM_TETO_GASTO_DIARIO_USD`, ver `config/settings.py`). |
+| **Custo** | Self-hosted numa VPS já paga; Cloudflare (CDN/WAF/DDoS) e Sentry/UptimeRobot no tier gratuito; mídia em disco local (não S3) até o volume justificar migração; chamadas ao LLM em lote com teto de tokens (já existente) + teto de gasto diário aplicado de fato: quando o gasto estimado do dia corrente ultrapassa `CATALOGO_NOTICIAS_LLM_TETO_GASTO_DIARIO_USD` (ver `config/settings.py`), a ingestão para de chamar o provedor de LLM pelo restante do dia e os itens novos caem na fila de revisão humana já existente — a ingestão em si nunca é interrompida (`catalogo_noticias/services/orcamento.py`). |
 | **Performance** | Cache Redis de aplicação (`CACHES` em `config/settings.py`, inexistente antes desta mudança); cache de borda via Cloudflare para conteúdo público (feed é majoritariamente leitura); WhiteNoise comprimido para estático; `CONN_MAX_AGE` para reuso de conexão com o Postgres. |
 | **Segurança** | Settings de produção reais (HSTS, cookies seguros, `SECURE_PROXY_SSL_HEADER`, `X_FRAME_OPTIONS`); trava que impede rodar com SQLite ou `SECRET_KEY` fraca quando `DEBUG=False`; firewall (ufw) + fail2ban + atualizações automáticas na VPS (`infra/DEPLOY.md`); containers rodando com usuário não-root; rede Docker isolada — só o Caddy publica porta. |
 | **Confiabilidade** | Healthcheck real (`/healthz`, checa conectividade com o banco) usado pelo Docker, pelo Caddy e por um monitor de uptime externo; CI (`.github/workflows/ci.yml`) roda a suíte completa antes de qualquer deploy; Sentry opcional para captura de erro em produção (mitiga a lacuna de validação registrada durante a implementação inicial). |

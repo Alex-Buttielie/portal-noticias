@@ -34,16 +34,31 @@ docker compose -f "$PROJECT_DIR/docker-compose.yml" --env-file "$ENV_FILE" \
     exec -T db pg_dump -U "${DJANGO_DB_USER:-postgres}" -Fc "${DJANGO_DB_NAME:-brd_portal_noticias}" \
     > "$DUMP_FILE"
 
+# pg_dump pode falhar a meio caminho (conexão cai, disco cheio) e ainda
+# assim deixar um arquivo truncado em disco antes do `set -e` abortar o
+# script — sem essa checagem, um dump inválido ficaria indistinguível de
+# um bom até o dia em que alguém precisasse restaurá-lo de verdade.
+if ! docker compose -f "$PROJECT_DIR/docker-compose.yml" --env-file "$ENV_FILE" \
+    exec -T db pg_restore --list > /dev/null 2>&1 < "$DUMP_FILE"; then
+    echo "[pg_backup] ERRO: $DUMP_FILE não é um dump Postgres válido — abortando antes de propagar um backup corrompido." >&2
+    rm -f "$DUMP_FILE"
+    exit 1
+fi
+
 echo "[pg_backup] arquivando mídia de usuário..."
 MEDIA_FILE="$BACKUP_DIR/media-$TIMESTAMP.tar.gz"
-# Copia do volume nomeado via um container descartável — mais simples e
-# portável do que descobrir o caminho do volume no host (que varia por
-# driver de storage do Docker).
-docker run --rm \
-    -v brd_portal_noticias_media_data:/media:ro \
-    -v "$BACKUP_DIR:/backup" \
-    alpine:3 \
-    tar czf "/backup/media-$TIMESTAMP.tar.gz" -C / media
+# Empacota a partir de DENTRO do container `web` (que já monta o volume de
+# mídia em /app/media, ver docker-compose.yml) em vez de referenciar o nome
+# do volume Docker diretamente: o nome real do volume nomeado é prefixado
+# pelo nome do projeto Compose (normalmente o nome do diretório de deploy),
+# então um valor hardcoded aqui ficaria errado em qualquer deploy que não
+# use exatamente o diretório "brd_portal_noticias" — e o pior tipo de erro,
+# porque `docker run -v <volume-inexistente>` cria silenciosamente um
+# volume novo e vazio em vez de falhar, produzindo um backup de mídia vazio
+# sem nenhum aviso.
+docker compose -f "$PROJECT_DIR/docker-compose.yml" --env-file "$ENV_FILE" \
+    exec -T web tar czf - -C /app/media . \
+    > "$MEDIA_FILE"
 
 if [ -n "${BACKUP_S3_BUCKET:-}" ]; then
     echo "[pg_backup] enviando para storage remoto ($BACKUP_S3_BUCKET)..."
@@ -59,8 +74,17 @@ else
     echo "[pg_backup] o backup ficou SÓ NA PRÓPRIA VPS, sem proteção contra perda da VPS." >&2
 fi
 
-echo "[pg_backup] removendo backups locais com mais de $RETENCAO_LOCAL_DIAS dias..."
-find "$BACKUP_DIR" -maxdepth 1 -name '*.dump' -mtime "+$RETENCAO_LOCAL_DIAS" -delete
-find "$BACKUP_DIR" -maxdepth 1 -name '*.tar.gz' -mtime "+$RETENCAO_LOCAL_DIAS" -delete
+if [ -n "${BACKUP_S3_BUCKET:-}" ]; then
+    echo "[pg_backup] removendo backups locais com mais de $RETENCAO_LOCAL_DIAS dias (já enviados ao storage remoto)..."
+    find "$BACKUP_DIR" -maxdepth 1 -name '*.dump' -mtime "+$RETENCAO_LOCAL_DIAS" -delete
+    find "$BACKUP_DIR" -maxdepth 1 -name '*.tar.gz' -mtime "+$RETENCAO_LOCAL_DIAS" -delete
+else
+    # Sem storage remoto configurado, os arquivos locais são a ÚNICA cópia
+    # que existe. Apagar os com mais de 7 dias apagaria silenciosamente todo
+    # o histórico de backup em uma semana, exatamente o oposto de "garantir
+    # persistência dos dados" — então mantemos tudo local até o remoto ser
+    # configurado, mesmo que isso encha o disco mais rápido.
+    echo "[pg_backup] BACKUP_S3_BUCKET não configurado — mantendo TODOS os backups locais (nenhum é a única cópia de nada só até virar a única cópia de tudo)." >&2
+fi
 
 echo "[pg_backup] concluído: $DUMP_FILE, $MEDIA_FILE"

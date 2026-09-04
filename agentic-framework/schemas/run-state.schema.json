@@ -115,6 +115,12 @@
           "type": "string",
           "description": "Nome do agente responsável por esta fase (ex: executor, tester, reviewer, remediator, documenter, historian)."
         },
+        "execution_mode": {
+          "type": "string",
+          "enum": ["delegated", "self_executed_fallback"],
+          "default": "delegated",
+          "description": "'delegated' = a ferramenta Agent foi usada de verdade para chamar o subagente especialista desta fase (separação de papéis real). 'self_executed_fallback' = o orchestrator executou a fase sozinho porque Agent/Bash/preview estavam indisponíveis — quebra o princípio 'quem implementa não aprova o próprio trabalho' e exige reconciliação (nova revisão/teste real delegados de verdade) antes da run poder fechar com status 'closed'."
+        },
         "started_at": { "type": ["string", "null"], "format": "date-time" },
         "finished_at": { "type": ["string", "null"], "format": "date-time" },
         "notes": { "type": "string" }

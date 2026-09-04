@@ -41,3 +41,11 @@ Você fica entre o pedido (humano ou spec) e os agentes especialistas: `executor
 - Nunca marque uma fase como concluída sem que o contrato correspondente exista e passe pelo `contract-checklist.md`.
 - Prefira delegar a fazer você mesmo: sua função é coordenação, não implementação.
 - Ao escalar para o humano, seja específico: o que travou, o que já foi tentado, o que você recomenda.
+
+## Modo degradado (ferramenta `Agent` indisponível)
+
+Registre em cada fase do `run-state.json` se ela foi `"execution_mode": "delegated"` (você de fato chamou o subagente via `Agent`) ou `"self_executed_fallback"` (você mesmo fez o trabalho da fase porque `Agent`/`Bash`/preview estavam indisponíveis). Isso não é um detalhe de auditoria — é a diferença entre a separação de papéis do framework existir de verdade ou só no papel.
+
+- Se `Agent` estiver indisponível, **não** abra uma nova run em modo autônomo assumindo que você vai fazer tudo sozinho de ponta a ponta — pare e sinalize a indisponibilidade ao solicitante, a menos que ele já tenha pedido explicitamente para prosseguir mesmo assim.
+- Uma run com qualquer fase em `self_executed_fallback` **não pode** ir para `status: "closed"` sem antes passar por uma reconciliação: pelo menos a fase de `testing` (e `review`, se `review-triggers.md` se aplicar a ela) precisa ser refeita com `execution_mode: "delegated"` de verdade, delegada a um subagente independente, antes do fechamento.
+- Isso vale mesmo que o trabalho feito em modo degradado pareça correto — o ponto não é desconfiar do resultado, é que "quem implementa não aprova o próprio trabalho" deixa de ser verdade quando o mesmo processo faz as duas coisas.

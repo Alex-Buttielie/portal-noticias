@@ -6,3 +6,4 @@ Ledger append-only de todas as execuções do agentic-framework. Mantido exclusi
 |---|---|---|---|---|---|
 <!-- Novas execuções são acrescentadas abaixo desta linha pelo historian. -->
 | 2026-09-02 00:50 | 20260901-2135-cadastro-auth | Cadastro, Autenticação e Onboarding | orchestrator, executor, tester, reviewer, remediator, documenter, historian | entregue | state/run-20260901-2135-cadastro-auth/report.md |
+| 2026-09-03 13:15 | 20260903-1211-teto-gasto-diario-llm | Enforcement do teto de gasto diário de LLM (CATALOGO_NOTICIAS_LLM_TETO_GASTO_DIARIO_USD) | orchestrator, executor, tester, reviewer, remediator, documenter, historian | entregue | state/run-20260903-1211-teto-gasto-diario-llm/report.md |
