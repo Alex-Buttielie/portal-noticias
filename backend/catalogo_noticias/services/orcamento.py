@@ -66,8 +66,12 @@ def gasto_llm_hoje_usd() -> float:
 
 
 def teto_diario_usd() -> float:
-    """`settings.CATALOGO_NOTICIAS_LLM_TETO_GASTO_DIARIO_USD` — configuravel via env var, sem alteracao de codigo."""
-    return settings.CATALOGO_NOTICIAS_LLM_TETO_GASTO_DIARIO_USD
+    try:
+        from catalogo_noticias.services.config_robo import cfg_valor
+
+        return float(cfg_valor("CATALOGO_NOTICIAS_LLM_TETO_GASTO_DIARIO_USD", "llm_teto_gasto_diario_usd", float))
+    except Exception:
+        return settings.CATALOGO_NOTICIAS_LLM_TETO_GASTO_DIARIO_USD
 
 
 def teto_excedido(gasto_acumulado_usd: float) -> bool:

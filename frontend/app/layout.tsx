@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 import Script from "next/script";
 import { Inter, Source_Serif_4 } from "next/font/google";
@@ -35,6 +35,17 @@ const fonteTitulo = Source_Serif_4({
 // toda página que não sobrescreve os próprios campos via `generateMetadata`.
 // `metadataBase` é o que permite às páginas filhas declarar `images`/
 // `canonical` com caminhos relativos.
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 5,
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#fdfcf8" },
+    { media: "(prefers-color-scheme: dark)", color: "#0f0f0f" },
+  ],
+  colorScheme: "light dark",
+};
+
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   title: { default: SITE_NAME, template: `%s — ${SITE_NAME}` },

@@ -109,10 +109,19 @@ class LLMHttpSummarizationProvider(SummarizationProvider):
         tamanho_lote: Optional[int] = None,
         max_tokens_por_item: Optional[int] = None,
     ):
-        self.api_base_url = api_base_url or settings.CATALOGO_NOTICIAS_LLM_API_BASE_URL
+        try:
+            from catalogo_noticias.services.config_robo import cfg_valor as _cv
+            _db_base = _cv("CATALOGO_NOTICIAS_LLM_API_BASE_URL", "llm_api_base_url")
+            _db_model = _cv("CATALOGO_NOTICIAS_LLM_MODEL", "llm_model")
+            _db_timeout = int(_cv("CATALOGO_NOTICIAS_LLM_TIMEOUT_SEGUNDOS", "llm_timeout_segundos", int))
+        except Exception:
+            _db_base = settings.CATALOGO_NOTICIAS_LLM_API_BASE_URL
+            _db_model = settings.CATALOGO_NOTICIAS_LLM_MODEL
+            _db_timeout = settings.CATALOGO_NOTICIAS_LLM_TIMEOUT_SEGUNDOS
+        self.api_base_url = api_base_url or _db_base
         self.api_key = api_key if api_key is not None else settings.CATALOGO_NOTICIAS_LLM_API_KEY
-        self.modelo = modelo or settings.CATALOGO_NOTICIAS_LLM_MODEL
-        self.timeout_segundos = timeout_segundos or settings.CATALOGO_NOTICIAS_LLM_TIMEOUT_SEGUNDOS
+        self.modelo = modelo or _db_model
+        self.timeout_segundos = timeout_segundos or _db_timeout
         # Reducao de custo/numero de chamadas (pedido do usuario): quantos
         # itens INDEPENDENTES entram em uma unica chamada HTTP de
         # `resumir_e_classificar_em_lote`, e um teto de tokens de resposta
@@ -120,36 +129,48 @@ class LLMHttpSummarizationProvider(SummarizationProvider):
         # custa mais tokens de SAIDA (cobrados a taxa mais alta que os de
         # entrada, na maioria dos provedores) do que o necessario para um
         # resumo curto.
-        self.tamanho_lote = tamanho_lote or settings.CATALOGO_NOTICIAS_LLM_TAMANHO_LOTE
-        self.max_tokens_por_item = max_tokens_por_item or settings.CATALOGO_NOTICIAS_LLM_MAX_TOKENS_POR_ITEM
+        try:
+            from catalogo_noticias.services.config_robo import cfg_valor as _cv2
+            _db_lote = int(_cv2("CATALOGO_NOTICIAS_LLM_TAMANHO_LOTE", "llm_tamanho_lote", int))
+            _db_max = int(_cv2("CATALOGO_NOTICIAS_LLM_MAX_TOKENS_POR_ITEM", "llm_max_tokens_por_item", int))
+            _db_preco = float(_cv2("CATALOGO_NOTICIAS_LLM_PRECO_USD_POR_1K_TOKENS", "llm_preco_por_1k_tokens", float))
+        except Exception:
+            _db_lote = settings.CATALOGO_NOTICIAS_LLM_TAMANHO_LOTE
+            _db_max = settings.CATALOGO_NOTICIAS_LLM_MAX_TOKENS_POR_ITEM
+            _db_preco = settings.CATALOGO_NOTICIAS_LLM_PRECO_USD_POR_1K_TOKENS
+        self.tamanho_lote = tamanho_lote or _db_lote
+        self.max_tokens_por_item = max_tokens_por_item or _db_max
         # Preco estimado (USD por 1k tokens) usado por `_interpretar_resposta`/
         # `_interpretar_resposta_lote` para calcular `custo_estimado_usd`
         # (implementation-contract.md, run 20260903-1211-teto-gasto-diario-llm)
         # — lido de `settings` no __init__ (nao a cada chamada) para permitir
         # override via `settings.py`/env var sem exigir um parametro novo no
         # construtor, mesmo padrao dos demais atributos acima.
-        self.preco_usd_por_1k_tokens = settings.CATALOGO_NOTICIAS_LLM_PRECO_USD_POR_1K_TOKENS
+        self.preco_usd_por_1k_tokens = _db_preco
 
         if not self.api_key:
-            # Finding 4 (minor, code-review-contract.md run
-            # 20260902-0727-ingestao-noticias): sem API key configurada, toda
-            # chamada a `self.api_base_url` (default: endpoint real da
-            # OpenAI) vai falhar com 401 — funcionalmente seguro (cai no
-            # fallback de erro, forca status_revisao=pendente), mas a causa
-            # raiz (config ausente) so aparecia em log de nivel ERROR por
-            # execucao. WARNING aqui, uma vez por instanciacao, torna a causa
-            # raiz visivel assim que o worker/tarefa sobe.
             logger.warning(
-                "CATALOGO_NOTICIAS_LLM_API_KEY nao configurada — chamadas a '%s' "
-                "vao falhar (SummarizationProviderError), forcando todos os itens "
-                "para revisao humana (status_revisao=pendente) ate a API key ser "
-                "definida.",
-                self.api_base_url,
+                "CATALOGO_NOTICIAS_LLM_API_KEY nao configurada — usando resumo local "
+                "derivado do titulo/fonte (sem LLM) ate a API key ser definida; "
+                "itens nao-sensiveis serao publicaveis sem revisao humana.",
             )
+
+    def _resumo_local_para_item(self, item: ItemBruto) -> ResultadoResumo:
+        titulo = (item.titulo or "").strip()
+        nome_fonte = (item.nome_fonte or "").strip()
+        if titulo and nome_fonte:
+            resumo = f"{titulo} — publicada por {nome_fonte}. Confira a integra na fonte original."
+        elif titulo:
+            resumo = f"{titulo} — confira a integra na fonte original."
+        else:
+            resumo = "Confira a integra desta materia na fonte original."
+        return ResultadoResumo(resumo=resumo, categoria=(item.categoria or "").strip().lower(), urgente=False)
 
     def resumir_e_classificar(self, itens_brutos: list[ItemBruto]) -> ResultadoResumo:
         if not itens_brutos:
             raise ValueError("resumir_e_classificar requer ao menos um ItemBruto")
+        if not (self.api_key or "").strip():
+            return self._resumo_local_para_item(itens_brutos[0])
 
         prompt = self._montar_prompt(itens_brutos)
         resposta_bruta = self._chamar_api(prompt)
@@ -253,6 +274,8 @@ class LLMHttpSummarizationProvider(SummarizationProvider):
     def resumir_e_classificar_em_lote(self, itens_brutos: list[ItemBruto]) -> list[ResultadoResumo]:
         if not itens_brutos:
             return []
+        if not (self.api_key or "").strip():
+            return [self._resumo_local_para_item(item) for item in itens_brutos]
 
         prompt = self._montar_prompt_lote(itens_brutos)
         max_tokens = self._max_tokens_para_lote(len(itens_brutos))

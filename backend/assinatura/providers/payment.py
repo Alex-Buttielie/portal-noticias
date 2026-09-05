@@ -12,6 +12,15 @@ pelo admin antes de uma integração real existir. Trocar por um provedor real
 não deve exigir mudar `services.py`/`models.py` — só a classe concreta
 injetada (mesmo padrão já usado para `SummarizationProvider`/
 `NewsSourceProvider` em `catalogo_noticias`).
+
+A seleção da implementação concreta é feita por ambiente via
+`ASSINATURA_PAYMENT_GATEWAY_PROVIDER` (ver `config/settings.py` e
+`obter_gateway_pagamento` abaixo) — ideia incorporada do protótipo
+`testes-ia` (`PAYMENT_PROVIDER=fake` + `PaymentProvider` plugável):
+trocar de gateway é mudar 1 variável de ambiente, sem alterar código
+cliente (`services.py` só chama `obter_gateway_pagamento()` quando nenhum
+gateway é injetado explicitamente, o que mantém os testes existentes
+intactos).
 """
 
 from __future__ import annotations
@@ -64,3 +73,35 @@ class ManualPaymentGatewayProvider(PaymentGatewayProvider):
 
     def cancelar(self, referencia_gateway: str) -> None:
         return None
+
+
+# Nome canônico do placeholder em `ASSINATURA_PAYMENT_GATEWAY_PROVIDER`.
+# Provedores reais futuros registram seu próprio nome aqui (ex.: "mercadopago",
+# "stripe") sem mudar `services.py` — só este dicionário cresce.
+GATEWAY_MANUAL = "manual"
+
+_GATEWAYS_SUPORTADOS = (GATEWAY_MANUAL,)
+
+
+def obter_gateway_pagamento(nome: str | None = None) -> PaymentGatewayProvider:
+    """
+    Fábrica do gateway de pagamento a partir do nome configurado no ambiente.
+
+    `nome=None` (default) lê `settings.ASSINATURA_PAYMENT_GATEWAY_PROVIDER`
+    (default `"manual"`); passar um nome explícito tem prioridade sobre o
+    settings — útil em testes e scripts. Nome desconhecido levanta
+    `ValueError` em vez de cair silenciosamente para o manual, para erro de
+    digitação em `.env.production` falhar alto no boot em vez de cobrar
+    errado em produção.
+    """
+    if nome is None:
+        from django.conf import settings
+
+        nome = getattr(settings, "ASSINATURA_PAYMENT_GATEWAY_PROVIDER", GATEWAY_MANUAL) or GATEWAY_MANUAL
+    normalizado = str(nome).strip().lower() or GATEWAY_MANUAL
+    if normalizado == GATEWAY_MANUAL:
+        return ManualPaymentGatewayProvider()
+    raise ValueError(
+        f"Provedor de pagamento desconhecido: {nome!r}. "
+        f"Suportados: {', '.join(_GATEWAYS_SUPORTADOS)}."
+    )

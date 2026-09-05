@@ -131,6 +131,55 @@ class NewsItem(models.Model):
         return self.status_revisao == self.STATUS_NAO_APLICAVEL
 
 
+class FonteRobo(models.Model):
+    nome = models.CharField(max_length=150, unique=True)
+    url = models.URLField(max_length=1000, unique=True)
+    ativo = models.BooleanField(default=True)
+    categoria_padrao = models.CharField(max_length=100, blank=True)
+    criado_em = models.DateTimeField(auto_now_add=True)
+    atualizado_em = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "fonte de robo"
+        verbose_name_plural = "fontes de robos"
+        ordering = ["nome"]
+
+    def __str__(self):
+        return f"{self.nome} ({'ativo' if self.ativo else 'inativo'})"
+
+
+class ConfiguracaoRobo(models.Model):
+    intervalo_minutos = models.PositiveIntegerField(default=15)
+    ativo = models.BooleanField(default=True)
+    categorias_sensiveis = models.CharField(max_length=500, default="política,economia,segurança pública")
+    limiar_fontes_alta_relevancia = models.PositiveIntegerField(default=3)
+    dedup_limiar_similaridade = models.FloatField(default=0.55)
+    dedup_janela_horas = models.FloatField(default=24)
+    dedup_max_itens = models.PositiveIntegerField(default=300)
+    resumo_similaridade_maxima = models.FloatField(default=0.6)
+    resumo_trecho_copiado_maximo = models.FloatField(default=0.6)
+    dedup_cluster_sempre_exige_revisao = models.BooleanField(default=True)
+    llm_model = models.CharField(max_length=100, default="gpt-4o-mini")
+    llm_api_base_url = models.URLField(max_length=500, default="https://api.openai.com/v1")
+    llm_tamanho_lote = models.PositiveIntegerField(default=10)
+    llm_max_tokens_por_item = models.PositiveIntegerField(default=220)
+    llm_teto_gasto_diario_usd = models.FloatField(default=5.0)
+    llm_preco_por_1k_tokens = models.FloatField(default=0.15)
+    llm_timeout_segundos = models.PositiveIntegerField(default=30)
+    atualizado_em = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "configuracao de robo"
+        verbose_name_plural = "configuracao de robos"
+
+    def __str__(self):
+        return "Configuracao de Robos"
+
+    def save(self, *args, **kwargs):
+        self.pk = 1
+        super().save(*args, **kwargs)
+
+
 class RegistroExecucaoIngestao(models.Model):
     """
     Registro consultavel de UMA execucao do pipeline de ingestao

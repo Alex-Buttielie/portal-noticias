@@ -37,15 +37,12 @@ logger = logging.getLogger(__name__)
 
 
 def construir_fontes_configuradas() -> list[NewsSourceProvider]:
-    """
-    Constroi as `NewsSourceProvider` a partir de
-    `settings.CATALOGO_NOTICIAS_FONTES_RSS` — a lista de fontes-semente vive
-    em configuracao (config/settings.py), nao hardcoded na logica de
-    negocio (implementation-contract.md, "Areas/arquivos esperados").
-    """
+    from .config_robo import fontes_rss
+
+    fontes = fontes_rss()
     return [
         RSSNewsSourceProvider(nome_fonte=fonte["nome"], url_feed=fonte["url"])
-        for fonte in settings.CATALOGO_NOTICIAS_FONTES_RSS
+        for fonte in fontes
     ]
 
 
@@ -99,8 +96,9 @@ def _itens_recentes_persistidos() -> tuple[list[ItemBruto], dict[str, NewsItem]]
     volume acumulado de noticias na janela, em vez de so com o volume do
     lote da execucao atual.
     """
-    janela_horas = settings.CATALOGO_NOTICIAS_DEDUP_JANELA_RECENTE_HORAS
-    limite_itens = settings.CATALOGO_NOTICIAS_DEDUP_MAX_ITENS_RECENTES
+    from .config_robo import cfg_valor
+    janela_horas = cfg_valor("CATALOGO_NOTICIAS_DEDUP_JANELA_RECENTE_HORAS", "dedup_janela_horas", float)
+    limite_itens = int(cfg_valor("CATALOGO_NOTICIAS_DEDUP_MAX_ITENS_RECENTES", "dedup_max_itens", int))
     corte = timezone.now() - timedelta(hours=janela_horas)
     # `select_related("cluster")`: ainda UMA UNICA query (join), evita N+1 ao
     # acessar `news_item.cluster` depois, em `_persistir_grupo_mesclado`.
@@ -210,8 +208,9 @@ def _resumo_e_copia_ou_quase_copia(resumo: str, grupo: list[ItemBruto]) -> bool:
     if not resumo_normalizado:
         return False  # resumo vazio ja e tratado separadamente (sem_resumo_confiavel)
 
-    limiar_similaridade_total = settings.CATALOGO_NOTICIAS_RESUMO_SIMILARIDADE_MAXIMA
-    limiar_trecho_copiado = settings.CATALOGO_NOTICIAS_RESUMO_TRECHO_COPIADO_MAXIMO
+    from .config_robo import cfg_valor
+    limiar_similaridade_total = cfg_valor("CATALOGO_NOTICIAS_RESUMO_SIMILARIDADE_MAXIMA", "resumo_similaridade_maxima", float)
+    limiar_trecho_copiado = cfg_valor("CATALOGO_NOTICIAS_RESUMO_TRECHO_COPIADO_MAXIMO", "resumo_trecho_copiado_maximo", float)
     for item_bruto in grupo:
         bruto_normalizado = (item_bruto.conteudo_bruto or "").strip()
         if not bruto_normalizado:
@@ -252,8 +251,9 @@ def _eh_alta_relevancia(categoria: str, numero_fontes_distintas: int) -> bool:
     sensivel OU cluster com N ou mais fontes distintas — ambos
     parametrizaveis via `settings` (env vars), sem alteracao de codigo.
     """
-    categorias_sensiveis = {c.strip().lower() for c in settings.CATALOGO_NOTICIAS_CATEGORIAS_SENSIVEIS}
-    limiar_fontes = settings.CATALOGO_NOTICIAS_LIMIAR_FONTES_ALTA_RELEVANCIA
+    from .config_robo import categorias_sensiveis as _cats, cfg_valor
+    categorias_sensiveis = set(_cats())
+    limiar_fontes = int(cfg_valor("CATALOGO_NOTICIAS_LIMIAR_FONTES_ALTA_RELEVANCIA", "limiar_fontes_alta_relevancia", int))
     categoria_normalizada = (categoria or "").strip().lower()
     return (categoria_normalizada in categorias_sensiveis) or (numero_fontes_distintas >= limiar_fontes)
 
@@ -591,8 +591,9 @@ def executar_ingestao(
     itens_recentes_persistidos, news_items_persistidos_por_url = _itens_recentes_persistidos()
     itens_para_agrupar = todos_itens_brutos + itens_recentes_persistidos
 
+    from .config_robo import cfg_valor as _cv2
     grupos = agrupar_itens_brutos(
-        itens_para_agrupar, limiar_similaridade=settings.CATALOGO_NOTICIAS_DEDUP_LIMIAR_SIMILARIDADE
+        itens_para_agrupar, limiar_similaridade=float(_cv2("CATALOGO_NOTICIAS_DEDUP_LIMIAR_SIMILARIDADE", "dedup_limiar_similaridade", float))
     )
 
     chamadas_summarization = 0
@@ -648,7 +649,8 @@ def executar_ingestao(
         todos_itens_novos.extend(itens_novos_do_grupo)
 
     resultado_por_url: dict[str, ResultadoResumo] = {}
-    tamanho_lote = max(1, settings.CATALOGO_NOTICIAS_LLM_TAMANHO_LOTE)
+    from .config_robo import cfg_valor as _cv3
+    tamanho_lote = max(1, int(_cv3("CATALOGO_NOTICIAS_LLM_TAMANHO_LOTE", "llm_tamanho_lote", int)))
     # Enforcement do teto diario de gasto (implementation-contract.md, run
     # 20260903-1211-teto-gasto-diario-llm, criterios de aceite 1-3): uma vez
     # que o gasto acumulado (execucoes anteriores do dia, via

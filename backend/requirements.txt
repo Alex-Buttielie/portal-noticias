@@ -54,6 +54,8 @@ django-cors-headers==4.9.0
 
 # Testes (usado pelo tester, não pelo runtime da aplicação)
 pytest-django==4.14.0
+# Gate de cobertura no CI (--cov-fail-under, ver .github/workflows/ci.yml)
+pytest-cov==7.1.0
 
 # Carrega backend/.env automaticamente (config/settings.py, topo do
 # arquivo) — sem isso, `cp .env.example .env` (passo documentado no README)

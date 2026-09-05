@@ -1,5 +1,6 @@
 # CI (ARCHITECTURE.md — nova arquitetura de infra, 2026-09-03). Roda a
-# suíte de testes do backend (195 testes) e o build de produção do
+# suíte de testes do backend (com gate de cobertura: --cov-fail-under=80)
+# e o build de produção do
 # frontend a cada push/PR — fecha a lacuna descrita na memória do projeto
 # ("project-portal-noticias-tool-outage": boa parte do código foi escrita
 # sem poder executar/testar de verdade). Nenhum deploy automático aqui de
@@ -9,8 +10,9 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [develop, main]
   pull_request:
+    branches: [develop, main]
 
 jobs:
   backend-tests:
@@ -49,7 +51,7 @@ jobs:
           cache-dependency-path: backend/requirements-lock.txt
       - run: pip install -r requirements-lock.txt
       - run: python manage.py check
-      - run: python -m pytest -q
+      - run: python -m pytest -q --cov=. --cov-report=term-missing --cov-fail-under=80
 
   frontend-build:
     runs-on: ubuntu-latest

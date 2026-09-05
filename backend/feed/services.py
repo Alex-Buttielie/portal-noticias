@@ -195,6 +195,20 @@ def detalhe_item(item_id: int) -> dict | None:
     }
 
 
+def urgentes(limite: int = 8) -> list[dict]:
+    itens = list(itens_publicaveis().filter(urgente=True).order_by("-timestamp_ingestao")[: limite * 3])
+    entries = construir_feed_entries(itens)
+    urg = [e for e in entries if e["urgente"]]
+    return urg[:limite]
+
+
+def mais_lidas(limite: int = 5) -> list[dict]:
+    itens = list(itens_publicaveis().order_by("-timestamp_ingestao")[:120])
+    entries = construir_feed_entries(itens)
+    entries.sort(key=lambda e: (e["numero_fontes"], e["timestamp"]), reverse=True)
+    return entries[:limite]
+
+
 def exibir_publicidade(user) -> bool:
     """
     Critério de aceite 7: `false` só para usuário autenticado com

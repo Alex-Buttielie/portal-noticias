@@ -1,0 +1,72 @@
+name: Deploy PROD
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  deploy-prod:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    environment:
+      name: production
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Get version
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        run: gh release create ${{ steps.version.outputs.VERSION }} --title "Release ${{ steps.version.outputs.VERSION }}" --generate-notes
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Deploy to VPS (PROD)
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT }}
+          script: |
+            APP_DIR="/home/deploy/brd_portal_noticias"
+            echo "=== Deploy PROD ${{ steps.version.outputs.VERSION }} ==="
+            cd "$APP_DIR"
+            git fetch origin
+            git reset --hard "origin/main"
+            docker compose --env-file .env.production -p brd-prod \
+              up -d --build
+            echo "=== PROD ${{ steps.version.outputs.VERSION }} deployed ==="
+
+      - name: Validate PROD
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT }}
+          script: |
+            APP_DIR="/home/deploy/brd_portal_noticias"
+            cd "$APP_DIR"
+            sleep 15
+            docker compose -p brd-prod ps
+            PROD_API=$(grep -E '^DOMAIN_API=' .env.production | cut -d= -f2)
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "https://$PROD_API/healthz" || echo "000")
+            echo "HTTP Status: $HTTP_CODE"
+            if [ "$HTTP_CODE" = "200" ]; then
+              echo "PROD validation passed"
+            else
+              echo "PROD validation FAILED - ver logs e fazer rollback para a tag anterior"
+              docker compose -p brd-prod logs --tail 50 web
+              exit 1
+            fi
+
+      - name: Notify deployment success
+        run: |
+          echo "Production deployment successful!"
+          echo "Version: ${{ steps.version.outputs.VERSION }}"
