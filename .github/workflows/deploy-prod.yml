@@ -102,6 +102,7 @@ jobs:
           password: ${{ secrets.VPS_PASSWORD }}
           port: ${{ secrets.VPS_PORT }}
           script: |
+            export NVM_DIR="$HOME/.nvm"; [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"; nvm use 20
             sleep 8
             HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:5103/healthz || echo "000")
             echo "PROD api: $HTTP_CODE"

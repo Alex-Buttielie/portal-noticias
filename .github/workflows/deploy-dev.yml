@@ -86,6 +86,7 @@ jobs:
           password: ${{ secrets.VPS_PASSWORD }}
           port: ${{ secrets.VPS_PORT }}
           script: |
+            export NVM_DIR="$HOME/.nvm"; [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"; nvm use 20
             sleep 5
             curl -sf -o /dev/null http://localhost:5101/healthz && echo "DEV api ok" || echo "DEV api check warn"
             curl -sf -o /dev/null http://localhost:3101/ && echo "DEV web ok" || echo "DEV web check warn"
