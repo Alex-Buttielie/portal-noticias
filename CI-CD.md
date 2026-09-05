@@ -70,6 +70,23 @@ sobrevivem ao `git reset`. PM2 é reiniciado, nunca apagado sem recriação.
 
 Secrets exigidos (os mesmos de antes): `VPS_HOST`, `VPS_USER`, `VPS_PASSWORD`, `VPS_PORT`.
 
+### Banco de dados (Postgres na VPS — único pré-requisito novo)
+
+O software recusa `sqlite3` com `DEBUG=False` (fail-fast em
+`config/settings.py`). Uma vez por VPS, como `root`:
+
+```bash
+apt install -y postgresql
+sudo -u postgres psql -c "CREATE USER portal_app WITH PASSWORD '<senha-forte>';"
+sudo -u postgres psql -c "CREATE DATABASE brd_portal_noticias OWNER portal_app;"
+```
+
+Depois preencha `DJANGO_DB_PASSWORD` em
+`/home/apps/portal-{dev,homolog,prod}/backend/.env` (o workflow cria o
+arquivo com placeholder e falha com mensagem clara até a senha existir).
+Os 3 ambientes compartilham o servidor, mas use bancos/usuários distintos
+se quiser isolamento total.
+
 ### Mapa de branches (não apagar)
 
 | Branch | Papel | Deploy |

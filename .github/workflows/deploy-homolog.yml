@@ -55,7 +55,7 @@ jobs:
             cd "$APP_DIR"; git fetch origin; git reset --hard "origin/${{ github.head_ref }}"
             if [ ! -f backend/.env ]; then
               SECRET=$(python3 -c "import secrets;print(secrets.token_urlsafe(50))")
-              printf 'DJANGO_SECRET_KEY=%s\nDJANGO_DEBUG=false\nDJANGO_ALLOWED_HOSTS=%s\nDJANGO_DB_ENGINE=sqlite3\nFRONTEND_BASE_URL=https://%s\n' "$SECRET" "$HOST" "$HOST" > backend/.env
+              printf 'DJANGO_SECRET_KEY=%s\nDJANGO_DEBUG=false\nDJANGO_ALLOWED_HOSTS=%s\nDJANGO_DB_ENGINE=postgresql\nDJANGO_DB_NAME=brd_portal_noticias\nDJANGO_DB_USER=portal_app\nDJANGO_DB_PASSWORD=troque-aqui\nDJANGO_DB_HOST=localhost\nDJANGO_DB_PORT=5432\nFRONTEND_BASE_URL=https://%s\n' "$SECRET" "$HOST" "$HOST" > backend/.env
               chmod 600 backend/.env
             fi
             cd "$APP_DIR/frontend"
@@ -66,6 +66,8 @@ jobs:
             . .venv/bin/activate
             pip install -r requirements.txt
             set -a; . ./.env; set +a
+            if [ "${DJANGO_DB_PASSWORD:-troque-aqui}" = "troque-aqui" ]; then echo "ERRO: preencha DJANGO_DB_PASSWORD em $APP_DIR/backend/.env (Postgres da VPS — ver CI-CD.md)"; exit 1; fi
+            python manage.py check
             python manage.py migrate
             python manage.py collectstatic --noinput
             pm2 delete portal-web-homolog 2>/dev/null || true
