@@ -189,24 +189,26 @@ export default function PaginaMinhaConta() {
       {pagamentos.length === 0 ? (
         <p className="texto-suave">Nenhum pagamento registrado ainda.</p>
       ) : (
-        <table className="tabela">
-          <thead>
-            <tr>
-              <th>Data</th>
-              <th>Valor</th>
-              <th>Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {pagamentos.map((pagamento) => (
-              <tr key={pagamento.id}>
-                <td>{formatarData(pagamento.criado_em)}</td>
-                <td>{formatarPreco(pagamento.valor)}</td>
-                <td>{pagamento.status}</td>
+        <div className="tabela-wrapper">
+          <table className="tabela">
+            <thead>
+              <tr>
+                <th>Data</th>
+                <th>Valor</th>
+                <th>Status</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {pagamentos.map((pagamento) => (
+                <tr key={pagamento.id}>
+                  <td>{formatarData(pagamento.criado_em)}</td>
+                  <td>{formatarPreco(pagamento.valor)}</td>
+                  <td>{pagamento.status}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
 
       <h2 style={{ fontSize: "1.1rem", marginTop: "1.5rem" }}>Newsletter</h2>

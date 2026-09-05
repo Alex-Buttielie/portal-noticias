@@ -20,7 +20,7 @@ from .models import (
     Plan,
     Subscription,
 )
-from .providers.payment import ManualPaymentGatewayProvider, PaymentGatewayProvider
+from .providers.payment import PaymentGatewayProvider, obter_gateway_pagamento
 
 
 class AssinaturaJaExisteError(Exception):
@@ -76,12 +76,13 @@ def assinar_plano(user, plan: Plan, payment_gateway: PaymentGatewayProvider | No
     Critérios de aceite 2, 3, 12: cria a `Subscription` em
     `pagamento_pendente`, chama o gateway, e já processa a confirmação/
     recusa imediata quando o gateway responde de forma síncrona (caso do
-    `ManualPaymentGatewayProvider` — um gateway real com confirmação
+    `obter_gateway_pagamento()` (default, via
+    `ASSINATURA_PAYMENT_GATEWAY_PROVIDER`) — um gateway real com confirmação
     assíncrona via webhook chamaria `processar_confirmacao_pagamento`/
     `processar_pagamento_recusado` a partir de uma view de webhook separada,
     fora do escopo desta execução).
     """
-    payment_gateway = payment_gateway or ManualPaymentGatewayProvider()
+    payment_gateway = payment_gateway or obter_gateway_pagamento()
 
     # A checagem abaixo (`ja_tem_assinatura_em_andamento`) é só a mensagem de
     # erro amigável no caminho feliz/sem concorrência — a garantia real
@@ -190,7 +191,7 @@ def processar_vencimentos_e_grace_periods(payment_gateway: PaymentGatewayProvide
     assinaturas cujo prazo relevante (`grace_period_termina_em`/`vencimento`)
     já passou; rodar de novo sem que o tempo tenha avançado não muda nada.
     """
-    payment_gateway = payment_gateway or ManualPaymentGatewayProvider()
+    payment_gateway = payment_gateway or obter_gateway_pagamento()
     agora = timezone.now()
     resultado = {"expiradas": 0, "encerradas": 0, "renovadas": 0}
 
