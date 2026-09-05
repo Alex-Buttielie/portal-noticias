@@ -128,6 +128,7 @@ INSTALLED_APPS = [
     "landing",
     "b2b",
     "metricas",
+    "painel_admin",
 ]
 
 MIDDLEWARE = [
@@ -481,6 +482,12 @@ CELERY_TASK_TRACK_STARTED = True
 CATALOGO_NOTICIAS_INTERVALO_INGESTAO_MINUTOS = int(
     os.environ.get("CATALOGO_NOTICIAS_INTERVALO_INGESTAO_MINUTOS", 15)
 )
+# Provedor de pagamento plugável (ARCHITECTURE.md seção 6,
+# `PaymentGatewayProvider`): "manual" é o placeholder sem rede; provedores
+# reais futuros ("mercadopago", "stripe", ...) entram em
+# `assinatura/providers/payment.py::obter_gateway_pagamento` sem mudar
+# `services.py`. Ideia incorporada do protótipo `testes-ia` (PAYMENT_PROVIDER).
+ASSINATURA_PAYMENT_GATEWAY_PROVIDER = os.environ.get("ASSINATURA_PAYMENT_GATEWAY_PROVIDER", "manual")
 ASSINATURA_INTERVALO_PROCESSAR_VENCIMENTOS_MINUTOS = int(
     os.environ.get("ASSINATURA_INTERVALO_PROCESSAR_VENCIMENTOS_MINUTOS", 60)
 )

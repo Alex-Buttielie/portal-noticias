@@ -24,4 +24,6 @@ urlpatterns = [
     path("api/landing/", include("landing.urls")),
     path("api/b2b/", include("b2b.urls")),
     path("api/metricas/", include("metricas.urls")),
+    path("api/admin/", include("painel_admin.urls")),
+    path("api/admin/robos/", include("catalogo_noticias.robos_urls")),
 ]
