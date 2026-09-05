@@ -1,7 +1,10 @@
 # Pipeline CI/CD — BRD Portal de Notícias
 
-Modelo herdado do `profissional-os/CI-CD.md` (3 ambientes via GitHub Actions + SSH),
-adaptado para a arquitetura Docker + Caddy deste projeto (sem PM2/Nginx manual).
+Preserva integralmente a infra do deploy anterior (ramo `backup/remote-*-20260904`):
+PM2 + Nginx na VPS, `/home/apps/portal-{dev,homolog,prod}`, portas 310x/510x,
+secrets `VPS_HOST/USER/PASSWORD/PORT`. **Muda só o software**: `frontend/` +
+`backend/` (Django real) no lugar de `apps/*`, com as mesmas portas, processos,
+domínios e segredos.
 
 ```
                 push develop                        PR develop → main                        tag v*
@@ -9,62 +12,60 @@ adaptado para a arquitetura Docker + Caddy deste projeto (sem PM2/Nginx manual).
                │                │                    │                  │                   │                │
                ▼                ▼                    ▼                  ▼                   ▼                ▼
           CI Workflow      Deploy DEV           CI Workflow        Deploy HOMOLOG       Deploy PROD     GitHub Release
-     (pytest/postgres     (VPS 8081/8444)     (pytest/postgres    (VPS 8080/8443)      (VPS 80/443)      + Tag
-      + tsc/build)                             + tsc/build)
+     (tsc + check +       (PM2 3101/5101)     (tsc + check +       (PM2 3102/5102)      (PM2 3103/5103)   + Tag
+      pytest/cov 80%)                          pytest/cov 80%)
 ```
 
-### Ambientes na VPS
+### Ambientes na VPS (inalterados)
 
-| Ambiente | Ref git | Compose `-p` | Portas host | `.env` na VPS |
-|----------|---------|--------------|-------------|---------------|
-| DEV | `develop` | `brd-dev` | 8081/8444 | `.env.dev` |
-| HOMOLOG | branch do PR | `brd-homolog` | 8080/8443 | `.env.homolog` |
-| PROD | `main` (tag `v*`) | `brd-prod` | 80/443 | `.env.production` |
+| Ambiente | Ref git | Dir VPS | PM2 web/api | Portas |
+|----------|---------|---------|-------------|--------|
+| DEV | `develop` | `/home/apps/portal-dev` | `portal-web-dev` / `portal-api-dev` | 3101 / 5101 |
+| HOMOLOG | branch do PR | `/home/apps/portal-homolog` | `portal-web-homolog` / `portal-api-homolog` | 3102 / 5102 |
+| PROD | `main` (tag `v*`) | `/home/apps/portal-prod` | `portal-web-prod` / `portal-api-prod` | 3103 / 5103 |
 
-Os 3 clones vivem em `/home/deploy/brd_portal_noticias[-dev|-homolog]`.
-Volumes são isolados por `-p`. Os arquivos `.env.*` ficam **só na VPS**
-(`chmod 600`, nunca commitados — ver `.gitignore`).
+Nginx (inalterado, ver `scripts/setup-vps.sh` do deploy anterior):
+`dev.portal-noticias.com.br` (`/`→3101, `/api/`→5101),
+`homolog.portal-noticias.com.br` (→3102/5102),
+`portal-noticias.com.br` (→3103/5103).
+
+### O que mudou no software (única diferença)
+
+- API: `apps/api` → `backend/` (venv em `backend/.venv`, `config.wsgi:application`,
+  `manage.py migrate + collectstatic` a cada deploy, health em `/healthz`).
+- Web: `apps/web` → `frontend/` (`npm ci + build` com `NEXT_PUBLIC_API_BASE_URL=https://<host>/api`).
+- `backend/.env` por ambiente é gerado no primeiro deploy (SECRET forte,
+  `DJANGO_DEBUG=false`, `DJANGO_DB_ENGINE=sqlite3`, domínios) e **preservado**
+  nos deploys seguintes (`git reset` não apaga arquivos ignorados). Banco
+  SQLite local + Redis da VPS — nenhum serviço novo instalado.
+- Validação: `localhost:51xx/healthz` (API) + `localhost:31xx/` (web).
+  PROD falha o workflow se a API ou a web não responderem; DEV/HOMOLOG
+  reportam `warn` como no deploy anterior.
 
 ### Fluxo Git Flow
 
-1. **Feature**: `git checkout develop` → `feature/x` → commits → merge em `develop`
-2. **Push em develop**: CI + deploy DEV (validação `Host: DOMAIN_API → :8081/healthz`)
-3. **PR develop → main**: CI + deploy HOMOLOG com o código do PR (`:8080/healthz`)
-4. **Merge + tag**: `git tag v1.0.0 && git push origin v1.0.0` → Release + deploy PROD (`https://DOMAIN_API/healthz`)
+1. **Feature**: `develop` → `feature/x` → commits → merge em `develop`
+2. **Push em develop**: CI + deploy DEV automático
+3. **PR develop → main**: CI + deploy HOMOLOG com o código do PR
+4. **Merge + tag**: `git tag vX.Y.Z && git push origin vX.Y.Z` → Release + deploy PROD
 
-### Configuração — PASSO ÚNICO
-
-**Secrets** (repo GitHub → Settings → Secrets → Actions): `VPS_HOST`, `VPS_USER`,
-`VPS_SSH_KEY` (privada ed25519 sem passphrase), `VPS_PORT`.
-
-**Environments**: `development` (sem proteção), `homolog` (aprovação opcional),
-`production` (aprovação manual recomendada).
-
-**VPS**: seguir `infra/DEPLOY.md` (hardening + Docker + Cloudflare). Depois, por ambiente:
-```bash
-git clone <repo> /home/deploy/brd_portal_noticias-dev && cd $_
-git checkout develop
-cp .env.production.example .env.dev  # trocar domínios (dev-*) + senhas/SECRET
-chmod 600 .env.dev
-```
-Repetir para `-homolog` (branch do PR é trocada automaticamente pelo workflow).
-
-**DNS**: `A dev-api/dev`, `homolog-api/homolog`, `api + raiz` → IP da VPS (proxy Cloudflare + Full strict).
-
-### Rollback
+### Rollback (inalterado na forma)
 
 ```bash
-cd /home/deploy/brd_portal_noticias
-git fetch origin && git reset --hard <tag-anterior>   # ex.: v0.9.0
-docker compose --env-file .env.production -p brd-prod up -d --build
+cd /home/apps/portal-prod
+git fetch --all --tags && git checkout <tag-anterior>   # ex.: v1.0.0
+# refaz build + restart (mesmos comandos do workflow) ou aguarde a próxima tag
 ```
-Dados preservados (volumes `postgres_data/media_data` não são recriados).
+`backend/.env`, SQLite (`db.sqlite3`) e `media/` são untracked/ignorados —
+sobrevivem ao `git reset`. PM2 é reiniciado, nunca apagado sem recriação.
 
 ### Workflows
 
 | Workflow | Arquivo | Trigger |
 |----------|--------|---------|
-| CI | `.github/workflows/ci.yml` | push/PR em develop e main (pytest+postgres, `manage.py check`, `tsc`, `next build`) |
-| Deploy DEV | `deploy-dev.yml` | push em develop |
-| Deploy HOMOLOG | `deploy-homolog.yml` | PR para main |
-| Deploy PROD | `deploy-prod.yml` | tag `v*` (+ GitHub Release) |
+| CI | `.github/workflows/ci.yml` | push/PR em develop e main (`manage.py check`, pytest cov≥80, `tsc`, `next build`) |
+| Deploy DEV | `deploy-dev.yml` | push em develop (SSH `VPS_PASSWORD`, PM2 3101/5101) |
+| Deploy HOMOLOG | `deploy-homolog.yml` | PR para main (SSH `VPS_PASSWORD`, PM2 3102/5102) |
+| Deploy PROD | `deploy-prod.yml` | tag `v*` + Release (SSH `VPS_PASSWORD`, PM2 3103/5103) |
+
+Secrets exigidos (os mesmos de antes): `VPS_HOST`, `VPS_USER`, `VPS_PASSWORD`, `VPS_PORT`.

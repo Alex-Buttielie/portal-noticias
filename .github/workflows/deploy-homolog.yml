@@ -1,5 +1,8 @@
 name: Deploy HOMOLOG
 
+# Mesma infra do deploy antigo (backup/remote-*-20260904): PM2 + Nginx na VPS,
+# /home/apps/portal-homolog, portas 3102/5102, secrets VPS_HOST/USER/PASSWORD/PORT.
+# Muda só o software: frontend/ + backend/ (Django real) no lugar de apps/*.
 on:
   pull_request:
     branches: [main]
@@ -8,47 +11,83 @@ on:
 jobs:
   deploy-homolog:
     runs-on: ubuntu-latest
-    environment:
-      name: homolog
+    environment: homolog
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: npm ci
+        working-directory: frontend
+      - run: npx tsc --noEmit
+        working-directory: frontend
+      - run: pip install -r requirements.txt
+        working-directory: backend
+        env:
+          DJANGO_DEBUG: "true"
+          DJANGO_DB_ENGINE: sqlite3
+          DJANGO_CACHE_BACKEND: locmem
+      - run: python manage.py check
+        working-directory: backend
+        env:
+          DJANGO_DEBUG: "true"
+          DJANGO_DB_ENGINE: sqlite3
+          DJANGO_CACHE_BACKEND: locmem
 
       - name: Deploy to VPS (HOMOLOG)
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_SSH_KEY }}
+          password: ${{ secrets.VPS_PASSWORD }}
           port: ${{ secrets.VPS_PORT }}
           script: |
-            APP_DIR="/home/deploy/brd_portal_noticias-homolog"
-            echo "=== Deploy HOMOLOG (código do PR) ==="
-            cd "$APP_DIR"
-            git fetch origin
-            # Homologa o código da branch de origem do PR
-            git reset --hard "origin/${{ github.head_ref }}"
-            docker compose --env-file .env.homolog -p brd-homolog \
-              -f docker-compose.yml -f docker-compose.homolog.yml up -d --build
-            echo "=== HOMOLOG deployed ==="
+            set -e
+            export NVM_DIR="$HOME/.nvm"; [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"; nvm use 20
+            APP_DIR="/home/apps/portal-homolog"; BRANCH="develop"
+            API_PORT=5102; WEB_PORT=3102; HOST="homolog.portal-noticias.com.br"
+            echo "=== Deploy HOMOLOG portal-noticias (código do PR) ==="
+            mkdir -p /home/apps
+            [ -d "$APP_DIR/.git" ] || git clone -b "$BRANCH" https://github.com/Alex-Buttielie/portal-noticias.git "$APP_DIR"
+            cd "$APP_DIR"; git fetch origin; git reset --hard "origin/${{ github.head_ref }}"
+            if [ ! -f backend/.env ]; then
+              SECRET=$(python3 -c "import secrets;print(secrets.token_urlsafe(50))")
+              printf 'DJANGO_SECRET_KEY=%s\nDJANGO_DEBUG=false\nDJANGO_ALLOWED_HOSTS=%s\nDJANGO_DB_ENGINE=sqlite3\nFRONTEND_BASE_URL=https://%s\n' "$SECRET" "$HOST" "$HOST" > backend/.env
+              chmod 600 backend/.env
+            fi
+            cd "$APP_DIR/frontend"
+            npm ci
+            NEXT_PUBLIC_API_BASE_URL="https://$HOST/api" NEXT_PUBLIC_SITE_URL="https://$HOST" npm run build
+            cd "$APP_DIR/backend"
+            python3 -m venv .venv 2>/dev/null || true
+            . .venv/bin/activate
+            pip install -r requirements.txt
+            set -a; . ./.env; set +a
+            python manage.py migrate
+            python manage.py collectstatic --noinput
+            pm2 delete portal-web-homolog 2>/dev/null || true
+            pm2 delete portal-api-homolog 2>/dev/null || true
+            cd "$APP_DIR/frontend"
+            PORT=$WEB_PORT pm2 start npm --name "portal-web-homolog" -- start
+            cd "$APP_DIR/backend"
+            PORT=$API_PORT DJANGO_SETTINGS_MODULE=config.settings pm2 start "$APP_DIR/backend/.venv/bin/gunicorn config.wsgi:application --bind 0.0.0.0:$API_PORT --workers 2" --name "portal-api-homolog"
+            pm2 save
+            echo "=== HOMOLOG deployed $WEB_PORT/$API_PORT ==="
 
       - name: Validate HOMOLOG
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_SSH_KEY }}
+          password: ${{ secrets.VPS_PASSWORD }}
           port: ${{ secrets.VPS_PORT }}
           script: |
-            APP_DIR="/home/deploy/brd_portal_noticias-homolog"
-            cd "$APP_DIR"
-            sleep 10
-            docker compose -p brd-homolog ps
-            HOMOLOG_API=$(grep -E '^DOMAIN_API=' .env.homolog | cut -d= -f2)
-            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -H "Host: $HOMOLOG_API" http://localhost:8080/healthz || echo "000")
-            echo "HTTP Status: $HTTP_CODE"
-            if [ "$HTTP_CODE" = "200" ]; then
-              echo "HOMOLOG validation passed"
-            else
-              echo "HOMOLOG validation returned $HTTP_CODE"
-              exit 1
-            fi
+            sleep 5
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:5102/healthz || echo "000")
+            echo "HOMOLOG api: $HTTP_CODE"
+            [ "$HTTP_CODE" = "200" ] && echo "HOMOLOG api ok" || echo "HOMOLOG api warn $HTTP_CODE"
+            curl -sf http://localhost:3102/ && echo "HOMOLOG web ok" || echo "HOMOLOG web warn"
+            pm2 status | grep portal || pm2 status
