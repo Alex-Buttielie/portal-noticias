@@ -70,7 +70,7 @@ jobs:
             cd "$APP_DIR"; git fetch --all --tags; git reset --hard "origin/$BRANCH"; git checkout "$VERSION"
             if [ ! -f backend/.env ]; then
               SECRET=$(python3 -c "import secrets;print(secrets.token_urlsafe(50))")
-              printf 'DJANGO_SECRET_KEY=%s\nDJANGO_DEBUG=false\nDJANGO_ALLOWED_HOSTS=%s,www.%s\nDJANGO_DB_ENGINE=postgresql\nDJANGO_DB_NAME=brd_portal_noticias\nDJANGO_DB_USER=portal_app\nDJANGO_DB_PASSWORD=troque-aqui\nDJANGO_DB_HOST=localhost\nDJANGO_DB_PORT=5432\nFRONTEND_BASE_URL=https://%s\n' "$SECRET" "$HOST" "$HOST" "$HOST" > backend/.env
+              printf 'DJANGO_SECRET_KEY=%s\nDJANGO_DEBUG=false\nDJANGO_ALLOWED_HOSTS=%s,www.%s,localhost,127.0.0.1\nDJANGO_DB_ENGINE=postgresql\nDJANGO_DB_NAME=brd_portal_noticias\nDJANGO_DB_USER=portal_app\nDJANGO_DB_PASSWORD=troque-aqui\nDJANGO_DB_HOST=localhost\nDJANGO_DB_PORT=5432\nFRONTEND_BASE_URL=https://%s\n' "$SECRET" "$HOST" "$HOST" "$HOST" > backend/.env
               chmod 600 backend/.env
             fi
             cd "$APP_DIR/frontend"

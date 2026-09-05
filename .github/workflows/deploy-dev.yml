@@ -54,7 +54,7 @@ jobs:
             cd "$APP_DIR"; git fetch origin; git reset --hard "origin/$BRANCH"
             if [ ! -f backend/.env ]; then
               SECRET=$(python3 -c "import secrets;print(secrets.token_urlsafe(50))")
-              printf 'DJANGO_SECRET_KEY=%s\nDJANGO_DEBUG=false\nDJANGO_ALLOWED_HOSTS=%s\nDJANGO_DB_ENGINE=postgresql\nDJANGO_DB_NAME=brd_portal_noticias\nDJANGO_DB_USER=portal_app\nDJANGO_DB_PASSWORD=troque-aqui\nDJANGO_DB_HOST=localhost\nDJANGO_DB_PORT=5432\nFRONTEND_BASE_URL=https://%s\n' "$SECRET" "$HOST" "$HOST" > backend/.env
+              printf 'DJANGO_SECRET_KEY=%s\nDJANGO_DEBUG=false\nDJANGO_ALLOWED_HOSTS=%s,localhost,127.0.0.1\nDJANGO_DB_ENGINE=postgresql\nDJANGO_DB_NAME=brd_portal_noticias\nDJANGO_DB_USER=portal_app\nDJANGO_DB_PASSWORD=troque-aqui\nDJANGO_DB_HOST=localhost\nDJANGO_DB_PORT=5432\nFRONTEND_BASE_URL=https://%s\n' "$SECRET" "$HOST" "$HOST" > backend/.env
               chmod 600 backend/.env
             fi
             cd "$APP_DIR/frontend"
@@ -87,6 +87,6 @@ jobs:
           port: ${{ secrets.VPS_PORT }}
           script: |
             sleep 5
-            curl -sf http://localhost:5101/healthz && echo "DEV api ok" || echo "DEV api check warn"
-            curl -sf http://localhost:3101/ && echo "DEV web ok" || echo "DEV web check warn"
+            curl -sf -o /dev/null http://localhost:5101/healthz && echo "DEV api ok" || echo "DEV api check warn"
+            curl -sf -o /dev/null http://localhost:3101/ && echo "DEV web ok" || echo "DEV web check warn"
             pm2 status | grep portal || pm2 status
