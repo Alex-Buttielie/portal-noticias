@@ -1,8 +1,15 @@
 # Deploy na VPS — passo a passo
 
-Guia de provisionamento da VPS HostGator (root/SSH) para a nova arquitetura
-de infra (`docker-compose.yml` + `Caddyfile` na raiz do projeto). Faça uma
-vez por VPS; deploys seguintes usam só a seção "Deploy de uma nova versão".
+> **Caminho ativo: PM2 + Nginx** (ver `CI-CD.md`) — mesma infra do deploy
+> anterior: `/home/apps/portal-{dev,homolog,prod}`, portas 310x/510x,
+> secrets `VPS_HOST/USER/PASSWORD/PORT`. Este arquivo documenta a variante
+> Docker + Caddy, mantida como alternativa local/opcional (não usada pela
+> esteira). O deploy de produção sai da tag `v*` via
+> `.github/workflows/deploy-prod.yml`.
+>
+> Guia de provisionamento da VPS HostGator (root/SSH) para a nova arquitetura
+> de infra (`docker-compose.yml` + `Caddyfile` na raiz do projeto). Faça uma
+> vez por VPS; deploys seguintes usam só a seção "Deploy de uma nova versão".
 
 ## 1. Hardening inicial do sistema operacional
 

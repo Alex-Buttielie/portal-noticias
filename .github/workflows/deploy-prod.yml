@@ -1,5 +1,8 @@
 name: Deploy PROD
 
+# Mesma infra do deploy antigo (backup/remote-*-20260904): PM2 + Nginx na VPS,
+# /home/apps/portal-prod, portas 3103/5103, secrets VPS_HOST/USER/PASSWORD/PORT.
+# Muda só o software: frontend/ + backend/ (Django real) no lugar de apps/*.
 on:
   push:
     tags:
@@ -16,6 +19,28 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: main
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: npm ci
+        working-directory: frontend
+      - run: npx tsc --noEmit
+        working-directory: frontend
+      - run: pip install -r requirements.txt
+        working-directory: backend
+        env:
+          DJANGO_DEBUG: "true"
+          DJANGO_DB_ENGINE: sqlite3
+          DJANGO_CACHE_BACKEND: locmem
+      - run: python manage.py check
+        working-directory: backend
+        env:
+          DJANGO_DEBUG: "true"
+          DJANGO_DB_ENGINE: sqlite3
+          DJANGO_CACHE_BACKEND: locmem
 
       - name: Get version
         id: version
@@ -31,42 +56,59 @@ jobs:
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_SSH_KEY }}
+          password: ${{ secrets.VPS_PASSWORD }}
           port: ${{ secrets.VPS_PORT }}
           script: |
-            APP_DIR="/home/deploy/brd_portal_noticias"
-            echo "=== Deploy PROD ${{ steps.version.outputs.VERSION }} ==="
-            cd "$APP_DIR"
-            git fetch origin
-            git reset --hard "origin/main"
-            docker compose --env-file .env.production -p brd-prod \
-              up -d --build
-            echo "=== PROD ${{ steps.version.outputs.VERSION }} deployed ==="
+            set -e
+            export NVM_DIR="$HOME/.nvm"; [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"; nvm use 20
+            APP_DIR="/home/apps/portal-prod"; BRANCH="main"; VERSION="${{ steps.version.outputs.VERSION }}"
+            API_PORT=5103; WEB_PORT=3103
+            HOST="portal-noticias.com.br"
+            echo "=== Deploy PROD portal-noticias $VERSION ==="
+            mkdir -p /home/apps
+            [ -d "$APP_DIR/.git" ] || git clone -b "$BRANCH" https://github.com/Alex-Buttielie/portal-noticias.git "$APP_DIR"
+            cd "$APP_DIR"; git fetch --all --tags; git reset --hard "origin/$BRANCH"; git checkout "$VERSION"
+            if [ ! -f backend/.env ]; then
+              SECRET=$(python3 -c "import secrets;print(secrets.token_urlsafe(50))")
+              printf 'DJANGO_SECRET_KEY=%s\nDJANGO_DEBUG=false\nDJANGO_ALLOWED_HOSTS=%s,www.%s\nDJANGO_DB_ENGINE=sqlite3\nFRONTEND_BASE_URL=https://%s\n' "$SECRET" "$HOST" "$HOST" "$HOST" > backend/.env
+              chmod 600 backend/.env
+            fi
+            cd "$APP_DIR/frontend"
+            npm ci
+            NEXT_PUBLIC_API_BASE_URL="https://$HOST/api" NEXT_PUBLIC_SITE_URL="https://$HOST" npm run build
+            cd "$APP_DIR/backend"
+            python3 -m venv .venv 2>/dev/null || true
+            . .venv/bin/activate
+            pip install -r requirements.txt
+            set -a; . ./.env; set +a
+            python manage.py migrate
+            python manage.py collectstatic --noinput
+            pm2 delete portal-web-prod 2>/dev/null || true
+            pm2 delete portal-api-prod 2>/dev/null || true
+            cd "$APP_DIR/frontend"
+            PORT=$WEB_PORT pm2 start npm --name "portal-web-prod" -- start
+            cd "$APP_DIR/backend"
+            PORT=$API_PORT DJANGO_SETTINGS_MODULE=config.settings pm2 start "$APP_DIR/backend/.venv/bin/gunicorn config.wsgi:application --bind 0.0.0.0:$API_PORT --workers 2" --name "portal-api-prod"
+            pm2 save
+            echo "=== PROD $VERSION deployed $WEB_PORT/$API_PORT ==="
 
       - name: Validate PROD
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_SSH_KEY }}
+          password: ${{ secrets.VPS_PASSWORD }}
           port: ${{ secrets.VPS_PORT }}
           script: |
-            APP_DIR="/home/deploy/brd_portal_noticias"
-            cd "$APP_DIR"
-            sleep 15
-            docker compose -p brd-prod ps
-            PROD_API=$(grep -E '^DOMAIN_API=' .env.production | cut -d= -f2)
-            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "https://$PROD_API/healthz" || echo "000")
-            echo "HTTP Status: $HTTP_CODE"
-            if [ "$HTTP_CODE" = "200" ]; then
-              echo "PROD validation passed"
-            else
-              echo "PROD validation FAILED - ver logs e fazer rollback para a tag anterior"
-              docker compose -p brd-prod logs --tail 50 web
-              exit 1
-            fi
+            sleep 8
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:5103/healthz || echo "000")
+            echo "PROD api: $HTTP_CODE"
+            if [ "$HTTP_CODE" = "200" ]; then echo "PROD ok"; else echo "PROD FAIL"; pm2 logs portal-api-prod --lines 30 --nostream 2>/dev/null || pm2 logs --lines 30 --nostream; exit 1; fi
+            curl -sf http://localhost:3103/ && echo "PROD web ok" || { echo "PROD web FAIL"; exit 1; }
+            pm2 status | grep portal || pm2 status
 
       - name: Notify deployment success
         run: |
           echo "Production deployment successful!"
           echo "Version: ${{ steps.version.outputs.VERSION }}"
+          echo "URL: https://portal-noticias.com.br"
