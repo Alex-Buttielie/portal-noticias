@@ -1,6 +1,24 @@
 from django.contrib import admin
 
-from .models import NewsCluster, NewsItem, RegistroExecucaoIngestao
+from .models import ConfiguracaoRobo, FonteRobo, NewsCluster, NewsItem, RegistroExecucaoIngestao
+
+
+@admin.register(FonteRobo)
+class FonteRoboAdmin(admin.ModelAdmin):
+    list_display = ["nome", "url", "ativo", "categoria_padrao", "atualizado_em"]
+    list_filter = ["ativo"]
+    search_fields = ["nome", "url"]
+
+
+@admin.register(ConfiguracaoRobo)
+class ConfiguracaoRoboAdmin(admin.ModelAdmin):
+    list_display = ["intervalo_minutos", "ativo", "llm_model", "atualizado_em"]
+
+    def has_add_permission(self, request):
+        return not ConfiguracaoRobo.objects.filter(pk=1).exists()
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 class NewsItemInline(admin.TabularInline):
