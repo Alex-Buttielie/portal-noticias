@@ -248,6 +248,20 @@ export function obterFeed(params: {
   return request(`/api/feed/${qs ? `?${qs}` : ""}`, { method: "GET" });
 }
 
+export function obterUrgentes(limite = 6): Promise<FeedEntrada[]> {
+  return request(`/api/feed/urgentes/?limite=${limite}`, { method: "GET" });
+}
+export function obterMaisLidas(limite = 5): Promise<FeedEntrada[]> {
+  return request(`/api/feed/mais-lidas/?limite=${limite}`, { method: "GET" });
+}
+export async function assinarNewsletterPublica(email: string, categoria = "geral"): Promise<{ detail: string }> {
+  try {
+    return await request("/api/newsletter/inscrever-publica/", { method: "POST", body: JSON.stringify({ email, categoria }) });
+  } catch {
+    return request("/api/landing/lista-espera/", { method: "POST", body: JSON.stringify({ nome: email.split("@")[0], email, interesses: [categoria], aceite_comunicacao: true }) });
+  }
+}
+
 export interface FonteDetalhe {
   nome_fonte: string;
   url_fonte_original: string;
@@ -770,6 +784,14 @@ export function removerMembroB2B(token: string, email: string): Promise<void> {
 // 20260902-1521-painel-metricas-negocio). Só admin (papel === "admin").
 // ---------------------------------------------------------------------------
 
+export interface SeriePonto {
+  dia: string;
+  total: number;
+}
+export interface DistribuicaoItem {
+  label: string;
+  total: number;
+}
 export interface PainelMetricas {
   periodo_dias: number;
   usuarios_cadastrados_total: number;
@@ -784,8 +806,146 @@ export interface PainelMetricas {
   churn_periodo: number;
   taxa_renovacao_periodo: number;
   organizacoes_b2b_ativas: number;
+  custo_llm_hoje_usd?: number;
+  teto_llm_diario_usd?: number;
+  teto_llm_excedido_hoje?: boolean;
+  series: Record<string, SeriePonto[]>;
+  distribuicoes: Record<string, DistribuicaoItem[]>;
+  kpis: {
+    comunidade: { publicacoes_total: number; publicacoes_publicadas: number; comentarios_total: number; seguidores_total: number };
+    moderacao: { denuncias_pendentes: number; denuncias_total: number; acoes_total: number };
+    lista_espera: { total: number };
+    newsletter: { ativas: number; total: number };
+    b2b: { ativas: number; total: number; criterios_ativos: number };
+    ingestao: { noticias_periodo: number; noticias_pendentes: number; taxa_aprovacao: number; custo_periodo: number };
+  };
+  funil: { lista_espera: number; cadastrados: number; assinantes: number; taxa_lista_para_cadastro: number; taxa_cadastro_para_premium: number };
 }
 
 export function obterPainelMetricas(token: string, dias = 30): Promise<PainelMetricas> {
   return request(`/api/metricas/painel/?dias=${dias}`, { method: "GET" }, token);
 }
+
+export interface Paginated<T> {
+  count: number;
+  next: string | null;
+  previous: string | null;
+  results: T[];
+}
+export interface AdminUsuario {
+  id: number;
+  email: string;
+  nome: string;
+  papel: string;
+  is_active: boolean;
+  email_verificado: boolean;
+  date_joined: string;
+}
+export interface AdminFilaItem {
+  tipo: string;
+  id: number;
+  titulo: string;
+  categoria: string;
+  status_revisao: string;
+  nome_fonte: string;
+  url_fonte_original: string;
+  urgente: boolean;
+  cluster: number | null;
+  cluster_titulo: string;
+  timestamp_ingestao: string;
+}
+export interface AdminAssinatura {
+  id: number;
+  user_email: string;
+  user_nome: string;
+  plan: Plano;
+  status: string;
+  preco_cobrado: string;
+  criado_em: string;
+}
+
+export function adminListarUsuarios(token: string, params: { search?: string; papel?: string; page?: number } = {}): Promise<Paginated<AdminUsuario>> {
+  const q = new URLSearchParams();
+  if (params.search) q.set("search", params.search);
+  if (params.papel) q.set("papel", params.papel);
+  if (params.page) q.set("page", String(params.page));
+  const qs = q.toString();
+  return request(`/api/admin/usuarios/${qs ? `?${qs}` : ""}`, { method: "GET" }, token);
+}
+export function adminAtualizarUsuario(token: string, id: number, dados: { papel?: string; is_active?: boolean }): Promise<AdminUsuario> {
+  return request(`/api/admin/usuarios/${id}/`, { method: "PATCH", body: JSON.stringify(dados) }, token);
+}
+export function adminListarFila(token: string, params: { status?: string; page?: number } = {}): Promise<Paginated<AdminFilaItem>> {
+  const q = new URLSearchParams();
+  if (params.status) q.set("status", params.status);
+  if (params.page) q.set("page", String(params.page));
+  const qs = q.toString();
+  return request(`/api/admin/fila/${qs ? `?${qs}` : ""}`, { method: "GET" }, token);
+}
+export function adminDecidirFila(token: string, id: number, acao: "aprovar" | "rejeitar"): Promise<{ detail: string }> {
+  return request(`/api/admin/fila/${id}/decisao/`, { method: "POST", body: JSON.stringify({ acao }) }, token);
+}
+export function adminListarPlanos(token: string): Promise<Paginated<Plano>> {
+  return request("/api/admin/planos/", { method: "GET" }, token);
+}
+export function adminCriarPlano(token: string, dados: { nome: string; preco: string; duracao_dias: number; ativo?: boolean }): Promise<Plano> {
+  return request("/api/admin/planos/", { method: "POST", body: JSON.stringify(dados) }, token);
+}
+export function adminAtualizarPlano(token: string, id: number, dados: Record<string, unknown>): Promise<Plano> {
+  return request(`/api/admin/planos/${id}/`, { method: "PATCH", body: JSON.stringify(dados) }, token);
+}
+export function adminListarLimites(token: string): Promise<Paginated<{ id: number; chave: string; plano: string; valor: string; descricao: string }>> {
+  return request("/api/admin/limites/", { method: "GET" }, token);
+}
+export function adminAtualizarLimite(token: string, id: number, dados: { valor: string; descricao?: string }): Promise<{ id: number; chave: string; plano: string; valor: string }> {
+  return request(`/api/admin/limites/${id}/`, { method: "PATCH", body: JSON.stringify(dados) }, token);
+}
+export function adminListarAssinaturas(token: string, params: { status?: string; search?: string; page?: number } = {}): Promise<Paginated<AdminAssinatura>> {
+  const q = new URLSearchParams();
+  if (params.status) q.set("status", params.status);
+  if (params.search) q.set("search", params.search);
+  if (params.page) q.set("page", String(params.page));
+  const qs = q.toString();
+  return request(`/api/admin/assinaturas/${qs ? `?${qs}` : ""}`, { method: "GET" }, token);
+}
+export function adminObterAssinatura(token: string, id: number): Promise<AdminAssinatura & { pagamentos: { id: number; valor: string; status: string; criado_em: string }[] }> {
+  return request(`/api/admin/assinaturas/${id}/`, { method: "GET" }, token);
+}
+export function adminListarDenuncias(token: string, params: { status?: string; page?: number } = {}): Promise<Paginated<{ id: number; motivo: string; detalhe: string; status: string; denunciante_email: string; criado_em: string; alvo_repr: string | null }>> {
+  const q = new URLSearchParams();
+  if (params.status) q.set("status", params.status);
+  if (params.page) q.set("page", String(params.page));
+  const qs = q.toString();
+  return request(`/api/admin/moderacao/denuncias/${qs ? `?${qs}` : ""}`, { method: "GET" }, token);
+}
+export function adminAplicarAcaoDenuncia(token: string, id: number, dados: { tipo: string; motivo: string; procedente?: boolean }): Promise<{ detail: string }> {
+  return request(`/api/admin/moderacao/denuncias/${id}/acao/`, { method: "POST", body: JSON.stringify(dados) }, token);
+}
+
+export interface FonteRobo { id: number; nome: string; url: string; ativo: boolean; categoria_padrao: string; criado_em: string; atualizado_em: string }
+export interface ConfigRobo {
+  intervalo_minutos: number; ativo: boolean; categorias_sensiveis: string; limiar_fontes_alta_relevancia: number;
+  dedup_limiar_similaridade: number; dedup_janela_horas: number; dedup_max_itens: number;
+  resumo_similaridade_maxima: number; resumo_trecho_copiado_maximo: number; dedup_cluster_sempre_exige_revisao: boolean;
+  llm_model: string; llm_api_base_url: string; llm_tamanho_lote: number; llm_max_tokens_por_item: number;
+  llm_teto_gasto_diario_usd: number; llm_preco_por_1k_tokens: number; llm_timeout_segundos: number; atualizado_em: string;
+}
+export interface ExecucaoRobo {
+  id: number; executado_em: string; itens_por_fonte: Record<string, number>; erros_por_fonte: Record<string, string>;
+  total_itens_ingeridos: number; total_grupos_formados: number; total_duplicatas_agrupadas: number;
+  chamadas_summarization_provider: number; tokens_utilizados_summarization: number | null; custo_estimado_summarization_usd: number | null;
+}
+export function robosListarFontes(token: string): Promise<FonteRobo[]> { return request("/api/admin/robos/fontes/", { method: "GET" }, token); }
+export function robosCriarFonte(token: string, dados: { nome: string; url: string; ativo?: boolean; categoria_padrao?: string }): Promise<FonteRobo> {
+  return request("/api/admin/robos/fontes/", { method: "POST", body: JSON.stringify(dados) }, token);
+}
+export function robosAtualizarFonte(token: string, id: number, dados: Partial<FonteRobo>): Promise<FonteRobo> {
+  return request(`/api/admin/robos/fontes/${id}/`, { method: "PATCH", body: JSON.stringify(dados) }, token);
+}
+export function robosRemoverFonte(token: string, id: number): Promise<void> { return request(`/api/admin/robos/fontes/${id}/`, { method: "DELETE" }, token); }
+export function robosObterConfig(token: string): Promise<ConfigRobo> { return request("/api/admin/robos/config/", { method: "GET" }, token); }
+export function robosSalvarConfig(token: string, dados: Partial<ConfigRobo>): Promise<ConfigRobo> {
+  return request("/api/admin/robos/config/", { method: "PATCH", body: JSON.stringify(dados) }, token);
+}
+export function robosListarExecucoes(token: string): Promise<ExecucaoRobo[]> { return request("/api/admin/robos/execucoes/", { method: "GET" }, token); }
+export function robosExecutar(token: string): Promise<ExecucaoRobo> { return request("/api/admin/robos/executar/", { method: "POST" }, token); }
