@@ -38,7 +38,9 @@ jobs:
       DJANGO_DB_PASSWORD: postgres
       DJANGO_DB_HOST: localhost
       DJANGO_DB_PORT: "5432"
-      DJANGO_CACHE_BACKEND: locmem
+      # SEM DJANGO_CACHE_BACKEND=locmem de propósito: a suíte foi desenhada
+      # para throttle inerte sem Redis (o teste dedicado de throttling isola
+      # o próprio cache); locmem compartilhado causa 429 espúrios entre testes.
     defaults:
       run:
         working-directory: backend
