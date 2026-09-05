@@ -13,20 +13,20 @@ export interface VisualCategoria {
 }
 
 const MAPA_CATEGORIAS: Record<string, VisualCategoria> = {
-  política: { cor: "#b5473a", gradiente: "linear-gradient(135deg, #b5473a, #7a2e26)", emoji: "🏛️" },
-  economia: { cor: "#1b7f5f", gradiente: "linear-gradient(135deg, #1b7f5f, #0f4f3b)", emoji: "📈" },
-  esportes: { cor: "#e08a1e", gradiente: "linear-gradient(135deg, #e08a1e, #a85f0f)", emoji: "⚽" },
-  tecnologia: { cor: "#3a6fd8", gradiente: "linear-gradient(135deg, #3a6fd8, #23458f)", emoji: "💻" },
-  saúde: { cor: "#1f9e8f", gradiente: "linear-gradient(135deg, #1f9e8f, #146a60)", emoji: "🩺" },
-  saude: { cor: "#1f9e8f", gradiente: "linear-gradient(135deg, #1f9e8f, #146a60)", emoji: "🩺" },
-  cultura: { cor: "#9b4fc9", gradiente: "linear-gradient(135deg, #9b4fc9, #6b2f8f)", emoji: "🎭" },
-  cidades: { cor: "#c9612f", gradiente: "linear-gradient(135deg, #c9612f, #8f4520)", emoji: "🏙️" },
-  mundo: { cor: "#2f8fc9", gradiente: "linear-gradient(135deg, #2f8fc9, #1f5f8f)", emoji: "🌍" },
-  ciência: { cor: "#4f7fd8", gradiente: "linear-gradient(135deg, #4f7fd8, #2f4f9f)", emoji: "🔬" },
-  ciencia: { cor: "#4f7fd8", gradiente: "linear-gradient(135deg, #4f7fd8, #2f4f9f)", emoji: "🔬" },
+  política: { cor: "#0f0f0f", gradiente: "linear-gradient(180deg, #0f0f0f 0%, #2e2a26 100%)", emoji: "●" },
+  economia: { cor: "#57534e", gradiente: "linear-gradient(180deg, #1c1917 0%, #44403c 100%)", emoji: "●" },
+  esportes: { cor: "#78716c", gradiente: "linear-gradient(180deg, #1c1917 0%, #57534e 100%)", emoji: "●" },
+  tecnologia: { cor: "#44403c", gradiente: "linear-gradient(180deg, #0f0f0f 0%, #37302b 100%)", emoji: "●" },
+  saúde: { cor: "#57534e", gradiente: "linear-gradient(180deg, #1c1917 0%, #3a3530 100%)", emoji: "●" },
+  saude: { cor: "#57534e", gradiente: "linear-gradient(180deg, #1c1917 0%, #3a3530 100%)", emoji: "●" },
+  cultura: { cor: "#44403c", gradiente: "linear-gradient(180deg, #0f0f0f 0%, #2e2a26 100%)", emoji: "●" },
+  cidades: { cor: "#78716c", gradiente: "linear-gradient(180deg, #1c1917 0%, #44403c 100%)", emoji: "●" },
+  mundo: { cor: "#0f0f0f", gradiente: "linear-gradient(180deg, #0f0f0f 0%, #2e2a26 100%)", emoji: "●" },
+  ciência: { cor: "#44403c", gradiente: "linear-gradient(180deg, #1c1917 0%, #37302b 100%)", emoji: "●" },
+  ciencia: { cor: "#44403c", gradiente: "linear-gradient(180deg, #1c1917 0%, #37302b 100%)", emoji: "●" },
 };
 
-const CORES_RESERVA = ["#6b7280", "#8a6b4f", "#5f7a8f", "#7a5f8f"];
+const CORES_RESERVA = ["#78716c", "#a8a29e", "#57534e", "#44403c"];
 
 function hashTexto(texto: string): number {
   let hash = 0;

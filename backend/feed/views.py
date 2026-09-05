@@ -78,3 +78,21 @@ class ItemDetailView(APIView):
         dados = dict(FeedDetalheSerializer(detalhe).data)
         dados["exibir_publicidade"] = services.exibir_publicidade(request.user)
         return Response(dados)
+
+
+class UrgentesView(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        limite = min(12, max(1, int(request.query_params.get("limite", 6))))
+        entradas = services.urgentes(limite=limite)
+        return Response(FeedEntrySerializer(entradas, many=True).data)
+
+
+class MaisLidasView(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        limite = min(12, max(1, int(request.query_params.get("limite", 5))))
+        entradas = services.mais_lidas(limite=limite)
+        return Response(FeedEntrySerializer(entradas, many=True).data)
