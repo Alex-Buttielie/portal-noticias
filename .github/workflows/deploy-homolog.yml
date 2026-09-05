@@ -1,0 +1,54 @@
+name: Deploy HOMOLOG
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+jobs:
+  deploy-homolog:
+    runs-on: ubuntu-latest
+    environment:
+      name: homolog
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy to VPS (HOMOLOG)
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT }}
+          script: |
+            APP_DIR="/home/deploy/brd_portal_noticias-homolog"
+            echo "=== Deploy HOMOLOG (código do PR) ==="
+            cd "$APP_DIR"
+            git fetch origin
+            # Homologa o código da branch de origem do PR
+            git reset --hard "origin/${{ github.head_ref }}"
+            docker compose --env-file .env.homolog -p brd-homolog \
+              -f docker-compose.yml -f docker-compose.homolog.yml up -d --build
+            echo "=== HOMOLOG deployed ==="
+
+      - name: Validate HOMOLOG
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT }}
+          script: |
+            APP_DIR="/home/deploy/brd_portal_noticias-homolog"
+            cd "$APP_DIR"
+            sleep 10
+            docker compose -p brd-homolog ps
+            HOMOLOG_API=$(grep -E '^DOMAIN_API=' .env.homolog | cut -d= -f2)
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -H "Host: $HOMOLOG_API" http://localhost:8080/healthz || echo "000")
+            echo "HTTP Status: $HTTP_CODE"
+            if [ "$HTTP_CODE" = "200" ]; then
+              echo "HOMOLOG validation passed"
+            else
+              echo "HOMOLOG validation returned $HTTP_CODE"
+              exit 1
+            fi

@@ -1,5 +1,7 @@
 # Segredos de produção — nunca commitar.
 .env.production
+.env.homolog
+.env.dev
 
 # Artefatos de backup gerados localmente (infra/backup/pg_backup.sh).
 infra/backup/*.dump

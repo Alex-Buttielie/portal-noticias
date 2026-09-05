@@ -124,3 +124,36 @@ Isso reconstrói só as imagens que mudaram e reinicia os containers
 afetados; `db`/`redis` (com dados persistidos em volume) não são recriados.
 Ver `.github/workflows/ci.yml` — a suíte de testes roda automaticamente a
 cada push, então um `git pull` só deve acontecer depois de o CI passar.
+
+## Ambiente de homologação (multi-env)
+
+Ideia incorporada do protótipo `testes-ia` (que tinha DEV/HOMOLOG/PROD via
+PM2 — aqui adaptada para Docker+Caddy, sem PM2): rode uma segunda cópia da
+stack na mesma VPS com domínios e portas diferentes, usando o override
+`docker-compose.homolog.yml` na raiz do projeto.
+
+```bash
+cp .env.production.example .env.homolog
+# edite .env.homolog: DOMAIN_API=homolog-api.seu-dominio.com.br,
+# DOMAIN_FRONTEND=homolog.seu-dominio.com.br, senha do Postgres DIFERENTE
+# da produção, SECRET_KEY diferente.
+chmod 600 .env.homolog
+docker compose --env-file .env.homolog -f docker-compose.yml \
+  -f docker-compose.homolog.yml up -d --build
+```
+
+Notas:
+
+- O override publica 8080/8443 no host para conviver com a produção
+  (80/443) na mesma VPS — aponte os DNS de homolog para o mesmo IP e, se
+  houver Cloudflare na frente, crie os registros `homolog*` com proxy
+  ativado do mesmo jeito.
+- Cada ambiente tem seus próprios volumes? **Não por padrão**: se subir os
+  dois composes no mesmo host Docker, os volumes nomeados (`postgres_data`,
+  etc.) colidem. Para homolog na mesma VPS, adicione `-p homolog` (nome de
+  projeto Compose separado) ao comando acima — isso prefixa containers,
+  redes e volumes, isolando os dados da produção.
+- O que **não** foi trazido do `testes-ia`: os 25 scripts `scripts/fix_*`
+  (debug manual pontual, sem valor permanente), as regras Firestore
+  (`firestore.rules` — este projeto usa Postgres, não Firestore) e o
+  deploy via PM2 (substituído pelo Compose+Caddy aqui).

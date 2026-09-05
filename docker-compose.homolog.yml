@@ -1,0 +1,27 @@
+# Override de homologação (ideia de multi-env incorporada do protótipo
+# `testes-ia`, que tinha DEV/HOMOLOG/PROD via PM2 — aqui adaptada para a
+# arquitetura Docker+Caddy deste projeto, sem PM2/Nginx manual).
+#
+# Uso (na VPS ou local):
+#   docker compose --env-file .env.homolog -f docker-compose.yml \
+#     -f docker-compose.homolog.yml up -d --build
+#
+# Copie `.env.production.example` para `.env.homolog` e troque os domínios
+# (ex.: homolog-api.seu-dominio.com.br) + credenciais. NUNCA commitar o
+# `.env.homolog` real (ver .gitignore).
+#
+# O que este override muda em relação à produção:
+# - publica 8080/8443 no host em vez de 80/443 (convive com a prod na
+#   mesma VPS sem conflito de porta — o Caddy da homolog termina o TLS
+#   nessas portas; em VPS dedicada pode trocar para 80/443);
+# - reduz workers do Celery para 1 (homolog não precisa de throughput);
+# - DEBUG continua vindo do env-file (mantenha false também em homolog).
+
+services:
+  caddy:
+    ports:
+      - "8080:80"
+      - "8443:443"
+
+  celery-worker:
+    command: celery -A config worker --loglevel=info --concurrency=1 --max-tasks-per-child=100

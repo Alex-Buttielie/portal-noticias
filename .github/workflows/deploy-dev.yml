@@ -1,0 +1,48 @@
+name: Deploy DEV
+
+on:
+  push:
+    branches: [develop]
+
+jobs:
+  deploy-dev:
+    runs-on: ubuntu-latest
+    environment:
+      name: development
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: develop
+
+      - name: Deploy to VPS (DEV)
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT }}
+          script: |
+            APP_DIR="/home/deploy/brd_portal_noticias-dev"
+            echo "=== Deploy DEV ==="
+            cd "$APP_DIR"
+            git fetch origin
+            git reset --hard "origin/develop"
+            docker compose --env-file .env.dev -p brd-dev \
+              -f docker-compose.yml -f docker-compose.dev.yml up -d --build
+            echo "=== DEV deployed ==="
+
+      - name: Validate DEV
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT }}
+          script: |
+            APP_DIR="/home/deploy/brd_portal_noticias-dev"
+            cd "$APP_DIR"
+            sleep 10
+            docker compose -p brd-dev ps
+            DEV_API=$(grep -E '^DOMAIN_API=' .env.dev | cut -d= -f2)
+            curl -sf -H "Host: $DEV_API" http://localhost:8081/healthz
+            echo "DEV validation passed"
