@@ -69,3 +69,15 @@ sobrevivem ao `git reset`. PM2 é reiniciado, nunca apagado sem recriação.
 | Deploy PROD | `deploy-prod.yml` | tag `v*` + Release (SSH `VPS_PASSWORD`, PM2 3103/5103) |
 
 Secrets exigidos (os mesmos de antes): `VPS_HOST`, `VPS_USER`, `VPS_PASSWORD`, `VPS_PORT`.
+
+### Mapa de branches (não apagar)
+
+| Branch | Papel | Deploy |
+|--------|-------|--------|
+| `main` | produção (só via merge de PR + tag `v*`) | PROD :3103/5103 |
+| `develop` | integração (push direto liberado) | DEV :3101/5101 |
+| PR `develop` → `main` | validação (manter aberto até aprovar) | HOMOLOG :3102/5102 |
+| `homolog-retest` | legado do deploy anterior (congelada) | nenhum |
+| `backup/remote-*` | foto do deploy antigo (nunca commitar em cima) | nenhum |
+| `v1.0.0` | tag anulada (script Docker, não usar) | — |
+| `vX.Y.Z` | releases válidas (a partir de `v1.0.1`) | PROD |
