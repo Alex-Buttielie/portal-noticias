@@ -79,7 +79,7 @@ export default async function PaginaDetalheItem({ params }: { params: { id: stri
           />
         </>
       )}
-      <DetalheNoticia tipo="item" id={params.id} />
+      <DetalheNoticia tipo="item" id={params.id} inicial={detalhe} />
     </>
   );
 }

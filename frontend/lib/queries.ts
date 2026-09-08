@@ -37,19 +37,23 @@ export function useMaisLidas(limite = 5): UseQueryResult<api.FeedEntrada[], Erro
   return useQuery({ queryKey: ["mais-lidas", limite], queryFn: () => api.obterMaisLidas(limite) });
 }
 
-export function useDetalheCluster(id: number | string): UseQueryResult<api.FeedDetalhe, Error> {
+export function useDetalheCluster(id: number | string, inicial?: api.FeedDetalhe | null): UseQueryResult<api.FeedDetalhe, Error> {
   return useQuery({
     queryKey: ["cluster", String(id)],
     queryFn: () => api.obterDetalheCluster(id),
     enabled: Boolean(id),
+    initialData: inicial ?? undefined,
+    staleTime: 60 * 1000,
   });
 }
 
-export function useDetalheItem(id: number | string): UseQueryResult<api.FeedDetalhe, Error> {
+export function useDetalheItem(id: number | string, inicial?: api.FeedDetalhe | null): UseQueryResult<api.FeedDetalhe, Error> {
   return useQuery({
     queryKey: ["item", String(id)],
     queryFn: () => api.obterDetalheItem(id),
     enabled: Boolean(id),
+    initialData: inicial ?? undefined,
+    staleTime: 60 * 1000,
   });
 }
 
