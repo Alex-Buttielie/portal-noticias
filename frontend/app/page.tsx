@@ -4,13 +4,11 @@ import { Suspense, useCallback, useEffect, useRef, useState, type FormEvent } fr
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import * as api from "@/lib/api";
-import { useFeed } from "@/lib/queries";
 import * as intencao from "@/lib/intent";
 import * as bookmarks from "@/lib/bookmarks";
 import { obterVisualCategoria } from "@/lib/categoryVisuals";
 import { useToast } from "@/components/ToastProvider";
 import PorQueEstouVendoIsso from "@/components/PorQueEstouVendoIsso";
-import Chip from "@/components/Chip";
 import BotaoSalvar from "@/components/BotaoSalvar";
 import TickerUrgente from "@/components/TickerUrgente";
 import MaisLidas from "@/components/MaisLidas";
@@ -19,8 +17,8 @@ import { Button } from "@/components/ui/Button";
 import { HorizontalNewsCard, NewsCard } from "@/components/ui/Cards";
 import { EmptyState, ErrorState, SkeletonLista } from "@/components/ui/Estados";
 import { SearchBar } from "@/components/ui/SearchBar";
+import { useFeed, usePublicacoes } from "@/lib/queries";
 
-const CATEGORIAS_REFERENCIA = ["política", "economia", "esportes", "tecnologia", "saúde", "cultura", "cidades", "mundo", "ciência"];
 const INTERVALO_VERIFICACAO_NOVIDADES_MS = 60000;
 
 function chaveDaEntrada(e: api.FeedEntrada): string {
@@ -147,10 +145,11 @@ function PaginaFeedInner() {
   const mostrarSugestao = !sugestaoDispensada && !categoria && !buscaAtiva && categoriaPreferida !== null;
   const modoMosaico = !categoria && !buscaAtiva && !verSalvos;
   const itemHero = modoMosaico && itens.length > 0 ? itens[0] : null;
-  const itensMosaicoLateral = modoMosaico ? itens.slice(1, 4) : [];
-  const itensAposMosaico = modoMosaico ? itens.slice(4) : itens;
+  const itensAposMosaico = modoMosaico ? itens.slice(1) : itens;
   const grupos = modoMosaico ? agruparPorCategoria(itensAposMosaico) : {};
   const categoriasComConteudo = Object.keys(grupos).slice(0, 3);
+  const comunidadeQuery = usePublicacoes({ destaque: true, enabled: modoMosaico });
+  const comunidadeTeaser = (comunidadeQuery.data ?? []).slice(0, 3);
 
   async function onNewsletter(e: FormEvent) {
     e.preventDefault();
@@ -239,21 +238,23 @@ function PaginaFeedInner() {
         </div>
       )}
 
-      <div className="filtro-categorias" role="group" aria-label="Filtrar por categoria">
-        <Chip selecionado={categoria === ""} aoClicar={() => setCategoria("")}>
-          Todas
-        </Chip>
-        {CATEGORIAS_REFERENCIA.map((c) => {
-          const v = obterVisualCategoria(c);
-          return (
-            <Chip key={c} selecionado={categoria === c} aoClicar={() => setCategoria(categoria === c ? "" : c)}>
-              <span className="cartao-emoji" aria-hidden="true">
-                {v.emoji}
-              </span>
-              {c}
-            </Chip>
-          );
-        })}
+      <div className="fluxo-contexto" role="group" aria-label="Contexto da listagem">
+        {categoria && (
+          <p className="texto-suave">
+            Filtrando por <strong>{categoria}</strong> —{" "}
+            <button type="button" className="link-nulo" onClick={() => setCategoria("")}>
+              limpar filtro
+            </button>
+          </p>
+        )}
+        {buscaAtiva && (
+          <p className="texto-suave">
+            Busca por <strong>“{buscaAtiva}”</strong> —{" "}
+            <button type="button" className="link-nulo" onClick={() => setBuscaAtiva("")}>
+              limpar busca
+            </button>
+          </p>
+        )}
       </div>
 
       {feed.isLoading && <SkeletonLista quantidade={6} />}
@@ -292,16 +293,10 @@ function PaginaFeedInner() {
               Ler agora
             </Link>
             <BotaoSalvar entrada={itemHero} />
+            <a href="#ultimas" className="hero__seguir">
+              Explorar o rio ↓
+            </a>
           </div>
-          {itensMosaicoLateral.length > 0 && (
-            <ol className="hero__lista">
-              {itensMosaicoLateral.map((entrada, i) => (
-                <li key={chaveDaEntrada(entrada)}>
-                  <HorizontalNewsCard entrada={entrada} posicao={i + 2} />
-                </li>
-              ))}
-            </ol>
-          )}
         </section>
       )}
 
@@ -310,11 +305,9 @@ function PaginaFeedInner() {
           <div>
             {modoMosaico ? (
               <>
-                {categoriasComConteudo.map((cat) => (
-                  <BlocoEditoria key={cat} categoria={cat} itens={grupos[cat]} onVerTodas={() => setCategoria(cat)} />
-                ))}
-                <section className="secao-bloco">
+                <section className="secao-bloco" id="ultimas" aria-label="Últimas notícias">
                   <div className="secao-cabecalho">
+                    <p className="secao-eyebrow">O rio</p>
                     <h2 className="secao-titulo">Últimas notícias</h2>
                   </div>
                   {itensAposMosaico.length === 0 ? (
@@ -327,6 +320,33 @@ function PaginaFeedInner() {
                     </div>
                   )}
                 </section>
+                {categoriasComConteudo.map((cat) => (
+                  <BlocoEditoria key={cat} categoria={cat} itens={grupos[cat]} onVerTodas={() => setCategoria(cat)} />
+                ))}
+                {comunidadeTeaser.length > 0 && (
+                  <section className="secao-bloco" aria-label="Da comunidade">
+                    <div className="secao-cabecalho">
+                      <p className="secao-eyebrow">Vozes</p>
+                      <h2 className="secao-titulo">Da comunidade</h2>
+                      <Link href="/comunidade" className="secao-ver-tudo">
+                        Ver tudo →
+                      </Link>
+                    </div>
+                    <div className="grade-noticias">
+                      {comunidadeTeaser.map((pub) => (
+                        <article key={pub.id} className="cartao">
+                          <div className="cartao-meta">
+                            <span className="badge-categoria">{pub.tipo === "opiniao" ? "Opinião" : "Análise"}</span>
+                          </div>
+                          <Link href={`/comunidade/${pub.id}`} style={{ textDecoration: "none", color: "inherit" }}>
+                            <h3 className="cartao-titulo">{pub.titulo}</h3>
+                          </Link>
+                          <p className="texto-suave">por {pub.autor_nome}</p>
+                        </article>
+                      ))}
+                    </div>
+                  </section>
+                )}
               </>
             ) : (
               itensAposMosaico.length > 0 && (

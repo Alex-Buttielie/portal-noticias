@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useId, useState } from "react";
+import { Suspense, useEffect, useId, useState } from "react";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import ThemeToggle from "@/components/ThemeToggle";
 import CommandPalette from "@/components/CommandPalette";
@@ -136,13 +136,55 @@ export default function Header() {
       </div>
 
       <div className="container">
+        <Suspense fallback={null}>
+          <TrilhasNavegacao
+            navId={navId}
+            menuAberto={menuAberto}
+            pathname={pathname}
+            usuario={usuario}
+          />
+        </Suspense>
+      </div>
+      <CommandPalette aberto={paletteAberto} aoFechar={() => setPaletteAberto(false)} />
+    </header>
+  );
+}
+
+function TrilhasNavegacao({
+  navId,
+  menuAberto,
+  pathname,
+  usuario,
+}: {
+  navId: string;
+  menuAberto: boolean;
+  pathname: string | null;
+  usuario: { papel?: string } | null;
+}) {
+  const searchParams = useSearchParams();
+  const categoriaAtiva = pathname === "/" ? searchParams.get("categoria") || "" : null;
+
+  function ehAtual(href: string): boolean {
+    return href === "/" ? pathname === "/" : pathname?.startsWith(href) ?? false;
+  }
+
+  return (
         <nav id={navId} className={`topo__trilhas${menuAberto ? " aberto" : ""}`} aria-label="Editorias e áreas">
           <div className="topo__pills" role="group" aria-label="Filtrar por editoria">
-            <Link href="/" className="topo__pill">
+            <Link
+              href="/"
+              className={`topo__pill${categoriaAtiva === "" ? " topo__pill--ativa" : ""}`}
+              aria-current={categoriaAtiva === "" ? "page" : undefined}
+            >
               Todas
             </Link>
             {CATEGORIAS_NAV.map((c) => (
-              <Link key={c.slug} href={`/?categoria=${encodeURIComponent(c.slug)}`} className="topo__pill">
+              <Link
+                key={c.slug}
+                href={`/?categoria=${encodeURIComponent(c.slug)}`}
+                className={`topo__pill${categoriaAtiva === c.slug ? " topo__pill--ativa" : ""}`}
+                aria-current={categoriaAtiva === c.slug ? "page" : undefined}
+              >
                 {c.label}
               </Link>
             ))}
@@ -174,8 +216,5 @@ export default function Header() {
             )}
           </div>
         </nav>
-      </div>
-      <CommandPalette aberto={paletteAberto} aoFechar={() => setPaletteAberto(false)} />
-    </header>
   );
 }

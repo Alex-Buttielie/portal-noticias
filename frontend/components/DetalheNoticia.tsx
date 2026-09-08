@@ -1,13 +1,15 @@
 "use client";
 
 import { useEffect } from "react";
+import Link from "next/link";
 import * as api from "@/lib/api";
-import { useDetalheCluster, useDetalheItem } from "@/lib/queries";
+import { useDetalheCluster, useDetalheItem, useFeed } from "@/lib/queries";
 import * as intencao from "@/lib/intent";
 import { obterVisualCategoria } from "@/lib/categoryVisuals";
 import Badge from "@/components/Badge";
 import { ReadingProgress } from "@/components/ui/ReadingProgress";
 import { ShareButtons } from "@/components/ui/ShareButtons";
+import { CompactNewsCard } from "@/components/ui/Cards";
 import { EmptyState, ErrorState, SkeletonCard } from "@/components/ui/Estados";
 
 function formatarData(timestamp: string): string {
@@ -45,6 +47,10 @@ export default function DetalheNoticia({
 }) {
   const consulta = tipo === "cluster" ? useDetalheCluster(id, inicial) : useDetalheItem(id, inicial);
   const detalhe = consulta.data ?? inicial ?? null;
+  const relacionadosQuery = useFeed({ categoria: detalhe?.categoria || undefined, enabled: Boolean(detalhe) });
+  const relacionados = ((relacionadosQuery.data?.pages ?? []).flatMap((p) => p.results) as api.FeedEntrada[])
+    .filter((e) => !(e.tipo === detalhe?.tipo && e.id === detalhe?.id))
+    .slice(0, 3);
 
   useEffect(() => {
     if (detalhe) intencao.registrarLeitura(detalhe.categoria);
@@ -132,6 +138,26 @@ export default function DetalheNoticia({
           </div>
         ))}
       </article>
+
+      <nav className="fluxo-leitura" aria-label="Continue explorando">
+        <Link href="/" className="botao botao--fantasma botao--medio">
+          ← Voltar ao feed
+        </Link>
+        {relacionados.length > 0 && (
+          <section aria-label="Continue explorando">
+            <p className="secao-eyebrow">O rio continua</p>
+            <h2 className="secao-titulo">Continue explorando</h2>
+            <div className="lista-compacta">
+              {relacionados.map((entrada) => (
+                <CompactNewsCard
+                  key={`${entrada.tipo}-${entrada.id}`}
+                  entrada={entrada}
+                />
+              ))}
+            </div>
+          </section>
+        )}
+      </nav>
     </>
   );
 }

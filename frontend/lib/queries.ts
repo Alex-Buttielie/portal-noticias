@@ -20,13 +20,15 @@ export interface FiltroFeed {
   busca?: string;
 }
 
-export function useFeed(filtro: FiltroFeed) {
+export function useFeed(filtro: FiltroFeed & { enabled?: boolean }) {
+  const { enabled = true, categoria, busca } = filtro;
   return useInfiniteQuery({
-    queryKey: ["feed", filtro.categoria ?? "", filtro.busca ?? ""],
+    queryKey: ["feed", categoria ?? "", busca ?? ""],
     queryFn: ({ pageParam }) =>
-      api.obterFeed({ categoria: filtro.categoria, busca: filtro.busca, page: pageParam as number }),
+      api.obterFeed({ categoria, busca, page: pageParam as number }),
     initialPageParam: 1,
     getNextPageParam: (ultima, paginas) => (ultima.next ? paginas.length + 1 : undefined),
+    enabled,
   });
 }
 
@@ -58,10 +60,12 @@ export function useDetalheItem(id: number | string, inicial?: api.FeedDetalhe | 
   });
 }
 
-export function usePublicacoes(params: { destaque?: boolean; autor?: number } = {}): UseQueryResult<api.Publicacao[], Error> {
+export function usePublicacoes(params: { destaque?: boolean; autor?: number; enabled?: boolean } = {}): UseQueryResult<api.Publicacao[], Error> {
+  const { destaque, autor, enabled = true } = params;
   return useQuery({
-    queryKey: ["publicacoes", params.destaque ?? null, params.autor ?? null],
-    queryFn: () => api.obterPublicacoes(params),
+    queryKey: ["publicacoes", destaque ?? null, autor ?? null],
+    queryFn: () => api.obterPublicacoes({ destaque, autor }),
+    enabled,
   });
 }
 

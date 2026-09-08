@@ -3380,3 +3380,67 @@ main#conteudo-principal {
   .topo__areas { flex-wrap: wrap; }
   .hero { padding: var(--espaco-5) var(--espaco-4); }
 }
+
+/* Fluxo contínuo — o rio: pills ativas, eyebrows, contexto e próxima leitura. */
+.topo__pill--ativa {
+  color: #fff;
+  background: var(--cor-primaria);
+  border-color: var(--cor-primaria);
+}
+
+.secao-eyebrow {
+  margin: 0 0 var(--espaco-1);
+  font-size: var(--fonte-tamanho-xs);
+  font-weight: var(--fonte-peso-negrito);
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--cor-primaria);
+}
+
+.secao-ver-tudo {
+  font-size: var(--fonte-tamanho-sm);
+  font-weight: var(--fonte-peso-medio);
+  color: var(--cor-primaria);
+  text-decoration: none;
+  margin-left: auto;
+}
+
+.secao-cabecalho {
+  display: flex;
+  align-items: baseline;
+  gap: var(--espaco-3);
+  flex-wrap: wrap;
+}
+
+.fluxo-contexto:empty { display: none; }
+.fluxo-contexto p { margin: 0 0 var(--espaco-3); }
+
+.link-nulo {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--cor-primaria);
+  cursor: pointer;
+  font: inherit;
+  text-decoration: underline;
+}
+
+.hero__seguir {
+  align-self: center;
+  color: var(--cor-texto-suave);
+  text-decoration: none;
+  font-size: var(--fonte-tamanho-sm);
+  font-weight: var(--fonte-peso-medio);
+}
+.hero__seguir:hover { color: var(--cor-primaria); }
+
+.fluxo-leitura {
+  margin-top: var(--espaco-7);
+  padding-top: var(--espaco-5);
+  border-top: 1px solid var(--cor-borda);
+  display: flex;
+  flex-direction: column;
+  gap: var(--espaco-4);
+}
+
+.cartao-noticia:hover { transform: translateY(-2px); }
