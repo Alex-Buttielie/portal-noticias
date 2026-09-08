@@ -369,3 +369,79 @@ export function useSalvarLocalidade(): UseMutationResult<
       api.salvarLocalidade(token ?? "", dados),
   });
 }
+
+type ItensMonitorados = Record<string, { criterio: { tipo: string; valor: string }; itens: api.ItemMonitorado[] }>;
+
+function chavesB2B(): string[][] {
+  return [["b2b-criterios"], ["b2b-itens"], ["b2b-resumo"], ["b2b-membros"]];
+}
+
+export function usePainelB2B(): {
+  criterios: UseQueryResult<api.CriterioMonitoramento[], Error>;
+  itens: UseQueryResult<ItensMonitorados, Error>;
+  resumo: UseQueryResult<api.ResumoExecutivo, Error>;
+  membros: UseQueryResult<api.MembroOrganizacao[], Error>;
+  recarregar: () => void;
+} {
+  const { token } = useAuth();
+  const cliente = useQueryClient();
+  const enabled = Boolean(token);
+  const criterios = useQuery({
+    queryKey: ["b2b-criterios"],
+    queryFn: () => api.obterCriteriosB2B(token ?? ""),
+    enabled,
+  });
+  const itens = useQuery({
+    queryKey: ["b2b-itens"],
+    queryFn: () => api.obterItensMonitoradosB2B(token ?? ""),
+    enabled,
+  });
+  const resumo = useQuery({
+    queryKey: ["b2b-resumo"],
+    queryFn: () => api.obterResumoExecutivoB2B(token ?? ""),
+    enabled,
+  });
+  const membros = useQuery({
+    queryKey: ["b2b-membros"],
+    queryFn: () => api.obterMembrosB2B(token ?? ""),
+    enabled,
+  });
+  return {
+    criterios,
+    itens,
+    resumo,
+    membros,
+    recarregar: () => {
+      for (const key of chavesB2B()) void cliente.invalidateQueries({ queryKey: key });
+    },
+  };
+}
+
+export function useCriarCriterioB2B(recarregar: () => void): UseMutationResult<
+  api.CriterioMonitoramento,
+  Error,
+  { tipo: api.TipoCriterioMonitoramento; valor: string }
+> {
+  const { token } = useAuth();
+  return useMutation({
+    mutationFn: (dados: { tipo: api.TipoCriterioMonitoramento; valor: string }) =>
+      api.criarCriterioB2B(token ?? "", dados),
+    onSuccess: () => recarregar(),
+  });
+}
+
+export function useConvidarMembroB2B(recarregar: () => void): UseMutationResult<api.MembroOrganizacao, Error, string> {
+  const { token } = useAuth();
+  return useMutation({
+    mutationFn: (email: string) => api.convidarMembroB2B(token ?? "", email),
+    onSuccess: () => recarregar(),
+  });
+}
+
+export function useRemoverMembroB2B(recarregar: () => void): UseMutationResult<void, Error, string> {
+  const { token } = useAuth();
+  return useMutation({
+    mutationFn: (email: string) => api.removerMembroB2B(token ?? "", email),
+    onSuccess: () => recarregar(),
+  });
+}
