@@ -192,3 +192,42 @@ export function useAssinarPlano(): UseMutationResult<api.Assinatura, Error, numb
     },
   });
 }
+
+export function useHistoricoPagamentos(): UseQueryResult<api.Pagamento[], Error> {
+  const { token } = useAuth();
+  return useQuery({
+    queryKey: ["pagamentos"],
+    queryFn: () => (token ? api.obterHistoricoPagamentos(token) : Promise.resolve([])),
+    enabled: Boolean(token),
+  });
+}
+
+export function useCancelarAssinatura(): UseMutationResult<api.Assinatura, Error, void> {
+  const { token } = useAuth();
+  const cliente = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.cancelarAssinatura(token ?? ""),
+    onSuccess: (atualizada) => {
+      cliente.setQueryData(["minha-assinatura"], atualizada);
+    },
+  });
+}
+
+export function useNewsletterSalvar(): UseMutationResult<
+  { tipo: api.TipoNewsletter; periodo: api.PeriodoNewsletter; ativa: boolean },
+  Error,
+  { tipo: api.TipoNewsletter; categorias?: string[]; periodo?: api.PeriodoNewsletter }
+> {
+  const { token } = useAuth();
+  return useMutation({
+    mutationFn: (dados: { tipo: api.TipoNewsletter; categorias?: string[]; periodo?: api.PeriodoNewsletter }) =>
+      api.inscreverNewsletter(token ?? "", dados),
+  });
+}
+
+export function useNewsletterCancelar(): UseMutationResult<void, Error, void> {
+  const { token } = useAuth();
+  return useMutation({
+    mutationFn: () => api.cancelarNewsletter(token ?? ""),
+  });
+}

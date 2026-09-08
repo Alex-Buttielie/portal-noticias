@@ -1,10 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { useToast } from "@/components/ToastProvider";
 import * as api from "@/lib/api";
+import { useAssinarPlano, usePlanos } from "@/lib/queries";
+import Badge from "@/components/Badge";
+import { Button } from "@/components/ui/Button";
+import { EmptyState, ErrorState, SkeletonLista } from "@/components/ui/Estados";
 
 function formatarPreco(preco: string): string {
   const numero = Number(preco);
@@ -16,30 +19,16 @@ export default function PaginaPlanos() {
   const router = useRouter();
   const { token, usuario } = useAuth();
   const { notificar } = useToast();
-  const [planos, setPlanos] = useState<api.Plano[]>([]);
-  const [carregando, setCarregando] = useState(true);
-  const [erro, setErro] = useState<string | null>(null);
-  const [assinando, setAssinando] = useState<number | null>(null);
+  const planosQuery = usePlanos();
+  const assinar = useAssinarPlano();
 
-  useEffect(() => {
-    api
-      .obterPlanos()
-      .then(setPlanos)
-      .catch((e: unknown) => {
-        setErro(e instanceof api.ApiError ? e.message : "Não foi possível carregar os planos.");
-      })
-      .finally(() => setCarregando(false));
-  }, []);
-
-  async function assinar(planoId: number) {
+  async function assinarPlano(planoId: number) {
     if (!token) {
       router.push("/login");
       return;
     }
-    setErro(null);
-    setAssinando(planoId);
     try {
-      const assinatura = await api.assinarPlano(token, planoId);
+      const assinatura = await assinar.mutateAsync(planoId);
       notificar(
         assinatura.status === "ativa"
           ? "Assinatura ativada com sucesso! Aproveite o Premium."
@@ -51,8 +40,6 @@ export default function PaginaPlanos() {
         e instanceof api.ApiError ? e.message : "Não foi possível assinar este plano.",
         "erro"
       );
-    } finally {
-      setAssinando(null);
     }
   }
 
@@ -61,30 +48,32 @@ export default function PaginaPlanos() {
       <h1>Planos Premium</h1>
       <p className="texto-suave">Sem anúncios e com recursos completos de personalização.</p>
 
-      {erro && <p className="mensagem-erro">{erro}</p>}
-      {carregando && <p className="texto-suave">Carregando planos...</p>}
-
-      {!carregando && planos.length === 0 && !erro && (
-        <p className="texto-suave">Nenhum plano disponível no momento.</p>
+      {planosQuery.isLoading && <SkeletonLista quantidade={3} />}
+      {planosQuery.isError && (
+        <ErrorState
+          mensagem="Não foi possível carregar os planos."
+          aoTentarNovamente={() => void planosQuery.refetch()}
+        />
+      )}
+      {!planosQuery.isLoading && !planosQuery.isError && (planosQuery.data?.length ?? 0) === 0 && (
+        <EmptyState titulo="Nenhum plano disponível" descricao="Volte em breve." />
       )}
 
-      {planos.map((plano) => (
+      {planosQuery.data?.map((plano) => (
         <div className="plano-cartao" key={plano.id}>
           <h2>{plano.nome}</h2>
           <p className="plano-preco">{formatarPreco(plano.preco)}</p>
           <p className="texto-suave">a cada {plano.duracao_dias} dias</p>
-          <button
-            type="button"
-            className="botao"
-            disabled={assinando === plano.id || usuario?.papel === "premium"}
-            onClick={() => assinar(plano.id)}
-          >
-            {usuario?.papel === "premium"
-              ? "Você já é Premium"
-              : assinando === plano.id
-              ? "Processando..."
-              : "Assinar"}
-          </button>
+          {usuario?.papel === "premium" && <Badge variante="premium">Você já é Premium</Badge>}
+          <div style={{ marginTop: "0.75rem" }}>
+            <Button
+              disabled={assinar.isPending || usuario?.papel === "premium"}
+              carregando={assinar.isPending}
+              onClick={() => void assinarPlano(plano.id)}
+            >
+              {usuario?.papel === "premium" ? "Você já é Premium" : "Assinar"}
+            </Button>
+          </div>
         </div>
       ))}
     </div>
