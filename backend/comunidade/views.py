@@ -97,6 +97,20 @@ class PublicacaoDetailView(APIView):
             return Response({"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN)
         return Response(PublicacaoSerializer(publicacao).data)
 
+    def delete(self, request, publicacao_id):
+        """Autor exclui a própria publicação; admin exclui qualquer uma."""
+        if not request.user.is_authenticated:
+            return Response(status=status.HTTP_401_UNAUTHORIZED)
+        try:
+            publicacao = Publicacao.objects.get(pk=publicacao_id)
+        except Publicacao.DoesNotExist:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        try:
+            services.excluir_publicacao(publicacao, request.user)
+        except services.PermissaoNegadaError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
 
 class EnviarPublicacaoView(APIView):
     permission_classes = [IsAuthenticated]
@@ -146,6 +160,24 @@ class ComentariosListCreateView(APIView):
             mensagem = exc.message if isinstance(exc, ValidationError) else str(exc)
             return Response({"detail": mensagem}, status=status.HTTP_400_BAD_REQUEST)
         return Response(ComentarioSerializer(comentario).data, status=status.HTTP_201_CREATED)
+
+
+class ComentarioDetailView(APIView):
+    permission_classes = [AllowAny]
+
+    def delete(self, request, comentario_id):
+        """Autor do comentário ou admin."""
+        if not request.user.is_authenticated:
+            return Response(status=status.HTTP_401_UNAUTHORIZED)
+        try:
+            comentario = Comentario.objects.get(pk=comentario_id)
+        except Comentario.DoesNotExist:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        try:
+            services.excluir_comentario(comentario, request.user)
+        except services.PermissaoNegadaError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN)
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class SeguirAutorView(APIView):

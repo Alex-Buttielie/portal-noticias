@@ -6,6 +6,7 @@ app_name = "b2b"
 
 urlpatterns = [
     path("criterios/", views.CriteriosView.as_view(), name="criterios"),
+    path("criterios/<int:criterio_id>/", views.CriterioDetailView.as_view(), name="criterio-detail"),
     path("itens-monitorados/", views.ItensMonitoradosView.as_view(), name="itens-monitorados"),
     path("resumo-executivo/", views.ResumoExecutivoView.as_view(), name="resumo-executivo"),
     path("membros/", views.MembrosView.as_view(), name="membros"),

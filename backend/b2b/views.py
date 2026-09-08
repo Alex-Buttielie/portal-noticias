@@ -47,6 +47,19 @@ class CriteriosView(_BaseOrganizacaoView):
         return Response(CriterioMonitoramentoSerializer(criterio).data, status=status.HTTP_201_CREATED)
 
 
+class CriterioDetailView(_BaseOrganizacaoView):
+    def delete(self, request, criterio_id):
+        organizacao, erro = self._organizacao_ou_erro(request)
+        if erro:
+            return erro
+        try:
+            criterio = organizacao.criterios.get(pk=criterio_id)
+        except CriterioMonitoramento.DoesNotExist:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        criterio.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
 class ItensMonitoradosView(_BaseOrganizacaoView):
     def get(self, request):
         organizacao, erro = self._organizacao_ou_erro(request)
