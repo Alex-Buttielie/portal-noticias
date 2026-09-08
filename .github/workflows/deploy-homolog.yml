@@ -49,23 +49,27 @@ jobs:
             export NVM_DIR="$HOME/.nvm"; [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"; nvm use 20
             APP_DIR="/home/apps/portal-homolog"; BRANCH="develop"
             API_PORT=5102; WEB_PORT=3102; HOST="homolog.portal-noticias.com.br"
+            DB_NAME="brd_portal_homolog"; DB_USER="portal_homolog"
+            API_ORIGIN="http://108.174.147.50:$API_PORT"; WEB_ORIGIN="http://108.174.147.50:$WEB_PORT"
             echo "=== Deploy HOMOLOG portal-noticias (código do PR) ==="
             mkdir -p /home/apps
             [ -d "$APP_DIR/.git" ] || git clone -b "$BRANCH" https://github.com/Alex-Buttielie/portal-noticias.git "$APP_DIR"
             cd "$APP_DIR"; git fetch origin; git reset --hard "origin/${{ github.head_ref }}"
             if [ ! -f backend/.env ]; then
               SECRET=$(python3 -c "import secrets;print(secrets.token_urlsafe(50))")
-              printf 'DJANGO_SECRET_KEY=%s\nDJANGO_DEBUG=false\nDJANGO_ALLOWED_HOSTS=%s\nDJANGO_DB_ENGINE=sqlite3\nFRONTEND_BASE_URL=https://%s\n' "$SECRET" "$HOST" "$HOST" > backend/.env
+              printf 'DJANGO_SECRET_KEY=%s\nDJANGO_DEBUG=false\nDJANGO_ALLOWED_HOSTS=%s,108.174.147.50,localhost,127.0.0.1\nDJANGO_SECURE_SSL_REDIRECT=false\nDJANGO_SESSION_COOKIE_SECURE=false\nDJANGO_CSRF_COOKIE_SECURE=false\nDJANGO_DB_ENGINE=postgresql\nDJANGO_DB_NAME=%s\nDJANGO_DB_USER=%s\nDJANGO_DB_PASSWORD=troque-aqui\nDJANGO_DB_HOST=localhost\nDJANGO_DB_PORT=5432\nFRONTEND_BASE_URL=%s\n' "$SECRET" "$HOST" "$DB_NAME" "$DB_USER" "$WEB_ORIGIN" > backend/.env
               chmod 600 backend/.env
             fi
             cd "$APP_DIR/frontend"
             npm ci
-            NEXT_PUBLIC_API_BASE_URL="https://$HOST/api" NEXT_PUBLIC_SITE_URL="https://$HOST" npm run build
+            NEXT_PUBLIC_API_BASE_URL="$API_ORIGIN" NEXT_PUBLIC_SITE_URL="$WEB_ORIGIN" npm run build
             cd "$APP_DIR/backend"
             python3 -m venv .venv 2>/dev/null || true
             . .venv/bin/activate
             pip install -r requirements.txt
             set -a; . ./.env; set +a
+            if [ "${DJANGO_DB_PASSWORD:-troque-aqui}" = "troque-aqui" ]; then echo "ERRO: preencha DJANGO_DB_PASSWORD em $APP_DIR/backend/.env (Postgres da VPS — ver CI-CD.md)"; exit 1; fi
+            python manage.py check
             python manage.py migrate
             python manage.py collectstatic --noinput
             pm2 delete portal-web-homolog 2>/dev/null || true
@@ -85,9 +89,10 @@ jobs:
           password: ${{ secrets.VPS_PASSWORD }}
           port: ${{ secrets.VPS_PORT }}
           script: |
+            export NVM_DIR="$HOME/.nvm"; [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"; nvm use 20
             sleep 5
             HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:5102/healthz || echo "000")
             echo "HOMOLOG api: $HTTP_CODE"
             [ "$HTTP_CODE" = "200" ] && echo "HOMOLOG api ok" || echo "HOMOLOG api warn $HTTP_CODE"
-            curl -sf http://localhost:3102/ && echo "HOMOLOG web ok" || echo "HOMOLOG web warn"
+            curl -sf -o /dev/null http://localhost:3102/ && echo "HOMOLOG web ok" || echo "HOMOLOG web warn"
             pm2 status | grep portal || pm2 status
