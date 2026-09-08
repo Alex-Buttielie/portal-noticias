@@ -11,11 +11,12 @@ import { obterVisualCategoria } from "@/lib/categoryVisuals";
 import { useToast } from "@/components/ToastProvider";
 import PorQueEstouVendoIsso from "@/components/PorQueEstouVendoIsso";
 import Chip from "@/components/Chip";
+import BotaoSalvar from "@/components/BotaoSalvar";
 import TickerUrgente from "@/components/TickerUrgente";
 import MaisLidas from "@/components/MaisLidas";
 import BlocoEditoria from "@/components/BlocoEditoria";
 import { Button } from "@/components/ui/Button";
-import { CompactNewsCard, FeaturedNewsCard, HorizontalNewsCard, NewsCard } from "@/components/ui/Cards";
+import { HorizontalNewsCard, NewsCard } from "@/components/ui/Cards";
 import { EmptyState, ErrorState, SkeletonLista } from "@/components/ui/Estados";
 import { SearchBar } from "@/components/ui/SearchBar";
 
@@ -270,14 +271,38 @@ function PaginaFeedInner() {
       </div>
 
       {!feed.isLoading && !feed.isError && itemHero && (
-        <div className="mosaico">
-          <FeaturedNewsCard entrada={itemHero} />
-          <div className="mosaico-lateral">
-            {itensMosaicoLateral.map((entrada) => (
-              <CompactNewsCard key={chaveDaEntrada(entrada)} entrada={entrada} />
-            ))}
+        <section className="hero" aria-label="Destaque do dia">
+          <div
+            className="hero__fundo"
+            style={{ background: obterVisualCategoria(itemHero.categoria).gradiente }}
+            aria-hidden="true"
+          />
+          <p className="hero__eyebrow">
+            Em destaque{itemHero.urgente ? " · urgente" : ""}
+          </p>
+          <h1 className="hero__titulo">
+            <Link href={`/noticia/${itemHero.tipo}/${itemHero.id}`}>{itemHero.titulo}</Link>
+          </h1>
+          <p className="hero__resumo">{itemHero.resumo}</p>
+          <div className="hero__acoes">
+            <Link
+              href={`/noticia/${itemHero.tipo}/${itemHero.id}`}
+              className="botao botao--primaria botao--medio"
+            >
+              Ler agora
+            </Link>
+            <BotaoSalvar entrada={itemHero} />
           </div>
-        </div>
+          {itensMosaicoLateral.length > 0 && (
+            <ol className="hero__lista">
+              {itensMosaicoLateral.map((entrada, i) => (
+                <li key={chaveDaEntrada(entrada)}>
+                  <HorizontalNewsCard entrada={entrada} posicao={i + 2} />
+                </li>
+              ))}
+            </ol>
+          )}
+        </section>
       )}
 
       {!feed.isLoading && !feed.isError && (
