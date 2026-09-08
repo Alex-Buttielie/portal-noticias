@@ -5,7 +5,6 @@ import {
   useMutation,
   useQuery,
   useQueryClient,
-  type UseInfiniteQueryResult,
   type UseMutationResult,
   type UseQueryResult,
 } from "@tanstack/react-query";
@@ -20,7 +19,7 @@ export interface FiltroFeed {
   busca?: string;
 }
 
-export function useFeed(filtro: FiltroFeed): UseInfiniteQueryResult<api.FeedResposta, Error> {
+export function useFeed(filtro: FiltroFeed) {
   return useInfiniteQuery({
     queryKey: ["feed", filtro.categoria ?? "", filtro.busca ?? ""],
     queryFn: ({ pageParam }) =>
