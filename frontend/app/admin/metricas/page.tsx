@@ -4,8 +4,10 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import * as api from "@/lib/api";
+import { usePainelMetricas } from "@/lib/queries";
 import Tabs from "@/components/Tabs";
 import Badge from "@/components/Badge";
+import { EmptyState, ErrorState, SkeletonLista } from "@/components/ui/Estados";
 
 function pct(v: number) {
   return `${(v * 100).toFixed(1)}%`;
@@ -131,29 +133,22 @@ export default function PaginaAdminMetricas() {
   const router = useRouter();
   const { token, usuario, carregando: carregandoAuth } = useAuth();
   const [dias, setDias] = useState(30);
-  const [painel, setPainel] = useState<api.PainelMetricas | null>(null);
-  const [carregando, setCarregando] = useState(true);
-  const [erro, setErro] = useState<string | null>(null);
+  const painelQuery = usePainelMetricas(dias);
 
   useEffect(() => {
-    if (carregandoAuth) return;
-    if (!token) {
+    if (!carregandoAuth && !token) {
       router.push("/login");
-      return;
     }
-    if (usuario && usuario.papel !== "admin") {
-      setErro("Acesso restrito à administração.");
-      setCarregando(false);
-      return;
-    }
-    setCarregando(true);
-    setErro(null);
-    api
-      .obterPainelMetricas(token, dias)
-      .then(setPainel)
-      .catch((e: unknown) => setErro(e instanceof api.ApiError ? e.message : "Não foi possível carregar o painel."))
-      .finally(() => setCarregando(false));
-  }, [token, usuario, carregandoAuth, router, dias]);
+  }, [carregandoAuth, token, router]);
+
+  const painel = painelQuery.data ?? null;
+  const carregando = carregandoAuth || painelQuery.isLoading;
+  const erro =
+    usuario && usuario.papel !== "admin"
+      ? "Acesso restrito à administração."
+      : painelQuery.isError
+        ? "Não foi possível carregar o painel."
+        : null;
 
   const abas = useMemo(() => {
     if (!painel) return [];
@@ -359,9 +354,9 @@ export default function PaginaAdminMetricas() {
     ];
   }, [painel]);
 
-  if (carregandoAuth || carregando) return <p className="texto-suave">Carregando métricas…</p>;
-  if (erro) return <p className="mensagem-erro">{erro}</p>;
-  if (!painel) return <p className="texto-suave">Sem dados.</p>;
+  if (carregando) return <SkeletonLista quantidade={2} />;
+  if (erro) return <ErrorState mensagem={erro} aoTentarNovamente={() => void painelQuery.refetch()} />;
+  if (!painel) return <EmptyState titulo="Sem dados" descricao="Nenhuma métrica para o período." />;
 
   return (
     <div>

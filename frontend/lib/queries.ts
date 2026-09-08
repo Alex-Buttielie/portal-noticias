@@ -445,3 +445,252 @@ export function useRemoverMembroB2B(recarregar: () => void): UseMutationResult<v
     onSuccess: () => recarregar(),
   });
 }
+
+export type LimiteAdmin = { id: number; chave: string; plano: string; valor: string; descricao: string };
+export type DenunciaAdmin = {
+  id: number;
+  motivo: string;
+  detalhe: string;
+  status: string;
+  denunciante_email: string;
+  criado_em: string;
+  alvo_repr: string | null;
+};
+
+export function useAdminUsuarios(params: { search?: string; papel?: string; page?: number }): UseQueryResult<api.Paginated<api.AdminUsuario>, Error> {
+  const { token } = useAuth();
+  return useQuery({
+    queryKey: ["admin-usuarios", params.search ?? "", params.papel ?? "", params.page ?? 1],
+    queryFn: () => api.adminListarUsuarios(token ?? "", params),
+    enabled: Boolean(token),
+  });
+}
+
+export function useAdminAtualizarUsuario(): UseMutationResult<api.AdminUsuario, Error, { id: number; dados: { papel?: string; is_active?: boolean } }> {
+  const { token } = useAuth();
+  const cliente = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, dados }: { id: number; dados: { papel?: string; is_active?: boolean } }) =>
+      api.adminAtualizarUsuario(token ?? "", id, dados),
+    onSuccess: () => {
+      void cliente.invalidateQueries({ queryKey: ["admin-usuarios"] });
+    },
+  });
+}
+
+export function useAdminFila(params: { status?: string; page?: number }): UseQueryResult<api.Paginated<api.AdminFilaItem>, Error> {
+  const { token } = useAuth();
+  return useQuery({
+    queryKey: ["admin-fila", params.status ?? "", params.page ?? 1],
+    queryFn: () => api.adminListarFila(token ?? "", params),
+    enabled: Boolean(token),
+  });
+}
+
+export function useAdminDecidirFila(): UseMutationResult<{ detail: string }, Error, { id: number; acao: "aprovar" | "rejeitar" }> {
+  const { token } = useAuth();
+  const cliente = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, acao }: { id: number; acao: "aprovar" | "rejeitar" }) =>
+      api.adminDecidirFila(token ?? "", id, acao),
+    onSuccess: () => {
+      void cliente.invalidateQueries({ queryKey: ["admin-fila"] });
+    },
+  });
+}
+
+export function useAdminPlanos(): UseQueryResult<api.Plano[], Error> {
+  const { token } = useAuth();
+  return useQuery({
+    queryKey: ["admin-planos"],
+    queryFn: async () => {
+      const r = await api.adminListarPlanos(token ?? "");
+      return (r as unknown as { results?: api.Plano[] }).results ?? (r as unknown as api.Plano[]);
+    },
+    enabled: Boolean(token),
+  });
+}
+
+export function useAdminLimites(): UseQueryResult<LimiteAdmin[], Error> {
+  const { token } = useAuth();
+  return useQuery({
+    queryKey: ["admin-limites"],
+    queryFn: async () => {
+      const r = await api.adminListarLimites(token ?? "");
+      return (r as unknown as { results?: LimiteAdmin[] }).results ?? (r as unknown as LimiteAdmin[]);
+    },
+    enabled: Boolean(token),
+  });
+}
+
+export function useAdminSalvarPlano(): UseMutationResult<api.Plano, Error, { nome: string; preco: string; duracao_dias: number }> {
+  const { token } = useAuth();
+  const cliente = useQueryClient();
+  return useMutation({
+    mutationFn: (dados: { nome: string; preco: string; duracao_dias: number }) =>
+      api.adminCriarPlano(token ?? "", dados),
+    onSuccess: () => {
+      void cliente.invalidateQueries({ queryKey: ["admin-planos"] });
+    },
+  });
+}
+
+export function useAdminAlternarPlano(): UseMutationResult<api.Plano, Error, { id: number; ativo: boolean }> {
+  const { token } = useAuth();
+  const cliente = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ativo }: { id: number; ativo: boolean }) =>
+      api.adminAtualizarPlano(token ?? "", id, { ativo }),
+    onSuccess: () => {
+      void cliente.invalidateQueries({ queryKey: ["admin-planos"] });
+    },
+  });
+}
+
+export function useAdminSalvarLimite(): UseMutationResult<{ id: number; chave: string; plano: string; valor: string }, Error, { id: number; valor: string }> {
+  const { token } = useAuth();
+  const cliente = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, valor }: { id: number; valor: string }) =>
+      api.adminAtualizarLimite(token ?? "", id, { valor }),
+    onSuccess: () => {
+      void cliente.invalidateQueries({ queryKey: ["admin-limites"] });
+    },
+  });
+}
+
+export function useAdminAssinaturas(params: { status?: string; search?: string; page?: number }): UseQueryResult<api.Paginated<api.AdminAssinatura>, Error> {
+  const { token } = useAuth();
+  return useQuery({
+    queryKey: ["admin-assinaturas", params.status ?? "", params.search ?? "", params.page ?? 1],
+    queryFn: () => api.adminListarAssinaturas(token ?? "", params),
+    enabled: Boolean(token),
+  });
+}
+
+export function useAdminDenuncias(params: { status?: string; page?: number }): UseQueryResult<api.Paginated<DenunciaAdmin>, Error> {
+  const { token } = useAuth();
+  return useQuery({
+    queryKey: ["admin-denuncias", params.status ?? "", params.page ?? 1],
+    queryFn: () => api.adminListarDenuncias(token ?? "", params),
+    enabled: Boolean(token),
+  });
+}
+
+export function useAdminAcaoDenuncia(): UseMutationResult<{ detail: string }, Error, { id: number; tipo: string; motivo: string; procedente?: boolean }> {
+  const { token } = useAuth();
+  const cliente = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, tipo, motivo, procedente }: { id: number; tipo: string; motivo: string; procedente?: boolean }) =>
+      api.adminAplicarAcaoDenuncia(token ?? "", id, { tipo, motivo, procedente }),
+    onSuccess: () => {
+      void cliente.invalidateQueries({ queryKey: ["admin-denuncias"] });
+    },
+  });
+}
+
+export function usePainelMetricas(dias: number): UseQueryResult<api.PainelMetricas, Error> {
+  const { token } = useAuth();
+  return useQuery({
+    queryKey: ["metricas", dias],
+    queryFn: () => api.obterPainelMetricas(token ?? "", dias),
+    enabled: Boolean(token),
+  });
+}
+
+export function useRobosFontes(): UseQueryResult<api.FonteRobo[], Error> {
+  const { token } = useAuth();
+  return useQuery({
+    queryKey: ["robos-fontes"],
+    queryFn: () => api.robosListarFontes(token ?? ""),
+    enabled: Boolean(token),
+  });
+}
+
+export function useRobosConfig(): UseQueryResult<api.ConfigRobo, Error> {
+  const { token } = useAuth();
+  return useQuery({
+    queryKey: ["robos-config"],
+    queryFn: () => api.robosObterConfig(token ?? ""),
+    enabled: Boolean(token),
+  });
+}
+
+export function useRobosExecucoes(): UseQueryResult<api.ExecucaoRobo[], Error> {
+  const { token } = useAuth();
+  return useQuery({
+    queryKey: ["robos-execucoes"],
+    queryFn: () => api.robosListarExecucoes(token ?? ""),
+    enabled: Boolean(token),
+  });
+}
+
+export function useRobosMutacao(): UseMutationResult<unknown, Error, () => Promise<unknown>> {
+  const cliente = useQueryClient();
+  return useMutation({
+    mutationFn: (acao: () => Promise<unknown>) => acao(),
+    onSuccess: () => {
+      void cliente.invalidateQueries({ queryKey: ["robos-fontes"] });
+      void cliente.invalidateQueries({ queryKey: ["robos-config"] });
+      void cliente.invalidateQueries({ queryKey: ["robos-execucoes"] });
+    },
+  });
+}
+
+function useInvalidarRobos() {
+  const cliente = useQueryClient();
+  return () => {
+    void cliente.invalidateQueries({ queryKey: ["robos-fontes"] });
+    void cliente.invalidateQueries({ queryKey: ["robos-config"] });
+    void cliente.invalidateQueries({ queryKey: ["robos-execucoes"] });
+  };
+}
+
+export function useRobosCriarFonte(): UseMutationResult<api.FonteRobo, Error, { nome: string; url: string; ativo?: boolean; categoria_padrao?: string }> {
+  const { token } = useAuth();
+  const invalidar = useInvalidarRobos();
+  return useMutation({
+    mutationFn: (dados: { nome: string; url: string; ativo?: boolean; categoria_padrao?: string }) =>
+      api.robosCriarFonte(token ?? "", dados),
+    onSuccess: () => invalidar(),
+  });
+}
+
+export function useRobosSalvarFonte(): UseMutationResult<api.FonteRobo, Error, { id: number; dados: Partial<api.FonteRobo> }> {
+  const { token } = useAuth();
+  const invalidar = useInvalidarRobos();
+  return useMutation({
+    mutationFn: ({ id, dados }: { id: number; dados: Partial<api.FonteRobo> }) =>
+      api.robosAtualizarFonte(token ?? "", id, dados),
+    onSuccess: () => invalidar(),
+  });
+}
+
+export function useRobosRemoverFonte(): UseMutationResult<void, Error, number> {
+  const { token } = useAuth();
+  const invalidar = useInvalidarRobos();
+  return useMutation({
+    mutationFn: (id: number) => api.robosRemoverFonte(token ?? "", id),
+    onSuccess: () => invalidar(),
+  });
+}
+
+export function useRobosSalvarConfig(): UseMutationResult<api.ConfigRobo, Error, Partial<api.ConfigRobo>> {
+  const { token } = useAuth();
+  const invalidar = useInvalidarRobos();
+  return useMutation({
+    mutationFn: (dados: Partial<api.ConfigRobo>) => api.robosSalvarConfig(token ?? "", dados),
+    onSuccess: () => invalidar(),
+  });
+}
+
+export function useRobosExecutar(): UseMutationResult<api.ExecucaoRobo, Error, void> {
+  const { token } = useAuth();
+  const cliente = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.robosExecutar(token ?? ""),
+    onSuccess: () => {
+      void cliente.invalidateQueries({ queryKey: ["robos-execucoes"] });
+    },
+  });
+}
