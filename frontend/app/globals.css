@@ -3444,3 +3444,14 @@ main#conteudo-principal {
 }
 
 .cartao-noticia:hover { transform: translateY(-2px); }
+
+/* Seu rio — cabeçalho adaptativo, sem destaque editorial. */
+.seu-rio { margin-bottom: var(--espaco-6); }
+.seu-rio__titulo {
+  margin: 0 0 var(--espaco-2);
+  font-size: clamp(2rem, 5vw, 3.2rem);
+  line-height: 1.05;
+  letter-spacing: -0.03em;
+  font-weight: 800;
+}
+.seu-rio .texto-suave { max-width: 62ch; }

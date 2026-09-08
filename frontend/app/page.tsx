@@ -6,18 +6,16 @@ import { useRouter, useSearchParams } from "next/navigation";
 import * as api from "@/lib/api";
 import * as intencao from "@/lib/intent";
 import * as bookmarks from "@/lib/bookmarks";
-import { obterVisualCategoria } from "@/lib/categoryVisuals";
 import { useToast } from "@/components/ToastProvider";
 import PorQueEstouVendoIsso from "@/components/PorQueEstouVendoIsso";
-import BotaoSalvar from "@/components/BotaoSalvar";
-import TickerUrgente from "@/components/TickerUrgente";
 import MaisLidas from "@/components/MaisLidas";
 import BlocoEditoria from "@/components/BlocoEditoria";
 import { Button } from "@/components/ui/Button";
 import { HorizontalNewsCard, NewsCard } from "@/components/ui/Cards";
 import { EmptyState, ErrorState, SkeletonLista } from "@/components/ui/Estados";
 import { SearchBar } from "@/components/ui/SearchBar";
-import { useFeed, usePublicacoes } from "@/lib/queries";
+import { useFeed, useOnboarding, usePublicacoes } from "@/lib/queries";
+import { categoriasPorAfinidade, ordenarPorGosto, temSinalDeGosto } from "@/lib/personalizar";
 
 const INTERVALO_VERIFICACAO_NOVIDADES_MS = 60000;
 
@@ -143,12 +141,19 @@ function PaginaFeedInner() {
   }
 
   const mostrarSugestao = !sugestaoDispensada && !categoria && !buscaAtiva && categoriaPreferida !== null;
-  const modoMosaico = !categoria && !buscaAtiva && !verSalvos;
-  const itemHero = modoMosaico && itens.length > 0 ? itens[0] : null;
-  const itensAposMosaico = modoMosaico ? itens.slice(1) : itens;
-  const grupos = modoMosaico ? agruparPorCategoria(itensAposMosaico) : {};
-  const categoriasComConteudo = Object.keys(grupos).slice(0, 3);
-  const comunidadeQuery = usePublicacoes({ destaque: true, enabled: modoMosaico });
+  const modoRio = !categoria && !buscaAtiva && !verSalvos;
+  const onboarding = useOnboarding();
+  const perfilGosto = { interesses: onboarding.data?.interesses ?? [] };
+  const rioPessoal = modoRio && temSinalDeGosto(perfilGosto);
+  const paraVoce = rioPessoal ? ordenarPorGosto(itens, perfilGosto).slice(0, 6) : [];
+  const afinidade = categoriasPorAfinidade(perfilGosto);
+  const grupos = modoRio ? agruparPorCategoria(itens) : {};
+  const categoriasComConteudo = Object.keys(grupos).sort((a, b) => {
+    const ia = afinidade.indexOf(a.toLowerCase());
+    const ib = afinidade.indexOf(b.toLowerCase());
+    return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
+  }).slice(0, 3);
+  const comunidadeQuery = usePublicacoes({ destaque: true, enabled: modoRio });
   const comunidadeTeaser = (comunidadeQuery.data ?? []).slice(0, 3);
 
   async function onNewsletter(e: FormEvent) {
@@ -199,7 +204,6 @@ function PaginaFeedInner() {
           Espaço publicitário — assine o <Link href="/planos">Premium</Link> para navegar sem anúncios.
         </div>
       )}
-      {modoMosaico && <TickerUrgente />}
       {novidadeDisponivel && (
         <div className="banner-atualizacao">
           <button type="button" onClick={aplicarNovidade}>
@@ -229,7 +233,7 @@ function PaginaFeedInner() {
         </div>
       )}
 
-      {!modoMosaico && (
+      {!modoRio && (
         <div className="controles-feed">
           <SearchBar valorInicial={buscaAtiva} aoBuscar={aoBuscar} />
           <Button variante="secundaria" onClick={() => setVerSalvos(true)}>
@@ -271,50 +275,51 @@ function PaginaFeedInner() {
         )}
       </div>
 
-      {!feed.isLoading && !feed.isError && itemHero && (
-        <section className="hero" aria-label="Destaque do dia">
-          <div
-            className="hero__fundo"
-            style={{ background: obterVisualCategoria(itemHero.categoria).gradiente }}
-            aria-hidden="true"
-          />
-          <p className="hero__eyebrow">
-            Em destaque{itemHero.urgente ? " · urgente" : ""}
+      {!feed.isLoading && !feed.isError && modoRio && (
+        <header className="seu-rio">
+          <p className="secao-eyebrow">{rioPessoal ? "Feito para o seu gosto" : "Cobertura ao vivo"}</p>
+          <h1 className="seu-rio__titulo">Seu rio</h1>
+          <p className="texto-suave">
+            {rioPessoal
+              ? "A ordem abaixo segue os seus interesses e leituras — nunca uma escolha editorial."
+              : "Ordem cronológica, igual para todos. Entre ou diga seus interesses no onboarding para o rio se moldar a você."}
           </p>
-          <h1 className="hero__titulo">
-            <Link href={`/noticia/${itemHero.tipo}/${itemHero.id}`}>{itemHero.titulo}</Link>
-          </h1>
-          <p className="hero__resumo">{itemHero.resumo}</p>
-          <div className="hero__acoes">
-            <Link
-              href={`/noticia/${itemHero.tipo}/${itemHero.id}`}
-              className="botao botao--primaria botao--medio"
-            >
-              Ler agora
-            </Link>
-            <BotaoSalvar entrada={itemHero} />
-            <a href="#ultimas" className="hero__seguir">
-              Explorar o rio ↓
-            </a>
-          </div>
-        </section>
+        </header>
       )}
 
       {!feed.isLoading && !feed.isError && (
-        <div className={modoMosaico ? "portal-layout" : ""}>
+        <div className={modoRio ? "portal-layout" : ""}>
           <div>
-            {modoMosaico ? (
+            {modoRio ? (
               <>
+                {rioPessoal && paraVoce.length > 0 && (
+                  <section className="secao-bloco" aria-label="Para você">
+                    <div className="secao-cabecalho">
+                      <p className="secao-eyebrow">Para você</p>
+                      <h2 className="secao-titulo">No seu gosto</h2>
+                    </div>
+                    <div className="grade-noticias">
+                      {paraVoce.map((entrada) => (
+                        <article key={chaveDaEntrada(entrada)} className="card-legado">
+                          <NewsCard entrada={entrada} />
+                          <PorQueEstouVendoIsso
+                            motivos={motivosDaEntrada(entrada, buscaAtiva, intencao.obterLeiturasDaCategoria(entrada.categoria))}
+                          />
+                        </article>
+                      ))}
+                    </div>
+                  </section>
+                )}
                 <section className="secao-bloco" id="ultimas" aria-label="Últimas notícias">
                   <div className="secao-cabecalho">
                     <p className="secao-eyebrow">O rio</p>
                     <h2 className="secao-titulo">Últimas notícias</h2>
                   </div>
-                  {itensAposMosaico.length === 0 ? (
+                  {itens.length === 0 ? (
                     <p className="texto-suave">Mais notícias aparecerão aqui.</p>
                   ) : (
                     <div className="lista-compacta">
-                      {itensAposMosaico.slice(0, 12).map((entrada, i) => (
+                      {itens.slice(0, 12).map((entrada, i) => (
                         <HorizontalNewsCard key={chaveDaEntrada(entrada)} entrada={entrada} posicao={i + 1} />
                       ))}
                     </div>
@@ -349,9 +354,9 @@ function PaginaFeedInner() {
                 )}
               </>
             ) : (
-              itensAposMosaico.length > 0 && (
+              itens.length > 0 && (
                 <div className="grade-noticias">
-                  {itensAposMosaico.map((entrada) => (
+                  {itens.map((entrada) => (
                     <article key={chaveDaEntrada(entrada)} className="card-legado">
                       <NewsCard entrada={entrada} />
                       <PorQueEstouVendoIsso
@@ -364,7 +369,7 @@ function PaginaFeedInner() {
             )}
             {feed.isFetchingNextPage && <SkeletonLista quantidade={2} />}
           </div>
-          {modoMosaico && (
+          {modoRio && (
             <aside className="sidebar">
               <MaisLidas limite={5} />
               <div className="newsletter-box">
