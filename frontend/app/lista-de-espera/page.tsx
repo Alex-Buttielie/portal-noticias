@@ -2,15 +2,19 @@
 
 import { useState, type FormEvent } from "react";
 import * as api from "@/lib/api";
+import { useListaEspera } from "@/lib/queries";
+import { Button } from "@/components/ui/Button";
+import { CampoSelecao, CampoTexto } from "@/components/ui/FormField";
+import { ErrorState } from "@/components/ui/Estados";
 
 export default function PaginaListaDeEspera() {
+  const inscrever = useListaEspera();
   const [nome, setNome] = useState("");
   const [email, setEmail] = useState("");
   const [interesses, setInteresses] = useState("");
   const [localidade, setLocalidade] = useState("");
   const [canalPreferido, setCanalPreferido] = useState("");
   const [aceiteComunicacao, setAceiteComunicacao] = useState(false);
-  const [enviando, setEnviando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const [sucesso, setSucesso] = useState<string | null>(null);
 
@@ -24,9 +28,8 @@ export default function PaginaListaDeEspera() {
       return;
     }
 
-    setEnviando(true);
     try {
-      const resultado = await api.inscreverListaEspera({
+      const resultado = await inscrever.mutateAsync({
         nome,
         email,
         interesses: interesses
@@ -46,8 +49,6 @@ export default function PaginaListaDeEspera() {
       setAceiteComunicacao(false);
     } catch (e) {
       setErro(e instanceof api.ApiError ? e.message : "Não foi possível enviar sua inscrição.");
-    } finally {
-      setEnviando(false);
     }
   }
 
@@ -69,53 +70,32 @@ export default function PaginaListaDeEspera() {
         </ol>
       </div>
 
-      {erro && <p className="mensagem-erro">{erro}</p>}
+      {erro && <ErrorState mensagem={erro} />}
       {sucesso && <p className="mensagem-sucesso">{sucesso}</p>}
 
       <form onSubmit={aoSubmeter} className="formulario">
-        <div className="campo">
-          <label htmlFor="nome">Nome</label>
-          <input id="nome" type="text" required value={nome} onChange={(e) => setNome(e.target.value)} />
-        </div>
-        <div className="campo">
-          <label htmlFor="email">E-mail</label>
-          <input
-            id="email"
-            type="email"
-            required
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-          />
-        </div>
-        <div className="campo">
-          <label htmlFor="interesses">Interesses (separados por vírgula)</label>
-          <input
-            id="interesses"
-            type="text"
-            placeholder="política, tecnologia, esportes"
-            value={interesses}
-            onChange={(e) => setInteresses(e.target.value)}
-          />
-        </div>
-        <div className="campo">
-          <label htmlFor="localidade">Localidade</label>
-          <input
-            id="localidade"
-            type="text"
-            placeholder="cidade, estado ou país"
-            value={localidade}
-            onChange={(e) => setLocalidade(e.target.value)}
-          />
-        </div>
-        <div className="campo">
-          <label htmlFor="canal">Canal preferido</label>
-          <select id="canal" value={canalPreferido} onChange={(e) => setCanalPreferido(e.target.value)}>
-            <option value="">Sem preferência</option>
-            <option value="email">E-mail</option>
-            <option value="whatsapp">WhatsApp</option>
-            <option value="push">Notificação push</option>
-          </select>
-        </div>
+        <CampoTexto id="nome" rotulo="Nome" required autoComplete="name" value={nome} onChange={(e) => setNome(e.target.value)} />
+        <CampoTexto id="email" rotulo="E-mail" type="email" required autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+        <CampoTexto
+          id="interesses"
+          rotulo="Interesses (separados por vírgula)"
+          placeholder="política, tecnologia, esportes"
+          value={interesses}
+          onChange={(e) => setInteresses(e.target.value)}
+        />
+        <CampoTexto
+          id="localidade"
+          rotulo="Localidade"
+          placeholder="cidade, estado ou país"
+          value={localidade}
+          onChange={(e) => setLocalidade(e.target.value)}
+        />
+        <CampoSelecao id="canal" rotulo="Canal preferido" value={canalPreferido} onChange={(e) => setCanalPreferido(e.target.value)}>
+          <option value="">Sem preferência</option>
+          <option value="email">E-mail</option>
+          <option value="whatsapp">WhatsApp</option>
+          <option value="push">Notificação push</option>
+        </CampoSelecao>
         <div className="campo">
           <label>
             <input
@@ -126,9 +106,9 @@ export default function PaginaListaDeEspera() {
             Aceito receber comunicações sobre o lançamento.
           </label>
         </div>
-        <button type="submit" className="botao" disabled={enviando}>
-          {enviando ? "Enviando..." : "Entrar na lista de espera"}
-        </button>
+        <Button type="submit" carregando={inscrever.isPending}>
+          Entrar na lista de espera
+        </Button>
       </form>
     </div>
   );

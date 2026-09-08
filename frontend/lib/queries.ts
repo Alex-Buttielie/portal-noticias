@@ -231,3 +231,72 @@ export function useNewsletterCancelar(): UseMutationResult<void, Error, void> {
     mutationFn: () => api.cancelarNewsletter(token ?? ""),
   });
 }
+
+export function useListaEspera(): UseMutationResult<
+  { detail: string },
+  Error,
+  { nome: string; email: string; interesses: string[]; localidade?: string; canal_preferido?: string; aceite_comunicacao: boolean }
+> {
+  return useMutation({
+    mutationFn: (dados: {
+      nome: string;
+      email: string;
+      interesses: string[];
+      localidade?: string;
+      canal_preferido?: string;
+      aceite_comunicacao: boolean;
+    }) => api.inscreverListaEspera(dados),
+  });
+}
+
+export function useSolicitarCredenciamento(): UseMutationResult<
+  api.SolicitacaoCredenciamento,
+  Error,
+  { cidade: string; uf: string; mini_bio: string; dados_profissionais: string; documento: File; telefone?: string }
+> {
+  const { token } = useAuth();
+  return useMutation({
+    mutationFn: (dados: {
+      cidade: string;
+      uf: string;
+      mini_bio: string;
+      dados_profissionais: string;
+      documento: File;
+      telefone?: string;
+    }) => api.solicitarCredenciamento(token ?? "", dados),
+  });
+}
+
+export function useMinhaSolicitacao(): UseQueryResult<api.SolicitacaoCredenciamento | null, Error> {
+  const { token } = useAuth();
+  return useQuery({
+    queryKey: ["minha-solicitacao"],
+    queryFn: () => (token ? api.obterMinhaSolicitacaoCredenciamento(token) : Promise.resolve(null)),
+    enabled: Boolean(token),
+  });
+}
+
+export function useMeuPerfilJornalista(): UseQueryResult<api.PerfilJornalista | null, Error> {
+  const { token } = useAuth();
+  return useQuery({
+    queryKey: ["meu-perfil-jornalista"],
+    queryFn: () => (token ? api.obterMeuPerfilJornalista(token) : Promise.resolve(null)),
+    enabled: Boolean(token),
+  });
+}
+
+export function useSalvarPerfilJornalista(): UseMutationResult<
+  api.PerfilJornalista,
+  Error,
+  { mini_bio?: string; dados_profissionais?: string }
+> {
+  const { token } = useAuth();
+  const cliente = useQueryClient();
+  return useMutation({
+    mutationFn: (dados: { mini_bio?: string; dados_profissionais?: string }) =>
+      api.atualizarMeuPerfilJornalista(token ?? "", dados),
+    onSuccess: (atualizado) => {
+      cliente.setQueryData(["meu-perfil-jornalista"], atualizado);
+    },
+  });
+}

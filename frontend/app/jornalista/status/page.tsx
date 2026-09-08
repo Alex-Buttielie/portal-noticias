@@ -6,6 +6,11 @@ import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
 import { useToast } from "@/components/ToastProvider";
 import * as api from "@/lib/api";
+import { useMeuPerfilJornalista, useMinhaSolicitacao, useSalvarPerfilJornalista } from "@/lib/queries";
+import Badge from "@/components/Badge";
+import { Button } from "@/components/ui/Button";
+import { CampoAreaTexto } from "@/components/ui/FormField";
+import { ErrorState, SkeletonCard } from "@/components/ui/Estados";
 
 const ROTULOS_STATUS: Record<api.StatusCredenciamento, string> = {
   pendente: "Em análise",
@@ -18,36 +23,32 @@ export default function PaginaStatusCredenciamento() {
   const router = useRouter();
   const { token, carregando: carregandoAuth } = useAuth();
   const { notificar } = useToast();
-  const [solicitacao, setSolicitacao] = useState<api.SolicitacaoCredenciamento | null | undefined>(
-    undefined
-  );
-  const [erro, setErro] = useState<string | null>(null);
+  const solicitacaoQuery = useMinhaSolicitacao();
+  const perfilQuery = useMeuPerfilJornalista();
+  const salvarPerfil = useSalvarPerfilJornalista();
 
-  const [perfil, setPerfil] = useState<api.PerfilJornalista | null>(null);
   const [editandoPerfil, setEditandoPerfil] = useState(false);
   const [miniBioPerfil, setMiniBioPerfil] = useState("");
   const [dadosProfissionaisPerfil, setDadosProfissionaisPerfil] = useState("");
-  const [salvandoPerfil, setSalvandoPerfil] = useState(false);
 
   useEffect(() => {
-    if (carregandoAuth) return;
-    if (!token) {
+    if (!carregandoAuth && !token) {
       router.push("/login");
-      return;
     }
-    api
-      .obterMinhaSolicitacaoCredenciamento(token)
-      .then(setSolicitacao)
-      .catch((e: unknown) => {
-        setErro(e instanceof api.ApiError ? e.message : "Não foi possível carregar sua solicitação.");
-      });
-    api
-      .obterMeuPerfilJornalista(token)
-      .then(setPerfil)
-      .catch(() => {
-        // perfil só existe para quem já foi aprovado — 404 é esperado, não é erro de tela
-      });
-  }, [token, carregandoAuth, router]);
+  }, [carregandoAuth, token, router]);
+
+  if (carregandoAuth || solicitacaoQuery.isLoading) return <p className="texto-suave">Carregando...</p>;
+  if (solicitacaoQuery.isError) {
+    return (
+      <ErrorState
+        mensagem="Não foi possível carregar sua solicitação."
+        aoTentarNovamente={() => void solicitacaoQuery.refetch()}
+      />
+    );
+  }
+
+  const solicitacao = solicitacaoQuery.data ?? null;
+  const perfil = perfilQuery.data ?? null;
 
   function iniciarEdicaoPerfil() {
     if (!perfil) return;
@@ -56,34 +57,24 @@ export default function PaginaStatusCredenciamento() {
     setEditandoPerfil(true);
   }
 
-  async function salvarPerfil(evento: FormEvent) {
+  async function salvarPerfilHandler(evento: FormEvent) {
     evento.preventDefault();
     if (!token) return;
-    setSalvandoPerfil(true);
     try {
-      const atualizado = await api.atualizarMeuPerfilJornalista(token, {
-        mini_bio: miniBioPerfil,
-        dados_profissionais: dadosProfissionaisPerfil,
-      });
-      setPerfil(atualizado);
+      await salvarPerfil.mutateAsync({ mini_bio: miniBioPerfil, dados_profissionais: dadosProfissionaisPerfil });
       setEditandoPerfil(false);
       notificar("Perfil profissional atualizado.", "sucesso");
     } catch (e) {
       notificar(e instanceof api.ApiError ? e.message : "Não foi possível salvar o perfil.", "erro");
-    } finally {
-      setSalvandoPerfil(false);
     }
   }
-
-  if (carregandoAuth || solicitacao === undefined) return <p className="texto-suave">Carregando...</p>;
-  if (erro) return <p className="mensagem-erro">{erro}</p>;
 
   if (solicitacao === null) {
     return (
       <div className="formulario">
         <h1>Credenciamento de jornalista</h1>
         <p className="texto-suave">Você ainda não solicitou credenciamento.</p>
-        <Link href="/jornalista/solicitar" className="botao">
+        <Link href="/jornalista/solicitar" className="botao botao--primaria botao--medio">
           Solicitar agora
         </Link>
       </div>
@@ -94,7 +85,9 @@ export default function PaginaStatusCredenciamento() {
     <div className="formulario">
       <h1>Status do seu credenciamento</h1>
       <div className="cartao">
-        <strong>{ROTULOS_STATUS[solicitacao.status]}</strong>
+        <Badge variante={solicitacao.status === "aprovado" ? "sucesso" : solicitacao.status === "reprovado" ? "erro" : "neutro"}>
+          {ROTULOS_STATUS[solicitacao.status]}
+        </Badge>
         {solicitacao.motivo_decisao && (
           <p className="texto-suave" style={{ marginTop: "0.4rem" }}>
             {solicitacao.motivo_decisao}
@@ -102,40 +95,37 @@ export default function PaginaStatusCredenciamento() {
         )}
       </div>
       {solicitacao.status === "aprovado" && (
-        <Link href="/comunidade/nova" className="botao">
+        <Link href="/comunidade/nova" className="botao botao--primaria botao--medio">
           Escrever uma análise
         </Link>
       )}
 
+      {perfilQuery.isLoading && <SkeletonCard />}
       {perfil && (
         <div className="cartao" style={{ marginTop: "1.5rem" }}>
           <h2 style={{ fontSize: "1.1rem" }}>Meu perfil profissional</h2>
           {editandoPerfil ? (
-            <form onSubmit={salvarPerfil}>
-              <div className="campo">
-                <label htmlFor="mini-bio-perfil">Mini bio</label>
-                <textarea
-                  id="mini-bio-perfil"
-                  rows={3}
-                  value={miniBioPerfil}
-                  onChange={(e) => setMiniBioPerfil(e.target.value)}
-                />
-              </div>
-              <div className="campo">
-                <label htmlFor="dados-profissionais-perfil">Dados profissionais</label>
-                <textarea
-                  id="dados-profissionais-perfil"
-                  rows={3}
-                  value={dadosProfissionaisPerfil}
-                  onChange={(e) => setDadosProfissionaisPerfil(e.target.value)}
-                />
-              </div>
-              <button type="submit" className="botao" disabled={salvandoPerfil}>
-                {salvandoPerfil ? "Salvando..." : "Salvar perfil"}
-              </button>{" "}
-              <button type="button" className="botao botao-secundario" onClick={() => setEditandoPerfil(false)}>
+            <form onSubmit={salvarPerfilHandler}>
+              <CampoAreaTexto
+                id="mini-bio-perfil"
+                rotulo="Mini bio"
+                rows={3}
+                value={miniBioPerfil}
+                onChange={(e) => setMiniBioPerfil(e.target.value)}
+              />
+              <CampoAreaTexto
+                id="dados-profissionais-perfil"
+                rotulo="Dados profissionais"
+                rows={3}
+                value={dadosProfissionaisPerfil}
+                onChange={(e) => setDadosProfissionaisPerfil(e.target.value)}
+              />
+              <Button type="submit" carregando={salvarPerfil.isPending}>
+                Salvar perfil
+              </Button>{" "}
+              <Button variante="secundaria" onClick={() => setEditandoPerfil(false)}>
                 Cancelar
-              </button>
+              </Button>
             </form>
           ) : (
             <>
@@ -143,9 +133,9 @@ export default function PaginaStatusCredenciamento() {
               <p className="texto-suave">
                 {perfil.dados_profissionais || "Nenhum dado profissional cadastrado ainda."}
               </p>
-              <button type="button" className="botao botao-secundario" onClick={iniciarEdicaoPerfil}>
+              <Button variante="secundaria" onClick={iniciarEdicaoPerfil}>
                 Editar perfil
-              </button>
+              </Button>
             </>
           )}
         </div>
