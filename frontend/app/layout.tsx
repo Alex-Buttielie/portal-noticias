@@ -3,8 +3,7 @@ import type { ReactNode } from "react";
 import Script from "next/script";
 import { Inter, Source_Serif_4 } from "next/font/google";
 import "./globals.css";
-import { AuthProvider } from "@/lib/auth-context";
-import { ToastProvider } from "@/components/ToastProvider";
+import { Providers } from "./providers";
 import Header from "@/components/Header";
 import Rodape from "@/components/Rodape";
 import PularParaConteudo from "@/components/PularParaConteudo";
@@ -91,17 +90,15 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <Script id="tema-inicial" strategy="beforeInteractive">
           {SCRIPT_TEMA_INICIAL}
         </Script>
-        <ToastProvider>
-          <AuthProvider>
-            <PularParaConteudo />
-            <Header />
-            <main id="conteudo-principal" className="container" tabIndex={-1}>
-              {children}
-            </main>
-            <Rodape />
-            <BannerConsentimentoCookies />
-          </AuthProvider>
-        </ToastProvider>
+        <Providers>
+          <PularParaConteudo />
+          <Header />
+          <main id="conteudo-principal" className="container" tabIndex={-1}>
+            {children}
+          </main>
+          <Rodape />
+          <BannerConsentimentoCookies />
+        </Providers>
       </body>
     </html>
   );
