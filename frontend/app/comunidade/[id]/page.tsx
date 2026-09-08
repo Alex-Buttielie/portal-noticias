@@ -1,10 +1,15 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
 import { useToast } from "@/components/ToastProvider";
 import * as api from "@/lib/api";
+import { useComentar, useComentarios, useEditarPublicacao, usePublicacao } from "@/lib/queries";
+import Badge from "@/components/Badge";
+import { Button } from "@/components/ui/Button";
+import { CampoAreaTexto, CampoTexto } from "@/components/ui/FormField";
+import { EmptyState, ErrorState, SkeletonCard } from "@/components/ui/Estados";
 
 const ID_TEMPORARIO_BASE = -1;
 
@@ -13,58 +18,26 @@ export default function PaginaDetalhePublicacao({ params }: { params: { id: stri
   const { notificar } = useToast();
   const publicacaoId = Number(params.id);
 
-  const [publicacao, setPublicacao] = useState<api.Publicacao | null>(null);
-  const [comentarios, setComentarios] = useState<api.Comentario[]>([]);
-  const [novoComentario, setNovoComentario] = useState("");
-  const [carregando, setCarregando] = useState(true);
-  const [naoEncontrada, setNaoEncontrada] = useState(false);
-  const [erro, setErro] = useState<string | null>(null);
-  const [enviandoComentario, setEnviandoComentario] = useState(false);
+  const publicacaoQuery = usePublicacao(publicacaoId);
+  const comentariosQuery = useComentarios(publicacaoId);
+  const comentarMutacao = useComentar(publicacaoId);
+  const editarMutacao = useEditarPublicacao(publicacaoId);
 
+  const publicacao = publicacaoQuery.data ?? null;
+  const [novoComentario, setNovoComentario] = useState("");
+  const [otimistas, setOtimistas] = useState<api.Comentario[]>([]);
   const [editando, setEditando] = useState(false);
   const [tituloEdicao, setTituloEdicao] = useState("");
   const [conteudoEdicao, setConteudoEdicao] = useState("");
-  const [salvandoEdicao, setSalvandoEdicao] = useState(false);
 
-  function carregarComentarios() {
-    api
-      .obterComentarios({ publicacao: publicacaoId })
-      .then(setComentarios)
-      .catch(() => {
-        // comentários são um extra da tela — falha silenciosa aqui não impede ler a publicação
-      });
-  }
+  const comentarios = [...(comentariosQuery.data ?? []), ...otimistas];
 
-  useEffect(() => {
-    setCarregando(true);
-    api
-      .obterPublicacao(token, publicacaoId)
-      .then((pub) => {
-        if (!pub) {
-          setNaoEncontrada(true);
-        } else {
-          setPublicacao(pub);
-        }
-      })
-      .catch((e: unknown) => {
-        setErro(e instanceof api.ApiError ? e.message : "Não foi possível carregar a publicação.");
-      })
-      .finally(() => setCarregando(false));
-    carregarComentarios();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [publicacaoId, token]);
-
-  // Comentário aparece na hora (otimista) enquanto a chamada real acontece
-  // em segundo plano; se falhar, o comentário provisório é removido e o
-  // texto volta para a caixa para o usuário tentar de novo.
   async function aoComentar(evento: FormEvent) {
     evento.preventDefault();
     const conteudo = novoComentario.trim();
     if (!token || !conteudo || !usuario) return;
-
-    const idTemporario = ID_TEMPORARIO_BASE - comentarios.length;
-    const comentarioOtimista: api.Comentario = {
-      id: idTemporario,
+    const provisorio: api.Comentario = {
+      id: ID_TEMPORARIO_BASE - otimistas.length,
       autor: usuario.id,
       autor_nome: usuario.nome,
       conteudo,
@@ -73,20 +46,15 @@ export default function PaginaDetalhePublicacao({ params }: { params: { id: stri
       resposta_de: null,
       criado_em: new Date().toISOString(),
     };
-
-    setComentarios((atual) => [...atual, comentarioOtimista]);
+    setOtimistas((atual) => [...atual, provisorio]);
     setNovoComentario("");
-    setEnviandoComentario(true);
-
     try {
-      await api.comentar(token, { conteudo, publicacao: publicacaoId });
-      carregarComentarios();
+      await comentarMutacao.mutateAsync(conteudo);
+      setOtimistas((atual) => atual.filter((c) => c.id !== provisorio.id));
     } catch (e) {
-      setComentarios((atual) => atual.filter((c) => c.id !== idTemporario));
+      setOtimistas((atual) => atual.filter((c) => c.id !== provisorio.id));
       setNovoComentario(conteudo);
       notificar(e instanceof api.ApiError ? e.message : "Não foi possível comentar.", "erro");
-    } finally {
-      setEnviandoComentario(false);
     }
   }
 
@@ -100,28 +68,35 @@ export default function PaginaDetalhePublicacao({ params }: { params: { id: stri
   async function salvarEdicao(evento: FormEvent) {
     evento.preventDefault();
     if (!token || !publicacao) return;
-    setSalvandoEdicao(true);
     try {
-      const atualizada = await api.editarPublicacao(token, publicacaoId, {
-        titulo: tituloEdicao,
-        conteudo: conteudoEdicao,
-      });
-      setPublicacao(atualizada);
+      await editarMutacao.mutateAsync({ titulo: tituloEdicao, conteudo: conteudoEdicao });
       setEditando(false);
       notificar("Publicação atualizada.", "sucesso");
     } catch (e) {
       notificar(e instanceof api.ApiError ? e.message : "Não foi possível salvar a edição.", "erro");
-    } finally {
-      setSalvandoEdicao(false);
     }
   }
 
-  if (carregando) return <p className="texto-suave">Carregando...</p>;
-  if (naoEncontrada) {
-    return <p className="mensagem-erro">Esta publicação não foi encontrada ou não está disponível.</p>;
+  if (publicacaoQuery.isLoading) return <SkeletonCard />;
+  if (publicacaoQuery.isError) {
+    return (
+      <ErrorState
+        mensagem={
+          publicacaoQuery.error instanceof api.ApiError
+            ? publicacaoQuery.error.message
+            : "Não foi possível carregar a publicação."
+        }
+        aoTentarNovamente={() => void publicacaoQuery.refetch()}
+      />
+    );
   }
-  if (erro || !publicacao) {
-    return <p className="mensagem-erro">{erro || "Não foi possível carregar a publicação."}</p>;
+  if (!publicacao) {
+    return (
+      <EmptyState
+        titulo="Publicação não encontrada"
+        descricao="Ela pode ter sido removida ou ainda não estar disponível."
+      />
+    );
   }
 
   const ehAutor = usuario?.id === publicacao.autor;
@@ -129,38 +104,35 @@ export default function PaginaDetalhePublicacao({ params }: { params: { id: stri
   return (
     <article>
       <div className="cartao-meta">
-        <span className="badge-categoria">{publicacao.tipo === "opiniao" ? "Opinião" : "Análise"}</span>
-        {publicacao.categoria && <span className="badge-categoria">{publicacao.categoria}</span>}
+        <Badge variante={publicacao.tipo === "opiniao" ? "premium" : "neutro"}>
+          {publicacao.tipo === "opiniao" ? "Opinião" : "Análise"}
+        </Badge>
+        {publicacao.categoria && <Badge variante="neutro">{publicacao.categoria}</Badge>}
       </div>
 
       {editando ? (
-        <form onSubmit={salvarEdicao} className="formulario">
-          <div className="campo">
-            <label htmlFor="titulo-edicao">Título</label>
-            <input
-              id="titulo-edicao"
-              type="text"
-              value={tituloEdicao}
-              onChange={(e) => setTituloEdicao(e.target.value)}
-              required
-            />
-          </div>
-          <div className="campo">
-            <label htmlFor="conteudo-edicao">Conteúdo</label>
-            <textarea
-              id="conteudo-edicao"
-              rows={10}
-              value={conteudoEdicao}
-              onChange={(e) => setConteudoEdicao(e.target.value)}
-              required
-            />
-          </div>
-          <button type="submit" className="botao" disabled={salvandoEdicao}>
-            {salvandoEdicao ? "Salvando..." : "Salvar alterações"}
-          </button>{" "}
-          <button type="button" className="botao botao-secundario" onClick={() => setEditando(false)}>
+        <form onSubmit={salvarEdicao}>
+          <CampoTexto
+            id="titulo-edicao"
+            rotulo="Título"
+            value={tituloEdicao}
+            onChange={(e) => setTituloEdicao(e.target.value)}
+            required
+          />
+          <CampoAreaTexto
+            id="conteudo-edicao"
+            rotulo="Conteúdo"
+            rows={10}
+            value={conteudoEdicao}
+            onChange={(e) => setConteudoEdicao(e.target.value)}
+            required
+          />
+          <Button type="submit" carregando={editarMutacao.isPending}>
+            Salvar alterações
+          </Button>{" "}
+          <Button variante="secundaria" onClick={() => setEditando(false)}>
             Cancelar
-          </button>
+          </Button>
         </form>
       ) : (
         <>
@@ -170,21 +142,9 @@ export default function PaginaDetalhePublicacao({ params }: { params: { id: stri
             {ehAutor && (
               <>
                 {" — "}
-                <button
-                  type="button"
-                  onClick={iniciarEdicao}
-                  style={{
-                    background: "none",
-                    border: "none",
-                    padding: 0,
-                    textDecoration: "underline",
-                    cursor: "pointer",
-                    color: "inherit",
-                    font: "inherit",
-                  }}
-                >
+                <Button variante="fantasma" tamanho="pequeno" onClick={iniciarEdicao}>
                   Editar
-                </button>
+                </Button>
               </>
             )}
           </p>
@@ -194,11 +154,7 @@ export default function PaginaDetalhePublicacao({ params }: { params: { id: stri
 
       <h2 style={{ fontSize: "1rem", marginTop: "1.5rem" }}>Comentários ({comentarios.length})</h2>
       {comentarios.map((comentario) => (
-        <div
-          key={comentario.id}
-          className="cartao"
-          style={comentario.id < 0 ? { opacity: 0.6 } : undefined}
-        >
+        <div key={comentario.id} className="cartao" style={comentario.id < 0 ? { opacity: 0.6 } : undefined}>
           <div className="cartao-meta">
             <strong>{comentario.autor_nome}</strong>
             {comentario.id < 0 && <span className="texto-suave">Enviando...</span>}
@@ -209,17 +165,17 @@ export default function PaginaDetalhePublicacao({ params }: { params: { id: stri
 
       {token ? (
         <form onSubmit={aoComentar} style={{ marginTop: "1rem" }}>
-          <div className="campo">
-            <textarea
-              rows={3}
-              placeholder="Escreva um comentário respeitoso..."
-              value={novoComentario}
-              onChange={(e) => setNovoComentario(e.target.value)}
-            />
-          </div>
-          <button type="submit" className="botao" disabled={enviandoComentario || !novoComentario.trim()}>
-            {enviandoComentario ? "Enviando..." : "Comentar"}
-          </button>
+          <CampoAreaTexto
+            id="novo-comentario"
+            rotulo="Deixe seu comentário"
+            rows={3}
+            placeholder="Escreva um comentário respeitoso..."
+            value={novoComentario}
+            onChange={(e) => setNovoComentario(e.target.value)}
+          />
+          <Button type="submit" carregando={comentarMutacao.isPending} disabled={!novoComentario.trim()}>
+            Comentar
+          </Button>
         </form>
       ) : (
         <p className="texto-suave">

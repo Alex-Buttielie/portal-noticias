@@ -3,47 +3,46 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
+import { useToast } from "@/components/ToastProvider";
 import * as api from "@/lib/api";
+import { useOnboarding, useSalvarOnboarding } from "@/lib/queries";
+import { Button } from "@/components/ui/Button";
+import { CampoSelecao, CampoTexto } from "@/components/ui/FormField";
+import { ErrorState } from "@/components/ui/Estados";
 
 export default function PaginaOnboarding() {
   const router = useRouter();
   const { token, usuario, carregando: carregandoAuth } = useAuth();
+  const { notificar } = useToast();
+  const onboarding = useOnboarding();
+  const salvarMutacao = useSalvarOnboarding();
 
   const [interesses, setInteresses] = useState("");
   const [localidade, setLocalidade] = useState("");
   const [canalPreferido, setCanalPreferido] = useState<"email" | "push" | "">("");
-  const [carregando, setCarregando] = useState(true);
-  const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const [concluido, setConcluido] = useState(false);
 
   useEffect(() => {
-    if (carregandoAuth) return;
-    if (!token) {
+    if (!carregandoAuth && !token) {
       router.push("/login");
-      return;
     }
-    api
-      .obterOnboarding(token)
-      .then((dados) => {
-        setInteresses(dados.interesses.join(", "));
-        setLocalidade(dados.localidade);
-        setCanalPreferido((dados.canal_preferido as "email" | "push" | "") || "");
-      })
-      .catch((e: unknown) => {
-        setErro(
-          e instanceof api.ApiError ? e.message : "Não foi possível carregar o onboarding."
-        );
-      })
-      .finally(() => setCarregando(false));
-  }, [token, carregandoAuth, router]);
+  }, [carregandoAuth, token, router]);
+
+  useEffect(() => {
+    const dados = onboarding.data;
+    if (dados) {
+      setInteresses(dados.interesses.join(", "));
+      setLocalidade(dados.localidade);
+      setCanalPreferido((dados.canal_preferido as "email" | "push" | "") || "");
+    }
+  }, [onboarding.data]);
 
   async function salvar(pular: boolean) {
     if (!token) return;
     setErro(null);
-    setSalvando(true);
     try {
-      await api.atualizarOnboarding(token, {
+      await salvarMutacao.mutateAsync({
         interesses: interesses
           .split(",")
           .map((i) => i.trim())
@@ -53,26 +52,25 @@ export default function PaginaOnboarding() {
         pular,
       });
       setConcluido(true);
+      notificar("Preferências salvas.", "sucesso");
     } catch (e) {
       setErro(e instanceof api.ApiError ? e.message : "Não foi possível salvar.");
-    } finally {
-      setSalvando(false);
     }
   }
 
   function aoSubmeter(evento: FormEvent) {
     evento.preventDefault();
-    salvar(false);
+    void salvar(false);
   }
 
-  if (carregandoAuth || carregando) return <p className="texto-suave">Carregando...</p>;
+  if (carregandoAuth || onboarding.isLoading) return <p className="texto-suave">Carregando...</p>;
 
   if (concluido) {
     return (
       <div className="formulario">
         <h1>Tudo pronto!</h1>
         <p className="mensagem-sucesso">Suas preferências foram salvas.</p>
-        <a href="/" className="botao">
+        <a href="/" className="botao botao--primaria botao--medio">
           Ir para o feed
         </a>
       </div>
@@ -94,52 +92,40 @@ export default function PaginaOnboarding() {
   return (
     <div className="formulario">
       <h1>Personalize sua experiência</h1>
-      {erro && <p className="mensagem-erro">{erro}</p>}
+      {erro && <ErrorState mensagem={erro} />}
+      {onboarding.isError && <ErrorState mensagem="Não foi possível carregar o onboarding." aoTentarNovamente={() => void onboarding.refetch()} />}
       <form onSubmit={aoSubmeter}>
-        <div className="campo">
-          <label htmlFor="interesses">Interesses (separados por vírgula)</label>
-          <input
-            id="interesses"
-            type="text"
-            placeholder="política, tecnologia, esportes"
-            value={interesses}
-            onChange={(e) => setInteresses(e.target.value)}
-          />
-        </div>
-        <div className="campo">
-          <label htmlFor="localidade">Localidade de interesse</label>
-          <input
-            id="localidade"
-            type="text"
-            placeholder="Cidade, estado"
-            value={localidade}
-            onChange={(e) => setLocalidade(e.target.value)}
-          />
-        </div>
-        <div className="campo">
-          <label htmlFor="canal">Canal preferido</label>
-          <select
-            id="canal"
-            value={canalPreferido}
-            onChange={(e) => setCanalPreferido(e.target.value as "email" | "push" | "")}
-          >
-            <option value="">Selecione</option>
-            <option value="email">E-mail</option>
-            <option value="push">Notificação push</option>
-          </select>
-        </div>
+        <CampoTexto
+          id="interesses"
+          rotulo="Interesses (separados por vírgula)"
+          placeholder="política, tecnologia, esportes"
+          value={interesses}
+          onChange={(e) => setInteresses(e.target.value)}
+        />
+        <CampoTexto
+          id="localidade"
+          rotulo="Localidade de interesse"
+          placeholder="Cidade, estado"
+          value={localidade}
+          onChange={(e) => setLocalidade(e.target.value)}
+        />
+        <CampoSelecao
+          id="canal"
+          rotulo="Canal preferido"
+          value={canalPreferido}
+          onChange={(e) => setCanalPreferido(e.target.value as "email" | "push" | "")}
+        >
+          <option value="">Selecione</option>
+          <option value="email">E-mail</option>
+          <option value="push">Notificação push</option>
+        </CampoSelecao>
         <div style={{ display: "flex", gap: "0.6rem" }}>
-          <button type="submit" className="botao" disabled={salvando}>
-            {salvando ? "Salvando..." : "Salvar"}
-          </button>
-          <button
-            type="button"
-            className="botao botao-secundario"
-            disabled={salvando}
-            onClick={() => salvar(true)}
-          >
+          <Button type="submit" carregando={salvarMutacao.isPending}>
+            Salvar
+          </Button>
+          <Button variante="secundaria" disabled={salvarMutacao.isPending} onClick={() => void salvar(true)}>
             Pular por agora
-          </button>
+          </Button>
         </div>
       </form>
     </div>

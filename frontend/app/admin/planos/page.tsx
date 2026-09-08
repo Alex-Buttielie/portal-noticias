@@ -1,62 +1,133 @@
 "use client";
-import { useEffect, useState } from "react";
-import { useAuth } from "@/lib/auth-context";
+import { useState, type FormEvent } from "react";
+import { useToast } from "@/components/ToastProvider";
 import * as api from "@/lib/api";
+import {
+  useAdminAlternarPlano,
+  useAdminLimites,
+  useAdminPlanos,
+  useAdminSalvarLimite,
+  useAdminSalvarPlano,
+} from "@/lib/queries";
+import Badge from "@/components/Badge";
+import { Button } from "@/components/ui/Button";
+import { CampoTexto } from "@/components/ui/FormField";
+import { DataTable } from "@/components/ui/Data";
+import { ErrorState, SkeletonLista } from "@/components/ui/Estados";
+
 export default function AdminPlanosPage() {
-  const { token } = useAuth();
-  const [planos, setPlanos] = useState<api.Plano[]>([]);
-  const [limites, setLimites] = useState<{ id: number; chave: string; plano: string; valor: string; descricao: string }[]>([]);
-  const [erro, setErro] = useState<string | null>(null);
+  const { notificar } = useToast();
+  const planosQuery = useAdminPlanos();
+  const limitesQuery = useAdminLimites();
+  const salvarPlano = useAdminSalvarPlano();
+  const alternarPlano = useAdminAlternarPlano();
+  const salvarLimite = useAdminSalvarLimite();
   const [novoPlano, setNovoPlano] = useState({ nome: "", preco: "", duracao_dias: "180" });
-  async function carregar() {
-    if (!token) return;
+
+  async function criarPlano(evento: FormEvent) {
+    evento.preventDefault();
     try {
-      const [p, l] = await Promise.all([api.adminListarPlanos(token), api.adminListarLimites(token)]);
-      setPlanos((p as unknown as { results: api.Plano[] }).results ?? (p as unknown as api.Plano[]));
-      setLimites((l as unknown as { results: typeof limites }).results ?? (l as unknown as typeof limites));
-      setErro(null);
-    } catch (e) { setErro(e instanceof api.ApiError ? e.message : "Erro ao carregar."); }
+      await salvarPlano.mutateAsync({
+        nome: novoPlano.nome,
+        preco: novoPlano.preco,
+        duracao_dias: Number(novoPlano.duracao_dias),
+      });
+      setNovoPlano({ nome: "", preco: "", duracao_dias: "180" });
+      notificar("Plano criado.", "sucesso");
+    } catch (e) {
+      notificar(e instanceof api.ApiError ? e.message : "Não foi possível criar o plano.", "erro");
+    }
   }
-  useEffect(() => { void carregar(); }, [token]);
+
+  async function editarLimite(limite: { id: number; chave: string; plano: string; valor: string }) {
+    const novo = window.prompt(`Novo valor para ${limite.chave} (${limite.plano}):`, limite.valor);
+    if (novo === null) return;
+    try {
+      await salvarLimite.mutateAsync({ id: limite.id, valor: novo });
+      notificar("Limite atualizado.", "sucesso");
+    } catch (e) {
+      notificar(e instanceof api.ApiError ? e.message : "Não foi possível atualizar o limite.", "erro");
+    }
+  }
+
+  const carregando = planosQuery.isLoading || limitesQuery.isLoading;
+  const erro = planosQuery.isError || limitesQuery.isError;
+
   return (
     <div>
       <h1>Planos & Limites</h1>
-      {erro && <p className="mensagem-erro">{erro}</p>}
-      <h2>Planos</h2>
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
-        <input placeholder="Nome" value={novoPlano.nome} onChange={(e) => setNovoPlano({ ...novoPlano, nome: e.target.value })} style={{ maxWidth: 160 }} />
-        <input placeholder="Preço (30.00)" value={novoPlano.preco} onChange={(e) => setNovoPlano({ ...novoPlano, preco: e.target.value })} style={{ maxWidth: 120 }} />
-        <input placeholder="Duração dias" value={novoPlano.duracao_dias} onChange={(e) => setNovoPlano({ ...novoPlano, duracao_dias: e.target.value })} style={{ maxWidth: 120 }} />
-        <button className="botao" onClick={async () => {
-          if (!token) return;
-          await api.adminCriarPlano(token, { nome: novoPlano.nome, preco: novoPlano.preco, duracao_dias: Number(novoPlano.duracao_dias) });
-          setNovoPlano({ nome: "", preco: "", duracao_dias: "180" }); await carregar();
-        }}>Criar plano</button>
-      </div>
-      <div className="tabela-wrapper">
-        <table className="tabela"><thead><tr><th>Nome</th><th>Preço</th><th>Dias</th><th>Ativo</th><th>Ações</th></tr></thead>
-          <tbody>{planos.map((p) => (
-            <tr key={p.id}><td>{p.nome}</td><td>{p.preco}</td><td>{p.duracao_dias}</td><td>{(p as unknown as { ativo: boolean }).ativo ? "sim" : "não"}</td>
-              <td><button className="botao botao-secundario" onClick={async () => { if (!token) return; await api.adminAtualizarPlano(token, p.id, { ativo: !(p as unknown as { ativo: boolean }).ativo }); await carregar(); }}>{(p as unknown as { ativo: boolean }).ativo ? "Desativar" : "Ativar"}</button></td>
-            </tr>
-          ))}</tbody>
-        </table>
-      </div>
-      <h2 style={{ marginTop: 24 }}>Limites Free/Premium</h2>
-      <div className="tabela-wrapper">
-        <table className="tabela"><thead><tr><th>Chave</th><th>Plano</th><th>Valor</th><th>Ação</th></tr></thead>
-          <tbody>{limites.map((l) => (
-            <tr key={l.id}><td>{l.chave}</td><td>{l.plano}</td><td>{l.valor}</td>
-              <td><button className="botao botao-secundario" onClick={async () => {
-                if (!token) return;
-                const novo = window.prompt(`Novo valor para ${l.chave} (${l.plano}):`, l.valor);
-                if (novo === null) return;
-                await api.adminAtualizarLimite(token, l.id, { valor: novo }); await carregar();
-              }}>Editar</button></td>
-            </tr>
-          ))}</tbody>
-        </table>
-      </div>
+      {carregando && <SkeletonLista quantidade={2} />}
+      {erro && (
+        <ErrorState
+          mensagem="Erro ao carregar planos e limites."
+          aoTentarNovamente={() => {
+            void planosQuery.refetch();
+            void limitesQuery.refetch();
+          }}
+        />
+      )}
+      {!carregando && !erro && (
+        <>
+          <h2>Planos</h2>
+          <form onSubmit={criarPlano} className="controles-feed">
+            <CampoTexto id="plano-nome" rotulo="Nome" value={novoPlano.nome} onChange={(e) => setNovoPlano({ ...novoPlano, nome: e.target.value })} />
+            <CampoTexto id="plano-preco" rotulo="Preço (30.00)" value={novoPlano.preco} onChange={(e) => setNovoPlano({ ...novoPlano, preco: e.target.value })} />
+            <CampoTexto
+              id="plano-dias"
+              rotulo="Duração (dias)"
+              value={novoPlano.duracao_dias}
+              onChange={(e) => setNovoPlano({ ...novoPlano, duracao_dias: e.target.value })}
+            />
+            <Button type="submit" carregando={salvarPlano.isPending}>
+              Criar plano
+            </Button>
+          </form>
+          <DataTable
+            legenda="Planos"
+            linhas={planosQuery.data ?? []}
+            colunas={[
+              { cabecalho: "Nome", render: (p) => p.nome },
+              { cabecalho: "Preço", render: (p) => p.preco },
+              { cabecalho: "Dias", render: (p) => String(p.duracao_dias) },
+              {
+                cabecalho: "Ativo",
+                render: (p) => <Badge variante={p.ativo ? "sucesso" : "erro"}>{p.ativo ? "sim" : "não"}</Badge>,
+              },
+              {
+                cabecalho: "Ações",
+                render: (p) => (
+                  <Button
+                    variante="secundaria"
+                    tamanho="pequeno"
+                    carregando={alternarPlano.isPending}
+                    onClick={() => void alternarPlano.mutateAsync({ id: p.id, ativo: !p.ativo })}
+                  >
+                    {p.ativo ? "Desativar" : "Ativar"}
+                  </Button>
+                ),
+              },
+            ]}
+          />
+          <h2 style={{ marginTop: 24 }}>Limites Free/Premium</h2>
+          <DataTable
+            legenda="Limites por plano"
+            linhas={limitesQuery.data ?? []}
+            colunas={[
+              { cabecalho: "Chave", render: (l) => l.chave },
+              { cabecalho: "Plano", render: (l) => l.plano },
+              { cabecalho: "Valor", render: (l) => l.valor },
+              {
+                cabecalho: "Ação",
+                render: (l) => (
+                  <Button variante="secundaria" tamanho="pequeno" carregando={salvarLimite.isPending} onClick={() => void editarLimite(l)}>
+                    Editar
+                  </Button>
+                ),
+              },
+            ]}
+          />
+        </>
+      )}
     </div>
   );
 }

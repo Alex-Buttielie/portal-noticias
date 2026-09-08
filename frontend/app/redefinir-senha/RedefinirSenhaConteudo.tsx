@@ -4,6 +4,9 @@ import { useState, type FormEvent } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import * as api from "@/lib/api";
+import { Button } from "@/components/ui/Button";
+import { CampoTexto } from "@/components/ui/FormField";
+import { ErrorState } from "@/components/ui/Estados";
 
 export default function RedefinirSenhaConteudo() {
   const searchParams = useSearchParams();
@@ -42,7 +45,7 @@ export default function RedefinirSenhaConteudo() {
       <div className="formulario">
         <h1>Senha redefinida</h1>
         <p className="mensagem-sucesso">Sua senha foi alterada com sucesso.</p>
-        <Link href="/login" className="botao">
+        <Link href="/login" className="botao botao--primaria botao--medio">
           Ir para o login
         </Link>
       </div>
@@ -53,26 +56,23 @@ export default function RedefinirSenhaConteudo() {
     <div className="formulario">
       <h1>Redefinir senha</h1>
       {(!uid || !token) && (
-        <p className="mensagem-erro">
-          Este link parece inválido. Peça uma nova redefinição de senha.
-        </p>
+        <ErrorState mensagem="Este link parece inválido. Peça uma nova redefinição de senha." />
       )}
-      {erro && <p className="mensagem-erro">{erro}</p>}
+      {erro && <ErrorState mensagem={erro} />}
       <form onSubmit={aoSubmeter}>
-        <div className="campo">
-          <label htmlFor="nova-senha">Nova senha</label>
-          <input
-            id="nova-senha"
-            type="password"
-            required
-            minLength={8}
-            value={novaSenha}
-            onChange={(e) => setNovaSenha(e.target.value)}
-          />
-        </div>
-        <button type="submit" className="botao" disabled={enviando || !uid || !token}>
-          {enviando ? "Salvando..." : "Redefinir senha"}
-        </button>
+        <CampoTexto
+          id="nova-senha"
+          rotulo="Nova senha"
+          type="password"
+          required
+          minLength={8}
+          autoComplete="new-password"
+          value={novaSenha}
+          onChange={(e) => setNovaSenha(e.target.value)}
+        />
+        <Button type="submit" carregando={enviando} disabled={!uid || !token}>
+          Redefinir senha
+        </Button>
       </form>
     </div>
   );

@@ -74,7 +74,7 @@ export default async function PaginaDetalheCluster({ params }: { params: { id: s
           />
         </>
       )}
-      <DetalheNoticia tipo="cluster" id={params.id} />
+      <DetalheNoticia tipo="cluster" id={params.id} inicial={detalhe} />
     </>
   );
 }

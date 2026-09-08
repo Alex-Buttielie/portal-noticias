@@ -1,56 +1,76 @@
 "use client";
-import { useEffect, useState } from "react";
-import { useAuth } from "@/lib/auth-context";
-import * as api from "@/lib/api";
+import { useState } from "react";
+import { useAdminDecidirFila, useAdminFila } from "@/lib/queries";
+import Badge from "@/components/Badge";
+import { Button } from "@/components/ui/Button";
+import { CampoSelecao } from "@/components/ui/FormField";
+import { DataTable } from "@/components/ui/Data";
+import { ErrorState, SkeletonLista } from "@/components/ui/Estados";
+
 export default function AdminFilaPage() {
-  const { token } = useAuth();
   const [statusFiltro, setStatusFiltro] = useState("pendente");
-  const [dados, setDados] = useState<api.Paginated<api.AdminFilaItem> | null>(null);
   const [page, setPage] = useState(1);
-  const [carregando, setCarregando] = useState(true);
-  const [erro, setErro] = useState<string | null>(null);
-  async function carregar() {
-    if (!token) return;
-    setCarregando(true);
-    try { setDados(await api.adminListarFila(token, { status: statusFiltro, page })); setErro(null); }
-    catch (e) { setErro(e instanceof api.ApiError ? e.message : "Erro ao carregar."); }
-    finally { setCarregando(false); }
-  }
-  useEffect(() => { void carregar(); }, [token, statusFiltro, page]);
-  async function decidir(id: number, acao: "aprovar" | "rejeitar") {
-    if (!token) return;
-    await api.adminDecidirFila(token, id, acao);
-    await carregar();
-  }
+  const fila = useAdminFila({ status: statusFiltro, page });
+  const decidir = useAdminDecidirFila();
+
+  const totalPaginas = fila.data ? Math.max(1, Math.ceil(fila.data.count / Math.max(1, fila.data.results.length))) : 1;
+
   return (
     <div>
       <h1>Fila editorial</h1>
-      <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-        <select value={statusFiltro} onChange={(e) => { setStatusFiltro(e.target.value); setPage(1); }}>
-          <option value="pendente">pendente</option><option value="aprovado">aprovado</option><option value="rejeitado">rejeitado</option><option value="nao_aplicavel">não aplicável</option>
-        </select>
-      </div>
-      {erro && <p className="mensagem-erro">{erro}</p>}
-      {carregando ? <p className="texto-suave">Carregando…</p> : (
-        <>
-          <div className="tabela-wrapper">
-            <table className="tabela"><thead><tr><th>Título</th><th>Fonte</th><th>Categoria</th><th>Status</th><th>Ações</th></tr></thead>
-              <tbody>{dados?.results.map((it) => (
-                <tr key={it.id}><td>{it.titulo}</td><td>{it.nome_fonte}</td><td>{it.categoria}</td><td>{it.status_revisao}</td>
-                  <td style={{ display: "flex", gap: 6 }}>
-                    <button className="botao" onClick={() => decidir(it.id, "aprovar")}>Aprovar</button>
-                    <button className="botao botao-perigo" onClick={() => decidir(it.id, "rejeitar")}>Rejeitar</button>
-                  </td>
-                </tr>
-              ))}</tbody>
-            </table>
-          </div>
-          <div className="paginacao">
-            <button className="botao botao-secundario" disabled={!dados?.previous} onClick={() => setPage((p) => Math.max(1, p - 1))}>Anterior</button>
-            <span className="texto-suave">pág {page} — {dados?.count ?? 0}</span>
-            <button className="botao botao-secundario" disabled={!dados?.next} onClick={() => setPage((p) => p + 1)}>Próxima</button>
-          </div>
-        </>
+      <CampoSelecao
+        id="admin-fila-status"
+        rotulo="Status"
+        value={statusFiltro}
+        onChange={(e) => {
+          setStatusFiltro(e.target.value);
+          setPage(1);
+        }}
+      >
+        <option value="pendente">pendente</option>
+        <option value="aprovado">aprovado</option>
+        <option value="rejeitado">rejeitado</option>
+        <option value="nao_aplicavel">não aplicável</option>
+      </CampoSelecao>
+
+      {fila.isLoading && <SkeletonLista quantidade={3} />}
+      {fila.isError && (
+        <ErrorState mensagem="Erro ao carregar a fila." aoTentarNovamente={() => void fila.refetch()} />
+      )}
+      {fila.data && (
+        <DataTable
+          legenda="Fila editorial"
+          linhas={fila.data.results}
+          colunas={[
+            { cabecalho: "Título", render: (it) => it.titulo },
+            { cabecalho: "Fonte", render: (it) => it.nome_fonte },
+            { cabecalho: "Categoria", render: (it) => it.categoria },
+            {
+              cabecalho: "Status",
+              render: (it) => (
+                <Badge variante={it.status_revisao === "pendente" ? "neutro" : it.status_revisao === "aprovado" ? "sucesso" : "erro"}>
+                  {it.status_revisao}
+                </Badge>
+              ),
+            },
+            {
+              cabecalho: "Ações",
+              render: (it) => (
+                <span style={{ display: "flex", gap: 6 }}>
+                  <Button tamanho="pequeno" carregando={decidir.isPending} onClick={() => void decidir.mutateAsync({ id: it.id, acao: "aprovar" })}>
+                    Aprovar
+                  </Button>
+                  <Button variante="perigo" tamanho="pequeno" carregando={decidir.isPending} onClick={() => void decidir.mutateAsync({ id: it.id, acao: "rejeitar" })}>
+                    Rejeitar
+                  </Button>
+                </span>
+              ),
+            },
+          ]}
+          pagina={page}
+          totalPaginas={totalPaginas}
+          aoMudarPagina={setPage}
+        />
       )}
     </div>
   );

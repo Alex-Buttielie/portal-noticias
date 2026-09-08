@@ -1,19 +1,26 @@
 "use client";
 
 import { useEffect, useState, type FormEvent } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
+import { useToast } from "@/components/ToastProvider";
 import * as api from "@/lib/api";
+import { usePublicarAnalise } from "@/lib/queries";
+import { Button } from "@/components/ui/Button";
+import { CampoAreaTexto, CampoSelecao, CampoTexto } from "@/components/ui/FormField";
+import { ErrorState } from "@/components/ui/Estados";
 
 export default function PaginaNovaPublicacao() {
   const router = useRouter();
   const { token, carregando: carregandoAuth } = useAuth();
+  const { notificar } = useToast();
+  const publicar = usePublicarAnalise();
 
   const [titulo, setTitulo] = useState("");
   const [conteudo, setConteudo] = useState("");
   const [tipo, setTipo] = useState<api.TipoPublicacao>("analise");
   const [categoria, setCategoria] = useState("");
-  const [enviando, setEnviando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const [sucesso, setSucesso] = useState(false);
 
@@ -27,19 +34,16 @@ export default function PaginaNovaPublicacao() {
     evento.preventDefault();
     if (!token) return;
     setErro(null);
-    setEnviando(true);
     try {
-      const rascunho = await api.criarRascunhoPublicacao(token, { titulo, conteudo, tipo, categoria });
-      await api.enviarPublicacao(token, rascunho.id);
+      await publicar.mutateAsync({ titulo, conteudo, tipo, categoria });
       setSucesso(true);
+      notificar("Publicação enviada.", "sucesso");
     } catch (e) {
       setErro(
         e instanceof api.ApiError
           ? e.message
           : "Não foi possível publicar. Confirme que seu credenciamento está aprovado."
       );
-    } finally {
-      setEnviando(false);
     }
   }
 
@@ -48,9 +52,9 @@ export default function PaginaNovaPublicacao() {
       <div className="formulario">
         <h1>Publicado!</h1>
         <p className="mensagem-sucesso">Sua análise foi publicada na comunidade.</p>
-        <a href="/comunidade" className="botao">
+        <Link href="/comunidade" className="botao botao--primaria botao--medio">
           Ver comunidade
-        </a>
+        </Link>
       </div>
     );
   }
@@ -60,38 +64,27 @@ export default function PaginaNovaPublicacao() {
       <h1>Nova publicação</h1>
       <p className="texto-suave">
         Disponível apenas para jornalistas credenciados —{" "}
-        <a href="/jornalista/status">ver status do credenciamento</a>.
+        <Link href="/jornalista/status">ver status do credenciamento</Link>.
       </p>
-      {erro && <p className="mensagem-erro">{erro}</p>}
+      {erro && <ErrorState mensagem={erro} />}
       <form onSubmit={aoSubmeter}>
-        <div className="campo">
-          <label htmlFor="tipo">Tipo</label>
-          <select id="tipo" value={tipo} onChange={(e) => setTipo(e.target.value as api.TipoPublicacao)}>
-            <option value="analise">Análise</option>
-            <option value="opiniao">Opinião</option>
-          </select>
-        </div>
-        <div className="campo">
-          <label htmlFor="titulo">Título</label>
-          <input id="titulo" type="text" required value={titulo} onChange={(e) => setTitulo(e.target.value)} />
-        </div>
-        <div className="campo">
-          <label htmlFor="categoria">Categoria</label>
-          <input id="categoria" type="text" value={categoria} onChange={(e) => setCategoria(e.target.value)} />
-        </div>
-        <div className="campo">
-          <label htmlFor="conteudo">Conteúdo</label>
-          <textarea
-            id="conteudo"
-            rows={12}
-            required
-            value={conteudo}
-            onChange={(e) => setConteudo(e.target.value)}
-          />
-        </div>
-        <button type="submit" className="botao" disabled={enviando}>
-          {enviando ? "Publicando..." : "Publicar"}
-        </button>
+        <CampoSelecao id="tipo" rotulo="Tipo" value={tipo} onChange={(e) => setTipo(e.target.value as api.TipoPublicacao)}>
+          <option value="analise">Análise</option>
+          <option value="opiniao">Opinião</option>
+        </CampoSelecao>
+        <CampoTexto id="titulo" rotulo="Título" required value={titulo} onChange={(e) => setTitulo(e.target.value)} />
+        <CampoTexto id="categoria" rotulo="Categoria" value={categoria} onChange={(e) => setCategoria(e.target.value)} />
+        <CampoAreaTexto
+          id="conteudo"
+          rotulo="Conteúdo"
+          rows={12}
+          required
+          value={conteudo}
+          onChange={(e) => setConteudo(e.target.value)}
+        />
+        <Button type="submit" carregando={publicar.isPending}>
+          Publicar
+        </Button>
       </form>
     </div>
   );

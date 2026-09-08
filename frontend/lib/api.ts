@@ -296,6 +296,7 @@ export interface Plano {
   nome: string;
   preco: string;
   duracao_dias: number;
+  ativo?: boolean;
 }
 
 export type StatusAssinatura =

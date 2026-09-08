@@ -3,13 +3,17 @@
 import { useState, type FormEvent } from "react";
 import Link from "next/link";
 import * as api from "@/lib/api";
+import { useCadastrar } from "@/lib/queries";
+import { Button } from "@/components/ui/Button";
+import { CampoTexto } from "@/components/ui/FormField";
+import { ErrorState } from "@/components/ui/Estados";
 
 export default function PaginaCadastro() {
+  const cadastrar = useCadastrar();
   const [email, setEmail] = useState("");
   const [nome, setNome] = useState("");
   const [senha, setSenha] = useState("");
   const [aceiteTermos, setAceiteTermos] = useState(false);
-  const [enviando, setEnviando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const [sucesso, setSucesso] = useState(false);
 
@@ -22,14 +26,11 @@ export default function PaginaCadastro() {
       return;
     }
 
-    setEnviando(true);
     try {
-      await api.cadastrar({ email, nome, senha, aceite_termos: aceiteTermos });
+      await cadastrar.mutateAsync({ email, nome, senha, aceite_termos: aceiteTermos });
       setSucesso(true);
     } catch (e) {
       setErro(e instanceof api.ApiError ? e.message : "Não foi possível concluir o cadastro.");
-    } finally {
-      setEnviando(false);
     }
   }
 
@@ -49,33 +50,11 @@ export default function PaginaCadastro() {
   return (
     <div className="formulario">
       <h1>Criar conta</h1>
-      {erro && <p className="mensagem-erro">{erro}</p>}
+      {erro && <ErrorState mensagem={erro} />}
       <form onSubmit={aoSubmeter}>
-        <div className="campo">
-          <label htmlFor="nome">Nome</label>
-          <input id="nome" type="text" value={nome} onChange={(e) => setNome(e.target.value)} />
-        </div>
-        <div className="campo">
-          <label htmlFor="email">E-mail</label>
-          <input
-            id="email"
-            type="email"
-            required
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-          />
-        </div>
-        <div className="campo">
-          <label htmlFor="senha">Senha</label>
-          <input
-            id="senha"
-            type="password"
-            required
-            minLength={8}
-            value={senha}
-            onChange={(e) => setSenha(e.target.value)}
-          />
-        </div>
+        <CampoTexto id="nome" rotulo="Nome" type="text" autoComplete="name" value={nome} onChange={(e) => setNome(e.target.value)} />
+        <CampoTexto id="email" rotulo="E-mail" type="email" required autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+        <CampoTexto id="senha" rotulo="Senha" type="password" required minLength={8} autoComplete="new-password" value={senha} onChange={(e) => setSenha(e.target.value)} dica="Mínimo de 8 caracteres." />
         <div className="campo">
           <label>
             <input
@@ -95,9 +74,9 @@ export default function PaginaCadastro() {
             .
           </label>
         </div>
-        <button type="submit" className="botao" disabled={enviando}>
-          {enviando ? "Enviando..." : "Cadastrar"}
-        </button>
+        <Button type="submit" carregando={cadastrar.isPending}>
+          Cadastrar
+        </Button>
       </form>
       <p className="texto-suave" style={{ marginTop: "1rem" }}>
         Já tem conta? <Link href="/login">Entrar</Link>

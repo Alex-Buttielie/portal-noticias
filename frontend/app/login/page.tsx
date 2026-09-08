@@ -6,6 +6,9 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { useToast } from "@/components/ToastProvider";
 import { ApiError } from "@/lib/api";
+import { Button } from "@/components/ui/Button";
+import { CampoTexto } from "@/components/ui/FormField";
+import { ErrorState } from "@/components/ui/Estados";
 
 export default function PaginaLogin() {
   const router = useRouter();
@@ -34,31 +37,13 @@ export default function PaginaLogin() {
   return (
     <div className="formulario">
       <h1>Entrar</h1>
-      {erro && <p className="mensagem-erro">{erro}</p>}
+      {erro && <ErrorState mensagem={erro} />}
       <form onSubmit={aoSubmeter}>
-        <div className="campo">
-          <label htmlFor="email">E-mail</label>
-          <input
-            id="email"
-            type="email"
-            required
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-          />
-        </div>
-        <div className="campo">
-          <label htmlFor="senha">Senha</label>
-          <input
-            id="senha"
-            type="password"
-            required
-            value={senha}
-            onChange={(e) => setSenha(e.target.value)}
-          />
-        </div>
-        <button type="submit" className="botao" disabled={enviando}>
-          {enviando ? "Entrando..." : "Entrar"}
-        </button>
+        <CampoTexto id="email" rotulo="E-mail" type="email" required autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+        <CampoTexto id="senha" rotulo="Senha" type="password" required autoComplete="current-password" value={senha} onChange={(e) => setSenha(e.target.value)} />
+        <Button type="submit" carregando={enviando}>
+          Entrar
+        </Button>
       </form>
       <p className="texto-suave" style={{ marginTop: "1rem" }}>
         <Link href="/recuperar-senha">Esqueci minha senha</Link>
