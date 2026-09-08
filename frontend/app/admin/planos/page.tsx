@@ -4,6 +4,8 @@ import { useToast } from "@/components/ToastProvider";
 import * as api from "@/lib/api";
 import {
   useAdminAlternarPlano,
+  useAdminEditarPlano,
+  useAdminExcluirPlano,
   useAdminLimites,
   useAdminPlanos,
   useAdminSalvarLimite,
@@ -21,8 +23,12 @@ export default function AdminPlanosPage() {
   const limitesQuery = useAdminLimites();
   const salvarPlano = useAdminSalvarPlano();
   const alternarPlano = useAdminAlternarPlano();
+  const editarPlano = useAdminEditarPlano();
+  const excluirPlano = useAdminExcluirPlano();
   const salvarLimite = useAdminSalvarLimite();
   const [novoPlano, setNovoPlano] = useState({ nome: "", preco: "", duracao_dias: "180" });
+  const [editandoId, setEditandoId] = useState<number | null>(null);
+  const [editForm, setEditForm] = useState({ nome: "", preco: "", duracao_dias: "" });
 
   async function criarPlano(evento: FormEvent) {
     evento.preventDefault();
@@ -39,6 +45,35 @@ export default function AdminPlanosPage() {
     }
   }
 
+  async function excluir(id: number, nome: string) {
+    if (!window.confirm(`Excluir o plano "${nome}"? Só é possível se não houver assinaturas vinculadas.`)) return;
+    try {
+      await excluirPlano.mutateAsync(id);
+      notificar("Plano excluído.", "info");
+    } catch (e) {
+      notificar(e instanceof api.ApiError ? e.message : "Não foi possível excluir o plano.", "erro");
+    }
+  }
+
+  function iniciarEdicao(plano: api.Plano) {
+    setEditandoId(plano.id);
+    setEditForm({ nome: plano.nome, preco: plano.preco, duracao_dias: String(plano.duracao_dias) });
+  }
+
+  async function salvarEdicao(evento: FormEvent) {
+    evento.preventDefault();
+    if (editandoId === null) return;
+    try {
+      await editarPlano.mutateAsync({
+        id: editandoId,
+        dados: { nome: editForm.nome, preco: editForm.preco, duracao_dias: Number(editForm.duracao_dias) },
+      });
+      setEditandoId(null);
+      notificar("Plano atualizado.", "sucesso");
+    } catch (e) {
+      notificar(e instanceof api.ApiError ? e.message : "Não foi possível atualizar o plano.", "erro");
+    }
+  }
   async function editarLimite(limite: { id: number; chave: string; plano: string; valor: string }) {
     const novo = window.prompt(`Novo valor para ${limite.chave} (${limite.plano}):`, limite.valor);
     if (novo === null) return;
@@ -96,18 +131,39 @@ export default function AdminPlanosPage() {
               {
                 cabecalho: "Ações",
                 render: (p) => (
-                  <Button
-                    variante="secundaria"
-                    tamanho="pequeno"
-                    carregando={alternarPlano.isPending}
-                    onClick={() => void alternarPlano.mutateAsync({ id: p.id, ativo: !p.ativo })}
-                  >
-                    {p.ativo ? "Desativar" : "Ativar"}
-                  </Button>
+                  <span style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    <Button
+                      variante="secundaria"
+                      tamanho="pequeno"
+                      carregando={alternarPlano.isPending}
+                      onClick={() => void alternarPlano.mutateAsync({ id: p.id, ativo: !p.ativo })}
+                    >
+                      {p.ativo ? "Desativar" : "Ativar"}
+                    </Button>
+                    <Button variante="secundaria" tamanho="pequeno" onClick={() => iniciarEdicao(p)}>
+                      Editar
+                    </Button>
+                    <Button variante="perigo" tamanho="pequeno" carregando={excluirPlano.isPending} onClick={() => void excluir(p.id, p.nome)}>
+                      Excluir
+                    </Button>
+                  </span>
                 ),
               },
             ]}
           />
+          {editandoId !== null && (
+            <form onSubmit={salvarEdicao} className="controles-feed" style={{ marginTop: 12 }}>
+              <CampoTexto id="plano-edit-nome" rotulo="Nome" value={editForm.nome} onChange={(e) => setEditForm({ ...editForm, nome: e.target.value })} />
+              <CampoTexto id="plano-edit-preco" rotulo="Preço" value={editForm.preco} onChange={(e) => setEditForm({ ...editForm, preco: e.target.value })} />
+              <CampoTexto id="plano-edit-dias" rotulo="Dias" value={editForm.duracao_dias} onChange={(e) => setEditForm({ ...editForm, duracao_dias: e.target.value })} />
+              <Button type="submit" carregando={editarPlano.isPending}>
+                Salvar
+              </Button>
+              <Button variante="secundaria" onClick={() => setEditandoId(null)}>
+                Cancelar
+              </Button>
+            </form>
+          )}
           <h2 style={{ marginTop: 24 }}>Limites Free/Premium</h2>
           <DataTable
             legenda="Limites por plano"

@@ -8,6 +8,7 @@ import * as api from "@/lib/api";
 import {
   useConvidarMembroB2B,
   useCriarCriterioB2B,
+  useExcluirCriterioB2B,
   usePainelB2B,
   useRemoverMembroB2B,
 } from "@/lib/queries";
@@ -30,6 +31,7 @@ export default function PaginaEmpresa() {
   const { notificar } = useToast();
   const painel = usePainelB2B();
   const criarCriterio = useCriarCriterioB2B(painel.recarregar);
+  const excluirCriterio = useExcluirCriterioB2B(painel.recarregar);
   const convidar = useConvidarMembroB2B(painel.recarregar);
   const remover = useRemoverMembroB2B(painel.recarregar);
 
@@ -80,6 +82,17 @@ export default function PaginaEmpresa() {
       notificar("Convite enviado.", "sucesso");
     } catch (e) {
       setErroConvite(e instanceof api.ApiError ? e.message : "Não foi possível convidar este usuário.");
+    }
+  }
+
+  async function aoRemoverCriterio(id: number, valor: string) {
+    const confirmado = window.confirm(`Remover o critério "${valor}"? O monitoramento correspondente para.`);
+    if (!confirmado) return;
+    try {
+      await excluirCriterio.mutateAsync(id);
+      notificar("Critério removido.", "info");
+    } catch (e) {
+      notificar(e instanceof api.ApiError ? e.message : "Não foi possível remover o critério.", "erro");
     }
   }
 
@@ -169,6 +182,14 @@ export default function PaginaEmpresa() {
                   <Badge variante="neutro">{ROTULOS_TIPO[c.tipo]}</Badge>
                   <span>{c.valor}</span>
                   {!c.ativo && <Badge variante="erro">Inativo</Badge>}
+                  <Button
+                    variante="fantasma"
+                    tamanho="pequeno"
+                    carregando={excluirCriterio.isPending}
+                    onClick={() => void aoRemoverCriterio(c.id, c.valor)}
+                  >
+                    Remover
+                  </Button>
                 </div>
                 {grupo && grupo.itens.length > 0 ? (
                   <ul>
