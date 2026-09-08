@@ -1,109 +1,71 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
-import { useToast } from "@/components/ToastProvider";
-import * as api from "@/lib/api";
+import { usePerfilAutor, useSeguirAutor } from "@/lib/queries";
+import Badge from "@/components/Badge";
+import { Button } from "@/components/ui/Button";
+import { EmptyState, ErrorState, SkeletonCard } from "@/components/ui/Estados";
 
 /**
  * Conteúdo interativo da página de perfil de autor — extraído de `page.tsx`
- * (implementation-contract.md run 20260903-1134-seo-lgpd-design-system,
- * escopo A) para que `page.tsx` possa virar um Server Component com
+ * para que `page.tsx` possa virar um Server Component com
  * `generateMetadata`/JSON-LD (metadata não pode ser exportado por um
- * Client Component). Mesmo padrão já usado no projeto em
- * `app/verificar-email/VerificarEmailConteudo.tsx` e
- * `app/redefinir-senha/RedefinirSenhaConteudo.tsx`. Comportamento
- * inalterado em relação à versão anterior.
+ * Client Component).
  */
 export default function PerfilAutorConteudo({ id }: { id: string }) {
   const { token } = useAuth();
-  const { notificar } = useToast();
   const autorId = Number(id);
-
-  const [perfil, setPerfil] = useState<api.PerfilAutorPublico | null>(null);
+  const perfilQuery = usePerfilAutor(autorId);
   const [seguindo, setSeguindo] = useState(false);
-  const [carregando, setCarregando] = useState(true);
-  const [erro, setErro] = useState<string | null>(null);
-  const [processandoSeguir, setProcessandoSeguir] = useState(false);
 
-  useEffect(() => {
-    api
-      .obterPerfilAutor(autorId)
-      .then(setPerfil)
-      .catch((e: unknown) => {
-        setErro(e instanceof api.ApiError ? e.message : "Não foi possível carregar o perfil.");
-      })
-      .finally(() => setCarregando(false));
-  }, [autorId]);
+  const perfil = perfilQuery.data ?? null;
+  const seguir = useSeguirAutor(autorId, perfil?.nome || "este autor");
 
-  // Atualização otimista: a interface reflete a ação imediatamente, sem
-  // esperar a resposta do servidor, e só desfaz se a chamada falhar —
-  // sensação de resposta instantânea em vez de um botão "travado".
   async function alternarSeguir() {
     if (!token || !perfil) return;
-    const estavaSeguindo = seguindo;
-
-    setSeguindo(!estavaSeguindo);
-    setPerfil((atual) =>
-      atual
-        ? {
-            ...atual,
-            numero_seguidores: atual.numero_seguidores + (estavaSeguindo ? -1 : 1),
-          }
-        : atual
-    );
-    setProcessandoSeguir(true);
-
     try {
-      if (estavaSeguindo) {
-        await api.deixarDeSeguirAutor(token, autorId);
-        notificar(`Você deixou de seguir ${perfil.nome || "este autor"}.`, "info");
-      } else {
-        await api.seguirAutor(token, autorId);
-        notificar(`Agora você segue ${perfil.nome || "este autor"}.`, "sucesso");
-      }
-    } catch (e) {
-      // reverte a atualização otimista
-      setSeguindo(estavaSeguindo);
-      setPerfil((atual) =>
-        atual
-          ? {
-              ...atual,
-              numero_seguidores: atual.numero_seguidores + (estavaSeguindo ? 1 : -1),
-            }
-          : atual
-      );
-      notificar(
-        e instanceof api.ApiError ? e.message : "Não foi possível atualizar agora.",
-        "erro"
-      );
-    } finally {
-      setProcessandoSeguir(false);
+      await seguir.mutateAsync(seguindo);
+      setSeguindo((s) => !s);
+    } catch {
+      // useSeguirAutor já reverte o otimista e notifica.
     }
   }
 
-  if (carregando) return <p className="texto-suave">Carregando...</p>;
-  if (erro || !perfil) return <p className="mensagem-erro">{erro || "Perfil não encontrado."}</p>;
+  if (perfilQuery.isLoading) return <SkeletonCard />;
+  if (perfilQuery.isError) {
+    return (
+      <ErrorState
+        mensagem="Não foi possível carregar o perfil."
+        aoTentarNovamente={() => void perfilQuery.refetch()}
+      />
+    );
+  }
+  if (!perfil) {
+    return <EmptyState titulo="Perfil não encontrado" descricao="Este autor não existe." />;
+  }
 
   return (
     <div>
       <h1>
         {perfil.nome || `Autor #${perfil.id}`}{" "}
-        {perfil.credenciado && <span className="selo-premium">Jornalista credenciado</span>}
+        {perfil.credenciado && <Badge variante="premium">Jornalista credenciado</Badge>}
       </h1>
       <p className="texto-suave">
         {perfil.numero_seguidores} seguidor{perfil.numero_seguidores === 1 ? "" : "es"}
       </p>
 
       {token && (
-        <button type="button" className="botao botao-secundario" onClick={alternarSeguir} disabled={processandoSeguir}>
+        <Button variante="secundaria" onClick={() => void alternarSeguir()} carregando={seguir.isPending}>
           {seguindo ? "Deixar de seguir" : "Seguir"}
-        </button>
+        </Button>
       )}
 
       <h2 style={{ fontSize: "1.1rem", marginTop: "1.5rem" }}>Publicações</h2>
-      {perfil.publicacoes.length === 0 && <p className="texto-suave">Nenhuma publicação ainda.</p>}
+      {perfil.publicacoes.length === 0 && (
+        <EmptyState titulo="Nenhuma publicação ainda" descricao="As análises deste autor aparecerão aqui." />
+      )}
       {perfil.publicacoes.map((publicacao) => (
         <Link
           key={publicacao.id}

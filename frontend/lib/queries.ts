@@ -10,6 +10,7 @@ import {
 } from "@tanstack/react-query";
 import * as api from "./api";
 import { useAuth } from "./auth-context";
+import { useToast } from "@/components/ToastProvider";
 
 // Camada de dados padronizada sobre lib/api.ts. Páginas usam estes hooks em
 // vez de useEffect manual — loading/erro ficam uniformes em toda a interface.
@@ -298,5 +299,73 @@ export function useSalvarPerfilJornalista(): UseMutationResult<
     onSuccess: (atualizado) => {
       cliente.setQueryData(["meu-perfil-jornalista"], atualizado);
     },
+  });
+}
+
+export function usePerfilAutor(autorId: number): UseQueryResult<api.PerfilAutorPublico, Error> {
+  return useQuery({
+    queryKey: ["perfil-autor", autorId],
+    queryFn: () => api.obterPerfilAutor(autorId),
+    enabled: Number.isFinite(autorId),
+  });
+}
+
+export function useSeguirAutor(
+  autorId: number,
+  nomeAutor: string
+): UseMutationResult<void, Error, boolean> {
+  const { token } = useAuth();
+  const { notificar } = useToast();
+  const cliente = useQueryClient();
+  return useMutation({
+    mutationFn: (seguindoAgora: boolean) =>
+      seguindoAgora
+        ? api.deixarDeSeguirAutor(token ?? "", autorId)
+        : api.seguirAutor(token ?? "", autorId),
+    onMutate: async (seguindoAgora: boolean) => {
+      await cliente.cancelQueries({ queryKey: ["perfil-autor", autorId] });
+      const anterior = cliente.getQueryData<api.PerfilAutorPublico>(["perfil-autor", autorId]);
+      if (anterior) {
+        cliente.setQueryData<api.PerfilAutorPublico>(["perfil-autor", autorId], {
+          ...anterior,
+          numero_seguidores: anterior.numero_seguidores + (seguindoAgora ? -1 : 1),
+        });
+      }
+      return { anterior, estavaSeguindo: seguindoAgora };
+    },
+    onError: (_e, _v, contexto) => {
+      if (contexto?.anterior) cliente.setQueryData(["perfil-autor", autorId], contexto.anterior);
+      notificar("Não foi possível atualizar agora.", "erro");
+    },
+    onSuccess: (_d, seguindoAgora) => {
+      notificar(
+        seguindoAgora ? `Você deixou de seguir ${nomeAutor}.` : `Agora você segue ${nomeAutor}.`,
+        seguindoAgora ? "info" : "sucesso"
+      );
+    },
+  });
+}
+
+export function useEvolucaoRadar(): UseMutationResult<
+  api.RadarEvolucao,
+  Error,
+  { categoria?: string; pais?: string; estado?: string; cidade?: string }
+> {
+  const { token } = useAuth();
+  return useMutation({
+    mutationFn: (params: { categoria?: string; pais?: string; estado?: string; cidade?: string }) =>
+      api.obterEvolucaoRadar(token ?? "", params),
+  });
+}
+
+export function useSalvarLocalidade(): UseMutationResult<
+  { id: number },
+  Error,
+  { pais?: string; estado?: string; cidade?: string }
+> {
+  const { token } = useAuth();
+  return useMutation({
+    mutationFn: (dados: { pais?: string; estado?: string; cidade?: string }) =>
+      api.salvarLocalidade(token ?? "", dados),
   });
 }

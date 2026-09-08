@@ -1,100 +1,87 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
+import { useToast } from "@/components/ToastProvider";
 import * as api from "@/lib/api";
+import { useEvolucaoRadar, useSalvarLocalidade, useTendenciasRadar } from "@/lib/queries";
+import Badge from "@/components/Badge";
+import { Button } from "@/components/ui/Button";
+import { CampoTexto } from "@/components/ui/FormField";
+import { EmptyState, ErrorState, SkeletonLista } from "@/components/ui/Estados";
 
 export default function PaginaRadar() {
   const { token, usuario } = useAuth();
+  const { notificar } = useToast();
 
   const [pais, setPais] = useState("");
   const [estado, setEstado] = useState("");
   const [cidade, setCidade] = useState("");
-  const [tendencias, setTendencias] = useState<api.RadarTendencias | null>(null);
-  const [evolucao, setEvolucao] = useState<api.RadarEvolucao | null>(null);
-  const [carregando, setCarregando] = useState(true);
-  const [erro, setErro] = useState<string | null>(null);
-  const [erroEvolucao, setErroEvolucao] = useState<string | null>(null);
+  const [filtros, setFiltros] = useState<{ pais?: string; estado?: string; cidade?: string }>({});
   const [salvo, setSalvo] = useState(false);
 
-  function buscarTendencias(filtros: { pais?: string; estado?: string; cidade?: string }) {
-    setCarregando(true);
-    setErro(null);
-    api
-      .obterTendenciasRadar(filtros)
-      .then(setTendencias)
-      .catch((e: unknown) => setErro(e instanceof api.ApiError ? e.message : "Não foi possível carregar o radar."))
-      .finally(() => setCarregando(false));
-  }
-
-  useEffect(() => {
-    buscarTendencias({});
-  }, []);
+  const tendencias = useTendenciasRadar(filtros);
+  const evolucaoMutacao = useEvolucaoRadar();
+  const salvarMutacao = useSalvarLocalidade();
 
   function aoSubmeter(evento: FormEvent) {
     evento.preventDefault();
     setSalvo(false);
-    setEvolucao(null);
-    buscarTendencias({ pais, estado, cidade });
-  }
-
-  async function verEvolucao(categoria: string) {
-    if (!token) return;
-    setErroEvolucao(null);
-    try {
-      const dados = await api.obterEvolucaoRadar(token, { categoria, pais, estado, cidade });
-      setEvolucao(dados);
-    } catch (e) {
-      setErroEvolucao(
-        e instanceof api.ApiError ? e.message : "Não foi possível carregar a evolução."
-      );
-    }
+    evolucaoMutacao.reset();
+    setFiltros({ pais: pais || undefined, estado: estado || undefined, cidade: cidade || undefined });
   }
 
   async function salvarLocalidadeAtual() {
     if (!token) return;
     try {
-      await api.salvarLocalidade(token, { pais, estado, cidade });
+      await salvarMutacao.mutateAsync({ pais: pais || undefined, estado: estado || undefined, cidade: cidade || undefined });
       setSalvo(true);
+      notificar("Localidade salva.", "sucesso");
     } catch {
       // falha ao salvar não deve travar a navegação do radar
     }
   }
+
+  const dados = tendencias.data ?? null;
+  const evolucao = evolucaoMutacao.data ?? null;
 
   return (
     <div>
       <h1>Radar de Tendências</h1>
 
       <form onSubmit={aoSubmeter} className="controles-feed">
-        <input type="text" placeholder="País" value={pais} onChange={(e) => setPais(e.target.value)} />
-        <input type="text" placeholder="Estado" value={estado} onChange={(e) => setEstado(e.target.value)} />
-        <input type="text" placeholder="Cidade" value={cidade} onChange={(e) => setCidade(e.target.value)} />
-        <button type="submit" className="botao">
-          Filtrar
-        </button>
+        <CampoTexto id="radar-pais" rotulo="País" value={pais} onChange={(e) => setPais(e.target.value)} />
+        <CampoTexto id="radar-estado" rotulo="Estado" value={estado} onChange={(e) => setEstado(e.target.value)} />
+        <CampoTexto id="radar-cidade" rotulo="Cidade" value={cidade} onChange={(e) => setCidade(e.target.value)} />
+        <Button type="submit">Filtrar</Button>
         {token && (
-          <button type="button" className="botao botao-secundario" onClick={salvarLocalidadeAtual}>
+          <Button variante="secundaria" onClick={() => void salvarLocalidadeAtual()} carregando={salvarMutacao.isPending}>
             {salvo ? "Localidade salva ✓" : "Salvar localidade"}
-          </button>
+          </Button>
         )}
       </form>
 
-      {erro && <p className="mensagem-erro">{erro}</p>}
-      {carregando && <p className="texto-suave">Carregando...</p>}
+      {tendencias.isLoading && <SkeletonLista quantidade={3} />}
+      {tendencias.isError && (
+        <ErrorState
+          mensagem="Não foi possível carregar o radar."
+          aoTentarNovamente={() => void tendencias.refetch()}
+        />
+      )}
 
-      {tendencias && (
+      {dados && (
         <>
           <p className="texto-suave" style={{ fontStyle: "italic" }}>
-            {tendencias.aviso_metodologia}
+            {dados.aviso_metodologia}
           </p>
-          {tendencias.assuntos_em_alta.length === 0 && (
-            <p className="texto-suave">Nenhum assunto em alta neste recorte ainda.</p>
+          {dados.assuntos_em_alta.length === 0 && (
+            <EmptyState titulo="Sem assuntos em alta" descricao="Nenhum assunto em alta neste recorte ainda." />
           )}
-          {tendencias.assuntos_em_alta.map((assunto) => (
+          {dados.assuntos_em_alta.map((assunto) => (
             <div className="cartao" key={assunto.categoria}>
               <div className="cartao-meta">
-                <span className="badge-categoria">{assunto.categoria}</span>
+                <Badge variante="neutro">{assunto.categoria}</Badge>
                 <span>{assunto.numero_noticias} notícia(s)</span>
                 <span>{assunto.numero_fontes} fonte(s)</span>
               </div>
@@ -104,13 +91,23 @@ export default function PaginaRadar() {
                 <Link href={`/noticia/item/${assunto.item_id}`}>Ver notícia</Link>
               ) : null}
               {usuario?.papel === "premium" ? (
-                <button
-                  type="button"
-                  className="botao botao-secundario"
-                  onClick={() => verEvolucao(assunto.categoria)}
-                >
-                  Ver evolução
-                </button>
+                <div style={{ marginTop: "0.5rem" }}>
+                  <Button
+                    variante="secundaria"
+                    tamanho="pequeno"
+                    carregando={evolucaoMutacao.isPending}
+                    onClick={() =>
+                      evolucaoMutacao.mutate({
+                        categoria: assunto.categoria,
+                        pais: pais || undefined,
+                        estado: estado || undefined,
+                        cidade: cidade || undefined,
+                      })
+                    }
+                  >
+                    Ver evolução
+                  </Button>
+                </div>
               ) : (
                 <p className="texto-suave">Evolução ao longo do tempo é um recurso Premium.</p>
               )}
@@ -119,7 +116,15 @@ export default function PaginaRadar() {
         </>
       )}
 
-      {erroEvolucao && <p className="mensagem-erro">{erroEvolucao}</p>}
+      {evolucaoMutacao.isError && (
+        <ErrorState
+          mensagem={
+            evolucaoMutacao.error instanceof api.ApiError
+              ? evolucaoMutacao.error.message
+              : "Não foi possível carregar a evolução."
+          }
+        />
+      )}
       {evolucao && (
         <div className="cartao">
           <strong>Evolução — {evolucao.categoria}</strong>
