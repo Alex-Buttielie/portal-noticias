@@ -73,6 +73,57 @@ export function usePublicacao(id: number): UseQueryResult<api.Publicacao | null,
   });
 }
 
+export function useComentarios(publicacaoId: number): UseQueryResult<api.Comentario[], Error> {
+  return useQuery({
+    queryKey: ["comentarios", publicacaoId],
+    queryFn: () => api.obterComentarios({ publicacao: publicacaoId }),
+    enabled: Number.isFinite(publicacaoId),
+  });
+}
+
+export function useComentar(publicacaoId: number): UseMutationResult<api.Comentario, Error, string> {
+  const { token } = useAuth();
+  const cliente = useQueryClient();
+  return useMutation({
+    mutationFn: (conteudo: string) => api.comentar(token ?? "", { conteudo, publicacao: publicacaoId }),
+    onSuccess: () => {
+      void cliente.invalidateQueries({ queryKey: ["comentarios", publicacaoId] });
+    },
+  });
+}
+
+export function useEditarPublicacao(publicacaoId: number): UseMutationResult<api.Publicacao, Error, { titulo?: string; conteudo?: string }> {
+  const { token } = useAuth();
+  const cliente = useQueryClient();
+  return useMutation({
+    mutationFn: (dados: { titulo?: string; conteudo?: string }) =>
+      api.editarPublicacao(token ?? "", publicacaoId, dados),
+    onSuccess: (atualizada) => {
+      cliente.setQueryData(["publicacao", publicacaoId], atualizada);
+      void cliente.invalidateQueries({ queryKey: ["publicacoes"] });
+    },
+  });
+}
+
+export function usePublicarAnalise(): UseMutationResult<api.Publicacao, Error, { titulo: string; conteudo: string; tipo: api.TipoPublicacao; categoria: string }> {
+  const { token } = useAuth();
+  const cliente = useQueryClient();
+  return useMutation({
+    mutationFn: async (dados: { titulo: string; conteudo: string; tipo: api.TipoPublicacao; categoria: string }) => {
+      const rascunho = await api.criarRascunhoPublicacao(token ?? "", {
+        titulo: dados.titulo,
+        conteudo: dados.conteudo,
+        tipo: dados.tipo,
+        categoria: dados.categoria || undefined,
+      });
+      return api.enviarPublicacao(token ?? "", rascunho.id);
+    },
+    onSuccess: () => {
+      void cliente.invalidateQueries({ queryKey: ["publicacoes"] });
+    },
+  });
+}
+
 export function useTendenciasRadar(params: { pais?: string; estado?: string; cidade?: string }): UseQueryResult<Awaited<ReturnType<typeof api.obterTendenciasRadar>>, Error> {
   return useQuery({
     queryKey: ["radar", params.pais ?? "", params.estado ?? "", params.cidade ?? ""],
