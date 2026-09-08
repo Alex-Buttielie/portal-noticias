@@ -1,7 +1,6 @@
 "use client";
-import { useEffect, useState } from "react";
 import Link from "next/link";
-import * as api from "@/lib/api";
+import { useMaisLidas } from "@/lib/queries";
 
 function formatarData(ts: string) {
   try {
@@ -10,13 +9,9 @@ function formatarData(ts: string) {
 }
 
 export default function MaisLidas({ limite = 5 }: { limite?: number }) {
-  const [itens, setItens] = useState<api.FeedEntrada[]>([]);
-  const [carregando, setCarregando] = useState(true);
-  useEffect(() => {
-    api.obterMaisLidas(limite).then(setItens).catch(() => {}).finally(() => setCarregando(false));
-  }, [limite]);
-  if (carregando) return <div className="mais-lidas"><p className="texto-suave">Carregando…</p></div>;
-  if (!itens.length) return null;
+  const { data: itens, isLoading } = useMaisLidas(limite);
+  if (isLoading) return <div className="mais-lidas"><p className="texto-suave">Carregando…</p></div>;
+  if (!itens?.length) return null;
   return (
     <div className="mais-lidas">
       <h2 className="mais-lidas-titulo">Mais lidas</h2>

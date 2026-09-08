@@ -1,14 +1,10 @@
 "use client";
-import { useEffect, useState } from "react";
 import Link from "next/link";
-import * as api from "@/lib/api";
+import { useUrgentes } from "@/lib/queries";
 
 export default function TickerUrgente() {
-  const [itens, setItens] = useState<api.FeedEntrada[]>([]);
-  useEffect(() => {
-    api.obterUrgentes(6).then(setItens).catch(() => {});
-  }, []);
-  if (!itens.length) return null;
+  const { data: itens } = useUrgentes(6);
+  if (!itens?.length) return null;
   return (
     <div className="ticker" role="region" aria-label="Urgentes">
       <span className="ticker-rotulo">URGENTE</span>

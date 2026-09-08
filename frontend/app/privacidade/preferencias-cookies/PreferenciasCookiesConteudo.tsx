@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { useToast } from "@/components/ToastProvider";
 import * as consentimento from "@/lib/cookie-consent";
+import { Button } from "@/components/ui/Button";
 
 function formatarData(iso: string): string {
   try {
@@ -112,15 +113,13 @@ export default function PreferenciasCookiesConteudo() {
         </div>
 
         <div className="banner-cookies-acoes">
-          <button type="button" className="botao botao-secundario" onClick={recusarNaoEssenciais}>
+          <Button variante="secundaria" onClick={recusarNaoEssenciais}>
             Recusar não essenciais
-          </button>
-          <button type="button" className="botao botao-secundario" onClick={aceitarTodos}>
+          </Button>
+          <Button variante="secundaria" onClick={aceitarTodos}>
             Aceitar todos
-          </button>
-          <button type="button" className="botao" onClick={salvar}>
-            Salvar preferências
-          </button>
+          </Button>
+          <Button onClick={salvar}>Salvar preferências</Button>
         </div>
       </div>
     </div>
