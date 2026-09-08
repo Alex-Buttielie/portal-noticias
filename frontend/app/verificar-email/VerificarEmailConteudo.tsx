@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import * as api from "@/lib/api";
+import { ErrorState, LoadingSpinner } from "@/components/ui/Estados";
 
 export default function VerificarEmailConteudo() {
   const searchParams = useSearchParams();
@@ -34,16 +35,16 @@ export default function VerificarEmailConteudo() {
   return (
     <div className="formulario">
       <h1>Verificação de e-mail</h1>
-      {estado === "carregando" && <p className="texto-suave">Verificando...</p>}
+      {estado === "carregando" && <LoadingSpinner rotulo="Verificando..." />}
       {estado === "sucesso" && (
         <>
           <p className="mensagem-sucesso">{mensagem}</p>
-          <Link href="/login" className="botao">
+          <Link href="/login" className="botao botao--primaria botao--medio">
             Ir para o login
           </Link>
         </>
       )}
-      {estado === "erro" && <p className="mensagem-erro">{mensagem}</p>}
+      {estado === "erro" && <ErrorState mensagem={mensagem} />}
     </div>
   );
 }

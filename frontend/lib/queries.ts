@@ -105,7 +105,45 @@ export function useEditarPublicacao(publicacaoId: number): UseMutationResult<api
   });
 }
 
+export function useCadastrar(): UseMutationResult<
+  unknown,
+  Error,
+  { email: string; nome: string; senha: string; aceite_termos: boolean }
+> {
+  return useMutation({
+    mutationFn: (dados: { email: string; nome: string; senha: string; aceite_termos: boolean }) =>
+      api.cadastrar(dados),
+  });
+}
+
+export function useOnboarding(): UseQueryResult<api.OnboardingDados | null, Error> {
+  const { token } = useAuth();
+  return useQuery({
+    queryKey: ["onboarding"],
+    queryFn: () => (token ? api.obterOnboarding(token).catch(() => null) : Promise.resolve(null)),
+    enabled: Boolean(token),
+  });
+}
+
+export function useSalvarOnboarding(): UseMutationResult<
+  api.OnboardingDados,
+  Error,
+  Partial<{ interesses: string[]; localidade: string; canal_preferido: string; pular: boolean }>
+> {
+  const { token } = useAuth();
+  const cliente = useQueryClient();
+  return useMutation({
+    mutationFn: (
+      dados: Partial<{ interesses: string[]; localidade: string; canal_preferido: string; pular: boolean }>
+    ) => api.atualizarOnboarding(token ?? "", dados),
+    onSuccess: (atualizado) => {
+      cliente.setQueryData(["onboarding"], atualizado);
+    },
+  });
+}
+
 export function usePublicarAnalise(): UseMutationResult<api.Publicacao, Error, { titulo: string; conteudo: string; tipo: api.TipoPublicacao; categoria: string }> {
+
   const { token } = useAuth();
   const cliente = useQueryClient();
   return useMutation({

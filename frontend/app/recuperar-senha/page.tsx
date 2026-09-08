@@ -2,6 +2,9 @@
 
 import { useState, type FormEvent } from "react";
 import * as api from "@/lib/api";
+import { Button } from "@/components/ui/Button";
+import { CampoTexto } from "@/components/ui/FormField";
+import { ErrorState } from "@/components/ui/Estados";
 
 export default function PaginaRecuperarSenha() {
   const [email, setEmail] = useState("");
@@ -28,24 +31,15 @@ export default function PaginaRecuperarSenha() {
   return (
     <div className="formulario">
       <h1>Recuperar senha</h1>
-      {erro && <p className="mensagem-erro">{erro}</p>}
+      {erro && <ErrorState mensagem={erro} />}
       {mensagem ? (
         <p className="mensagem-sucesso">{mensagem}</p>
       ) : (
         <form onSubmit={aoSubmeter}>
-          <div className="campo">
-            <label htmlFor="email">E-mail</label>
-            <input
-              id="email"
-              type="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-            />
-          </div>
-          <button type="submit" className="botao" disabled={enviando}>
-            {enviando ? "Enviando..." : "Enviar instruções"}
-          </button>
+          <CampoTexto id="email" rotulo="E-mail" type="email" required autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+          <Button type="submit" carregando={enviando}>
+            Enviar instruções
+          </Button>
         </form>
       )}
     </div>
