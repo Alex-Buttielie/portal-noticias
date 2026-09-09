@@ -13,6 +13,7 @@ urlpatterns = [
         name="publicacao-enviar",
     ),
     path("comentarios/", views.ComentariosListCreateView.as_view(), name="comentarios"),
+    path("comentarios/<int:comentario_id>/", views.ComentarioDetailView.as_view(), name="comentario-detail"),
     path("autores/<int:autor_id>/seguir/", views.SeguirAutorView.as_view(), name="seguir-autor"),
     path("autores/<int:autor_id>/perfil/", views.PerfilAutorPublicoView.as_view(), name="perfil-autor"),
     path("denunciar/", views.DenunciarView.as_view(), name="denunciar"),

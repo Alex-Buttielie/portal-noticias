@@ -543,6 +543,10 @@ export function editarPublicacao(
   );
 }
 
+export function excluirPublicacao(token: string, publicacaoId: number): Promise<void> {
+  return request(`/api/comunidade/publicacoes/${publicacaoId}/`, { method: "DELETE" }, token);
+}
+
 export function obterComentarios(params: {
   publicacao?: number;
   news_item?: number;
@@ -558,6 +562,10 @@ export function comentar(
   dados: { conteudo: string; publicacao?: number; news_item?: number; resposta_de?: number }
 ): Promise<Comentario> {
   return request("/api/comunidade/comentarios/", { method: "POST", body: JSON.stringify(dados) }, token);
+}
+
+export function excluirComentario(token: string, comentarioId: number): Promise<void> {
+  return request(`/api/comunidade/comentarios/${comentarioId}/`, { method: "DELETE" }, token);
 }
 
 export function seguirAutor(token: string, autorId: number): Promise<void> {
@@ -780,6 +788,10 @@ export function removerMembroB2B(token: string, email: string): Promise<void> {
   return request("/api/b2b/membros/", { method: "DELETE", body: JSON.stringify({ email }) }, token);
 }
 
+export function excluirCriterioB2B(token: string, criterioId: number): Promise<void> {
+  return request(`/api/b2b/criterios/${criterioId}/`, { method: "DELETE" }, token);
+}
+
 // ---------------------------------------------------------------------------
 // metricas/ — campos conferidos em metricas/services.py (run
 // 20260902-1521-painel-metricas-negocio). Só admin (papel === "admin").
@@ -894,6 +906,10 @@ export function adminCriarPlano(token: string, dados: { nome: string; preco: str
 }
 export function adminAtualizarPlano(token: string, id: number, dados: Record<string, unknown>): Promise<Plano> {
   return request(`/api/admin/planos/${id}/`, { method: "PATCH", body: JSON.stringify(dados) }, token);
+}
+
+export function adminExcluirPlano(token: string, id: number): Promise<void> {
+  return request(`/api/admin/planos/${id}/`, { method: "DELETE" }, token);
 }
 export function adminListarLimites(token: string): Promise<Paginated<{ id: number; chave: string; plano: string; valor: string; descricao: string }>> {
   return request("/api/admin/limites/", { method: "GET" }, token);

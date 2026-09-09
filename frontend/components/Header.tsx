@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useId, useState } from "react";
+import { Suspense, useEffect, useId, useState } from "react";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import ThemeToggle from "@/components/ThemeToggle";
 import CommandPalette from "@/components/CommandPalette";
@@ -16,6 +16,13 @@ const CATEGORIAS_NAV = [
   { label: "Cultura", slug: "cultura" },
   { label: "Mundo", slug: "mundo" },
   { label: "Ciência", slug: "ciência" },
+];
+
+const NAV_PRINCIPAL = [
+  { href: "/", rotulo: "Últimas" },
+  { href: "/comunidade", rotulo: "Comunidade" },
+  { href: "/radar", rotulo: "Radar" },
+  { href: "/planos", rotulo: "Premium", destaque: true },
 ];
 
 export default function Header() {
@@ -49,114 +56,165 @@ export default function Header() {
     setMenuAberto(false);
   }
 
-  return (
-    <header className="cabecalho">
-      <div className="cabecalho-faixa-topo">
-        <div className="container cabecalho-topo">
-          <Link href="/" className="cabecalho-logo">
-            <span className="cabecalho-logo-mark">BRD</span> Portal de Notícias
-          </Link>
+  const inicial = (usuario?.nome || usuario?.email || "?").trim().charAt(0).toUpperCase();
 
-          <form className="cabecalho-busca" onSubmit={onSubmitBusca} role="search">
+  return (
+    <header className="topo">
+      <div className="container topo__barra">
+        <button
+          type="button"
+          className="topo__menu"
+          aria-expanded={menuAberto}
+          aria-controls={navId}
+          aria-label={menuAberto ? "Fechar menu" : "Abrir menu"}
+          onClick={() => setMenuAberto((v) => !v)}
+        >
+          <span aria-hidden="true">{menuAberto ? "✕" : "☰"}</span>
+        </button>
+
+        <Link href="/" className="topo__marca" aria-label="Portal de Notícias — início">
+          <span className="topo__orbe" aria-hidden="true" />
+          <span className="topo__nome">
+            Portal<em>·</em>
+          </span>
+        </Link>
+
+        <nav className="topo__nav" aria-label="Navegação principal">
+          {NAV_PRINCIPAL.map((item) => (
+            <Link
+              key={item.href}
+              href={item.href}
+              aria-current={ehAtual(item.href) ? "page" : undefined}
+              className={`topo__link${item.destaque ? " topo__link--destaque" : ""}`}
+            >
+              {item.rotulo}
+            </Link>
+          ))}
+        </nav>
+
+        <div className="topo__acoes">
+          <form className="topo__busca" onSubmit={onSubmitBusca} role="search">
             <input
               type="search"
-              placeholder="Buscar notícias, temas…"
+              placeholder="Buscar…"
               aria-label="Buscar notícias"
               value={busca}
               onChange={(e) => setBusca(e.target.value)}
             />
-            <button type="submit" aria-label="Buscar">
-              ⌕
-            </button>
           </form>
-
-          <div className="cabecalho-acoes">
-            <button type="button" className="busca-atalho" onClick={() => setPaletteAberto(true)} aria-label="Busca rápida">
-              <span aria-hidden>⌕</span> Buscar <kbd>⌘K</kbd>
-            </button>
-
-            {!carregando && usuario ? (
+          <button
+            type="button"
+            className="topo__icone"
+            onClick={() => setPaletteAberto(true)}
+            aria-label="Busca rápida (Ctrl K)"
+            title="Busca rápida (Ctrl K)"
+          >
+            <span aria-hidden="true">⌕</span>
+          </button>
+          <ThemeToggle />
+          {!carregando &&
+            (usuario ? (
               <>
-                <Link href="/minha-conta" className="cabecalho-usuario">
-                  {usuario.nome || usuario.email}
-                  <span className={usuario.papel === "free" ? "selo-free" : "selo-premium"} style={{ marginLeft: 6 }}>
-                    {usuario.papel === "premium" ? "Premium" : usuario.papel === "admin" ? "Admin" : "Free"}
-                  </span>
+                <Link href="/minha-conta" className="topo__avatar" aria-label="Minha conta">
+                  {inicial}
                 </Link>
-                <button type="button" className="botao botao-secundario cabecalho-botao-sair" onClick={() => fazerLogout()}>
+                <button type="button" className="topo__sair" onClick={() => fazerLogout()}>
                   Sair
                 </button>
               </>
-            ) : !carregando ? (
+            ) : (
               <>
-                <Link href="/login" className="cabecalho-link-entrar">
+                <Link href="/login" className="topo__link">
                   Entrar
                 </Link>
-                <Link href="/cadastro" className="botao cabecalho-botao-cadastro">
+                <Link href="/cadastro" className="botao botao--primaria botao--pequeno">
                   Assine
                 </Link>
               </>
-            ) : null}
-
-            <ThemeToggle />
-
-            <button
-              type="button"
-              className="botao-menu-mobile"
-              aria-expanded={menuAberto}
-              aria-controls={navId}
-              onClick={() => setMenuAberto((v) => !v)}
-            >
-              <span aria-hidden="true">{menuAberto ? "✕" : "☰"}</span> Menu
-            </button>
-          </div>
+            ))}
         </div>
       </div>
 
-      <div className="cabecalho-faixa-nav">
-        <div className="container">
-          <nav id={navId} className={`cabecalho-nav${menuAberto ? " aberto" : ""}`} aria-label="Navegação principal">
-            <div className="cabecalho-nav-editorias">
-              <Link href="/" aria-current={ehAtual("/") && !pathname.includes("categoria") ? "page" : undefined} className="nav-editoria nav-editoria--todas">
-                Últimas
-              </Link>
-              {CATEGORIAS_NAV.map((c) => (
-                <Link key={c.slug} href={`/?categoria=${encodeURIComponent(c.slug)}`} className="nav-editoria">
-                  {c.label}
-                </Link>
-              ))}
-            </div>
-            <div className="cabecalho-nav-separador" aria-hidden="true" />
-            <div className="cabecalho-nav-secundaria">
-              <Link href="/comunidade" aria-current={ehAtual("/comunidade") ? "page" : undefined}>
-                Comunidade
-              </Link>
-              <Link href="/radar" aria-current={ehAtual("/radar") ? "page" : undefined}>
-                Radar
-              </Link>
-              <Link href="/planos" aria-current={ehAtual("/planos") ? "page" : undefined} className="nav-premium">
-                Premium
-              </Link>
-              {usuario && (
-                <>
-                  <Link href="/jornalista/status" aria-current={ehAtual("/jornalista") ? "page" : undefined}>
-                    Jornalista
-                  </Link>
-                  <Link href="/empresa" aria-current={ehAtual("/empresa") ? "page" : undefined}>
-                    Empresa
-                  </Link>
-                  {usuario.papel === "admin" && (
-                    <Link href="/admin" aria-current={ehAtual("/admin") ? "page" : undefined}>
-                      Admin
-                    </Link>
-                  )}
-                </>
-              )}
-            </div>
-          </nav>
-        </div>
+      <div className="container">
+        <Suspense fallback={null}>
+          <TrilhasNavegacao
+            navId={navId}
+            menuAberto={menuAberto}
+            pathname={pathname}
+            usuario={usuario}
+          />
+        </Suspense>
       </div>
       <CommandPalette aberto={paletteAberto} aoFechar={() => setPaletteAberto(false)} />
     </header>
+  );
+}
+
+function TrilhasNavegacao({
+  navId,
+  menuAberto,
+  pathname,
+  usuario,
+}: {
+  navId: string;
+  menuAberto: boolean;
+  pathname: string | null;
+  usuario: { papel?: string } | null;
+}) {
+  const searchParams = useSearchParams();
+  const categoriaAtiva = pathname === "/" ? searchParams.get("categoria") || "" : null;
+
+  function ehAtual(href: string): boolean {
+    return href === "/" ? pathname === "/" : pathname?.startsWith(href) ?? false;
+  }
+
+  return (
+        <nav id={navId} className={`topo__trilhas${menuAberto ? " aberto" : ""}`} aria-label="Editorias e áreas">
+          <div className="topo__pills" role="group" aria-label="Filtrar por editoria">
+            <Link
+              href="/"
+              className={`topo__pill${categoriaAtiva === "" ? " topo__pill--ativa" : ""}`}
+              aria-current={categoriaAtiva === "" ? "page" : undefined}
+            >
+              Todas
+            </Link>
+            {CATEGORIAS_NAV.map((c) => (
+              <Link
+                key={c.slug}
+                href={`/?categoria=${encodeURIComponent(c.slug)}`}
+                className={`topo__pill${categoriaAtiva === c.slug ? " topo__pill--ativa" : ""}`}
+                aria-current={categoriaAtiva === c.slug ? "page" : undefined}
+              >
+                {c.label}
+              </Link>
+            ))}
+          </div>
+          <div className="topo__areas">
+            <Link href="/comunidade" aria-current={ehAtual("/comunidade") ? "page" : undefined}>
+              Comunidade
+            </Link>
+            <Link href="/radar" aria-current={ehAtual("/radar") ? "page" : undefined}>
+              Radar
+            </Link>
+            <Link href="/planos" aria-current={ehAtual("/planos") ? "page" : undefined} className="topo__link--destaque">
+              Premium
+            </Link>
+            {usuario && (
+              <>
+                <Link href="/jornalista/status" aria-current={ehAtual("/jornalista") ? "page" : undefined}>
+                  Jornalista
+                </Link>
+                <Link href="/empresa" aria-current={ehAtual("/empresa") ? "page" : undefined}>
+                  Empresa
+                </Link>
+                {usuario.papel === "admin" && (
+                  <Link href="/admin" aria-current={ehAtual("/admin") ? "page" : undefined}>
+                    Admin
+                  </Link>
+                )}
+              </>
+            )}
+          </div>
+        </nav>
   );
 }

@@ -62,3 +62,8 @@ export function obterLeiturasDaCategoria(categoria: string): number {
   if (!categoria) return 0;
   return lerContagens()[categoria] || 0;
 }
+
+/** Todas as contagens por categoria (para ranqueamento por gosto). */
+export function obterTodasLeituras(): Record<string, number> {
+  return lerContagens();
+}

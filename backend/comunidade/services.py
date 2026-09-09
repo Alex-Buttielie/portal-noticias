@@ -80,6 +80,26 @@ def enviar_para_publicacao(publicacao: Publicacao) -> Publicacao:
     return publicar(publicacao)
 
 
+def _eh_admin(user) -> bool:
+    return getattr(user, "papel", None) == "admin"
+
+
+def excluir_publicacao(publicacao: Publicacao, user) -> None:
+    """Autor exclui a própria publicação; admin exclui qualquer uma.
+    Exclusão é física (CASCADE leva os comentários) — moderação que queira
+    preservar histórico usa `oculto=True`, não este caminho."""
+    if publicacao.autor_id != user.id and not _eh_admin(user):
+        raise PermissaoNegadaError("Só o autor da publicação (ou um admin) pode excluí-la.")
+    publicacao.delete()
+
+
+def excluir_comentario(comentario: Comentario, user) -> None:
+    """Autor do comentário ou admin."""
+    if comentario.autor_id != user.id and not _eh_admin(user):
+        raise PermissaoNegadaError("Só o autor do comentário (ou um admin) pode excluí-lo.")
+    comentario.delete()
+
+
 def publicar(publicacao: Publicacao) -> Publicacao:
     publicacao.status = Publicacao.STATUS_PUBLICADO
     publicacao.publicado_em = timezone.now()

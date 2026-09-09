@@ -20,13 +20,15 @@ export interface FiltroFeed {
   busca?: string;
 }
 
-export function useFeed(filtro: FiltroFeed) {
+export function useFeed(filtro: FiltroFeed & { enabled?: boolean }) {
+  const { enabled = true, categoria, busca } = filtro;
   return useInfiniteQuery({
-    queryKey: ["feed", filtro.categoria ?? "", filtro.busca ?? ""],
+    queryKey: ["feed", categoria ?? "", busca ?? ""],
     queryFn: ({ pageParam }) =>
-      api.obterFeed({ categoria: filtro.categoria, busca: filtro.busca, page: pageParam as number }),
+      api.obterFeed({ categoria, busca, page: pageParam as number }),
     initialPageParam: 1,
     getNextPageParam: (ultima, paginas) => (ultima.next ? paginas.length + 1 : undefined),
+    enabled,
   });
 }
 
@@ -58,10 +60,12 @@ export function useDetalheItem(id: number | string, inicial?: api.FeedDetalhe | 
   });
 }
 
-export function usePublicacoes(params: { destaque?: boolean; autor?: number } = {}): UseQueryResult<api.Publicacao[], Error> {
+export function usePublicacoes(params: { destaque?: boolean; autor?: number; enabled?: boolean } = {}): UseQueryResult<api.Publicacao[], Error> {
+  const { destaque, autor, enabled = true } = params;
   return useQuery({
-    queryKey: ["publicacoes", params.destaque ?? null, params.autor ?? null],
-    queryFn: () => api.obterPublicacoes(params),
+    queryKey: ["publicacoes", destaque ?? null, autor ?? null],
+    queryFn: () => api.obterPublicacoes({ destaque, autor }),
+    enabled,
   });
 }
 
@@ -691,6 +695,85 @@ export function useRobosExecutar(): UseMutationResult<api.ExecucaoRobo, Error, v
     mutationFn: () => api.robosExecutar(token ?? ""),
     onSuccess: () => {
       void cliente.invalidateQueries({ queryKey: ["robos-execucoes"] });
+    },
+  });
+}
+
+export function useExcluirPublicacao(): UseMutationResult<void, Error, number> {
+  const { token } = useAuth();
+  const cliente = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => api.excluirPublicacao(token ?? "", id),
+    onSuccess: () => {
+      void cliente.invalidateQueries({ queryKey: ["publicacoes"] });
+      void cliente.invalidateQueries({ queryKey: ["publicacao"] });
+    },
+  });
+}
+
+export function useExcluirComentario(publicacaoId: number): UseMutationResult<void, Error, number> {
+  const { token } = useAuth();
+  const cliente = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => api.excluirComentario(token ?? "", id),
+    onSuccess: () => {
+      void cliente.invalidateQueries({ queryKey: ["comentarios", publicacaoId] });
+    },
+  });
+}
+
+export function useExcluirCriterioB2B(recarregar: () => void): UseMutationResult<void, Error, number> {
+  const { token } = useAuth();
+  return useMutation({
+    mutationFn: (id: number) => api.excluirCriterioB2B(token ?? "", id),
+    onSuccess: () => recarregar(),
+  });
+}
+
+export function useAdminExcluirPlano(): UseMutationResult<void, Error, number> {
+  const { token } = useAuth();
+  const cliente = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => api.adminExcluirPlano(token ?? "", id),
+    onSuccess: () => {
+      void cliente.invalidateQueries({ queryKey: ["admin-planos"] });
+    },
+  });
+}
+
+export function useAdminEditarPlano(): UseMutationResult<
+  api.Plano,
+  Error,
+  { id: number; dados: { nome?: string; preco?: string; duracao_dias?: number } }
+> {
+  const { token } = useAuth();
+  const cliente = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, dados }: { id: number; dados: { nome?: string; preco?: string; duracao_dias?: number } }) =>
+      api.adminAtualizarPlano(token ?? "", id, dados),
+    onSuccess: () => {
+      void cliente.invalidateQueries({ queryKey: ["admin-planos"] });
+    },
+  });
+}
+
+export function useLocalidadesSalvas(): UseQueryResult<api.LocalidadeSalva[], Error> {
+  const { token } = useAuth();
+  return useQuery({
+    queryKey: ["localidades-salvas"],
+    queryFn: () => (token ? api.obterLocalidadesSalvas(token) : Promise.resolve([])),
+    enabled: Boolean(token),
+  });
+}
+
+export function useRemoverLocalidade(): UseMutationResult<void, Error, { pais?: string; estado?: string; cidade?: string }> {
+  const { token } = useAuth();
+  const cliente = useQueryClient();
+  return useMutation({
+    mutationFn: (dados: { pais?: string; estado?: string; cidade?: string }) =>
+      api.removerLocalidade(token ?? "", dados),
+    onSuccess: () => {
+      void cliente.invalidateQueries({ queryKey: ["localidades-salvas"] });
     },
   });
 }

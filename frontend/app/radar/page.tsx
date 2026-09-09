@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
 import { useToast } from "@/components/ToastProvider";
 import * as api from "@/lib/api";
-import { useEvolucaoRadar, useSalvarLocalidade, useTendenciasRadar } from "@/lib/queries";
+import { useEvolucaoRadar, useLocalidadesSalvas, useRemoverLocalidade, useSalvarLocalidade, useTendenciasRadar } from "@/lib/queries";
 import Badge from "@/components/Badge";
 import { Button } from "@/components/ui/Button";
 import { CampoTexto } from "@/components/ui/FormField";
@@ -24,6 +24,8 @@ export default function PaginaRadar() {
   const tendencias = useTendenciasRadar(filtros);
   const evolucaoMutacao = useEvolucaoRadar();
   const salvarMutacao = useSalvarLocalidade();
+  const salvasQuery = useLocalidadesSalvas();
+  const removerMutacao = useRemoverLocalidade();
 
   function aoSubmeter(evento: FormEvent) {
     evento.preventDefault();
@@ -43,8 +45,18 @@ export default function PaginaRadar() {
     }
   }
 
+  async function removerLocalidadeSalva(local: { pais?: string; estado?: string; cidade?: string }) {
+    if (!window.confirm("Remover esta localidade salva?")) return;
+    try {
+      await removerMutacao.mutateAsync(local);
+    } catch {
+      notificar("Não foi possível remover a localidade.", "erro");
+    }
+  }
+
   const dados = tendencias.data ?? null;
   const evolucao = evolucaoMutacao.data ?? null;
+  const salvas = salvasQuery.data ?? [];
 
   return (
     <div>
@@ -124,6 +136,40 @@ export default function PaginaRadar() {
               : "Não foi possível carregar a evolução."
           }
         />
+      )}
+      {token && salvas.length > 0 && (
+        <section aria-label="Localidades salvas" style={{ marginTop: "1.5rem" }}>
+          <h2 style={{ fontSize: "1.1rem" }}>Localidades salvas</h2>
+          <ul style={{ listStyle: "none", padding: 0, display: "flex", flexDirection: "column", gap: 8 }}>
+            {salvas.map((loc, i) => {
+              const rotulo = [loc.cidade, loc.estado, loc.pais].filter(Boolean).join(" · ") || "Localidade";
+              return (
+                <li key={`${loc.pais}-${loc.estado}-${loc.cidade}-${i}`} style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                  <Button
+                    variante="fantasma"
+                    tamanho="pequeno"
+                    onClick={() => {
+                      setPais(loc.pais);
+                      setEstado(loc.estado);
+                      setCidade(loc.cidade);
+                      setFiltros({ pais: loc.pais || undefined, estado: loc.estado || undefined, cidade: loc.cidade || undefined });
+                    }}
+                  >
+                    {rotulo}
+                  </Button>
+                  <Button
+                    variante="fantasma"
+                    tamanho="pequeno"
+                    carregando={removerMutacao.isPending}
+                    onClick={() => void removerLocalidadeSalva({ pais: loc.pais || undefined, estado: loc.estado || undefined, cidade: loc.cidade || undefined })}
+                  >
+                    Remover
+                  </Button>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
       )}
       {evolucao && (
         <div className="cartao">

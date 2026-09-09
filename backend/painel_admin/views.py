@@ -1,4 +1,4 @@
-from django.db.models import Q
+from django.db.models import ProtectedError, Q
 from rest_framework import status
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import IsAuthenticated
@@ -198,6 +198,24 @@ class PlanDetailView(APIView):
         novo = {"nome": plan.nome, "preco": str(plan.preco), "duracao_dias": plan.duracao_dias, "ativo": plan.ativo}
         auditar(acao="plan_update", alvo_tipo="Plan", alvo_id=plan.id, detalhe={"anterior": anterior, "novo": novo}, alterado_por=request.user)
         return Response(PlanAdminSerializer(plan).data)
+
+    def delete(self, request, plan_id):
+        try:
+            plan = Plan.objects.get(pk=plan_id)
+        except Plan.DoesNotExist:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        try:
+            plan.delete()
+        except ProtectedError:
+            # Subscription.plan usa on_delete=PROTECT (ver assinatura/models.py):
+            # plano com histórico de assinaturas não pode ser apagado, só
+            # desativado — evita perder o vínculo histórico.
+            return Response(
+                {"detail": "Este plano possui assinaturas vinculadas e não pode ser excluído. Desative-o em vez disso."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        auditar(acao="plan_delete", alvo_tipo="Plan", alvo_id=plan_id, detalhe={"nome": plan.nome}, alterado_por=request.user)
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class LimiteListView(APIView):

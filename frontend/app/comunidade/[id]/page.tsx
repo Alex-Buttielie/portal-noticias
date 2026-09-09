@@ -2,10 +2,11 @@
 
 import { useState, type FormEvent } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { useToast } from "@/components/ToastProvider";
 import * as api from "@/lib/api";
-import { useComentar, useComentarios, useEditarPublicacao, usePublicacao } from "@/lib/queries";
+import { useComentar, useComentarios, useEditarPublicacao, useExcluirComentario, useExcluirPublicacao, usePublicacao } from "@/lib/queries";
 import Badge from "@/components/Badge";
 import { Button } from "@/components/ui/Button";
 import { CampoAreaTexto, CampoTexto } from "@/components/ui/FormField";
@@ -14,6 +15,7 @@ import { EmptyState, ErrorState, SkeletonCard } from "@/components/ui/Estados";
 const ID_TEMPORARIO_BASE = -1;
 
 export default function PaginaDetalhePublicacao({ params }: { params: { id: string } }) {
+  const router = useRouter();
   const { token, usuario } = useAuth();
   const { notificar } = useToast();
   const publicacaoId = Number(params.id);
@@ -22,6 +24,8 @@ export default function PaginaDetalhePublicacao({ params }: { params: { id: stri
   const comentariosQuery = useComentarios(publicacaoId);
   const comentarMutacao = useComentar(publicacaoId);
   const editarMutacao = useEditarPublicacao(publicacaoId);
+  const excluirPubMutacao = useExcluirPublicacao();
+  const excluirComentMutacao = useExcluirComentario(publicacaoId);
 
   const publicacao = publicacaoQuery.data ?? null;
   const [novoComentario, setNovoComentario] = useState("");
@@ -100,6 +104,28 @@ export default function PaginaDetalhePublicacao({ params }: { params: { id: stri
   }
 
   const ehAutor = usuario?.id === publicacao.autor;
+  const podeExcluirPub = ehAutor || usuario?.papel === "admin";
+  const podeExcluirComentario = (autorId: number) => usuario?.id === autorId || usuario?.papel === "admin";
+
+  async function excluirPublicacao() {
+    if (!window.confirm("Excluir esta publicação permanentemente? Os comentários serão apagados junto.")) return;
+    try {
+      await excluirPubMutacao.mutateAsync(publicacaoId);
+      notificar("Publicação excluída.", "info");
+      router.push("/comunidade");
+    } catch (e) {
+      notificar(e instanceof api.ApiError ? e.message : "Não foi possível excluir.", "erro");
+    }
+  }
+
+  async function excluirComentario(id: number) {
+    if (!window.confirm("Excluir este comentário?")) return;
+    try {
+      await excluirComentMutacao.mutateAsync(id);
+    } catch (e) {
+      notificar(e instanceof api.ApiError ? e.message : "Não foi possível excluir o comentário.", "erro");
+    }
+  }
 
   return (
     <article>
@@ -147,6 +173,14 @@ export default function PaginaDetalhePublicacao({ params }: { params: { id: stri
                 </Button>
               </>
             )}
+            {podeExcluirPub && (
+              <>
+                {" — "}
+                <Button variante="perigo" tamanho="pequeno" carregando={excluirPubMutacao.isPending} onClick={() => void excluirPublicacao()}>
+                  Excluir
+                </Button>
+              </>
+            )}
           </p>
           <div style={{ whiteSpace: "pre-wrap" }}>{publicacao.conteudo}</div>
         </>
@@ -158,6 +192,11 @@ export default function PaginaDetalhePublicacao({ params }: { params: { id: stri
           <div className="cartao-meta">
             <strong>{comentario.autor_nome}</strong>
             {comentario.id < 0 && <span className="texto-suave">Enviando...</span>}
+            {comentario.id > 0 && podeExcluirComentario(comentario.autor) && (
+              <Button variante="fantasma" tamanho="pequeno" onClick={() => void excluirComentario(comentario.id)}>
+                Excluir
+              </Button>
+            )}
           </div>
           <p>{comentario.conteudo}</p>
         </div>
