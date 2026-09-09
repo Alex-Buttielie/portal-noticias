@@ -313,6 +313,8 @@ Os endpoints públicos de escrita mais expostos a abuso automatizado (`POST /api
 
 Os componentes de interface do projeto são escritos à mão em CSS puro + React/TypeScript (sem Tailwind nem biblioteca de UI de terceiros), consistente com o padrão já usado em `ThemeToggle.tsx`/`CartaoEsqueleto.tsx`.
 
+> Rebuild visual 2026-09-09 (run `20260909-1200-frontend-rebuild`): `frontend/app/globals.css` reescrito mobile-first com container fluido `min(1200px, 100% - 2rem)`, breakpoints `480/768/1024/1280`, grade `auto-fill/minmax(min(300px,100%),1fr)`, `portal-layout` 1 col → `minmax(0,1fr) 320px` com sidebar sticky em `≥1024px`, dark via `data-theme` + `prefers-color-scheme`, `prefers-reduced-motion` e `@print`. Classes novas: `busca--pill`, `share-sticky`, `detalhe-dropcap`, `limitar-linhas-2/3`; aliases legados `.topo*/.base*/.cartao*/.botao*` preservados. Detalhe e roteiro de teste em DEV (4 viewports + dark): `agentic-framework/state/run-20260909-1200-frontend-rebuild/documentation-update.md`.
+
 ### Tokens (`frontend/app/globals.css`)
 
 Todo valor visual reutilizável (cor, espaçamento, tipografia, raio de borda, sombra, camada de empilhamento) é uma CSS custom property, documentada com um comentário curto de uso — nunca um valor solto espalhado pelo CSS. Categorias disponíveis hoje:

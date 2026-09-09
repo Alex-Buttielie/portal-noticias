@@ -53,8 +53,9 @@ export default function PaginaListaDeEspera() {
   }
 
   return (
-    <div>
-      <h1>Entre na lista de espera</h1>
+    <div className="secao-bloco">
+      <p className="secao-eyebrow">Novidades</p>
+      <h1 className="secao-titulo">Entre na lista de espera</h1>
       <p className="texto-suave">
         O Portal de Notícias agrupa notícias de várias fontes sobre o mesmo assunto, resume o essencial e
         mostra o que está em alta na sua região. Seja avisado assim que novas funcionalidades e regiões

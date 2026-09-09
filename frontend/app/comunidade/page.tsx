@@ -30,11 +30,14 @@ export default function PaginaComunidade() {
 
   return (
     <div>
-      <h1>Comunidade — Opiniões e Análises</h1>
-      <p className="texto-suave">
-        Conteúdo de autores credenciados. Opinião e análise são sempre identificadas como tal —
-        nunca confunda com a cobertura factual do feed.
-      </p>
+      <header className="secao-bloco">
+        <p className="secao-eyebrow">Comunidade</p>
+        <h1 className="secao-titulo">Opiniões e Análises</h1>
+        <p className="texto-suave">
+          Conteúdo de autores credenciados. Opinião e análise são sempre identificadas como tal —
+          nunca confunda com a cobertura factual do feed.
+        </p>
+      </header>
 
       {lista.isLoading && <SkeletonLista quantidade={4} />}
       {lista.isError && (
@@ -45,12 +48,16 @@ export default function PaginaComunidade() {
       )}
 
       {destaques.data && destaques.data.length > 0 && (
-        <>
-          <h2 style={{ fontSize: "1.1rem", marginTop: "1.5rem" }}>Destaques editoriais</h2>
-          {destaques.data.map((publicacao) => (
-            <CartaoPublicacao key={publicacao.id} publicacao={publicacao} />
-          ))}
-        </>
+        <section className="secao-bloco" aria-label="Destaques editoriais">
+          <div className="secao-cabecalho">
+            <h2 className="secao-titulo">Destaques editoriais</h2>
+          </div>
+          <div className="grade-noticias">
+            {destaques.data.map((publicacao) => (
+              <CartaoPublicacao key={publicacao.id} publicacao={publicacao} />
+            ))}
+          </div>
+        </section>
       )}
 
       {!lista.isLoading && !lista.isError && lista.data?.length === 0 && (
@@ -58,11 +65,15 @@ export default function PaginaComunidade() {
       )}
 
       {(lista.data?.length ?? 0) > 0 && (destaques.data?.length ?? 0) > 0 && (
-        <h2 style={{ fontSize: "1.1rem", marginTop: "1.5rem" }}>Todas as publicações</h2>
+        <div className="secao-cabecalho">
+          <h2 className="secao-titulo">Todas as publicações</h2>
+        </div>
       )}
-      {lista.data?.map((publicacao) => (
-        <CartaoPublicacao key={publicacao.id} publicacao={publicacao} />
-      ))}
+      <div className="grade-noticias">
+        {lista.data?.map((publicacao) => (
+          <CartaoPublicacao key={publicacao.id} publicacao={publicacao} />
+        ))}
+      </div>
     </div>
   );
 }

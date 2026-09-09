@@ -32,16 +32,17 @@ export default function PaginaEditorialPage() {
   if (!pagina) return null;
 
   return (
-    <div className="pagina-editorial">
-      <h1>{pagina.titulo}</h1>
+    <article className="secao-bloco">
+      <p className="secao-eyebrow">Portal de Notícias</p>
+      <h1 className="secao-titulo">{pagina.titulo}</h1>
       <p className="texto-suave">
         Atualizado em {new Date(pagina.atualizado_em).toLocaleDateString("pt-BR")}
       </p>
       {pagina.conteudo.split("\n\n").map((paragrafo, indice) => (
-        <p key={indice} style={{ whiteSpace: "pre-line", marginTop: "1rem" }}>
+        <p key={indice} style={{ whiteSpace: "pre-line" }}>
           {paragrafo}
         </p>
       ))}
-    </div>
+    </article>
   );
 }

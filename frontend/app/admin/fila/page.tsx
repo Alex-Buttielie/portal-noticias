@@ -16,8 +16,10 @@ export default function AdminFilaPage() {
   const totalPaginas = fila.data ? Math.max(1, Math.ceil(fila.data.count / Math.max(1, fila.data.results.length))) : 1;
 
   return (
-    <div>
-      <h1>Fila editorial</h1>
+    <div className="secao-bloco">
+      <div className="secao-cabecalho">
+        <h1 className="secao-titulo">Fila editorial</h1>
+      </div>
       <CampoSelecao
         id="admin-fila-status"
         rotulo="Status"

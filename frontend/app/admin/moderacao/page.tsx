@@ -32,8 +32,10 @@ export default function AdminModeracaoPage() {
   }
 
   return (
-    <div>
-      <h1>Moderação</h1>
+    <div className="secao-bloco">
+      <div className="secao-cabecalho">
+        <h1 className="secao-titulo">Moderação</h1>
+      </div>
       <CampoSelecao
         id="admin-mod-status"
         rotulo="Status"

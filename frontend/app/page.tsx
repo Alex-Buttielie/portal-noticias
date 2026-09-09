@@ -300,7 +300,7 @@ function PaginaFeedInner() {
                     </div>
                     <div className="grade-noticias">
                       {paraVoce.map((entrada) => (
-                        <article key={chaveDaEntrada(entrada)} className="card-legado">
+                        <article key={chaveDaEntrada(entrada)}>
                           <NewsCard entrada={entrada} />
                           <PorQueEstouVendoIsso
                             motivos={motivosDaEntrada(entrada, buscaAtiva, intencao.obterLeiturasDaCategoria(entrada.categoria))}
@@ -357,7 +357,7 @@ function PaginaFeedInner() {
               itens.length > 0 && (
                 <div className="grade-noticias">
                   {itens.map((entrada) => (
-                    <article key={chaveDaEntrada(entrada)} className="card-legado">
+                    <article key={chaveDaEntrada(entrada)}>
                       <NewsCard entrada={entrada} />
                       <PorQueEstouVendoIsso
                         motivos={motivosDaEntrada(entrada, buscaAtiva, intencao.obterLeiturasDaCategoria(entrada.categoria))}

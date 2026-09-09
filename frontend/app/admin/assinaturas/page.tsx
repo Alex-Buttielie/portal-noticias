@@ -23,8 +23,10 @@ export default function AdminAssinaturasPage() {
   const totalPaginas = lista.data ? Math.max(1, Math.ceil(lista.data.count / Math.max(1, lista.data.results.length))) : 1;
 
   return (
-    <div>
-      <h1>Assinaturas</h1>
+    <div className="secao-bloco">
+      <div className="secao-cabecalho">
+        <h1 className="secao-titulo">Assinaturas</h1>
+      </div>
       <form
         className="controles-feed"
         onSubmit={(e) => {

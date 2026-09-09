@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 
+// Barra fina de progresso de leitura no topo — `.progresso-leitura*` em
+// globals.css. `aria-valuetext` em pt-BR para leitor de tela.
 export function ReadingProgress() {
   const [progresso, setProgresso] = useState(0);
 
@@ -15,8 +17,18 @@ export function ReadingProgress() {
     return () => window.removeEventListener("scroll", atualizar);
   }, []);
 
+  const arredondado = Math.round(progresso);
+
   return (
-    <div className="progresso-leitura" role="progressbar" aria-valuenow={Math.round(progresso)} aria-valuemin={0} aria-valuemax={100} aria-label="Progresso de leitura">
+    <div
+      className="progresso-leitura"
+      role="progressbar"
+      aria-valuenow={arredondado}
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuetext={`${arredondado}% lido`}
+      aria-label="Progresso de leitura"
+    >
       <div className="progresso-leitura__barra" style={{ width: `${progresso}%` }} />
     </div>
   );

@@ -102,8 +102,8 @@ export default function PaginaStatusCredenciamento() {
 
       {perfilQuery.isLoading && <SkeletonCard />}
       {perfil && (
-        <div className="cartao" style={{ marginTop: "1.5rem" }}>
-          <h2 style={{ fontSize: "1.1rem" }}>Meu perfil profissional</h2>
+        <div className="cartao">
+          <h2 className="cartao-titulo">Meu perfil profissional</h2>
           {editandoPerfil ? (
             <form onSubmit={salvarPerfilHandler}>
               <CampoAreaTexto

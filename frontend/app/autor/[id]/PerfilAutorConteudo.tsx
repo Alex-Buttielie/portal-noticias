@@ -47,8 +47,9 @@ export default function PerfilAutorConteudo({ id }: { id: string }) {
   }
 
   return (
-    <div>
-      <h1>
+    <div className="secao-bloco">
+      <p className="secao-eyebrow">Autor</p>
+      <h1 className="secao-titulo">
         {perfil.nome || `Autor #${perfil.id}`}{" "}
         {perfil.credenciado && <Badge variante="premium">Jornalista credenciado</Badge>}
       </h1>
@@ -62,21 +63,25 @@ export default function PerfilAutorConteudo({ id }: { id: string }) {
         </Button>
       )}
 
-      <h2 style={{ fontSize: "1.1rem", marginTop: "1.5rem" }}>Publicações</h2>
+      <div className="secao-cabecalho">
+        <h2 className="secao-titulo">Publicações</h2>
+      </div>
       {perfil.publicacoes.length === 0 && (
         <EmptyState titulo="Nenhuma publicação ainda" descricao="As análises deste autor aparecerão aqui." />
       )}
-      {perfil.publicacoes.map((publicacao) => (
-        <Link
-          key={publicacao.id}
-          href={`/comunidade/${publicacao.id}`}
-          style={{ textDecoration: "none", color: "inherit" }}
-        >
-          <article className="cartao">
-            <h3 className="cartao-titulo">{publicacao.titulo}</h3>
-          </article>
-        </Link>
-      ))}
+      <div className="grade-noticias">
+        {perfil.publicacoes.map((publicacao) => (
+          <Link
+            key={publicacao.id}
+            href={`/comunidade/${publicacao.id}`}
+            style={{ textDecoration: "none", color: "inherit" }}
+          >
+            <article className="cartao">
+              <h3 className="cartao-titulo">{publicacao.titulo}</h3>
+            </article>
+          </Link>
+        ))}
+      </div>
     </div>
   );
 }

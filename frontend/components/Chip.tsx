@@ -34,7 +34,17 @@ export default function Chip({
       {aoClicar ? (
         <button
           type="button"
-          style={{ all: "unset", cursor: disabled ? "not-allowed" : "pointer" }}
+          // Reset visual sem `all: unset` — preserva o anel de foco global
+          // (:focus-visible) e o tamanho mínimo de toque.
+          style={{
+            background: "transparent",
+            border: "none",
+            padding: 0,
+            font: "inherit",
+            color: "inherit",
+            cursor: disabled ? "not-allowed" : "pointer",
+            minHeight: 40,
+          }}
           aria-pressed={selecionado}
           disabled={disabled}
           onClick={aoClicar}

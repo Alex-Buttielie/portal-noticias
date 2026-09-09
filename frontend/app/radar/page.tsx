@@ -60,7 +60,10 @@ export default function PaginaRadar() {
 
   return (
     <div>
-      <h1>Radar de Tendências</h1>
+      <header className="secao-bloco">
+        <p className="secao-eyebrow">Radar</p>
+        <h1 className="secao-titulo">Radar de Tendências</h1>
+      </header>
 
       <form onSubmit={aoSubmeter} className="controles-feed">
         <CampoTexto id="radar-pais" rotulo="País" value={pais} onChange={(e) => setPais(e.target.value)} />
@@ -138,9 +141,11 @@ export default function PaginaRadar() {
         />
       )}
       {token && salvas.length > 0 && (
-        <section aria-label="Localidades salvas" style={{ marginTop: "1.5rem" }}>
-          <h2 style={{ fontSize: "1.1rem" }}>Localidades salvas</h2>
-          <ul style={{ listStyle: "none", padding: 0, display: "flex", flexDirection: "column", gap: 8 }}>
+        <section className="secao-bloco" aria-label="Localidades salvas">
+          <div className="secao-cabecalho">
+            <h2 className="secao-titulo">Localidades salvas</h2>
+          </div>
+          <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: 8 }}>
             {salvas.map((loc, i) => {
               const rotulo = [loc.cidade, loc.estado, loc.pais].filter(Boolean).join(" · ") || "Localidade";
               return (

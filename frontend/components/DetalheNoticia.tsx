@@ -36,6 +36,9 @@ function estimarTempoLeitura(detalhe: api.FeedDetalhe): number {
   return Math.max(1, Math.round(palavras / PALAVRAS_POR_MINUTO));
 }
 
+// Página de notícia em tipografia editorial: coluna de leitura em 68ch
+// (`.artigo-corpo`), capitular no primeiro parágrafo (`.detalhe-dropcap`,
+// ver css-needs), compartilhar em faixa fixa — dados e rotas inalterados.
 export default function DetalheNoticia({
   tipo,
   id,
@@ -54,6 +57,7 @@ export default function DetalheNoticia({
 
   useEffect(() => {
     if (detalhe) intencao.registrarLeitura(detalhe.categoria);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [detalhe?.categoria, detalhe?.id]);
 
   if (consulta.isLoading && !detalhe) {
@@ -94,53 +98,70 @@ export default function DetalheNoticia({
             Espaço publicitário — assine o Premium para navegar sem anúncios.
           </div>
         )}
-        <div className="cartao-meta">
-          {detalhe.urgente && <Badge variante="erro">Urgente</Badge>}
-          {detalhe.categoria && (
-            <Badge variante="neutro">
-              <span className="cartao-emoji" aria-hidden="true">
-                {visual.emoji}
-              </span>
-              {detalhe.categoria}
-            </Badge>
-          )}
-          <span>{formatarData(detalhe.timestamp)}</span>
-        </div>
-        <h1>{detalhe.titulo}</h1>
 
-        <div className="info-leitura">
-          <span>{estimarTempoLeitura(detalhe)} min de leitura</span>
-          <span aria-hidden="true">·</span>
-          <span>{detalhe.fontes.length} {detalhe.fontes.length === 1 ? "fonte" : "fontes"}</span>
-        </div>
+        <header>
+          <p className="cartao-noticia__meta" style={{ marginBottom: "var(--espaco-3)" }}>
+            {detalhe.urgente && <Badge variante="erro">Urgente</Badge>}
+            {detalhe.categoria && (
+              <Badge variante="neutro">
+                <span className="cartao-emoji" aria-hidden="true">
+                  {visual.emoji}
+                </span>{" "}
+                {detalhe.categoria}
+              </Badge>
+            )}
+            <time dateTime={detalhe.timestamp}>{formatarData(detalhe.timestamp)}</time>
+          </p>
+          <h1 style={{ fontSize: "clamp(1.9rem, 1.4rem + 2.4vw, 2.9rem)", maxWidth: "22ch" }}>
+            {detalhe.titulo}
+          </h1>
+          <div className="info-leitura" style={{ marginTop: "var(--espaco-2)" }}>
+            <span>{estimarTempoLeitura(detalhe)} min de leitura</span>
+            <span aria-hidden="true">·</span>
+            <span>
+              {detalhe.fontes.length} {detalhe.fontes.length === 1 ? "fonte" : "fontes"}
+            </span>
+          </div>
+        </header>
+
         {urlCanonica && (
-          <ShareButtons titulo={detalhe.titulo} texto={detalhe.fontes[0]?.resumo} url={urlCanonica} />
+          <div
+            className="share-sticky"
+            style={{
+              position: "sticky",
+              top: 72,
+              zIndex: 20,
+              padding: "var(--espaco-2) 0",
+              marginTop: "var(--espaco-3)",
+            }}
+          >
+            <ShareButtons titulo={detalhe.titulo} texto={detalhe.fontes[0]?.resumo} url={urlCanonica} />
+          </div>
         )}
 
-        <h2 style={{ fontSize: "1rem", marginTop: "1.5rem" }}>
-          Fontes ({detalhe.fontes.length})
-        </h2>
+        <h2 style={{ fontSize: "1rem", marginTop: "1.5rem" }}>Fontes ({detalhe.fontes.length})</h2>
         {detalhe.fontes.map((fonte, indice) => (
-          <div
-            className="cartao cartao-acento"
-            style={{ ["--acento" as string]: visual.cor }}
+          <section
+            className="cartao-noticia"
+            style={{ marginBottom: "var(--espaco-4)", ["--acento" as string]: visual.cor }}
             key={`${fonte.url_fonte_original}-${indice}`}
+            aria-label={`Fonte ${indice + 1}: ${fonte.nome_fonte}`}
           >
-            <div className="cartao-meta">
-              <strong>{fonte.nome_fonte}</strong>
+            <div className="cartao-noticia__corpo">
+              <p className="cartao-noticia__meta">
+                <strong style={{ color: "var(--cor-texto)" }}>{fonte.nome_fonte}</strong>
+              </p>
+              <p className={`artigo-corpo${indice === 0 ? " detalhe-dropcap" : ""}`}>{fonte.resumo}</p>
+              <a href={fonte.url_fonte_original} target="_blank" rel="noopener noreferrer">
+                Ler matéria original em {fonte.nome_fonte} →
+              </a>
             </div>
-            <p className="artigo-corpo" style={{ fontSize: "1rem" }}>
-              {fonte.resumo}
-            </p>
-            <a href={fonte.url_fonte_original} target="_blank" rel="noopener noreferrer">
-              Ler matéria original em {fonte.nome_fonte} →
-            </a>
-          </div>
+          </section>
         ))}
       </article>
 
       <nav className="fluxo-leitura" aria-label="Continue explorando">
-        <Link href="/" className="botao botao--fantasma botao--medio">
+        <Link href="/" className="botao botao--fantasma botao--medio" style={{ minHeight: 44, alignSelf: "flex-start" }}>
           ← Voltar ao feed
         </Link>
         {relacionados.length > 0 && (
@@ -149,10 +170,7 @@ export default function DetalheNoticia({
             <h2 className="secao-titulo">Continue explorando</h2>
             <div className="lista-compacta">
               {relacionados.map((entrada) => (
-                <CompactNewsCard
-                  key={`${entrada.tipo}-${entrada.id}`}
-                  entrada={entrada}
-                />
+                <CompactNewsCard key={`${entrada.tipo}-${entrada.id}`} entrada={entrada} />
               ))}
             </div>
           </section>
