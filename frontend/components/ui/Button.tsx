@@ -10,8 +10,6 @@ interface Propriedades extends ButtonHTMLAttributes<HTMLButtonElement> {
   children: ReactNode;
 }
 
-// Botão do design system v2 — espelha `.botao`, `.botao--*` de globals.css.
-// `carregando` troca o rótulo por spinner + texto e bloqueia novo clique.
 export function Button({
   variante = "primaria",
   tamanho = "medio",
@@ -20,18 +18,15 @@ export function Button({
   children,
   ...resto
 }: Propriedades) {
-  const desabilitado = disabled ?? carregando;
   return (
     <button
       type={resto.type ?? "button"}
-      disabled={desabilitado}
+      disabled={disabled ?? carregando}
       aria-busy={carregando || undefined}
-      aria-disabled={desabilitado || undefined}
-      className={`botao botao--${variante} botao--${tamanho}`}
+      className={`botao botao--${variante} botao--${tamanho}${carregando ? " botao--carregando" : ""}`}
       {...resto}
     >
-      {carregando && <span className="spinner" aria-hidden="true" />}
-      <span>{carregando ? "Carregando…" : children}</span>
+      {carregando ? "Carregando…" : children}
     </button>
   );
 }

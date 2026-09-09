@@ -89,10 +89,8 @@ export default function AdminPlanosPage() {
   const erro = planosQuery.isError || limitesQuery.isError;
 
   return (
-    <div className="secao-bloco">
-      <div className="secao-cabecalho">
-        <h1 className="secao-titulo">Planos &amp; Limites</h1>
-      </div>
+    <div>
+      <h1>Planos & Limites</h1>
       {carregando && <SkeletonLista quantidade={2} />}
       {erro && (
         <ErrorState

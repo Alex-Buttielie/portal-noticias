@@ -3,9 +3,6 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
-// Painel lateral (bottom-sheet no mobile via `.drawer*` em globals.css).
-// Mesma lógica de antes: Escape fecha, clique fora fecha, scroll trava,
-// foco inicial vai ao primeiro interativo. Só visual + rótulos.
 export function Drawer({
   aberto,
   aoFechar,
@@ -48,14 +45,8 @@ export function Drawer({
       >
         <div className="drawer__cabecalho">
           <h2 className="drawer__titulo">{titulo}</h2>
-          <button
-            type="button"
-            className="botao botao--fantasma botao--pequeno"
-            style={{ minHeight: 40, minWidth: 40 }}
-            onClick={aoFechar}
-            aria-label={`Fechar painel: ${titulo}`}
-          >
-            <span aria-hidden="true">✕</span>
+          <button type="button" className="botao botao--fantasma botao--pequeno" onClick={aoFechar} aria-label="Fechar painel">
+            ✕
           </button>
         </div>
         <div className="drawer__corpo">{children}</div>

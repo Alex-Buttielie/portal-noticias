@@ -69,9 +69,8 @@ export default function PreferenciasCookiesConteudo() {
   }
 
   return (
-    <div className="secao-bloco">
-      <p className="secao-eyebrow">Privacidade</p>
-      <h1 className="secao-titulo">Preferências de cookies</h1>
+    <div>
+      <h1>Preferências de cookies</h1>
       <p className="texto-suave">
         Você pode alterar sua escolha a qualquer momento nesta página. Ela vale para este
         navegador e, se você estiver conectado à sua conta, também é salva no seu perfil.

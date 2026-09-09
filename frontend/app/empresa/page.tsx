@@ -114,10 +114,7 @@ export default function PaginaEmpresa() {
 
   return (
     <div>
-      <header className="secao-bloco">
-        <p className="secao-eyebrow">B2B</p>
-        <h1 className="secao-titulo">Painel da empresa</h1>
-      </header>
+      <h1>Painel da empresa</h1>
 
       {carregando && <SkeletonLista quantidade={3} />}
       {erroQuery && (
@@ -149,11 +146,8 @@ export default function PaginaEmpresa() {
             </div>
           )}
 
-          <section className="secao-bloco" aria-label="Critérios de monitoramento">
-            <div className="secao-cabecalho">
-              <h2 className="secao-titulo">Critérios de monitoramento</h2>
-            </div>
-            <form onSubmit={aoCriarCriterio} className="controles-feed">
+          <h2 style={{ fontSize: "1.1rem", marginTop: "1.5rem" }}>Critérios de monitoramento</h2>
+          <form onSubmit={aoCriarCriterio} className="controles-feed">
             <CampoSelecao
               id="tipo-criterio"
               rotulo="Tipo"
@@ -214,13 +208,9 @@ export default function PaginaEmpresa() {
               </div>
             );
           })}
-          </section>
 
-          <section className="secao-bloco" aria-label="Membros da organização">
-            <div className="secao-cabecalho">
-              <h2 className="secao-titulo">Membros da organização</h2>
-            </div>
-            <DataTable
+          <h2 style={{ fontSize: "1.1rem", marginTop: "1.5rem" }}>Membros da organização</h2>
+          <DataTable
             legenda="Membros da organização"
             linhas={membros}
             colunas={[
@@ -263,7 +253,6 @@ export default function PaginaEmpresa() {
               </Button>
             </form>
           )}
-          </section>
         </>
       )}
     </div>

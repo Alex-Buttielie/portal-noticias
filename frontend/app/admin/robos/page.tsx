@@ -103,9 +103,9 @@ export default function AdminRobosPage() {
   if (!token) return <p className="texto-suave">Carregando...</p>;
 
   return (
-    <div className="secao-bloco">
-      <div className="secao-cabecalho" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
-        <h1 className="secao-titulo">Robôs — Configuração</h1>
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
+        <h1>Robôs — Configuração</h1>
         <Button carregando={executar.isPending} onClick={() => void executarAgora()}>
           Executar agora
         </Button>

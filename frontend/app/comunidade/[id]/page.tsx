@@ -128,7 +128,7 @@ export default function PaginaDetalhePublicacao({ params }: { params: { id: stri
   }
 
   return (
-    <article className="secao-bloco">
+    <article>
       <div className="cartao-meta">
         <Badge variante={publicacao.tipo === "opiniao" ? "premium" : "neutro"}>
           {publicacao.tipo === "opiniao" ? "Opinião" : "Análise"}
@@ -162,7 +162,7 @@ export default function PaginaDetalhePublicacao({ params }: { params: { id: stri
         </form>
       ) : (
         <>
-          <h1 className="secao-titulo">{publicacao.titulo}</h1>
+          <h1>{publicacao.titulo}</h1>
           <p className="texto-suave">
             por <Link href={`/autor/${publicacao.autor}`}>{publicacao.autor_nome}</Link>
             {ehAutor && (
@@ -186,9 +186,7 @@ export default function PaginaDetalhePublicacao({ params }: { params: { id: stri
         </>
       )}
 
-      <div className="secao-cabecalho">
-        <h2 className="secao-titulo">Comentários ({comentarios.length})</h2>
-      </div>
+      <h2 style={{ fontSize: "1rem", marginTop: "1.5rem" }}>Comentários ({comentarios.length})</h2>
       {comentarios.map((comentario) => (
         <div key={comentario.id} className="cartao" style={comentario.id < 0 ? { opacity: 0.6 } : undefined}>
           <div className="cartao-meta">

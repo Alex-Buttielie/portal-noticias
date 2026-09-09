@@ -77,7 +77,7 @@ export default function Dropdown({
       <button
         type="button"
         ref={gatilhoRef}
-        className="botao botao--secundaria botao--medio"
+        className="botao botao-secundario"
         aria-haspopup="menu"
         aria-expanded={aberto}
         aria-controls={menuId}

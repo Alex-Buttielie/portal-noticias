@@ -45,11 +45,8 @@ export default function PaginaPlanos() {
 
   return (
     <div>
-      <header className="secao-bloco">
-        <p className="secao-eyebrow">Assinatura</p>
-        <h1 className="secao-titulo">Planos Premium</h1>
-        <p className="texto-suave">Sem anúncios e com recursos completos de personalização.</p>
-      </header>
+      <h1>Planos Premium</h1>
+      <p className="texto-suave">Sem anúncios e com recursos completos de personalização.</p>
 
       {planosQuery.isLoading && <SkeletonLista quantidade={3} />}
       {planosQuery.isError && (
@@ -62,9 +59,8 @@ export default function PaginaPlanos() {
         <EmptyState titulo="Nenhum plano disponível" descricao="Volte em breve." />
       )}
 
-      <div className="grade-cartoes">
-        {planosQuery.data?.map((plano) => (
-          <div className="plano-cartao" key={plano.id}>
+      {planosQuery.data?.map((plano) => (
+        <div className="plano-cartao" key={plano.id}>
           <h2>{plano.nome}</h2>
           <p className="plano-preco">{formatarPreco(plano.preco)}</p>
           <p className="texto-suave">a cada {plano.duracao_dias} dias</p>
@@ -78,9 +74,8 @@ export default function PaginaPlanos() {
               {usuario?.papel === "premium" ? "Você já é Premium" : "Assinar"}
             </Button>
           </div>
-          </div>
-        ))}
-      </div>
+        </div>
+      ))}
     </div>
   );
 }

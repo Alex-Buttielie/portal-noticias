@@ -19,15 +19,14 @@ export const metadata: Metadata = {
  */
 export default function PaginaPoliticaPrivacidade() {
   return (
-    <div className="secao-bloco">
+    <div>
       <div className="mensagem-erro" role="note">
         <strong>Rascunho:</strong> este texto ainda não foi revisado por um profissional
         jurídico. Não deve ser tratado como a versão final/vinculante da política de
         privacidade do Portal de Notícias.
       </div>
 
-      <p className="secao-eyebrow">Privacidade</p>
-      <h1 className="secao-titulo">Política de privacidade</h1>
+      <h1>Política de privacidade</h1>
       <p className="texto-suave">
         Esta política descreve, em linhas gerais, como o Portal de Notícias trata dados
         pessoais de visitantes e usuários cadastrados, em conformidade com a Lei Geral de

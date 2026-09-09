@@ -10,11 +10,10 @@ const CARDS = [
 ];
 export default function AdminHome() {
   return (
-    <div className="secao-bloco">
-      <p className="secao-eyebrow">Administração</p>
-      <h1 className="secao-titulo">Painel de controle</h1>
+    <div>
+      <h1>Painel de controle</h1>
       <p className="texto-suave">Gestão completa — apenas administradores.</p>
-      <div className="grade-cartoes">
+      <div className="grade-cartoes" style={{ marginTop: 16 }}>
         {CARDS.map((c) => (
           <Link key={c.href} href={c.href} className="cartao" style={{ textDecoration: "none", color: "inherit" }}>
             <h3 className="cartao-titulo">{c.titulo}</h3>

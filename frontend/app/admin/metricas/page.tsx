@@ -359,9 +359,9 @@ export default function PaginaAdminMetricas() {
   if (!painel) return <EmptyState titulo="Sem dados" descricao="Nenhuma métrica para o período." />;
 
   return (
-    <div className="secao-bloco">
+    <div>
       <div className="metricas-topbar">
-        <h1 className="secao-titulo" style={{ margin: 0 }}>Métricas — dashboards</h1>
+        <h1 style={{ margin: 0 }}>Métricas — dashboards</h1>
         <div className="metricas-controles">
           <label className="texto-suave" htmlFor="dias">
             Período

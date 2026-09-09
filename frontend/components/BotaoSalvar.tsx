@@ -25,10 +25,7 @@ export default function BotaoSalvar({ entrada }: { entrada: FeedEntrada }) {
     <button
       type="button"
       className={`botao-salvar${salvo ? " botao-salvar--ativo" : ""}`}
-      style={{ minHeight: 40 }}
       aria-pressed={salvo}
-      aria-label={salvo ? `Remover "${entrada.titulo}" dos salvos` : `Salvar "${entrada.titulo}" para ler depois`}
-      title={salvo ? "Remover dos salvos" : "Salvar para ler depois"}
       onClick={aoClicar}
     >
       <span aria-hidden="true">{salvo ? "★" : "☆"}</span>

@@ -1,13 +1,13 @@
 "use client";
 
-import { Suspense, useEffect, useId, useRef, useState } from "react";
+import { Suspense, useEffect, useId, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import ThemeToggle from "@/components/ThemeToggle";
 import CommandPalette from "@/components/CommandPalette";
 
-const EDITORIAS = [
+const CATEGORIAS_NAV = [
   { label: "Política", slug: "política" },
   { label: "Economia", slug: "economia" },
   { label: "Esportes", slug: "esportes" },
@@ -18,7 +18,7 @@ const EDITORIAS = [
   { label: "Ciência", slug: "ciência" },
 ];
 
-const NAV_SECUNDARIA = [
+const NAV_PRINCIPAL = [
   { href: "/", rotulo: "Últimas" },
   { href: "/comunidade", rotulo: "Comunidade" },
   { href: "/radar", rotulo: "Radar" },
@@ -31,26 +31,8 @@ export default function Header() {
   const router = useRouter();
   const [menuAberto, setMenuAberto] = useState(false);
   const [busca, setBusca] = useState("");
-  const [buscaAberta, setBuscaAberta] = useState(false);
   const [paletteAberto, setPaletteAberto] = useState(false);
   const navId = useId();
-  const buscaId = useId();
-  const campoBuscaRef = useRef<HTMLInputElement>(null);
-
-  // Ao abrir a busca colapsável, mover o foco para o input.
-  useEffect(() => {
-    if (buscaAberta) campoBuscaRef.current?.focus();
-  }, [buscaAberta]);
-
-  // Fechar o nav mobile com Escape.
-  useEffect(() => {
-    if (!menuAberto) return;
-    function onEscape(e: KeyboardEvent) {
-      if (e.key === "Escape") setMenuAberto(false);
-    }
-    window.addEventListener("keydown", onEscape);
-    return () => window.removeEventListener("keydown", onEscape);
-  }, [menuAberto]);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -63,27 +45,25 @@ export default function Header() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  // Fecha o menu mobile ao trocar de rota
-  useEffect(() => {
-    setMenuAberto(false);
-  }, [pathname]);
+  function ehAtual(href: string): boolean {
+    return href === "/" ? pathname === "/" : pathname?.startsWith(href) ?? false;
+  }
 
   function onSubmitBusca(e: React.FormEvent) {
     e.preventDefault();
     const q = busca.trim();
     router.push(q ? `/?busca=${encodeURIComponent(q)}` : "/");
     setMenuAberto(false);
-    setBuscaAberta(false);
   }
 
   const inicial = (usuario?.nome || usuario?.email || "?").trim().charAt(0).toUpperCase();
 
   return (
-    <header className="cabecalho">
-      <div className="container cabecalho-topo">
+    <header className="topo">
+      <div className="container topo__barra">
         <button
           type="button"
-          className="botao-menu-mobile"
+          className="topo__menu"
           aria-expanded={menuAberto}
           aria-controls={navId}
           aria-label={menuAberto ? "Fechar menu" : "Abrir menu"}
@@ -92,58 +72,44 @@ export default function Header() {
           <span aria-hidden="true">{menuAberto ? "✕" : "☰"}</span>
         </button>
 
-        <Link href="/" className="cabecalho-logo" aria-label="Portal de Notícias — início">
-          <span className="cabecalho-logo-mark" aria-hidden="true">PN</span>
-          <span>
+        <Link href="/" className="topo__marca" aria-label="Portal de Notícias — início">
+          <span className="topo__orbe" aria-hidden="true" />
+          <span className="topo__nome">
             Portal<em>·</em>
           </span>
         </Link>
 
-        {/* Busca colapsável: ícone sempre visível; campo expande sob demanda */}
-        <div className={`cabecalho-busca cabecalho-busca--colapsada${buscaAberta ? " cabecalho-busca--aberta" : ""}`}>
-          <button
-            type="button"
-            className="cabecalho-busca-alternar"
-            aria-expanded={buscaAberta}
-            aria-controls={buscaId}
-            aria-label={buscaAberta ? "Fechar busca" : "Abrir busca"}
-            onClick={() => setBuscaAberta((v) => !v)}
-          >
-            <span aria-hidden="true">⌕</span>
-          </button>
-          <form
-            id={buscaId}
-            className="cabecalho-busca-form"
-            onSubmit={onSubmitBusca}
-            role="search"
-            aria-label="Buscar notícias"
-          >
-            <label className="sr-only" htmlFor={`${buscaId}-campo`}>
-              Buscar notícias
-            </label>
+        <nav className="topo__nav" aria-label="Navegação principal">
+          {NAV_PRINCIPAL.map((item) => (
+            <Link
+              key={item.href}
+              href={item.href}
+              aria-current={ehAtual(item.href) ? "page" : undefined}
+              className={`topo__link${item.destaque ? " topo__link--destaque" : ""}`}
+            >
+              {item.rotulo}
+            </Link>
+          ))}
+        </nav>
+
+        <div className="topo__acoes">
+          <form className="topo__busca" onSubmit={onSubmitBusca} role="search">
             <input
-              id={`${buscaId}-campo`}
-              ref={campoBuscaRef}
               type="search"
-              placeholder="Buscar notícias…"
+              placeholder="Buscar…"
+              aria-label="Buscar notícias"
               value={busca}
               onChange={(e) => setBusca(e.target.value)}
             />
-            <button type="submit" className="cabecalho-busca-enviar" aria-label="Buscar">
-              <span aria-hidden="true">→</span>
-            </button>
           </form>
-        </div>
-
-        <div className="cabecalho-acoes">
           <button
             type="button"
-            className="busca-atalho"
+            className="topo__icone"
             onClick={() => setPaletteAberto(true)}
             aria-label="Busca rápida (Ctrl K)"
             title="Busca rápida (Ctrl K)"
           >
-            Buscar <kbd>Ctrl K</kbd>
+            <span aria-hidden="true">⌕</span>
           </button>
           <ThemeToggle />
           {!carregando &&
@@ -152,16 +118,16 @@ export default function Header() {
                 <Link href="/minha-conta" className="topo__avatar" aria-label="Minha conta">
                   {inicial}
                 </Link>
-                <button type="button" className="cabecalho-botao-sair" onClick={() => fazerLogout()}>
+                <button type="button" className="topo__sair" onClick={() => fazerLogout()}>
                   Sair
                 </button>
               </>
             ) : (
               <>
-                <Link href="/login" className="cabecalho-link-entrar">
+                <Link href="/login" className="topo__link">
                   Entrar
                 </Link>
-                <Link href="/cadastro" className="botao botao--primaria botao--pequeno cabecalho-botao-cadastro">
+                <Link href="/cadastro" className="botao botao--primaria botao--pequeno">
                   Assine
                 </Link>
               </>
@@ -169,85 +135,86 @@ export default function Header() {
         </div>
       </div>
 
-      <div className="cabecalho-faixa-nav">
-        <div className="container">
-          <Suspense fallback={null}>
-            <Navegacao navId={navId} menuAberto={menuAberto} pathname={pathname} papel={usuario?.papel} />
-          </Suspense>
-        </div>
+      <div className="container">
+        <Suspense fallback={null}>
+          <TrilhasNavegacao
+            navId={navId}
+            menuAberto={menuAberto}
+            pathname={pathname}
+            usuario={usuario}
+          />
+        </Suspense>
       </div>
       <CommandPalette aberto={paletteAberto} aoFechar={() => setPaletteAberto(false)} />
     </header>
   );
 }
 
-function Navegacao({
+function TrilhasNavegacao({
   navId,
   menuAberto,
   pathname,
-  papel,
+  usuario,
 }: {
   navId: string;
   menuAberto: boolean;
   pathname: string | null;
-  papel?: string;
+  usuario: { papel?: string } | null;
 }) {
   const searchParams = useSearchParams();
   const categoriaAtiva = pathname === "/" ? searchParams.get("categoria") || "" : null;
 
   function ehAtual(href: string): boolean {
-    return href === "/" ? pathname === "/" : (pathname?.startsWith(href) ?? false);
+    return href === "/" ? pathname === "/" : pathname?.startsWith(href) ?? false;
   }
 
   return (
-    <nav id={navId} className={`cabecalho-nav${menuAberto ? " aberto" : ""}`} aria-label="Editorias e áreas">
-      <div className="cabecalho-nav-editorias" role="group" aria-label="Filtrar por editoria">
-        <Link
-          href="/"
-          className="nav-editoria"
-          aria-current={categoriaAtiva === "" ? "page" : undefined}
-        >
-          Todas
-        </Link>
-        {EDITORIAS.map((c) => (
-          <Link
-            key={c.slug}
-            href={`/?categoria=${encodeURIComponent(c.slug)}`}
-            className="nav-editoria"
-            aria-current={categoriaAtiva === c.slug ? "page" : undefined}
-          >
-            {c.label}
-          </Link>
-        ))}
-      </div>
-      <span className="cabecalho-nav-separador" aria-hidden="true" />
-      <div className="cabecalho-nav-secundaria">
-        {NAV_SECUNDARIA.map((item) => (
-          <Link
-            key={item.href}
-            href={item.href}
-            aria-current={ehAtual(item.href) ? "page" : undefined}
-            className={item.destaque ? "nav-premium" : undefined}
-          >
-            {item.rotulo}
-          </Link>
-        ))}
-        {papel && (
-          <>
-            <Link href="/jornalista/status" aria-current={ehAtual("/jornalista") ? "page" : undefined}>
-              Jornalista
+        <nav id={navId} className={`topo__trilhas${menuAberto ? " aberto" : ""}`} aria-label="Editorias e áreas">
+          <div className="topo__pills" role="group" aria-label="Filtrar por editoria">
+            <Link
+              href="/"
+              className={`topo__pill${categoriaAtiva === "" ? " topo__pill--ativa" : ""}`}
+              aria-current={categoriaAtiva === "" ? "page" : undefined}
+            >
+              Todas
             </Link>
-            <Link href="/empresa" aria-current={ehAtual("/empresa") ? "page" : undefined}>
-              Empresa
-            </Link>
-            {papel === "admin" && (
-              <Link href="/admin" aria-current={ehAtual("/admin") ? "page" : undefined}>
-                Admin
+            {CATEGORIAS_NAV.map((c) => (
+              <Link
+                key={c.slug}
+                href={`/?categoria=${encodeURIComponent(c.slug)}`}
+                className={`topo__pill${categoriaAtiva === c.slug ? " topo__pill--ativa" : ""}`}
+                aria-current={categoriaAtiva === c.slug ? "page" : undefined}
+              >
+                {c.label}
               </Link>
+            ))}
+          </div>
+          <div className="topo__areas">
+            <Link href="/comunidade" aria-current={ehAtual("/comunidade") ? "page" : undefined}>
+              Comunidade
+            </Link>
+            <Link href="/radar" aria-current={ehAtual("/radar") ? "page" : undefined}>
+              Radar
+            </Link>
+            <Link href="/planos" aria-current={ehAtual("/planos") ? "page" : undefined} className="topo__link--destaque">
+              Premium
+            </Link>
+            {usuario && (
+              <>
+                <Link href="/jornalista/status" aria-current={ehAtual("/jornalista") ? "page" : undefined}>
+                  Jornalista
+                </Link>
+                <Link href="/empresa" aria-current={ehAtual("/empresa") ? "page" : undefined}>
+                  Empresa
+                </Link>
+                {usuario.papel === "admin" && (
+                  <Link href="/admin" aria-current={ehAtual("/admin") ? "page" : undefined}>
+                    Admin
+                  </Link>
+                )}
+              </>
             )}
-          </>
-        )}
-      </div>
-    </nav>
+          </div>
+        </nav>
   );
 }

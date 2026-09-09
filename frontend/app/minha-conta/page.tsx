@@ -127,18 +127,15 @@ export default function PaginaMinhaConta() {
 
   return (
     <div>
-      <header className="secao-bloco">
-        <p className="secao-eyebrow">Conta</p>
-        <h1 className="secao-titulo">Minha conta</h1>
-        {usuario && (
-          <p className="texto-suave">
-            {usuario.email} —{" "}
-            <Badge variante={usuario.papel === "free" ? "neutro" : "premium"}>
-              {usuario.papel === "premium" ? "Premium" : usuario.papel === "admin" ? "Admin" : "Free"}
-            </Badge>
-          </p>
-        )}
-      </header>
+      <h1>Minha conta</h1>
+      {usuario && (
+        <p className="texto-suave">
+          {usuario.email} —{" "}
+          <Badge variante={usuario.papel === "free" ? "neutro" : "premium"}>
+            {usuario.papel === "premium" ? "Premium" : usuario.papel === "admin" ? "Admin" : "Free"}
+          </Badge>
+        </p>
+      )}
 
       {carregando && <SkeletonLista quantidade={2} />}
       {erro && (
@@ -153,10 +150,7 @@ export default function PaginaMinhaConta() {
 
       {!carregando && !erro && (
         <>
-          <section className="secao-bloco" aria-label="Assinatura">
-            <div className="secao-cabecalho">
-              <h2 className="secao-titulo">Assinatura</h2>
-            </div>
+          <h2 style={{ fontSize: "1.1rem", marginTop: "1.5rem" }}>Assinatura</h2>
           {!assinatura && (
             <p className="texto-suave">
               Você ainda não tem uma assinatura. <a href="/planos">Ver planos</a>
@@ -181,12 +175,8 @@ export default function PaginaMinhaConta() {
               )}
             </div>
           )}
-          </section>
 
-          <section className="secao-bloco" aria-label="Histórico de pagamentos">
-            <div className="secao-cabecalho">
-              <h2 className="secao-titulo">Histórico de pagamentos</h2>
-            </div>
+          <h2 style={{ fontSize: "1.1rem", marginTop: "1.5rem" }}>Histórico de pagamentos</h2>
           {(pagamentosQuery.data?.length ?? 0) === 0 ? (
             <EmptyState titulo="Nenhum pagamento registrado" descricao="Seus pagamentos aparecerão aqui." />
           ) : (
@@ -200,12 +190,8 @@ export default function PaginaMinhaConta() {
               ]}
             />
           )}
-          </section>
 
-          <section className="secao-bloco" aria-label="Newsletter">
-            <div className="secao-cabecalho">
-              <h2 className="secao-titulo">Newsletter</h2>
-            </div>
+          <h2 style={{ fontSize: "1.1rem", marginTop: "1.5rem" }}>Newsletter</h2>
           <div className="cartao">
             {newsletterAtiva === true && (
               <p className="mensagem-sucesso">Inscrição salva — você receberá a newsletter.</p>
@@ -248,7 +234,6 @@ export default function PaginaMinhaConta() {
               Cancelar inscrição
             </Button>
           </div>
-          </section>
         </>
       )}
     </div>
