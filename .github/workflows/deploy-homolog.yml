@@ -19,7 +19,7 @@ jobs:
           node-version: 20
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.13"
+          python-version: "3.12"
       - run: npm ci
         working-directory: frontend
       - run: npx tsc --noEmit
@@ -50,11 +50,15 @@ jobs:
             APP_DIR="/home/apps/portal-homolog"; BRANCH="develop"
             API_PORT=5102; WEB_PORT=3102; HOST="homolog.portal-noticias.com.br"
             DB_NAME="brd_portal_homolog"; DB_USER="portal_homolog"
-            API_ORIGIN="http://108.174.147.50:$API_PORT"; WEB_ORIGIN="http://108.174.147.50:$WEB_PORT"
+            # Mesma origem via Nginx (ver infra/nginx/portal-noticias.conf) —
+            # nunca http://IP:porta (mixed-content + fora da allowlist de CORS).
+            API_ORIGIN="https://$HOST"; WEB_ORIGIN="https://$HOST"
             echo "=== Deploy HOMOLOG portal-noticias (código do PR) ==="
             mkdir -p /home/apps
             [ -d "$APP_DIR/.git" ] || git clone -b "$BRANCH" https://github.com/Alex-Buttielie/portal-noticias.git "$APP_DIR"
-            cd "$APP_DIR"; git fetch origin; git reset --hard "origin/${{ github.head_ref }}"
+            # Fetch direto do ref do PR: funciona tanto para PR do mesmo repo
+            # quanto de fork (origin/${head_ref} só existe no primeiro caso).
+            cd "$APP_DIR"; git fetch origin "+refs/pull/${{ github.event.pull_request.number }}/head:pr-head"; git reset --hard pr-head
             if [ ! -f backend/.env ]; then
               SECRET=$(python3 -c "import secrets;print(secrets.token_urlsafe(50))")
               printf 'DJANGO_SECRET_KEY=%s\nDJANGO_DEBUG=false\nDJANGO_ALLOWED_HOSTS=%s,108.174.147.50,localhost,127.0.0.1\nDJANGO_SECURE_SSL_REDIRECT=false\nDJANGO_SESSION_COOKIE_SECURE=false\nDJANGO_CSRF_COOKIE_SECURE=false\nDJANGO_DB_ENGINE=postgresql\nDJANGO_DB_NAME=%s\nDJANGO_DB_USER=%s\nDJANGO_DB_PASSWORD=troque-aqui\nDJANGO_DB_HOST=localhost\nDJANGO_DB_PORT=5432\nFRONTEND_BASE_URL=%s\n' "$SECRET" "$HOST" "$DB_NAME" "$DB_USER" "$WEB_ORIGIN" > backend/.env
@@ -77,7 +81,9 @@ jobs:
             cd "$APP_DIR/frontend"
             PORT=$WEB_PORT pm2 start npm --name "portal-web-homolog" -- start
             cd "$APP_DIR/backend"
-            PORT=$API_PORT DJANGO_SETTINGS_MODULE=config.settings pm2 start "$APP_DIR/backend/.venv/bin/gunicorn config.wsgi:application --bind 0.0.0.0:$API_PORT --workers 2" --name "portal-api-homolog"
+            # Binário + args separados: pm2 não resolve string única citada
+            # (".../gunicorn config.wsgi:... --bind ...") como executável.
+            DJANGO_SETTINGS_MODULE=config.settings pm2 start "$APP_DIR/backend/.venv/bin/gunicorn" --name "portal-api-homolog" -- config.wsgi:application --bind "0.0.0.0:$API_PORT" --workers 2
             pm2 save
             echo "=== HOMOLOG deployed $WEB_PORT/$API_PORT ==="
 
