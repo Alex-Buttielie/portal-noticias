@@ -3,9 +3,8 @@
 # e o build de produção do
 # frontend a cada push/PR — fecha a lacuna descrita na memória do projeto
 # ("project-portal-noticias-tool-outage": boa parte do código foi escrita
-# sem poder executar/testar de verdade). Nenhum deploy automático aqui de
-# propósito: a VPS não tem runner nem segredo de SSH configurado ainda —
-# ver infra/DEPLOY.md para o passo de deploy manual/documentado.
+# sem poder executar/testar de verdade). Só valida, não faz deploy: o deploy
+# é papel dos workflows deploy-dev/homolog/prod (PM2 + Nginx na VPS).
 name: CI
 
 on:

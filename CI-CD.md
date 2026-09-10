@@ -24,8 +24,8 @@ domínios e segredos.
 | HOMOLOG | branch do PR | `/home/apps/portal-homolog` | `portal-web-homolog` / `portal-api-homolog` | 3102 / 5102 |
 | PROD | `main` (tag `v*`) | `/home/apps/portal-prod` | `portal-web-prod` / `portal-api-prod` | 3103 / 5103 |
 
-Nginx (inalterado, ver `scripts/setup-vps.sh` do deploy anterior):
-`dev.portal-noticias.com.br` (`/`→3101, `/api/`→5101),
+Nginx (configuração canônica em `infra/nginx/portal-noticias.conf` — aplicar na VPS conforme o cabeçalho do arquivo):
+`dev.portal-noticias.com.br` (`/`→3101, `/api/`→5101, preservando o path),
 `homolog.portal-noticias.com.br` (→3102/5102),
 `portal-noticias.com.br` (→3103/5103).
 
@@ -33,7 +33,7 @@ Nginx (inalterado, ver `scripts/setup-vps.sh` do deploy anterior):
 
 - API: `apps/api` → `backend/` (venv em `backend/.venv`, `config.wsgi:application`,
   `manage.py migrate + collectstatic` a cada deploy, health em `/healthz`).
-- Web: `apps/web` → `frontend/` (`npm ci + build` com `NEXT_PUBLIC_API_BASE_URL=https://<host>/api`).
+- Web: `apps/web` → `frontend/` (`npm ci + build` com `NEXT_PUBLIC_API_BASE_URL=https://<host>` e `NEXT_PUBLIC_SITE_URL=https://<host>` — a ORIGEM do domínio, sem sufixo `/api`: o frontend já chama `{ORIGEM}/api/...` e o Django serve `/api/...`; sufixo duplicaria para `/api/api/...`. O Nginx preserva o path em `location /api/` — ver `infra/nginx/portal-noticias.conf`).
 - `backend/.env` por ambiente é gerado no primeiro deploy (SECRET forte,
   `DJANGO_DEBUG=false`, `DJANGO_DB_ENGINE=sqlite3`, domínios) e **preservado**
   nos deploys seguintes (`git reset` não apaga arquivos ignorados). Banco

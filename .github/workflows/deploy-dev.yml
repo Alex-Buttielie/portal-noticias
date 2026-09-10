@@ -18,7 +18,7 @@ jobs:
           node-version: 20
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.13"
+          python-version: "3.12"
       - run: npm ci
         working-directory: frontend
       - run: npx tsc --noEmit
@@ -49,7 +49,13 @@ jobs:
             APP_DIR="/home/apps/portal-dev"; BRANCH="develop"
             API_PORT=5101; WEB_PORT=3101; HOST="dev.portal-noticias.com.br"
             DB_NAME="brd_portal_dev"; DB_USER="portal_dev"
-            API_ORIGIN="http://108.174.147.50:$API_PORT"; WEB_ORIGIN="http://108.174.147.50:$WEB_PORT"
+            # Origens públicas via Nginx (mesma origem do navegador — ver
+            # infra/nginx/portal-noticias.conf): o frontend chama a API pelo
+            # path /api/ do próprio domínio, então não há mixed-content nem
+            # CORS — e o backend usa o mesmo host para CORS e links de e-mail.
+            # NUNCA usar http://IP:porta aqui: é bloqueado como mixed-content
+            # em página https e não está na allowlist de CORS.
+            API_ORIGIN="https://$HOST"; WEB_ORIGIN="https://$HOST"
             echo "=== Deploy DEV portal-noticias ==="
             mkdir -p /home/apps
             [ -d "$APP_DIR/.git" ] || git clone -b "$BRANCH" https://github.com/Alex-Buttielie/portal-noticias.git "$APP_DIR"
@@ -76,7 +82,9 @@ jobs:
             cd "$APP_DIR/frontend"
             PORT=$WEB_PORT pm2 start npm --name "portal-web-dev" -- start
             cd "$APP_DIR/backend"
-            PORT=$API_PORT DJANGO_SETTINGS_MODULE=config.settings pm2 start "$APP_DIR/backend/.venv/bin/gunicorn config.wsgi:application --bind 0.0.0.0:$API_PORT --workers 2" --name "portal-api-dev"
+            # Binário + args separados: pm2 não resolve string única citada
+            # (".../gunicorn config.wsgi:... --bind ...") como executável.
+            DJANGO_SETTINGS_MODULE=config.settings pm2 start "$APP_DIR/backend/.venv/bin/gunicorn" --name "portal-api-dev" -- config.wsgi:application --bind "0.0.0.0:$API_PORT" --workers 2
             pm2 save
             echo "=== DEV deployed $WEB_PORT(web) $API_PORT(api) ==="
 
