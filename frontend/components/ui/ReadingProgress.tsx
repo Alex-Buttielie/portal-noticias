@@ -13,12 +13,16 @@ export function ReadingProgress() {
     }
     atualizar();
     window.addEventListener("scroll", atualizar, { passive: true });
-    return () => window.removeEventListener("scroll", atualizar);
+    window.addEventListener("resize", atualizar);
+    return () => {
+      window.removeEventListener("scroll", atualizar);
+      window.removeEventListener("resize", atualizar);
+    };
   }, []);
 
   return (
     <div
-      className={cn("fixed top-0 left-0 z-50 h-1 w-full bg-transparent pointer-events-none")}
+      className={cn("pointer-events-none fixed inset-x-0 top-0 z-50 h-1 bg-transparent")}
       role="progressbar"
       aria-valuenow={Math.round(progresso)}
       aria-valuemin={0}
@@ -26,10 +30,8 @@ export function ReadingProgress() {
       aria-label="Progresso de leitura"
     >
       <div
-        className={cn(
-          "h-full bg-[var(--cor-primaria)] transition-[width] duration-150 ease-out motion-reduce:transition-none"
-        )}
-        style={{ width: `${progresso}%` }}
+        className={cn("h-full w-full origin-left bg-[var(--cor-primaria)] motion-reduce:transition-none")}
+        style={{ transform: `scaleX(${progresso / 100})` }}
       />
     </div>
   );

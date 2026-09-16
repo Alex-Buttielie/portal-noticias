@@ -4,57 +4,99 @@ import { useState, type FormEvent } from "react";
 import Link from "next/link";
 import * as api from "@/lib/api";
 import { useCadastrar } from "@/lib/queries";
-import { Button } from "@/components/ui/Button";
+import { Button } from "@/components/ui/button";
 import { CampoTexto } from "@/components/ui/FormField";
-import { ErrorState } from "@/components/ui/Estados";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/Cards";
-import { Label } from "@/components/ui/FormField";
-import { cn } from "@/lib/utils";
+import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { CheckCircle2 } from "lucide-react";
+
+interface Erros {
+  nome?: string;
+  email?: string;
+  senha?: string;
+  termos?: string;
+}
+
+function validar(nome: string, email: string, senha: string, aceiteTermos: boolean): Erros {
+  const erros: Erros = {};
+  if (!email.trim()) {
+    erros.email = "Informe seu e-mail.";
+  } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+    erros.email = "Esse e-mail parece inválido. Confira e tente de novo.";
+  }
+  if (!senha) {
+    erros.senha = "Crie uma senha.";
+  } else if (senha.length < 8) {
+    erros.senha = "A senha precisa de no mínimo 8 caracteres.";
+  }
+  if (!aceiteTermos) {
+    erros.termos = "É necessário aceitar os termos de uso e a política de privacidade.";
+  }
+  return erros;
+}
 
 export default function PaginaCadastro() {
   const cadastrar = useCadastrar();
-  const [email, setEmail] = useState("");
   const [nome, setNome] = useState("");
+  const [email, setEmail] = useState("");
   const [senha, setSenha] = useState("");
   const [aceiteTermos, setAceiteTermos] = useState(false);
-  const [erro, setErro] = useState<string | null>(null);
+  const [erros, setErros] = useState<Erros>({});
+  const [erroEnvio, setErroEnvio] = useState<string | null>(null);
   const [sucesso, setSucesso] = useState(false);
+
+  function focarPrimeiroErro(novos: Erros) {
+    const mapa: Record<string, string> = { nome: "nome", email: "email", senha: "senha", termos: "aceite-termos" };
+    for (const campo of Object.keys(mapa)) {
+      if (novos[campo as keyof Erros]) {
+        document.getElementById(mapa[campo])?.focus();
+        break;
+      }
+    }
+  }
 
   async function aoSubmeter(evento: FormEvent) {
     evento.preventDefault();
-    setErro(null);
-
-    if (!aceiteTermos) {
-      setErro("É necessário aceitar os termos de uso e a política de privacidade.");
+    setErroEnvio(null);
+    const novos = validar(nome, email, senha, aceiteTermos);
+    setErros(novos);
+    if (Object.keys(novos).length > 0) {
+      focarPrimeiroErro(novos);
       return;
     }
-
     try {
-      await cadastrar.mutateAsync({ email, nome, senha, aceite_termos: aceiteTermos });
+      await cadastrar.mutateAsync({ email: email.trim(), nome: nome.trim(), senha, aceite_termos: aceiteTermos });
       setSucesso(true);
     } catch (e) {
-      setErro(e instanceof api.ApiError ? e.message : "Não foi possível concluir o cadastro.");
+      setErroEnvio(e instanceof api.ApiError ? e.message : "Não foi possível concluir o cadastro.");
     }
   }
 
   if (sucesso) {
     return (
-<div className={cn("container mx-auto max-w-md px-4 py-10 sm:px-6 container--estreito")}>
-        <Card className="shadow-lg secao-bloco">
-          <CardHeader className="space-y-2">
-            <p className="text-xs font-bold uppercase tracking-widest text-[var(--cor-sucesso)] secao-eyebrow">Conta criada</p>
-            <CardTitle id="cadastro-ok-titulo" className="text-2xl">
-              Confirme seu e-mail
-            </CardTitle>
+      <div className="mx-auto w-full max-w-md px-4 py-10 sm:px-6">
+        <Card>
+          <CardHeader>
+            <CardTitle className="font-[var(--fonte-titulo)] text-2xl">Confirme seu e-mail</CardTitle>
             <CardDescription>
-              Enviamos um e-mail de confirmação para <strong className="text-[var(--cor-texto)]">{email}</strong>. Abra sua
-              caixa de entrada e clique no link para ativar sua conta.
+              Enviamos um e-mail de confirmação para{" "}
+              <strong className="text-[var(--cor-texto)]">{email}</strong>. Abra sua caixa de entrada e clique no
+              link para ativar sua conta.
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <Link href="/login" className={cn("inline-flex h-10 items-center justify-center rounded-md bg-[var(--cor-primaria)] px-6 text-sm font-semibold text-white shadow-sm hover:bg-[var(--cor-primaria-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cor-foco)]")}>
-              Ir para o login
-            </Link>
+            <div aria-live="polite">
+              <Alert variant="success">
+                <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
+                <AlertTitle>Conta criada</AlertTitle>
+                <AlertDescription>Falta só a confirmação do e-mail para você entrar.</AlertDescription>
+              </Alert>
+            </div>
+            <Button asChild tamanho="grande" className="mt-4 w-full">
+              <Link href="/login">Ir para o login</Link>
+            </Button>
           </CardContent>
         </Card>
       </div>
@@ -62,18 +104,22 @@ export default function PaginaCadastro() {
   }
 
   return (
-<div className={cn("container mx-auto max-w-md px-4 py-10 sm:px-6 container--estreito")}>
-      <Card className="shadow-lg secao-bloco formulario">
-        <CardHeader className="space-y-2">
-          <p className="text-xs font-bold uppercase tracking-widest text-[var(--cor-primaria)] secao-eyebrow">Comece grátis</p>
-          <CardTitle id="cadastro-titulo" className="text-2xl">
-            Criar conta
-          </CardTitle>
-          <CardDescription>Crie sua conta em segundos e receba o melhor do dia no seu e-mail.</CardDescription>
+    <div className="mx-auto w-full max-w-md px-4 py-10 sm:px-6">
+      <Card>
+        <CardHeader>
+          <h1 className="font-[var(--fonte-titulo)] text-2xl font-bold tracking-tight text-balance text-[var(--cor-texto)]">
+            Crie sua conta grátis
+          </h1>
+          <CardDescription>Leva segundos — depois você personaliza seu feed de notícias.</CardDescription>
         </CardHeader>
         <CardContent className="grid gap-6">
-          {erro && <ErrorState mensagem={erro} />}
-          <form onSubmit={aoSubmeter} className="grid gap-4">
+          {erroEnvio && (
+            <Alert variant="destructive">
+              <AlertTitle>Não foi possível criar a conta</AlertTitle>
+              <AlertDescription>{erroEnvio}</AlertDescription>
+            </Alert>
+          )}
+          <form onSubmit={aoSubmeter} noValidate className="grid gap-4">
             <CampoTexto
               id="nome"
               name="nome"
@@ -81,8 +127,8 @@ export default function PaginaCadastro() {
               type="text"
               autoComplete="name"
               placeholder="Como podemos te chamar…"
-              autoFocus
               value={nome}
+              erro={erros.nome}
               onChange={(e) => setNome(e.target.value)}
             />
             <CampoTexto
@@ -94,6 +140,7 @@ export default function PaginaCadastro() {
               autoComplete="email"
               placeholder="voce@exemplo.com…"
               value={email}
+              erro={erros.email}
               onChange={(e) => setEmail(e.target.value)}
             />
             <CampoTexto
@@ -106,30 +153,48 @@ export default function PaginaCadastro() {
               autoComplete="new-password"
               placeholder="Mínimo de 8 caracteres…"
               value={senha}
-              onChange={(e) => setSenha(e.target.value)}
+              erro={erros.senha}
               dica="Mínimo de 8 caracteres."
+              onChange={(e) => setSenha(e.target.value)}
             />
-            <div className="flex items-start gap-2 rounded-lg border border-[var(--cor-borda)] bg-[var(--cor-fundo)] p-3">
-              <input
+            <div className="flex items-start gap-3 rounded-lg border border-[var(--cor-borda)] bg-[var(--cor-fundo)] p-3">
+              <Checkbox
                 id="aceite-termos"
-                type="checkbox"
                 checked={aceiteTermos}
-                onChange={(e) => setAceiteTermos(e.target.checked)}
-                className="mt-1 h-4 w-4 rounded border-[var(--cor-borda)] accent-[var(--cor-primaria)]"
+                onCheckedChange={(v) => setAceiteTermos(v === true)}
+                aria-describedby={erros.termos ? "aceite-termos-erro" : undefined}
+                aria-invalid={Boolean(erros.termos)}
               />
-              <Label htmlFor="aceite-termos" className="text-sm font-normal leading-relaxed">
-                Li e aceito os{" "}
-                <Link href="/paginas/termos-de-uso" target="_blank" rel="noopener noreferrer" className="font-medium text-[var(--cor-primaria)] underline-offset-4 hover:underline">
-                  termos de uso
-                </Link>{" "}
-                e a{" "}
-                <Link href="/privacidade/politica" target="_blank" rel="noopener noreferrer" className="font-medium text-[var(--cor-primaria)] underline-offset-4 hover:underline">
-                  política de privacidade
-                </Link>
-                .
-              </Label>
+              <div className="grid gap-1">
+                <Label htmlFor="aceite-termos" className="text-sm font-normal leading-relaxed">
+                  Li e aceito os{" "}
+                  <Link
+                    href="/paginas/termos-de-uso"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-medium text-[var(--cor-primaria)] underline-offset-4 hover:underline"
+                  >
+                    termos de uso
+                  </Link>{" "}
+                  e a{" "}
+                  <Link
+                    href="/privacidade/politica"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-medium text-[var(--cor-primaria)] underline-offset-4 hover:underline"
+                  >
+                    política de privacidade
+                  </Link>
+                  .
+                </Label>
+                {erros.termos && (
+                  <p id="aceite-termos-erro" role="alert" className="text-xs font-medium text-[var(--cor-erro)]">
+                    {erros.termos}
+                  </p>
+                )}
+              </div>
             </div>
-            <Button type="submit" tamanho="grande" carregando={cadastrar.isPending} className="w-full">
+            <Button type="submit" tamanho="grande" loading={cadastrar.isPending} className="w-full">
               Criar minha conta
             </Button>
           </form>

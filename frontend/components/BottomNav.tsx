@@ -21,8 +21,9 @@ export default function BottomNav() {
     );
   }
 
-  // hook mantido para cumprir contrato M1; render é CSS-first (sm:hidden), mas leitura evita código morto
-  void isMobile;
+  // CSS-first (sm:hidden) + remoção real da árvore no desktop: fora do
+  // tab-order/a11y onde a nav fixa não existe visualmente.
+  if (!isMobile) return null;
 
   const itemConta = usuario ? NAV_ITEM_CONTA : NAV_ITEM_LOGIN;
   const itens = [...NAV_ITENS, itemConta];

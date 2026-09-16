@@ -2,11 +2,13 @@ import type { Metadata } from "next";
 import DetalheNoticia from "@/components/DetalheNoticia";
 import JsonLd from "@/components/JsonLd";
 import * as api from "@/lib/api";
-import { breadcrumbListJsonLd, newsArticleJsonLd } from "@/lib/schema";
+import { breadcrumbListJsonLd, imageObjectJsonLd, newsArticleJsonLd } from "@/lib/schema";
 import { IMAGEM_OG_PADRAO, SITE_URL } from "@/lib/site";
 
 /**
- * Wrapper cluster — mesmo padrão item, Tailwind container max-w-prose delegando a DetalheNoticia.
+ * Wrapper cluster — Server Component com generateMetadata + JsonLd
+ * (NewsArticle + ImageObject + BreadcrumbList) preservados; visual
+ * delegado a DetalheNoticia (fontes em Tabs, Prose, ShareButtons).
  */
 export async function generateMetadata({
   params,
@@ -46,7 +48,7 @@ export default async function PaginaDetalheCluster({ params }: { params: { id: s
   const detalhe = await api.obterDetalheCluster(params.id).catch(() => null);
 
   return (
-    <div className="mx-auto max-w-prose space-y-4 px-4 sm:px-0">
+    <div className="mx-auto min-w-0 max-w-prose space-y-4 px-4 sm:px-0">
       {detalhe && (
         <>
           <JsonLd
@@ -59,6 +61,7 @@ export default async function PaginaDetalheCluster({ params }: { params: { id: s
               fontes: detalhe.fontes,
             })}
           />
+          <JsonLd data={imageObjectJsonLd(IMAGEM_OG_PADRAO)} />
           <JsonLd
             data={breadcrumbListJsonLd([
               { nome: "Início", url: SITE_URL },

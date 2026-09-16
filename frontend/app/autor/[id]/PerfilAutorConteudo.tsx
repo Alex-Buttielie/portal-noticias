@@ -4,11 +4,18 @@ import { useState } from "react";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
 import { usePerfilAutor, useSeguirAutor } from "@/lib/queries";
-import Badge from "@/components/Badge";
-import { Button } from "@/components/ui/Button";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { EmptyState, ErrorState, SkeletonCard } from "@/components/ui/Estados";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Cards";
-import { cn } from "@/lib/utils";
+import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+
+function formatarData(data: string | null): string {
+  if (!data) return "—";
+  const d = new Date(data);
+  if (Number.isNaN(d.getTime())) return data;
+  return new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" }).format(d);
+}
 
 /**
  * Conteúdo interativo da página de perfil de autor — extraído de `page.tsx`
@@ -49,40 +56,76 @@ export default function PerfilAutorConteudo({ id }: { id: string }) {
   }
 
   return (
-<div className={cn("container mx-auto max-w-3xl px-4 py-8 sm:px-6")}>
-      <Card className="mb-6 shadow-sm secao-bloco secao-titulo cartao-titulo">
-        <CardHeader className="space-y-3">
-          <p className="text-xs font-bold uppercase tracking-widest text-[var(--cor-primaria)] secao-eyebrow">Quem escreve</p>
-          <CardTitle id="autor-titulo" className="flex flex-wrap items-center gap-2 text-2xl">
-            {perfil.nome || `Autor #${perfil.id}`} {perfil.credenciado && <Badge variante="premium">Jornalista credenciado</Badge>}
-          </CardTitle>
-          <p className="text-sm text-[var(--cor-texto-suave)]">
-            {perfil.numero_seguidores} seguidor{perfil.numero_seguidores === 1 ? "" : "es"} — siga para receber as próximas análises.
-          </p>
+    <div className="mx-auto w-full max-w-3xl px-4 py-8 sm:px-6">
+      <Card className="mb-6">
+        <CardHeader>
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="font-[var(--fonte-titulo)] text-2xl font-bold tracking-tight text-balance text-[var(--cor-texto)]">
+              {perfil.nome || `Autor #${perfil.id}`}
+            </h1>
+            {perfil.credenciado && <Badge variant="default">Jornalista credenciado</Badge>}
+          </div>
+          <CardDescription>
+            {perfil.numero_seguidores} seguidor{perfil.numero_seguidores === 1 ? "" : "es"} — siga para receber as
+            próximas análises.
+          </CardDescription>
           {token && (
-            <Button variante="secundaria" onClick={() => void alternarSeguir()} carregando={seguir.isPending} className="w-fit">
-              {seguindo ? "Deixar de seguir" : "Seguir autor"}
-            </Button>
+            <div>
+              <Button variante="secundaria" onClick={() => void alternarSeguir()} loading={seguir.isPending} className="w-fit">
+                {seguindo ? "Deixar de seguir" : "Seguir autor"}
+              </Button>
+            </div>
           )}
         </CardHeader>
       </Card>
 
-      <div className="grid gap-4 container--estreito secao-cabecalho cartao">
-        <h2 id="autor-publicacoes" className="font-[var(--fonte-titulo)] text-lg font-bold tracking-tight text-[var(--cor-texto)]">
-          Publicações
-        </h2>
-        {perfil.publicacoes.length === 0 && <EmptyState titulo="Nenhuma publicação ainda" descricao="As análises deste autor aparecerão aqui." />}
-        <div className="grid gap-3">
-          {perfil.publicacoes.map((publicacao) => (
-            <Link key={publicacao.id} href={`/comunidade/${publicacao.id}`} className="block">
-              <Card className="p-4 transition-colors hover:border-[var(--cor-primaria)] hover:shadow-md">
-                <h3 className="font-[var(--fonte-titulo)] text-base font-semibold leading-tight text-[var(--cor-texto)] line-clamp-2">{publicacao.titulo}</h3>
-                <p className="mt-1 text-sm text-[var(--cor-texto-suave)]">Abra para ler a análise completa.</p>
-              </Card>
-            </Link>
-          ))}
-        </div>
-      </div>
+      <Tabs defaultValue="publicacoes" className="grid gap-4">
+        <TabsList aria-label="Conteúdo do autor">
+          <TabsTrigger value="publicacoes">Publicações ({perfil.publicacoes.length})</TabsTrigger>
+          <TabsTrigger value="sobre">Sobre</TabsTrigger>
+        </TabsList>
+        <TabsContent value="publicacoes">
+          {perfil.publicacoes.length === 0 ? (
+            <EmptyState titulo="Nenhuma publicação ainda" descricao="As análises deste autor aparecerão aqui." />
+          ) : (
+            <ul className="grid gap-3">
+              {perfil.publicacoes.map((publicacao) => (
+                <li key={publicacao.id}>
+                  <Link
+                    href={`/comunidade/${publicacao.id}`}
+                    className="block rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cor-foco)] focus-visible:ring-offset-2"
+                  >
+                    <Card className="p-4 transition-colors hover:border-[var(--cor-primaria)] hover:shadow-md">
+                      <h2 className="line-clamp-2 font-[var(--fonte-titulo)] text-base font-semibold leading-tight text-[var(--cor-texto)]">
+                        {publicacao.titulo}
+                      </h2>
+                      <p className="mt-1 text-sm text-[var(--cor-texto-suave)]">
+                        {publicacao.publicado_em ? `Publicada em ${formatarData(publicacao.publicado_em)}` : "Abra para ler a análise completa."}
+                      </p>
+                    </Card>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </TabsContent>
+        <TabsContent value="sobre">
+          <Card>
+            <CardContent className="grid gap-2 pt-6 text-sm text-[var(--cor-texto-suave)]">
+              <p>
+                <span className="font-semibold text-[var(--cor-texto)]">Nome:</span> {perfil.nome || `Autor #${perfil.id}`}
+              </p>
+              <p className="flex flex-wrap items-center gap-2">
+                <span className="font-semibold text-[var(--cor-texto)]">Credenciamento:</span>
+                {perfil.credenciado ? <Badge variant="default">Credenciado</Badge> : <Badge variant="secondary">Comunidade</Badge>}
+              </p>
+              <p>
+                <span className="font-semibold text-[var(--cor-texto)]">Seguidores:</span> {perfil.numero_seguidores}
+              </p>
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

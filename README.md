@@ -220,7 +220,7 @@ O gasto acumulado do dia (e se o teto já foi atingido) pode ser consultado sem 
 
 ## Como rodar o frontend
 
-Requer Node.js 18+. O projeto usa Next.js 14 (App Router) + TypeScript + **Tailwind CSS 3.4.17** + **shadcn/ui v4 (Radix)** — 5 skills 100% em runtime real via `.claude/skills/frontend-portal/SKILL.md` (run `20260915-2142`). Tokens CSS `--cor-*`/`--espaco-*` mapeados em `frontend/tailwind.config.ts` (`theme.extend.colors: var(--cor-*)`, `darkMode: '[data-theme="dark"]'` casando o anti-flash de `layout.tsx`); helper `cn` (`clsx`+`tailwind-merge`) em `frontend/lib/utils.ts`; `frontend/app/globals.css` com `@tailwind base/components/utilities` + `@layer base`; `components.json` + `tailwindcss-animate`/`class-variance-authority`/`lucide-react`/`@radix-ui/*`.
+Requer Node.js 18+. O projeto usa Next.js 14 (App Router) + TypeScript + **Tailwind CSS 3.4.17** + **shadcn/ui v4 (Radix)** — 5 skills 100% em runtime real via `.claude/skills/frontend-portal/SKILL.md` (run `20260916-1430-frontend-rebuild-5skills`: rebuild A/B/C/D1/D2, 47 arquivos `components/ui/*`). Tokens CSS `--cor-*`/`--espaco-*`/`--raio-*`/`--sombra-*`/`--z-*` mapeados em `frontend/tailwind.config.ts` (`theme.extend.colors: var(--cor-*)`, `darkMode: '[data-theme="dark"]'` casando o anti-flash de `layout.tsx`); helper `cn` (`clsx`+`tailwind-merge`) em `frontend/lib/utils.ts`; `frontend/app/globals.css` com `@tailwind base/components/utilities` + `@layer base`; `components.json` (`new-york`, `cssVariables`, aliases) + `tailwindcss-animate`/`class-variance-authority`/`lucide-react`/`@radix-ui/*`.
 
 1. Instale as dependências:
 

@@ -7,12 +7,11 @@ import { useAuth } from "@/lib/auth-context";
 import { useToast } from "@/components/ToastProvider";
 import * as api from "@/lib/api";
 import { useMeuPerfilJornalista, useMinhaSolicitacao, useSalvarPerfilJornalista } from "@/lib/queries";
-import Badge from "@/components/Badge";
-import { Button } from "@/components/ui/Button";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { CampoAreaTexto } from "@/components/ui/FormField";
 import { ErrorState, SkeletonCard } from "@/components/ui/Estados";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/Cards";
-import { cn } from "@/lib/utils";
+import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card";
 
 const ROTULOS_STATUS: Record<api.StatusCredenciamento, string> = {
   pendente: "Em análise",
@@ -20,6 +19,20 @@ const ROTULOS_STATUS: Record<api.StatusCredenciamento, string> = {
   reprovado: "Reprovado",
   info_solicitada: "Informação adicional solicitada",
 };
+
+const VARIANTE_STATUS: Record<api.StatusCredenciamento, "secondary" | "success" | "destructive" | "warning"> = {
+  pendente: "secondary",
+  aprovado: "success",
+  reprovado: "destructive",
+  info_solicitada: "warning",
+};
+
+function formatarData(data: string | null): string {
+  if (!data) return "—";
+  const d = new Date(data);
+  if (Number.isNaN(d.getTime())) return data;
+  return new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" }).format(d);
+}
 
 export default function PaginaStatusCredenciamento() {
   const router = useRouter();
@@ -32,6 +45,7 @@ export default function PaginaStatusCredenciamento() {
   const [editandoPerfil, setEditandoPerfil] = useState(false);
   const [miniBioPerfil, setMiniBioPerfil] = useState("");
   const [dadosProfissionaisPerfil, setDadosProfissionaisPerfil] = useState("");
+  const [erroPerfil, setErroPerfil] = useState<string | undefined>(undefined);
 
   useEffect(() => {
     if (!carregandoAuth && !token) {
@@ -39,15 +53,16 @@ export default function PaginaStatusCredenciamento() {
     }
   }, [carregandoAuth, token, router]);
 
-  if (carregandoAuth || solicitacaoQuery.isLoading)
+  if (carregandoAuth || solicitacaoQuery.isLoading) {
     return (
-      <div className={cn("container mx-auto max-w-lg px-4 py-10")}>
+      <div className="mx-auto w-full max-w-xl px-4 py-10">
         <p className="text-sm text-[var(--cor-texto-suave)]">Carregando…</p>
       </div>
     );
+  }
   if (solicitacaoQuery.isError) {
     return (
-      <div className={cn("container mx-auto max-w-lg px-4 py-10")}>
+      <div className="mx-auto w-full max-w-xl px-4 py-10">
         <ErrorState mensagem="Não foi possível carregar sua solicitação." aoTentarNovamente={() => void solicitacaoQuery.refetch()} />
       </div>
     );
@@ -60,14 +75,21 @@ export default function PaginaStatusCredenciamento() {
     if (!perfil) return;
     setMiniBioPerfil(perfil.mini_bio);
     setDadosProfissionaisPerfil(perfil.dados_profissionais);
+    setErroPerfil(undefined);
     setEditandoPerfil(true);
   }
 
   async function salvarPerfilHandler(evento: FormEvent) {
     evento.preventDefault();
     if (!token) return;
+    if (!miniBioPerfil.trim()) {
+      setErroPerfil("Escreva uma mini bio.");
+      document.getElementById("mini-bio-perfil")?.focus();
+      return;
+    }
+    setErroPerfil(undefined);
     try {
-      await salvarPerfil.mutateAsync({ mini_bio: miniBioPerfil, dados_profissionais: dadosProfissionaisPerfil });
+      await salvarPerfil.mutateAsync({ mini_bio: miniBioPerfil.trim(), dados_profissionais: dadosProfissionaisPerfil.trim() });
       setEditandoPerfil(false);
       notificar("Perfil profissional atualizado.", "sucesso");
     } catch (e) {
@@ -77,12 +99,15 @@ export default function PaginaStatusCredenciamento() {
 
   if (solicitacao === null) {
     return (
-<div className={cn("container mx-auto max-w-lg px-4 py-10 sm:px-6")}>
-        <Card className="shadow-lg">
-          <CardHeader className="space-y-2">
-            <p className="text-xs font-bold uppercase tracking-widest text-[var(--cor-primaria)] secao-eyebrow">Imprensa</p>
-            <CardTitle id="cred-vazio-titulo" className="text-2xl">Credencie-se como jornalista</CardTitle>
-            <CardDescription>Você ainda não pediu credenciamento. Leva poucos minutos e libera a publicação de análises na comunidade.</CardDescription>
+      <div className="mx-auto w-full max-w-xl px-4 py-10 sm:px-6">
+        <Card>
+          <CardHeader>
+            <h1 className="font-[var(--fonte-titulo)] text-2xl font-bold tracking-tight text-balance text-[var(--cor-texto)]">
+              Credencie-se como jornalista
+            </h1>
+            <CardDescription>
+              Você ainda não pediu credenciamento. Leva poucos minutos e libera a publicação de análises na comunidade.
+            </CardDescription>
           </CardHeader>
           <CardContent>
             <Button asChild tamanho="grande" className="w-full">
@@ -95,15 +120,20 @@ export default function PaginaStatusCredenciamento() {
   }
 
   return (
-<div className={cn("container mx-auto max-w-2xl px-4 py-8 sm:px-6")}>
-      <Card className="shadow-lg secao-bloco botao botao--primaria botao--medio secao-titulo formulario">
-        <CardHeader className="space-y-2">
-          <p className="text-xs font-bold uppercase tracking-widest text-[var(--cor-primaria)] secao-eyebrow">Imprensa</p>
-          <CardTitle id="cred-status-titulo" className="text-2xl">Status do seu credenciamento</CardTitle>
+    <div className="mx-auto w-full max-w-2xl px-4 py-8 sm:px-6">
+      <Card>
+        <CardHeader>
+          <h1 className="font-[var(--fonte-titulo)] text-2xl font-bold tracking-tight text-balance text-[var(--cor-texto)]">
+            Status do seu credenciamento
+          </h1>
+          <CardDescription>
+            Pedido feito em {formatarData(solicitacao.criado_em)}
+            {solicitacao.decidido_em ? ` — decidido em ${formatarData(solicitacao.decidido_em)}` : ""}.
+          </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-6">
-          <div className="flex flex-col gap-2 rounded-xl border border-[var(--cor-borda)] bg-[var(--cor-fundo)] p-4 container--estreito cartao secao-cabecalho">
-            <Badge variante={solicitacao.status === "aprovado" ? "sucesso" : solicitacao.status === "reprovado" ? "erro" : "neutro"}>
+          <div className="flex flex-col gap-2 rounded-xl border border-[var(--cor-borda)] bg-[var(--cor-fundo)] p-4" aria-live="polite">
+            <Badge variant={VARIANTE_STATUS[solicitacao.status]} className="w-fit">
               {ROTULOS_STATUS[solicitacao.status]}
             </Badge>
             {solicitacao.motivo_decisao && <p className="text-sm text-[var(--cor-texto-suave)]">{solicitacao.motivo_decisao}</p>}
@@ -115,27 +145,52 @@ export default function PaginaStatusCredenciamento() {
           )}
           {perfilQuery.isLoading && <SkeletonCard />}
           {perfil && (
-            <div className="grid gap-3">
-              <h2 id="cred-perfil-titulo" className="text-base font-semibold text-[var(--cor-texto)]">Meu perfil profissional</h2>
-              <div className="rounded-xl border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] p-4 shadow-sm">
+            <section className="grid gap-3" aria-labelledby="cred-perfil-titulo">
+              <h2 id="cred-perfil-titulo" className="text-base font-semibold text-[var(--cor-texto)]">
+                Meu perfil profissional
+              </h2>
+              <div className="rounded-xl border border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] p-4 shadow-sm">
                 {editandoPerfil ? (
-                  <form onSubmit={salvarPerfilHandler} className="grid gap-4">
-                    <CampoAreaTexto id="mini-bio-perfil" rotulo="Mini bio" rows={3} value={miniBioPerfil} onChange={(e) => setMiniBioPerfil(e.target.value)} />
-                    <CampoAreaTexto id="dados-profissionais-perfil" rotulo="Dados profissionais" rows={3} value={dadosProfissionaisPerfil} onChange={(e) => setDadosProfissionaisPerfil(e.target.value)} />
+                  <form onSubmit={salvarPerfilHandler} noValidate className="grid gap-4">
+                    <CampoAreaTexto
+                      id="mini-bio-perfil"
+                      name="mini-bio-perfil"
+                      rotulo="Mini bio"
+                      rows={3}
+                      value={miniBioPerfil}
+                      erro={erroPerfil}
+                      onChange={(e) => setMiniBioPerfil(e.target.value)}
+                    />
+                    <CampoAreaTexto
+                      id="dados-profissionais-perfil"
+                      name="dados-profissionais-perfil"
+                      rotulo="Dados profissionais"
+                      rows={3}
+                      value={dadosProfissionaisPerfil}
+                      onChange={(e) => setDadosProfissionaisPerfil(e.target.value)}
+                    />
                     <div className="flex flex-wrap gap-3">
-                      <Button type="submit" carregando={salvarPerfil.isPending}>Salvar perfil</Button>
-                      <Button variante="secundaria" type="button" onClick={() => setEditandoPerfil(false)}>Cancelar</Button>
+                      <Button type="submit" loading={salvarPerfil.isPending}>
+                        Salvar perfil
+                      </Button>
+                      <Button variante="secundaria" type="button" onClick={() => setEditandoPerfil(false)}>
+                        Cancelar
+                      </Button>
                     </div>
                   </form>
                 ) : (
                   <div className="grid gap-3">
                     <p className="text-sm text-[var(--cor-texto-suave)]">{perfil.mini_bio || "Nenhuma bio cadastrada ainda."}</p>
-                    <p className="text-sm text-[var(--cor-texto-suave)]">{perfil.dados_profissionais || "Nenhum dado profissional cadastrado ainda."}</p>
-                    <Button variante="secundaria" onClick={iniciarEdicaoPerfil} className="w-fit">Editar perfil</Button>
+                    <p className="text-sm text-[var(--cor-texto-suave)]">
+                      {perfil.dados_profissionais || "Nenhum dado profissional cadastrado ainda."}
+                    </p>
+                    <Button variante="secundaria" onClick={iniciarEdicaoPerfil} className="w-fit">
+                      Editar perfil
+                    </Button>
                   </div>
                 )}
               </div>
-            </div>
+            </section>
           )}
         </CardContent>
       </Card>

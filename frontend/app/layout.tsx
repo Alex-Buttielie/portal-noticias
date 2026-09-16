@@ -8,8 +8,9 @@ import Header from "@/components/Header";
 import Rodape from "@/components/Rodape";
 import BottomNav from "@/components/BottomNav";
 import PularParaConteudo from "@/components/PularParaConteudo";
-import BannerConsentimentoCookies from "@/components/BannerConsentimentoCookies";
+import { BannerConsentimentoCookies } from "@/components/BannerConsentimentoCookies";
 import JsonLd from "@/components/JsonLd";
+import { Toaster } from "@/components/ui/sonner";
 import { organizationJsonLd } from "@/lib/schema";
 import { IMAGEM_OG_PADRAO, SITE_DESCRIPTION, SITE_NAME, SITE_URL } from "@/lib/site";
 
@@ -107,6 +108,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           </div>
           <BottomNav />
           <BannerConsentimentoCookies />
+          <Toaster />
         </Providers>
       </body>
     </html>

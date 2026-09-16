@@ -93,7 +93,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
               key={n.id}
               duration={DURACAO_MS}
               className={cn(
-                "group pointer-events-auto relative flex w-full min-w-0 touch-manipulation items-start gap-3 overflow-hidden rounded-lg border border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] p-4 pr-8 shadow-lg transition-all [overscroll-behavior:contain]",
+                "group pointer-events-auto relative flex w-full min-w-0 touch-manipulation items-start gap-3 overflow-hidden rounded-lg border border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] p-4 pr-8 shadow-lg transition-[transform,opacity,background-color,border-color] motion-reduce:transition-none [overscroll-behavior:contain]",
                 "border-l-4 data-[swipe=cancel]:translate-x-0 data-[swipe=end]:translate-x-[var(--radix-toast-swipe-end-x)] data-[swipe=move]:translate-x-[var(--radix-toast-swipe-move-x)] data-[swipe=move]:transition-none",
                 "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-80 data-[state=closed]:slide-out-to-right-full data-[state=open]:slide-in-from-top-full",
                 "motion-reduce:animate-none",

@@ -1,63 +1,57 @@
-"use client";
-
-import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { notFound } from "next/navigation";
+import type { Metadata } from "next";
 import * as api from "@/lib/api";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Cards";
-import { ErrorState, LoadingSpinner } from "@/components/ui/Estados";
-import { cn } from "@/lib/utils";
+import { SITE_URL } from "@/lib/site";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Prose } from "@/components/ui/prose";
 
-export default function PaginaEditorialPage() {
-  const params = useParams<{ slug: string }>();
-  const [pagina, setPagina] = useState<api.PaginaEditorial | null>(null);
-  const [carregando, setCarregando] = useState(true);
-  const [erro, setErro] = useState<string | null>(null);
+export async function generateMetadata({ params }: { params: { slug: string } }): Promise<Metadata> {
+  const pagina = await api.obterPaginaEditorial(params.slug).catch(() => null);
+  if (!pagina) {
+    return { title: "Página não encontrada", robots: { index: false, follow: false } };
+  }
+  const url = `${SITE_URL}/paginas/${pagina.slug}`;
+  const descricao = pagina.conteudo.split("\n\n")[0]?.slice(0, 160) ?? pagina.titulo;
+  return {
+    title: pagina.titulo,
+    description: descricao,
+    alternates: { canonical: url },
+    openGraph: { type: "article", title: pagina.titulo, description: descricao, url },
+    twitter: { card: "summary", title: pagina.titulo, description: descricao },
+  };
+}
 
-  useEffect(() => {
-    if (!params.slug) return;
-    setCarregando(true);
-    setErro(null);
-    api
-      .obterPaginaEditorial(params.slug)
-      .then(setPagina)
-      .catch((e: unknown) => {
-        setErro(
-          e instanceof api.ApiError && e.status === 404 ? "Página não encontrada." : "Não foi possível carregar esta página."
-        );
-      })
-      .finally(() => setCarregando(false));
-  }, [params.slug]);
+function formatarData(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" }).format(d);
+}
 
-  if (carregando)
-    return (
-      <div className={cn("container mx-auto max-w-2xl px-4 py-10")}>
-        <LoadingSpinner rotulo="Carregando página…" />
-      </div>
-    );
-  if (erro)
-    return (
-      <div className={cn("container mx-auto max-w-2xl px-4 py-10")}>
-        <ErrorState mensagem={erro} />
-      </div>
-    );
-  if (!pagina) return null;
+export default async function PaginaEditorialPage({ params }: { params: { slug: string } }) {
+  let pagina: api.PaginaEditorial | null = null;
+  try {
+    pagina = await api.obterPaginaEditorial(params.slug);
+  } catch (e) {
+    if (e instanceof api.ApiError && e.status === 404) notFound();
+    throw e;
+  }
+  if (!pagina) notFound();
 
   return (
-<div className={cn("container mx-auto max-w-3xl px-4 py-8 sm:px-6")}>
-      <Card className="shadow-sm container--estreito secao-bloco">
-        <CardHeader className="space-y-2">
-          <p className="text-xs font-bold uppercase tracking-widest text-[var(--cor-primaria)] secao-eyebrow">Institucional</p>
-          <CardTitle id="pagina-editorial-titulo" className="text-3xl leading-tight">
+    <div className="mx-auto w-full max-w-3xl px-4 py-8 sm:px-6">
+      <Card>
+        <CardHeader>
+          <h1 className="font-[var(--fonte-titulo)] text-3xl font-bold leading-tight tracking-tight text-balance text-[var(--cor-texto)]">
             {pagina.titulo}
-          </CardTitle>
-          <p className="text-sm text-[var(--cor-texto-suave)]">Atualizado em {new Date(pagina.atualizado_em).toLocaleDateString("pt-BR")}</p>
+          </h1>
+          <p className="text-sm text-[var(--cor-texto-suave)]">Atualizado em {formatarData(pagina.atualizado_em)}</p>
         </CardHeader>
-        <CardContent className="grid gap-4">
-          {pagina.conteudo.split("\n\n").map((paragrafo, indice) => (
-            <p key={indice} className="whitespace-pre-line text-sm leading-relaxed text-[var(--cor-texto)]">
-              {paragrafo}
-            </p>
-          ))}
+        <CardContent>
+          <Prose>
+            {pagina.conteudo.split("\n\n").map((paragrafo, indice) => (
+              <p key={indice}>{paragrafo}</p>
+            ))}
+          </Prose>
         </CardContent>
       </Card>
     </div>

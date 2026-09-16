@@ -4,11 +4,11 @@ import { useState, type FormEvent } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import * as api from "@/lib/api";
-import { Button } from "@/components/ui/Button";
+import { Button } from "@/components/ui/button";
 import { CampoTexto } from "@/components/ui/FormField";
-import { ErrorState } from "@/components/ui/Estados";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/Cards";
-import { cn } from "@/lib/utils";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card";
+import { CheckCircle2 } from "lucide-react";
 
 export default function RedefinirSenhaConteudo() {
   const searchParams = useSearchParams();
@@ -17,26 +17,34 @@ export default function RedefinirSenhaConteudo() {
 
   const [novaSenha, setNovaSenha] = useState("");
   const [enviando, setEnviando] = useState(false);
-  const [erro, setErro] = useState<string | null>(null);
+  const [erroCampo, setErroCampo] = useState<string | undefined>(undefined);
+  const [erroEnvio, setErroEnvio] = useState<string | null>(null);
   const [sucesso, setSucesso] = useState(false);
 
   async function aoSubmeter(evento: FormEvent) {
     evento.preventDefault();
-    setErro(null);
-
+    setErroEnvio(null);
     if (!uid || !token) {
-      setErro("Link de redefinição inválido — faltam parâmetros na URL.");
+      setErroEnvio("Link de redefinição inválido — faltam parâmetros na URL.");
       return;
     }
-
+    if (!novaSenha) {
+      setErroCampo("Crie uma nova senha.");
+      document.getElementById("nova-senha")?.focus();
+      return;
+    }
+    if (novaSenha.length < 8) {
+      setErroCampo("A senha precisa de no mínimo 8 caracteres.");
+      document.getElementById("nova-senha")?.focus();
+      return;
+    }
+    setErroCampo(undefined);
     setEnviando(true);
     try {
       await api.redefinirSenha(uid, token, novaSenha);
       setSucesso(true);
     } catch (e) {
-      setErro(
-        e instanceof api.ApiError ? e.message : "Não foi possível redefinir a senha."
-      );
+      setErroEnvio(e instanceof api.ApiError ? e.message : "Não foi possível redefinir a senha.");
     } finally {
       setEnviando(false);
     }
@@ -44,19 +52,25 @@ export default function RedefinirSenhaConteudo() {
 
   if (sucesso) {
     return (
-<div className={cn("container mx-auto max-w-md px-4 py-10 sm:px-6")}>
-        <Card className="shadow-lg container--estreito secao-bloco mensagem-sucesso botao botao--primaria botao--medio">
-          <CardHeader className="space-y-2">
-            <p className="text-xs font-bold uppercase tracking-widest text-[var(--cor-sucesso)] secao-eyebrow">Senha atualizada</p>
-            <CardTitle id="redefinida-titulo" className="text-2xl">
-              Senha redefinida
-            </CardTitle>
+      <div className="mx-auto w-full max-w-md px-4 py-10 sm:px-6">
+        <Card>
+          <CardHeader>
+            <h1 className="font-[var(--fonte-titulo)] text-2xl font-bold tracking-tight text-balance text-[var(--cor-texto)]">
+              Senha atualizada
+            </h1>
             <CardDescription>Sua senha foi alterada com sucesso. Entre com a nova senha.</CardDescription>
           </CardHeader>
           <CardContent>
-            <Link href="/login" className={cn("inline-flex h-10 items-center justify-center rounded-md bg-[var(--cor-primaria)] px-6 text-sm font-semibold text-white shadow-sm hover:bg-[var(--cor-primaria-hover)]")}>
-              Ir para o login
-            </Link>
+            <div aria-live="polite">
+              <Alert variant="success">
+                <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
+                <AlertTitle>Tudo certo</AlertTitle>
+                <AlertDescription>Agora é só entrar com a nova senha.</AlertDescription>
+              </Alert>
+            </div>
+            <Button asChild tamanho="grande" className="mt-4 w-full">
+              <Link href="/login">Ir para o login</Link>
+            </Button>
           </CardContent>
         </Card>
       </div>
@@ -64,19 +78,28 @@ export default function RedefinirSenhaConteudo() {
   }
 
   return (
-<div className={cn("container mx-auto max-w-md px-4 py-10 sm:px-6")}>
-      <Card className="shadow-lg container--estreito secao-bloco formulario">
-        <CardHeader className="space-y-2">
-          <p className="text-xs font-bold uppercase tracking-widest text-[var(--cor-primaria)] secao-eyebrow">Acesso à conta</p>
-          <CardTitle id="redefinir-titulo" className="text-2xl">
+    <div className="mx-auto w-full max-w-md px-4 py-10 sm:px-6">
+      <Card>
+        <CardHeader>
+          <h1 className="font-[var(--fonte-titulo)] text-2xl font-bold tracking-tight text-balance text-[var(--cor-texto)]">
             Crie uma nova senha
-          </CardTitle>
+          </h1>
           <CardDescription>Escolha uma senha forte, com no mínimo 8 caracteres.</CardDescription>
         </CardHeader>
         <CardContent className="grid gap-6">
-          {(!uid || !token) && <ErrorState mensagem="Este link parece inválido. Peça uma nova redefinição de senha." />}
-          {erro && <ErrorState mensagem={erro} />}
-          <form onSubmit={aoSubmeter} className="grid gap-4">
+          {(!uid || !token) && (
+            <Alert variant="destructive">
+              <AlertTitle>Link inválido</AlertTitle>
+              <AlertDescription>Este link parece inválido. Peça uma nova redefinição de senha.</AlertDescription>
+            </Alert>
+          )}
+          {erroEnvio && (
+            <Alert variant="destructive">
+              <AlertTitle>Não foi possível salvar</AlertTitle>
+              <AlertDescription>{erroEnvio}</AlertDescription>
+            </Alert>
+          )}
+          <form onSubmit={aoSubmeter} noValidate className="grid gap-4">
             <CampoTexto
               id="nova-senha"
               name="nova-senha"
@@ -86,11 +109,11 @@ export default function RedefinirSenhaConteudo() {
               minLength={8}
               autoComplete="new-password"
               placeholder="Mínimo de 8 caracteres…"
-              autoFocus
               value={novaSenha}
+              erro={erroCampo}
               onChange={(e) => setNovaSenha(e.target.value)}
             />
-            <Button type="submit" tamanho="grande" carregando={enviando} disabled={!uid || !token} className="w-full">
+            <Button type="submit" tamanho="grande" loading={enviando} className="w-full">
               Salvar nova senha
             </Button>
           </form>

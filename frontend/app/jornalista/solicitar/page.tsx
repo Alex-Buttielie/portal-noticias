@@ -7,13 +7,21 @@ import { useAuth } from "@/lib/auth-context";
 import { useToast } from "@/components/ToastProvider";
 import * as api from "@/lib/api";
 import { useSolicitarCredenciamento } from "@/lib/queries";
-import { Button } from "@/components/ui/Button";
+import { Button } from "@/components/ui/button";
 import { CampoAreaTexto, CampoTexto } from "@/components/ui/FormField";
-import { Label } from "@/components/ui/FormField";
-import { Input } from "@/components/ui/FormField";
-import { ErrorState } from "@/components/ui/Estados";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/Cards";
-import { cn } from "@/lib/utils";
+import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card";
+import { CheckCircle2 } from "lucide-react";
+
+interface Erros {
+  cidade?: string;
+  uf?: string;
+  miniBio?: string;
+  dadosProfissionais?: string;
+  documento?: string;
+}
 
 export default function PaginaSolicitarCredenciamento() {
   const router = useRouter();
@@ -27,7 +35,8 @@ export default function PaginaSolicitarCredenciamento() {
   const [miniBio, setMiniBio] = useState("");
   const [dadosProfissionais, setDadosProfissionais] = useState("");
   const [documento, setDocumento] = useState<File | null>(null);
-  const [erro, setErro] = useState<string | null>(null);
+  const [erros, setErros] = useState<Erros>({});
+  const [erroEnvio, setErroEnvio] = useState<string | null>(null);
   const [sucesso, setSucesso] = useState(false);
 
   useEffect(() => {
@@ -38,45 +47,76 @@ export default function PaginaSolicitarCredenciamento() {
 
   async function aoSubmeter(evento: FormEvent) {
     evento.preventDefault();
-    setErro(null);
-
-    if (!token) return;
-    if (!documento) {
-      setErro("Anexe o documento comprobatório (diploma ou registro profissional).");
+    setErroEnvio(null);
+    const novos: Erros = {};
+    if (!cidade.trim()) novos.cidade = "Informe a cidade onde você atua.";
+    if (!uf.trim()) {
+      novos.uf = "Informe a UF.";
+    } else if (uf.trim().length !== 2) {
+      novos.uf = "Use a sigla com 2 letras (ex.: SP).";
+    }
+    if (!miniBio.trim()) novos.miniBio = "Conte em poucas linhas quem você é.";
+    if (!dadosProfissionais.trim()) novos.dadosProfissionais = "Informe formação e veículos onde já publicou.";
+    if (!documento) novos.documento = "Anexe o documento comprobatório (diploma ou registro profissional).";
+    setErros(novos);
+    if (Object.keys(novos).length > 0) {
+      const mapa: Record<string, string> = {
+        cidade: "cidade",
+        uf: "uf",
+        miniBio: "mini-bio",
+        dadosProfissionais: "dados-profissionais",
+        documento: "documento",
+      };
+      for (const campo of Object.keys(mapa)) {
+        if (novos[campo as keyof Erros]) {
+          document.getElementById(mapa[campo])?.focus();
+          break;
+        }
+      }
       return;
     }
+    if (!token || !documento) return;
 
     try {
       await solicitar.mutateAsync({
-        telefone,
-        cidade,
-        uf,
-        mini_bio: miniBio,
-        dados_profissionais: dadosProfissionais,
+        telefone: telefone.trim(),
+        cidade: cidade.trim(),
+        uf: uf.trim().toUpperCase(),
+        mini_bio: miniBio.trim(),
+        dados_profissionais: dadosProfissionais.trim(),
         documento,
       });
       setSucesso(true);
       notificar("Solicitação de credenciamento enviada.", "sucesso");
     } catch (e) {
       const mensagem = e instanceof api.ApiError ? e.message : "Não foi possível enviar a solicitação.";
-      setErro(mensagem);
+      setErroEnvio(mensagem);
       notificar(mensagem, "erro");
     }
   }
 
   if (sucesso) {
     return (
-<div className={cn("container mx-auto max-w-lg px-4 py-10 sm:px-6")}>
-        <Card className="shadow-lg botao--primaria botao--medio">
-          <CardHeader className="space-y-2">
-            <p className="text-xs font-bold uppercase tracking-widest text-[var(--cor-sucesso)] secao-eyebrow">Pedido recebido</p>
-            <CardTitle id="cred-ok-titulo" className="text-2xl">
+      <div className="mx-auto w-full max-w-xl px-4 py-10 sm:px-6">
+        <Card>
+          <CardHeader>
+            <h1 className="font-[var(--fonte-titulo)] text-2xl font-bold tracking-tight text-balance text-[var(--cor-texto)]">
               Solicitação enviada
-            </CardTitle>
-            <CardDescription>Sua solicitação de credenciamento está em análise. Você recebe a resposta em até 24h após o envio de documentação válida.</CardDescription>
+            </h1>
+            <CardDescription>
+              Sua solicitação de credenciamento está em análise. Você recebe a resposta em até 24h após o envio de
+              documentação válida.
+            </CardDescription>
           </CardHeader>
           <CardContent>
-            <Button asChild tamanho="grande" className="w-full">
+            <div aria-live="polite">
+              <Alert variant="success">
+                <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
+                <AlertTitle>Pedido recebido</AlertTitle>
+                <AlertDescription>Acompanhe o andamento na página de status.</AlertDescription>
+              </Alert>
+            </div>
+            <Button asChild tamanho="grande" className="mt-4 w-full">
               <Link href="/jornalista/status">Acompanhar status</Link>
             </Button>
           </CardContent>
@@ -86,19 +126,26 @@ export default function PaginaSolicitarCredenciamento() {
   }
 
   return (
-<div className={cn("container mx-auto max-w-2xl px-4 py-8 sm:px-6")}>
-      <Card className="shadow-lg secao-bloco formulario campo campo__rotulo campo__dica">
-        <CardHeader className="space-y-2">
-          <p className="text-xs font-bold uppercase tracking-widest text-[var(--cor-primaria)] secao-eyebrow">Imprensa</p>
-          <CardTitle id="cred-titulo" className="text-2xl">
+    <div className="mx-auto w-full max-w-2xl px-4 py-8 sm:px-6">
+      <Card>
+        <CardHeader>
+          <h1 className="font-[var(--fonte-titulo)] text-2xl font-bold tracking-tight text-balance text-[var(--cor-texto)]">
             Solicite seu credenciamento
-          </CardTitle>
-          <CardDescription>O credenciamento é manual: anexe um documento que comprove sua formação em Jornalismo ou registro profissional equivalente e publique análises na comunidade.</CardDescription>
+          </h1>
+          <CardDescription>
+            O credenciamento é manual: anexe um documento que comprove sua formação em Jornalismo ou registro
+            profissional equivalente e publique análises na comunidade.
+          </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-6">
-          {erro && <ErrorState mensagem={erro} />}
-          <form onSubmit={aoSubmeter} className="grid gap-4">
-            <div className="grid gap-4 sm:grid-cols-2 container--estreito">
+          {erroEnvio && (
+            <Alert variant="destructive">
+              <AlertTitle>Não foi possível enviar</AlertTitle>
+              <AlertDescription>{erroEnvio}</AlertDescription>
+            </Alert>
+          )}
+          <form onSubmit={aoSubmeter} noValidate className="grid gap-4">
+            <div className="grid gap-4 sm:grid-cols-2">
               <CampoTexto
                 id="telefone"
                 name="telefone"
@@ -116,6 +163,7 @@ export default function PaginaSolicitarCredenciamento() {
                 placeholder="Onde você atua…"
                 autoComplete="address-level2"
                 value={cidade}
+                erro={erros.cidade}
                 onChange={(e) => setCidade(e.target.value)}
               />
             </div>
@@ -127,22 +175,27 @@ export default function PaginaSolicitarCredenciamento() {
               placeholder="SP…"
               autoComplete="address-level1"
               value={uf}
+              erro={erros.uf}
               onChange={(e) => setUf(e.target.value.toUpperCase())}
             />
             <CampoAreaTexto
               id="mini-bio"
+              name="mini-bio"
               rotulo="Mini bio"
               rows={3}
               placeholder="Conte em poucas linhas quem você é…"
               value={miniBio}
+              erro={erros.miniBio}
               onChange={(e) => setMiniBio(e.target.value)}
             />
             <CampoAreaTexto
               id="dados-profissionais"
+              name="dados-profissionais"
               rotulo="Dados profissionais"
               rows={3}
               placeholder="Formação, veículos onde já publicou, etc…"
               value={dadosProfissionais}
+              erro={erros.dadosProfissionais}
               onChange={(e) => setDadosProfissionais(e.target.value)}
             />
             <div className="grid gap-1.5">
@@ -152,12 +205,21 @@ export default function PaginaSolicitarCredenciamento() {
                 name="documento"
                 type="file"
                 accept="application/pdf,image/*"
+                aria-invalid={Boolean(erros.documento)}
+                aria-describedby={erros.documento ? "documento-erro" : "documento-dica"}
                 onChange={(e) => setDocumento(e.target.files?.[0] || null)}
                 className="cursor-pointer file:mr-3 file:rounded-md file:border-0 file:bg-[var(--cor-primaria)] file:px-3 file:py-1 file:text-sm file:font-medium file:text-white"
               />
-              <p className="text-xs text-[var(--cor-texto-suave)]">Diploma, registro profissional ou equivalente. Enviado via FormData seguro.</p>
+              <p id="documento-dica" className="text-xs text-[var(--cor-texto-suave)]">
+                Diploma, registro profissional ou equivalente. Enviado via FormData seguro.
+              </p>
+              {erros.documento && (
+                <p id="documento-erro" role="alert" className="text-xs font-medium text-[var(--cor-erro)]">
+                  {erros.documento}
+                </p>
+              )}
             </div>
-            <Button type="submit" tamanho="grande" carregando={solicitar.isPending} className="w-full">
+            <Button type="submit" tamanho="grande" loading={solicitar.isPending} className="w-full">
               Enviar solicitação
             </Button>
           </form>

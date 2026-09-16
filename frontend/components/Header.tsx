@@ -4,47 +4,38 @@ import { Suspense, useEffect, useId, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Menu, X, Search } from "lucide-react";
-import * as DialogPrimitive from "@radix-ui/react-dialog";
-import { cva } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth-context";
-import ThemeToggle from "@/components/ThemeToggle";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import CommandPalette from "@/components/CommandPalette";
 import { NAV_ITENS, NAV_ITEM_CONTA, NAV_ITEM_LOGIN } from "@/lib/nav-itens";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  NavigationMenu,
+  NavigationMenuItem,
+  NavigationMenuLink,
+  NavigationMenuList,
+  navigationMenuTriggerStyle,
+} from "@/components/ui/navigation-menu";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 // Re-export NAV_ITENS como fonte única para BottomNav/Sheet (contrato M1)
 export { NAV_ITENS, NAV_ITEM_CONTA, NAV_ITEM_LOGIN } from "@/lib/nav-itens";
-
-// shadcn Button (CVA) — Button primitive local ao shell (Frente B)
-// preserva variantes/tamanhos do contrato e usa focus-visible:ring + motion-reduce
-const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-1.5 rounded-full border font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cor-foco)] focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 motion-reduce:transition-none",
-  {
-    variants: {
-      variant: {
-        default: "border-transparent bg-[var(--cor-primaria)] text-white hover:bg-[var(--cor-primaria-hover)]",
-        ghost: "border-transparent bg-transparent text-[var(--cor-texto-suave)] hover:bg-[var(--cor-primaria-suave)] hover:text-[var(--cor-texto)]",
-        outline: "border-[var(--cor-borda)] bg-transparent text-[var(--cor-texto)] hover:border-[var(--cor-primaria)] hover:text-[var(--cor-primaria)]",
-      },
-      size: {
-        default: "h-9 px-4 py-2 text-sm",
-        sm: "h-7 rounded-full px-3 text-xs",
-        icon: "h-9 w-9 p-0",
-        lg: "h-11 px-6 text-sm",
-      },
-    },
-    defaultVariants: { variant: "default", size: "default" },
-  }
-);
-
-// Input shadcn — usado na busca do topo
-const inputClass = cn(
-  "flex h-9 w-full rounded-full border border-[var(--cor-borda)] bg-[var(--cor-fundo)] px-3 py-1 text-sm",
-  "placeholder:text-[var(--cor-texto-suave)] placeholder:opacity-70",
-  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cor-foco)] focus-visible:ring-offset-0 focus-visible:border-[var(--cor-primaria)]",
-  "disabled:cursor-not-allowed disabled:opacity-50",
-  "motion-reduce:transition-none"
-);
 
 const CATEGORIAS_NAV = [
   { label: "Política", slug: "política" },
@@ -84,15 +75,6 @@ export default function Header() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  useEffect(() => {
-    if (!menuAberto) return;
-    function onEscape(e: KeyboardEvent) {
-      if (e.key === "Escape") setMenuAberto(false);
-    }
-    window.addEventListener("keydown", onEscape);
-    return () => window.removeEventListener("keydown", onEscape);
-  }, [menuAberto]);
-
   function ehAtual(href: string): boolean {
     return href === "/" ? pathname === "/" : pathname?.startsWith(href) ?? false;
   }
@@ -105,6 +87,7 @@ export default function Header() {
   }
 
   const inicial = (usuario?.nome || usuario?.email || "?").trim().charAt(0).toUpperCase();
+  const nomeConta = usuario?.nome || usuario?.email || "Minha conta";
 
   const itemConta = usuario ? NAV_ITEM_CONTA : NAV_ITEM_LOGIN;
   const itensSheet = [...NAV_ITENS, itemConta];
@@ -119,25 +102,20 @@ export default function Header() {
       )}
     >
       <div className={cn("container topo__barra", "flex items-center gap-3 sm:gap-4 min-h-[64px]")}>
-        <button
+        <Button
           type="button"
-          className={cn(
-            "topo__menu",
-            buttonVariants({ variant: "outline", size: "icon" }),
-            "shrink-0 rounded-xl border-[var(--cor-borda)] sm:hidden",
-            "aria-expanded:bg-[var(--cor-primaria-suave)]",
-            "touch-manipulation min-h-[44px] min-w-[44px]",
-            "motion-reduce:transition-none"
-          )}
+          variant="outline"
+          size="icon"
+          className={cn("topo__menu", "shrink-0 sm:hidden", "touch-manipulation min-h-[44px] min-w-[44px]")}
           aria-expanded={menuAberto}
           aria-controls="mobile-nav-sheet"
           aria-label={menuAberto ? "Fechar menu" : "Abrir menu"}
           onClick={() => setMenuAberto((v) => !v)}
         >
           <span aria-hidden="true" className="inline-flex">
-            {menuAberto ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
+            {menuAberto ? <X className="h-4 w-4" aria-hidden="true" /> : <Menu className="h-4 w-4" aria-hidden="true" />}
           </span>
-        </button>
+        </Button>
 
         <Link
           href="/"
@@ -155,82 +133,91 @@ export default function Header() {
           </span>
         </Link>
 
-        <nav className={cn("topo__nav", "hidden items-center gap-1 sm:flex")} aria-label="Navegação principal">
-          {NAV_PRINCIPAL.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              aria-current={ehAtual(item.href) ? "page" : undefined}
-              className={cn(
-                "topo__link rounded-full px-3 py-2 text-sm font-medium no-underline transition-colors",
-                "text-[var(--cor-texto-suave)] hover:bg-[var(--cor-primaria-suave)] hover:text-[var(--cor-texto)]",
-                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cor-foco)] focus-visible:ring-offset-2 motion-reduce:transition-none",
-                ehAtual(item.href) && "bg-[var(--cor-primaria-suave)] text-[var(--cor-texto)]",
-                item.destaque && "text-[var(--cor-primaria)] hover:text-[var(--cor-primaria)]",
-                item.destaque && ehAtual(item.href) && "bg-[var(--cor-primaria-suave)]"
-              )}
-            >
-              {item.rotulo}
-            </Link>
-          ))}
-        </nav>
+        <div className={cn("topo__nav", "hidden items-center sm:flex")}>
+          <NavigationMenu aria-label="Navegação principal" className="border-b-0 bg-transparent backdrop-blur-none">
+            <NavigationMenuList>
+              {NAV_PRINCIPAL.map((item) => (
+                <NavigationMenuItem key={item.href}>
+                  <NavigationMenuLink asChild active={ehAtual(item.href)}>
+                    <Link
+                      href={item.href}
+                      aria-current={ehAtual(item.href) ? "page" : undefined}
+                      className={cn(
+                        navigationMenuTriggerStyle,
+                        "topo__link rounded-full no-underline",
+                        "text-[var(--cor-texto-suave)] hover:text-[var(--cor-texto)]",
+                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cor-foco)] focus-visible:ring-offset-2 motion-reduce:transition-none",
+                        ehAtual(item.href) && "bg-[var(--cor-primaria-suave)] text-[var(--cor-texto)]",
+                        item.destaque && "text-[var(--cor-primaria)] hover:text-[var(--cor-primaria)]"
+                      )}
+                    >
+                      {item.rotulo}
+                    </Link>
+                  </NavigationMenuLink>
+                </NavigationMenuItem>
+              ))}
+            </NavigationMenuList>
+          </NavigationMenu>
+        </div>
 
         <div className={cn("topo__acoes", "ml-auto flex items-center gap-2")}>
           <form className={cn("topo__busca hidden items-center sm:flex")} onSubmit={onSubmitBusca} role="search">
             <label className="sr-only" htmlFor="busca-topo">
               Buscar notícias
             </label>
-            <input
+            <Input
               id="busca-topo"
               name="busca"
               type="search"
               autoComplete="off"
-              placeholder="Buscar…"
+              placeholder="Buscar"
               value={busca}
               onChange={(e) => setBusca(e.target.value)}
-              className={cn(inputClass, "w-[160px] lg:w-[190px]")}
+              className="w-[160px] rounded-full lg:w-[190px]"
             />
           </form>
-          <button
+          <Button
             type="button"
+            variant="outline"
+            size="icon"
             onClick={() => setPaletteAberto(true)}
             aria-label="Busca rápida (Ctrl K)"
             title="Busca rápida (Ctrl K)"
-            className={cn(
-              "topo__icone",
-              "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[var(--cor-borda)] bg-transparent text-[var(--cor-texto-suave)]",
-              "hover:border-[var(--cor-primaria)] hover:text-[var(--cor-primaria)]",
-              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cor-foco)] focus-visible:ring-offset-2 motion-reduce:transition-none"
-            )}
+            className={cn("topo__icone", "shrink-0 rounded-full")}
           >
             <Search className="h-4 w-4" aria-hidden="true" />
-          </button>
+          </Button>
           <ThemeToggle />
           {!carregando &&
             (usuario ? (
-              <>
-                <Link
-                  href="/minha-conta"
-                  className={cn(
-                    "topo__avatar inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--gradiente-marca)] text-sm font-bold text-white no-underline",
-                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cor-foco)] focus-visible:ring-offset-2"
-                  )}
-                  aria-label="Minha conta"
-                >
-                  {inicial}
-                </Link>
-                <button
-                  type="button"
-                  className={cn(
-                    "topo__sair hidden sm:inline-flex rounded-full px-2 py-1 text-sm text-[var(--cor-texto-suave)] transition-colors",
-                    "hover:text-[var(--cor-erro)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cor-foco)]",
-                    "motion-reduce:transition-none"
-                  )}
-                  onClick={() => fazerLogout()}
-                >
-                  Sair
-                </button>
-              </>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    aria-label={`Conta de ${nomeConta} — abrir menu`}
+                    className={cn(
+                      "topo__avatar inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--gradiente-marca)] text-sm font-bold text-white",
+                      "touch-manipulation min-h-[44px] min-w-[44px]",
+                      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cor-foco)] focus-visible:ring-offset-2",
+                      "motion-reduce:transition-none"
+                    )}
+                  >
+                    <span aria-hidden="true">{inicial}</span>
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-56">
+                  <DropdownMenuLabel className="truncate font-medium">{nomeConta}</DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem asChild>
+                    <Link href="/minha-conta">Minha conta</Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild>
+                    <Link href="/minha-conta?aba=assinatura">Assinatura e perfil</Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onSelect={() => void fazerLogout()}>Sair</DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             ) : (
               <>
                 <Link
@@ -242,123 +229,90 @@ export default function Header() {
                 >
                   Entrar
                 </Link>
-                <Link
-                  href="/cadastro"
-                  className={cn(buttonVariants({ variant: "default", size: "sm" }), "botao botao--primaria botao--pequeno no-underline")}
-                >
-                  Assine
-                </Link>
+                <Button asChild size="sm" className="botao botao--primaria botao--pequeno rounded-full no-underline">
+                  <Link href="/cadastro">Assine</Link>
+                </Button>
               </>
             ))}
         </div>
       </div>
 
-      {/* Sheet mobile — Radix Dialog com foco preso, Escape e backdrop */}
-      <DialogPrimitive.Root open={menuAberto} onOpenChange={setMenuAberto}>
-        <DialogPrimitive.Portal>
-          <DialogPrimitive.Overlay
-            className={cn(
-              "fixed inset-0 z-[var(--z-modal-fundo)] bg-black/40 backdrop-blur-sm",
-              "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
-              "motion-reduce:animate-none motion-reduce:transition-none",
-              "overscroll-contain touch-manipulation"
-            )}
-            aria-hidden="true"
-          />
-          <DialogPrimitive.Content
-            id="mobile-nav-sheet"
-            className={cn(
-              "fixed inset-y-0 left-0 z-[var(--z-modal)] flex w-[280px] max-w-[85vw] flex-col",
-              "bg-[var(--cor-fundo)] border-r border-[var(--cor-borda)] shadow-lg",
-              "overscroll-contain touch-manipulation overflow-y-auto",
-              "pb-[env(safe-area-inset-bottom)]",
-              "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:slide-out-to-left data-[state=open]:slide-in-from-left",
-              "motion-reduce:animate-none motion-reduce:transition-none",
-              "focus-visible:outline-none"
-            )}
-          >
-            <DialogPrimitive.Title className="sr-only">Menu de navegação</DialogPrimitive.Title>
-            <div className="flex items-center justify-between gap-3 border-b border-[var(--cor-borda)] p-4">
-              <span className="inline-flex items-center gap-2 text-sm font-bold tracking-tight text-[var(--cor-texto)]">
-                <span className="h-[18px] w-[18px] shrink-0 rounded-full bg-[var(--gradiente-marca)]" aria-hidden="true" />
-                Menu
-              </span>
-              <DialogPrimitive.Close
-                aria-label="Fechar menu"
-                className={cn(
-                  "inline-flex h-9 w-9 items-center justify-center rounded-full border border-[var(--cor-borda)] bg-transparent",
-                  "text-[var(--cor-texto-suave)] hover:text-[var(--cor-texto)] hover:border-[var(--cor-primaria)]",
-                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cor-foco)] focus-visible:ring-offset-2",
-                  "touch-manipulation min-h-[44px] min-w-[44px] motion-reduce:transition-none"
-                )}
-              >
-                <X className="h-4 w-4" aria-hidden="true" />
-              </DialogPrimitive.Close>
-            </div>
+      {/* Sheet mobile — shadcn Sheet (Radix Dialog): foco preso, Escape e backdrop fecham */}
+      <Sheet open={menuAberto} onOpenChange={setMenuAberto}>
+        <SheetContent
+          side="left"
+          id="mobile-nav-sheet"
+          aria-label="Menu de navegação"
+          className="w-[280px] max-w-[85vw] gap-0 border-r p-0 pb-[env(safe-area-inset-bottom)]"
+        >
+          <SheetHeader className="border-b border-[var(--cor-borda)] p-4 text-left">
+            <SheetTitle className="inline-flex items-center gap-2 text-sm font-bold tracking-tight">
+              <span className="h-[18px] w-[18px] shrink-0 rounded-full bg-[var(--gradiente-marca)]" aria-hidden="true" />
+              Menu
+            </SheetTitle>
+            <SheetDescription className="sr-only">Navegação principal do portal</SheetDescription>
+          </SheetHeader>
 
-            <nav aria-label="Navegação móvel" className="flex flex-col gap-1 p-3">
-              {itensSheet.map((item) => {
-                const Icon = item.icon;
-                const ativo = ehAtual(item.href);
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    aria-current={ativo ? "page" : undefined}
-                    data-active={ativo ? "true" : undefined}
-                    onClick={() => setMenuAberto(false)}
-                    className={cn(
-                      "flex items-center gap-3 rounded-md px-3 py-1.5",
-                      "min-h-[44px] touch-manipulation",
-                      "text-sm font-medium no-underline transition-colors",
-                      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cor-foco)] focus-visible:ring-offset-2",
-                      "motion-reduce:transition-none",
-                      ativo
-                        ? "bg-[var(--cor-primaria-suave)] text-[var(--cor-primaria)]"
-                        : "text-[var(--cor-texto-suave)] hover:bg-[var(--cor-primaria-suave)] hover:text-[var(--cor-texto)]"
-                    )}
-                  >
-                    <Icon className="h-5 w-5 shrink-0" aria-hidden="true" />
-                    <span className="text-sm leading-none">{item.label}</span>
-                  </Link>
-                );
-              })}
-            </nav>
-
-            <div className="mt-auto border-t border-[var(--cor-borda)] p-4">
-              <form onSubmit={onSubmitBusca} role="search" className="flex items-center gap-2">
-                <label htmlFor="busca-sheet" className="sr-only">
-                  Buscar notícias
-                </label>
-                <input
-                  id="busca-sheet"
-                  name="busca"
-                  type="search"
-                  autoComplete="off"
-                  placeholder="Buscar…"
-                  value={busca}
-                  onChange={(e) => setBusca(e.target.value)}
-                  className={cn(inputClass, "flex-1 min-h-[44px] touch-manipulation text-[16px] sm:text-sm")}
-                />
-                <button
-                  type="submit"
-                  aria-label="Buscar"
+          <nav aria-label="Navegação móvel" className="flex flex-col gap-1 overflow-y-auto p-3">
+            {itensSheet.map((item) => {
+              const Icon = item.icon;
+              const ativo = ehAtual(item.href);
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  aria-current={ativo ? "page" : undefined}
+                  data-active={ativo ? "true" : undefined}
+                  onClick={() => setMenuAberto(false)}
                   className={cn(
-                    buttonVariants({ variant: "default", size: "icon" }),
-                    "shrink-0 rounded-full touch-manipulation min-h-[44px] min-w-[44px]"
+                    "flex items-center gap-3 rounded-md px-3 py-1.5",
+                    "min-h-[44px] touch-manipulation",
+                    "text-sm font-medium no-underline transition-colors",
+                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cor-foco)] focus-visible:ring-offset-2",
+                    "motion-reduce:transition-none",
+                    ativo
+                      ? "bg-[var(--cor-primaria-suave)] text-[var(--cor-primaria)]"
+                      : "text-[var(--cor-texto-suave)] hover:bg-[var(--cor-primaria-suave)] hover:text-[var(--cor-texto)]"
                   )}
                 >
-                  <Search className="h-4 w-4" aria-hidden="true" />
-                </button>
-              </form>
-            </div>
-          </DialogPrimitive.Content>
-        </DialogPrimitive.Portal>
-      </DialogPrimitive.Root>
+                  <Icon className="h-5 w-5 shrink-0" aria-hidden="true" />
+                  <span className="text-sm leading-none">{item.label}</span>
+                </Link>
+              );
+            })}
+          </nav>
+
+          <div className="mt-auto border-t border-[var(--cor-borda)] p-4">
+            <form onSubmit={onSubmitBusca} role="search" className="flex items-center gap-2">
+              <label htmlFor="busca-sheet" className="sr-only">
+                Buscar notícias
+              </label>
+              <Input
+                id="busca-sheet"
+                name="busca"
+                type="search"
+                autoComplete="off"
+                placeholder="Buscar"
+                value={busca}
+                onChange={(e) => setBusca(e.target.value)}
+                className="flex-1 rounded-full text-[16px] sm:text-sm"
+              />
+              <Button
+                type="submit"
+                size="icon"
+                aria-label="Buscar"
+                className="shrink-0 rounded-full touch-manipulation min-h-[44px] min-w-[44px]"
+              >
+                <Search className="h-4 w-4" aria-hidden="true" />
+              </Button>
+            </form>
+          </div>
+        </SheetContent>
+      </Sheet>
 
       <div className="container">
         <Suspense fallback={null}>
-          <TrilhasNavegacao navId={navId} menuAberto={menuAberto} pathname={pathname} usuario={usuario} />
+          <TrilhasNavegacao navId={navId} pathname={pathname} usuario={usuario} />
         </Suspense>
       </div>
       <CommandPalette aberto={paletteAberto} aoFechar={() => setPaletteAberto(false)} />
@@ -368,18 +322,15 @@ export default function Header() {
 
 function TrilhasNavegacao({
   navId,
-  menuAberto,
   pathname,
   usuario,
 }: {
   navId: string;
-  menuAberto: boolean;
   pathname: string | null;
   usuario: { papel?: string } | null;
 }) {
   const searchParams = useSearchParams();
   const categoriaAtiva = pathname === "/" ? searchParams.get("categoria") || "" : null;
-  void menuAberto;
 
   function ehAtual(href: string): boolean {
     return href === "/" ? pathname === "/" : pathname?.startsWith(href) ?? false;

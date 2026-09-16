@@ -90,7 +90,7 @@ function Meta({ entrada }: { entrada: FeedEntrada }) {
 export function NewsCard({ entrada }: { entrada: FeedEntrada }) {
   const visual = obterVisualCategoria(entrada.categoria);
   return (
-    <Card className="overflow-hidden transition-all hover:shadow-md hover:border-[var(--cor-primaria)] motion-reduce:hover:shadow-sm">
+    <Card className="overflow-hidden transition-[box-shadow,border-color] hover:shadow-md hover:border-[var(--cor-primaria)] motion-reduce:hover:shadow-sm motion-reduce:transition-none">
       <Link
         href={hrefDaEntrada(entrada)}
         className="block h-40 w-full overflow-hidden bg-[var(--cor-borda)]"
@@ -130,7 +130,7 @@ export function NewsCard({ entrada }: { entrada: FeedEntrada }) {
 export function FeaturedNewsCard({ entrada }: { entrada: FeedEntrada }) {
   const visual = obterVisualCategoria(entrada.categoria);
   return (
-    <Card className="overflow-hidden border-[var(--cor-primaria)]/20 transition-all hover:shadow-lg motion-reduce:hover:shadow-sm">
+    <Card className="overflow-hidden border-[var(--cor-primaria)]/20 transition-shadow hover:shadow-lg motion-reduce:hover:shadow-sm motion-reduce:transition-none">
       <Link
         href={hrefDaEntrada(entrada)}
         className="block h-56 w-full overflow-hidden"

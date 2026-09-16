@@ -16,9 +16,23 @@
   --cor-destaque-hover: #c00500;
   --cor-destaque-suave: #fff1f0;
   --cor-erro: #e10600;
+  --cor-erro-hover: #c00500;
+  --cor-erro-suave: #fff1f0;
   --cor-sucesso: #0f6f5c;
-  --cor-fundo-card: #ffffff;
+  --cor-sucesso-hover: #0b5a4a;
+  --cor-sucesso-suave: #e6f4ef;
+  --cor-alerta: #d97706;
+  --cor-alerta-hover: #b45309;
+  --cor-alerta-suave: #fef3c7;
+  --cor-secundaria: #0f172a;
+  --cor-secundaria-hover: #020617;
+  --cor-secundaria-suave: #f1f5f9;
   --cor-premium: #b8954a;
+  --cor-premium-hover: #a0843e;
+  --cor-premium-suave: #faf3e3;
+  --cor-texto-invertido: #ffffff;
+  --cor-vidro: rgba(255, 255, 255, 0.8);
+  --cor-fundo-card: #ffffff;
   --cor-foco: #4338ca;
   --cor-sombra: 30, 34, 60;
   --cor-skeleton-base: #e9edf3;
@@ -98,6 +112,8 @@
   --z-modal: 910; /* conteúdo do Modal, acima do próprio overlay */
   --z-toast: 1000; /* toast/notificação — sempre no topo de tudo */
   --z-cookies: 1000; /* banner de consentimento de cookies — mesmo nível do toast */
+  --z-popover: 50; /* popover/hover-card — acima do conteúdo, abaixo do modal */
+  --z-tooltip: 60; /* tooltip — acima do popover, abaixo do modal */
 
   /* ---------------------------------------------------------------------
      Tokens de tamanho/deslocamento de componente (correção do achado do
@@ -132,9 +148,23 @@
     --cor-destaque-hover: #ff453a;
     --cor-destaque-suave: #2a1413;
     --cor-erro: #ff453a;
+    --cor-erro-hover: #ff6b61;
+    --cor-erro-suave: #2a1413;
     --cor-sucesso: #6ee7b7;
+    --cor-sucesso-hover: #a7f3d0;
+    --cor-sucesso-suave: #0d2620;
+    --cor-alerta: #fbbf24;
+    --cor-alerta-hover: #fcd34d;
+    --cor-alerta-suave: #292015;
+    --cor-secundaria: #f8fafc;
+    --cor-secundaria-hover: #ffffff;
+    --cor-secundaria-suave: #1e293b;
+    --cor-texto-invertido: #030712;
+    --cor-vidro: rgba(13, 17, 23, 0.8);
     --cor-fundo-card: #0d1117;
     --cor-premium: #d4b36a;
+    --cor-premium-hover: #e3c67f;
+    --cor-premium-suave: #26200f;
     --cor-foco: #818cf8;
     --cor-sombra: 0, 0, 0;
     --cor-skeleton-base: #141a26;
@@ -157,9 +187,23 @@
   --cor-destaque-hover: #ff453a;
   --cor-destaque-suave: #2a1413;
   --cor-erro: #ff453a;
+  --cor-erro-hover: #ff6b61;
+  --cor-erro-suave: #2a1413;
   --cor-sucesso: #6ee7b7;
+  --cor-sucesso-hover: #a7f3d0;
+  --cor-sucesso-suave: #0d2620;
+  --cor-alerta: #fbbf24;
+  --cor-alerta-hover: #fcd34d;
+  --cor-alerta-suave: #292015;
+  --cor-secundaria: #f8fafc;
+  --cor-secundaria-hover: #ffffff;
+  --cor-secundaria-suave: #1e293b;
   --cor-fundo-card: #0d1117;
   --cor-premium: #d4b36a;
+  --cor-premium-hover: #e3c67f;
+  --cor-premium-suave: #26200f;
+  --cor-texto-invertido: #030712;
+  --cor-vidro: rgba(13, 17, 23, 0.8);
   --cor-foco: #818cf8;
   --cor-sombra: 0, 0, 0;
   --cor-skeleton-base: #141a26;
