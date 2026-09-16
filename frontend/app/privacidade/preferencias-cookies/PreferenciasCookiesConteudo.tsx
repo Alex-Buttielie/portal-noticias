@@ -5,6 +5,9 @@ import { useAuth } from "@/lib/auth-context";
 import { useToast } from "@/components/ToastProvider";
 import * as consentimento from "@/lib/cookie-consent";
 import { Button } from "@/components/ui/Button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/Cards";
+import { Label } from "@/components/ui/FormField";
+import { cn } from "@/lib/utils";
 
 function formatarData(iso: string): string {
   try {
@@ -69,59 +72,69 @@ export default function PreferenciasCookiesConteudo() {
   }
 
   return (
-    <div>
-      <h1>Preferências de cookies</h1>
-      <p className="texto-suave">
-        Você pode alterar sua escolha a qualquer momento nesta página. Ela vale para este
-        navegador e, se você estiver conectado à sua conta, também é salva no seu perfil.
-      </p>
-      {respondidoEm && (
-        <p className="texto-suave">Última atualização: {formatarData(respondidoEm)}</p>
-      )}
+<div className={cn("container mx-auto max-w-2xl px-4 py-8 sm:px-6")}>
+      <Card className="shadow-sm secao-bloco banner-cookies-painel banner-cookies-painel--pagina campo-toggle banner-cookies-acoes">
+        <CardHeader className="space-y-2">
+          <p className="text-xs font-bold uppercase tracking-widest text-[var(--cor-primaria)] secao-eyebrow">Privacidade</p>
+          <CardTitle id="cookies-titulo" className="text-2xl">
+            Preferências de cookies
+          </CardTitle>
+          <CardDescription>
+            Você controla seus dados: altere sua escolha quando quiser nesta página. Ela vale para este navegador e, se você
+            estiver na sua conta, também fica salva no seu perfil.
+          </CardDescription>
+          {respondidoEm && <p className="text-xs text-[var(--cor-texto-suave)]">Última atualização: {formatarData(respondidoEm)}</p>}
+        </CardHeader>
+        <CardContent className="grid gap-6">
+          <div className="grid gap-4 rounded-xl border border-[var(--cor-borda)] bg-[var(--cor-fundo)] p-4 container--estreito">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <p className="text-sm font-semibold text-[var(--cor-texto)]">Essenciais</p>
+                <p className="text-xs text-[var(--cor-texto-suave)]">Mantêm o site funcionando. Estão sempre ativos.</p>
+              </div>
+              <input type="checkbox" checked disabled aria-label="Cookies essenciais (sempre ativos)" className="h-5 w-5 accent-[var(--cor-primaria)]" />
+            </div>
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <p className="text-sm font-semibold text-[var(--cor-texto)]">Analytics</p>
+                <p className="text-xs text-[var(--cor-texto-suave)]">Mostram como o site é usado, sem identificar você.</p>
+              </div>
+              <input
+                type="checkbox"
+                checked={analytics}
+                onChange={(e) => setAnalytics(e.target.checked)}
+                aria-label="Cookies de análise"
+                className="h-5 w-5 accent-[var(--cor-primaria)]"
+              />
+            </div>
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <p className="text-sm font-semibold text-[var(--cor-texto)]">Personalização</p>
+                <p className="text-xs text-[var(--cor-texto-suave)]">Adaptam conteúdo e recomendações ao seu perfil.</p>
+              </div>
+              <input
+                type="checkbox"
+                checked={personalizacao}
+                onChange={(e) => setPersonalizacao(e.target.checked)}
+                aria-label="Cookies de personalização"
+                className="h-5 w-5 accent-[var(--cor-primaria)]"
+              />
+            </div>
+          </div>
 
-      <div className="banner-cookies-painel banner-cookies-painel--pagina">
-        <div className="campo-toggle">
-          <div>
-            <strong>Essenciais</strong>
-            <p className="texto-suave">Necessários para o site funcionar. Sempre ativos.</p>
+          <div className="flex flex-wrap gap-3">
+            <Button variante="secundaria" onClick={recusarNaoEssenciais}>
+              Recusar não essenciais
+            </Button>
+            <Button variante="secundaria" onClick={aceitarTodos}>
+              Aceitar todos
+            </Button>
+            <Button onClick={salvar} className="ml-auto">
+              Salvar preferências
+            </Button>
           </div>
-          <input type="checkbox" checked disabled aria-label="Cookies essenciais (sempre ativos)" />
-        </div>
-        <div className="campo-toggle">
-          <div>
-            <strong>Analytics</strong>
-            <p className="texto-suave">Nos ajudam a entender como o site é usado.</p>
-          </div>
-          <input
-            type="checkbox"
-            checked={analytics}
-            onChange={(e) => setAnalytics(e.target.checked)}
-            aria-label="Cookies de análise"
-          />
-        </div>
-        <div className="campo-toggle">
-          <div>
-            <strong>Personalização</strong>
-            <p className="texto-suave">Usados para adaptar conteúdo e recomendações ao seu perfil.</p>
-          </div>
-          <input
-            type="checkbox"
-            checked={personalizacao}
-            onChange={(e) => setPersonalizacao(e.target.checked)}
-            aria-label="Cookies de personalização"
-          />
-        </div>
-
-        <div className="banner-cookies-acoes">
-          <Button variante="secundaria" onClick={recusarNaoEssenciais}>
-            Recusar não essenciais
-          </Button>
-          <Button variante="secundaria" onClick={aceitarTodos}>
-            Aceitar todos
-          </Button>
-          <Button onClick={salvar}>Salvar preferências</Button>
-        </div>
-      </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

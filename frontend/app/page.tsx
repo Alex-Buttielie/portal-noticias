@@ -16,6 +16,7 @@ import { EmptyState, ErrorState, SkeletonLista } from "@/components/ui/Estados";
 import { SearchBar } from "@/components/ui/SearchBar";
 import { useFeed, useOnboarding, usePublicacoes } from "@/lib/queries";
 import { categoriasPorAfinidade, ordenarPorGosto, temSinalDeGosto } from "@/lib/personalizar";
+import { cn } from "@/lib/utils";
 
 const INTERVALO_VERIFICACAO_NOVIDADES_MS = 60000;
 
@@ -178,8 +179,13 @@ function PaginaFeedInner() {
 
   if (verSalvos) {
     return (
-      <div>
-        <div className="controles-salvos">
+<div className="min-w-0 space-y-4 overflow-hidden cartao-meta secao-ver-tudo cartao-titulo secao-cabecalho">
+        <header className={cn("seu-rio", "mb-6 min-w-0 space-y-2")}>
+          <p className="text-xs font-bold uppercase tracking-[0.14em] text-[var(--cor-primaria)] secao-eyebrow">Leitura salva</p>
+          <h1 className="break-words font-[var(--fonte-titulo)] text-3xl font-extrabold tracking-[-0.03em] text-wrap-balance seu-rio__titulo secao-titulo">Salvos para depois</h1>
+          <p className="max-w-[62ch] break-words text-sm text-[var(--cor-texto-suave)] texto-suave">Sua lista de leitura para depois, guardada neste aparelho.</p>
+        </header>
+        <div className="flex justify-end controles-salvos">
           <Button variante="secundaria" onClick={() => setVerSalvos(false)}>
             ← Voltar ao feed
           </Button>
@@ -187,9 +193,11 @@ function PaginaFeedInner() {
         {salvos.length === 0 ? (
           <EmptyState titulo="Nenhuma notícia salva ainda" descricao="Toque em “Salvar para depois” em qualquer notícia para lê-la aqui." />
         ) : (
-          <div className="grade-noticias">
+          <div className={cn("grade-noticias", "grid w-full max-w-full grid-cols-1 gap-4 overflow-hidden break-words sm:grid-cols-2 lg:grid-cols-3")}>
             {salvos.map((entrada) => (
-              <NewsCard key={chaveDaEntrada(entrada)} entrada={entrada} />
+              <div key={chaveDaEntrada(entrada)} className="min-w-0 overflow-hidden break-words">
+                <NewsCard entrada={entrada} />
+              </div>
             ))}
           </div>
         )}
@@ -198,26 +206,30 @@ function PaginaFeedInner() {
   }
 
   return (
-    <div>
+    <div className="min-w-0 w-full max-w-full space-y-4 overflow-hidden">
       {exibirPublicidade && (
-        <div className="faixa-publicidade">
-          Espaço publicitário — assine o <Link href="/planos">Premium</Link> para navegar sem anúncios.
+        <div className={cn("faixa-publicidade", "rounded-md border border-[var(--cor-borda)] border-l-[3px] bg-[var(--cor-fundo-card)] px-3 py-2 text-sm text-[var(--cor-texto-suave)] motion-reduce:transition-none")}>
+          Espaço publicitário — assine o <Link href="/planos" className="font-semibold text-[var(--cor-primaria)] underline-offset-2 hover:underline">Premium</Link> para navegar sem anúncios.
         </div>
       )}
       {novidadeDisponivel && (
-        <div className="banner-atualizacao">
-          <button type="button" onClick={aplicarNovidade}>
+        <div className={cn("banner-atualizacao", "sticky top-16 z-[var(--z-banner)] mb-4 flex justify-center motion-reduce:animate-none")} aria-live="polite">
+          <button
+            type="button"
+            onClick={aplicarNovidade}
+            className="inline-flex items-center gap-2 rounded-full bg-[var(--cor-primaria)] px-4 py-2 text-sm font-semibold text-white shadow-md transition-colors hover:bg-[var(--cor-primaria-hover)] motion-reduce:animate-none motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cor-foco)] focus-visible:ring-offset-2"
+          >
             ↑ Novas notícias disponíveis — atualizar
           </button>
         </div>
       )}
       {mostrarSugestao && categoriaPreferida && (
-        <div className="sugestao-adaptativa" role="status">
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--cor-primaria)] bg-[var(--cor-primaria-suave)] p-3 text-sm motion-reduce:transition-none" role="status">
           <span>
             Notamos que você tem lido bastante sobre <strong>{categoriaPreferida.categoria}</strong>. Quer filtrar o
             feed por esse tema?
           </span>
-          <div className="sugestao-adaptativa-acoes">
+          <div className="flex flex-wrap gap-2">
             <Button
               onClick={() => {
                 setCategoria(categoriaPreferida.categoria);
@@ -234,32 +246,44 @@ function PaginaFeedInner() {
       )}
 
       {!modoRio && (
-        <div className="controles-feed">
-          <SearchBar valorInicial={buscaAtiva} aoBuscar={aoBuscar} />
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="min-w-0 flex-1">
+            <SearchBar valorInicial={buscaAtiva} aoBuscar={aoBuscar} />
+          </div>
           <Button variante="secundaria" onClick={() => setVerSalvos(true)}>
             ★ Salvos ({bookmarks.obterSalvos().length})
           </Button>
         </div>
       )}
 
-      <div className="fluxo-contexto" role="group" aria-label="Contexto da listagem">
+      <div className="space-y-1" role="group" aria-label="Contexto da listagem">
         {categoria && (
-          <p className="texto-suave">
-            Filtrando por <strong>{categoria}</strong> —{" "}
-            <button type="button" className="link-nulo" onClick={() => setCategoria("")}>
+          <p className="text-sm text-[var(--cor-texto-suave)]">
+            Filtrando por <strong className="text-[var(--cor-texto)]">{categoria}</strong> —{" "}
+            <button type="button" className="bg-transparent p-0 font-inherit text-[var(--cor-primaria)] underline hover:text-[var(--cor-primaria-hover)]" onClick={() => setCategoria("")}>
               limpar filtro
             </button>
           </p>
         )}
         {buscaAtiva && (
-          <p className="texto-suave">
-            Busca por <strong>“{buscaAtiva}”</strong> —{" "}
-            <button type="button" className="link-nulo" onClick={() => setBuscaAtiva("")}>
+          <p className="text-sm text-[var(--cor-texto-suave)]">
+            Busca por <strong className="text-[var(--cor-texto)]">“{buscaAtiva}”</strong> —{" "}
+            <button type="button" className="bg-transparent p-0 font-inherit text-[var(--cor-primaria)] underline hover:text-[var(--cor-primaria-hover)]" onClick={() => setBuscaAtiva("")}>
               limpar busca
             </button>
           </p>
         )}
       </div>
+
+      {!modoRio && (
+<header className={cn("seu-rio", "mb-6 space-y-2")}>
+          <p className="text-xs font-bold uppercase tracking-[0.14em] text-[var(--cor-primaria)] secao-eyebrow">Filtro do rio</p>
+          <h1 className="font-[var(--fonte-titulo)] text-3xl font-extrabold tracking-[-0.03em] text-wrap-balance seu-rio__titulo">
+            {categoria && buscaAtiva ? `${categoria} — “${buscaAtiva}”` : categoria || `“${buscaAtiva}”`}
+          </h1>
+          <p className="max-w-[62ch] text-sm text-[var(--cor-texto-suave)]">Um recorte do rio cronológico — limpe o filtro para voltar ao rio completo.</p>
+        </header>
+      )}
 
       {feed.isLoading && <SkeletonLista quantidade={6} />}
 
@@ -275,11 +299,11 @@ function PaginaFeedInner() {
         )}
       </div>
 
-      {!feed.isLoading && !feed.isError && modoRio && (
-        <header className="seu-rio">
-          <p className="secao-eyebrow">{rioPessoal ? "Feito para o seu gosto" : "Cobertura ao vivo"}</p>
-          <h1 className="seu-rio__titulo">Seu rio</h1>
-          <p className="texto-suave">
+      {modoRio && (
+<header className={cn("seu-rio", "mb-6 space-y-2")}>
+          <p className="text-xs font-bold uppercase tracking-[0.14em] text-[var(--cor-primaria)] secao-eyebrow">{rioPessoal ? "Feito para o seu gosto" : "Cobertura ao vivo"}</p>
+          <h1 className="font-[var(--fonte-titulo)] text-[clamp(2rem,5vw,3.2rem)] font-extrabold leading-[1.05] tracking-[-0.03em] text-wrap-balance seu-rio__titulo">Seu rio</h1>
+          <p className="max-w-[62ch] text-sm leading-relaxed text-[var(--cor-texto-suave)]">
             {rioPessoal
               ? "A ordem abaixo segue os seus interesses e leituras — nunca uma escolha editorial."
               : "Ordem cronológica, igual para todos. Entre ou diga seus interesses no onboarding para o rio se moldar a você."}
@@ -288,37 +312,37 @@ function PaginaFeedInner() {
       )}
 
       {!feed.isLoading && !feed.isError && (
-        <div className={modoRio ? "portal-layout" : ""}>
-          <div>
+        <div className={cn("portal-layout", "grid w-full max-w-full grid-cols-1 items-start gap-4 overflow-hidden sm:gap-6 lg:grid-cols-[minmax(0,1fr)_330px]")}>
+          <div className="min-w-0 w-full max-w-full space-y-8 overflow-hidden">
             {modoRio ? (
               <>
                 {rioPessoal && paraVoce.length > 0 && (
-                  <section className="secao-bloco" aria-label="Para você">
-                    <div className="secao-cabecalho">
-                      <p className="secao-eyebrow">Para você</p>
-                      <h2 className="secao-titulo">No seu gosto</h2>
+                  <section className="space-y-4 secao-bloco" aria-label="Para você">
+                    <div className="flex items-baseline gap-3 border-b-2 border-[var(--cor-borda)] pb-3">
+                      <p className="text-xs font-bold uppercase tracking-[0.14em] text-[var(--cor-primaria)]">Para você</p>
+                      <h2 className="font-[var(--fonte-titulo)] text-xl font-extrabold tracking-tight">No seu gosto</h2>
                     </div>
-                    <div className="grade-noticias">
+                    <div className={cn("grade-noticias", "grid w-full max-w-full grid-cols-1 gap-4 overflow-hidden sm:grid-cols-2 lg:grid-cols-3")}>
                       {paraVoce.map((entrada) => (
-                        <article key={chaveDaEntrada(entrada)} className="card-legado">
+<div key={chaveDaEntrada(entrada)} className="min-w-0 space-y-2 overflow-hidden break-words">
                           <NewsCard entrada={entrada} />
                           <PorQueEstouVendoIsso
                             motivos={motivosDaEntrada(entrada, buscaAtiva, intencao.obterLeiturasDaCategoria(entrada.categoria))}
                           />
-                        </article>
+                        </div>
                       ))}
                     </div>
                   </section>
                 )}
-                <section className="secao-bloco" id="ultimas" aria-label="Últimas notícias">
-                  <div className="secao-cabecalho">
-                    <p className="secao-eyebrow">O rio</p>
-                    <h2 className="secao-titulo">Últimas notícias</h2>
+                <section className="min-w-0 space-y-4 overflow-hidden" id="ultimas" aria-label="Últimas notícias">
+                  <div className="flex items-baseline gap-3 border-b-2 border-[var(--cor-borda)] pb-3">
+                    <p className="text-xs font-bold uppercase tracking-[0.14em] text-[var(--cor-primaria)]">O rio</p>
+                    <h2 className="font-[var(--fonte-titulo)] text-xl font-extrabold tracking-tight">Últimas notícias</h2>
                   </div>
                   {itens.length === 0 ? (
-                    <p className="texto-suave">Mais notícias aparecerão aqui.</p>
+                    <p className="text-sm text-[var(--cor-texto-suave)]">Mais notícias aparecerão aqui.</p>
                   ) : (
-                    <div className="lista-compacta">
+                    <div className={cn("lista-compacta", "flex min-w-0 flex-col gap-3 overflow-hidden")}>
                       {itens.slice(0, 12).map((entrada, i) => (
                         <HorizontalNewsCard key={chaveDaEntrada(entrada)} entrada={entrada} posicao={i + 1} />
                       ))}
@@ -329,24 +353,24 @@ function PaginaFeedInner() {
                   <BlocoEditoria key={cat} categoria={cat} itens={grupos[cat]} onVerTodas={() => setCategoria(cat)} />
                 ))}
                 {comunidadeTeaser.length > 0 && (
-                  <section className="secao-bloco" aria-label="Da comunidade">
-                    <div className="secao-cabecalho">
-                      <p className="secao-eyebrow">Vozes</p>
-                      <h2 className="secao-titulo">Da comunidade</h2>
-                      <Link href="/comunidade" className="secao-ver-tudo">
+                  <section className="min-w-0 space-y-4 overflow-hidden break-words" aria-label="Da comunidade">
+                    <div className="flex flex-wrap items-baseline gap-3 border-b-2 border-[var(--cor-borda)] pb-3">
+                      <p className="text-xs font-bold uppercase tracking-[0.14em] text-[var(--cor-primaria)]">Vozes</p>
+                      <h2 className="font-[var(--fonte-titulo)] text-xl font-extrabold tracking-tight">Da comunidade</h2>
+                      <Link href="/comunidade" className="ml-auto text-sm font-medium text-[var(--cor-primaria)] hover:underline">
                         Ver tudo →
                       </Link>
                     </div>
-                    <div className="grade-noticias">
+                    <div className={cn("grade-noticias", "grid w-full max-w-full grid-cols-1 gap-4 overflow-hidden break-words sm:grid-cols-2 lg:grid-cols-3")}>
                       {comunidadeTeaser.map((pub) => (
-                        <article key={pub.id} className="cartao">
-                          <div className="cartao-meta">
-                            <span className="badge-categoria">{pub.tipo === "opiniao" ? "Opinião" : "Análise"}</span>
+                        <article key={pub.id} className="min-w-0 overflow-hidden break-words rounded-xl border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] p-4 shadow-sm transition-colors hover:border-[var(--cor-primaria)] motion-reduce:transition-none">
+                          <div className="mb-2 flex flex-wrap gap-1.5">
+                            <span className="inline-flex items-center rounded-full border border-transparent bg-[var(--cor-primaria-suave)] px-2 py-0.5 text-xs font-semibold text-[var(--cor-primaria)]">{pub.tipo === "opiniao" ? "Opinião" : "Análise"}</span>
                           </div>
-                          <Link href={`/comunidade/${pub.id}`} style={{ textDecoration: "none", color: "inherit" }}>
-                            <h3 className="cartao-titulo">{pub.titulo}</h3>
+                          <Link href={`/comunidade/${pub.id}`} className="no-underline hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cor-foco)]">
+                            <h3 className="break-words font-[var(--fonte-titulo)] text-base font-semibold leading-tight line-clamp-3">{pub.titulo}</h3>
                           </Link>
-                          <p className="texto-suave">por {pub.autor_nome}</p>
+                          <p className="mt-1 break-words text-sm text-[var(--cor-texto-suave)]">por {pub.autor_nome}</p>
                         </article>
                       ))}
                     </div>
@@ -355,14 +379,14 @@ function PaginaFeedInner() {
               </>
             ) : (
               itens.length > 0 && (
-                <div className="grade-noticias">
+                <div className={cn("grade-noticias", "grid w-full max-w-full grid-cols-1 gap-4 overflow-hidden break-words sm:grid-cols-2 lg:grid-cols-3")}>
                   {itens.map((entrada) => (
-                    <article key={chaveDaEntrada(entrada)} className="card-legado">
+<div key={chaveDaEntrada(entrada)} className="min-w-0 space-y-2 overflow-hidden break-words">
                       <NewsCard entrada={entrada} />
                       <PorQueEstouVendoIsso
                         motivos={motivosDaEntrada(entrada, buscaAtiva, intencao.obterLeiturasDaCategoria(entrada.categoria))}
                       />
-                    </article>
+                    </div>
                   ))}
                 </div>
               )
@@ -370,43 +394,46 @@ function PaginaFeedInner() {
             {feed.isFetchingNextPage && <SkeletonLista quantidade={2} />}
           </div>
           {modoRio && (
-            <aside className="sidebar">
+            <aside className={cn("sidebar", "sticky top-[108px] flex min-w-0 w-full max-w-full flex-col gap-5 self-start overflow-hidden motion-reduce:transition-none")}>
               <MaisLidas limite={5} />
-              <div className="newsletter-box">
-                <h3>Receba as principais</h3>
-                <p>As manchetes do dia no seu e-mail.</p>
-                <form onSubmit={onNewsletter} style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <div className="rounded-xl bg-[#111] p-5 text-white shadow-sm">
+                <h3 className="font-[var(--fonte-titulo)] text-base font-bold">Receba as principais</h3>
+                <p className="mt-1 text-sm opacity-80">As manchetes do dia no seu e-mail.</p>
+                <form onSubmit={onNewsletter} className="mt-3 flex flex-wrap gap-2 controles-feed">
+                  <label htmlFor="newsletter-email" className="sr-only">E-mail para newsletter</label>
                   <input
+                    id="newsletter-email"
                     type="email"
-                    placeholder="Seu e-mail"
+                    placeholder="Seu e-mail…"
                     aria-label="E-mail para newsletter"
                     value={emailNewsletter}
                     onChange={(e) => setEmailNewsletter(e.target.value)}
                     required
-                    style={{ flex: "1 1 160px", minWidth: 0 }}
+                    autoComplete="email"
+                    className="min-h-[40px] flex-1 min-w-0 rounded-full border border-[#333] bg-[#222] px-3 py-2 text-[16px] text-white placeholder:text-[#888] focus:border-[var(--cor-primaria)] focus:outline-none focus:ring-2 focus:ring-[var(--cor-foco)]/30 motion-reduce:transition-none sm:text-sm"
                   />
-                  <Button type="submit" carregando={carregandoNewsletter}>
+                  <Button type="submit" carregando={carregandoNewsletter} className="rounded-full">
                     Inscrever
                   </Button>
                 </form>
               </div>
-              <div className="bloco-sidebar">
-                <div className="bloco-sidebar-cabecalho">
-                  <h2 className="bloco-sidebar-titulo">Salvos</h2>
+              <div className="overflow-hidden rounded-xl border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)]">
+                <div className="flex items-center justify-between gap-2 border-b border-[var(--cor-borda)] px-4 py-3">
+                  <h2 className="font-[var(--fonte-titulo)] text-sm font-extrabold">Salvos</h2>
                   <Button variante="secundaria" tamanho="pequeno" onClick={() => setVerSalvos(true)}>
                     Ver todos
                   </Button>
                 </div>
-                <div style={{ padding: "var(--espaco-3) var(--espaco-4)" }}>
+                <div className="px-4 py-3">
                   {bookmarks.obterSalvos().length === 0 ? (
-                    <p className="texto-suave" style={{ margin: 0 }}>
+                    <p className="m-0 text-sm text-[var(--cor-texto-suave)]">
                       Salve notícias para ler depois.
                     </p>
                   ) : (
-                    <ul style={{ margin: 0, paddingLeft: "1.1rem", fontSize: "0.85rem", display: "flex", flexDirection: "column", gap: 6 }}>
+                    <ul className="m-0 flex flex-col gap-1.5 pl-4 text-sm">
                       {bookmarks.obterSalvos().slice(0, 3).map((s) => (
-                        <li key={`${s.tipo}-${s.id}`}>
-                          <Link href={`/noticia/${s.tipo}/${s.id}`}>{s.titulo}</Link>
+                        <li key={`${s.tipo}-${s.id}`} className="marker:text-[var(--cor-texto-suave)]">
+                          <Link href={`/noticia/${s.tipo}/${s.id}`} className="text-[var(--cor-primaria)] hover:underline">{s.titulo}</Link>
                         </li>
                       ))}
                     </ul>
@@ -418,7 +445,7 @@ function PaginaFeedInner() {
         </div>
       )}
       {!feed.isLoading && !feed.isError && feed.hasNextPage && (
-        <div className="sentinela-carregamento" ref={sentinelaRef}>
+        <div className="flex justify-center py-4" ref={sentinelaRef} aria-live="polite">
           <Button variante="secundaria" onClick={() => void feed.fetchNextPage()} carregando={feed.isFetchingNextPage}>
             Carregar mais notícias
           </Button>

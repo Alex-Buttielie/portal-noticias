@@ -1,6 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Moon, Sun } from "lucide-react";
+import { clsx } from "clsx";
+import { twMerge } from "tailwind-merge";
+
+function cn(...inputs: (string | boolean | undefined)[]) {
+  return twMerge(clsx(inputs));
+}
 
 const CHAVE_TEMA = "portal_noticias_tema";
 
@@ -10,9 +17,6 @@ function lerTemaAtual(): Tema {
   if (typeof document === "undefined") return "light";
   const explicito = document.documentElement.getAttribute("data-theme");
   if (explicito === "dark" || explicito === "light") return explicito;
-  // Sem preferência explícita salva: reflete o tema que já está sendo
-  // exibido via prefers-color-scheme (ver globals.css), em vez de assumir
-  // "light" e mostrar o ícone/estado errado no primeiro clique.
   if (typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme: dark)").matches) {
     return "dark";
   }
@@ -20,11 +24,9 @@ function lerTemaAtual(): Tema {
 }
 
 /**
- * Alternância de tema manual. Por padrão o site segue prefers-color-scheme
- * (ver globals.css e o script inline em layout.tsx, que evita o flash de
- * tema incorreto); este botão permite fixar uma preferência explícita,
- * persistida em localStorage — o escuro também reduz consumo de energia em
- * telas OLED, parte do compromisso de design sustentável.
+ * Alternância de tema manual. Preserva `localStorage portal_noticias_tema`
+ * e `data-theme` (contrato LGPD/anti-flash com layout.tsx: SCRIPT_TEMA_INICIAL).
+ * Visual: shadcn Button ghost icon + lucide-react + focus-visible:ring + motion-reduce.
  */
 export default function ThemeToggle() {
   const [tema, setTema] = useState<Tema>("light");
@@ -47,12 +49,23 @@ export default function ThemeToggle() {
   return (
     <button
       type="button"
-      className="botao-tema"
       onClick={alternar}
       aria-label={tema === "dark" ? "Mudar para tema claro" : "Mudar para tema escuro"}
       title={tema === "dark" ? "Tema escuro ativo" : "Tema claro ativo"}
+      className={cn(
+        // legado `botao-tema` preservado como alias
+        "botao-tema",
+        "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[var(--cor-borda)] bg-transparent text-[var(--cor-texto-suave)]",
+        "transition-[transform,background,border-color,color] duration-150 ease-out",
+        "hover:border-[var(--cor-primaria)] hover:bg-[var(--cor-primaria-suave)] hover:text-[var(--cor-primaria)] hover:rotate-[12deg]",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cor-foco)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--cor-fundo)]",
+        "active:scale-[0.96]",
+        "motion-reduce:transition-none motion-reduce:hover:rotate-0"
+      )}
     >
-      <span aria-hidden="true">{tema === "dark" ? "☀️" : "🌙"}</span>
+      <span aria-hidden="true" className="inline-flex">
+        {tema === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+      </span>
     </button>
   );
 }

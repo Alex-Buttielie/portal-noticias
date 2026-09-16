@@ -18,6 +18,9 @@ import { Button } from "@/components/ui/Button";
 import { CampoTexto } from "@/components/ui/FormField";
 import { DataTable } from "@/components/ui/Data";
 import { ErrorState, SkeletonLista } from "@/components/ui/Estados";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/Cards";
+import { Input } from "@/components/ui/FormField";
+import { cn } from "@/lib/utils";
 
 export default function AdminRobosPage() {
   const { token } = useAuth();
@@ -100,195 +103,180 @@ export default function AdminRobosPage() {
   const carregando = fontesQuery.isLoading || configQuery.isLoading || execsQuery.isLoading;
   const erro = fontesQuery.isError || configQuery.isError || execsQuery.isError;
 
-  if (!token) return <p className="texto-suave">Carregando...</p>;
+  if (!token)
+    return (
+      <div className={cn("container mx-auto px-4 py-10")}>
+        <p className="text-sm text-[var(--cor-texto-suave)]">Carregando…</p>
+      </div>
+    );
 
   return (
-    <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
-        <h1>Robôs — Configuração</h1>
-        <Button carregando={executar.isPending} onClick={() => void executarAgora()}>
-          Executar agora
-        </Button>
+<section className="grid gap-6 secao-bloco" aria-labelledby="admin-robos-titulo">
+      <div className="flex flex-wrap items-center justify-between gap-4 secao-cabecalho">
+        <div className="grid gap-1">
+          <p className="text-xs font-bold uppercase tracking-widest text-[var(--cor-primaria)] secao-eyebrow">Administração</p>
+          <h1 id="admin-robos-titulo" className="font-[var(--fonte-titulo)] text-2xl font-bold tracking-tight secao-titulo">Robôs</h1>
+          <p className="text-sm text-[var(--cor-texto-suave)]">Gerencie as fontes RSS, ajuste os parâmetros de ingestão e confira as execuções.</p>
+        </div>
+        <Button carregando={executar.isPending} onClick={() => void executarAgora()}>Executar agora</Button>
       </div>
+      <p className="texto-suave">Gerencie as fontes RSS, ajuste os parâmetros de ingestão e confira as execuções.</p>
       {erro && (
-        <ErrorState
-          mensagem="Erro ao carregar."
-          aoTentarNovamente={() => {
-            void fontesQuery.refetch();
-            void configQuery.refetch();
-            void execsQuery.refetch();
-          }}
-        />
+        <ErrorState mensagem="Erro ao carregar." aoTentarNovamente={() => { void fontesQuery.refetch(); void configQuery.refetch(); void execsQuery.refetch(); }} />
       )}
       {msg && (
-        <p className="mensagem-sucesso" onClick={() => setMsg(null)} style={{ cursor: "pointer" }}>
+        <div
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => e.key === "Enter" && setMsg(null)}
+          aria-label="Dispensar mensagem"
+          onClick={() => setMsg(null)}
+          className="cursor-pointer rounded-md border border-[var(--cor-sucesso)]/20 bg-[var(--cor-sucesso)]/10 px-4 py-3 text-sm text-[var(--cor-sucesso)]"
+        >
           {msg} (clique para fechar)
-        </p>
+        </div>
       )}
       {carregando && <SkeletonLista quantidade={2} />}
 
       {!carregando && !erro && (
-        <>
-          <section style={{ marginTop: 24 }}>
-            <h2>Fontes RSS</h2>
-            <div className="controles-feed">
-              <CampoTexto id="fonte-nome" rotulo="Nome (ex: G1)" value={novaFonte.nome} onChange={(e) => setNovaFonte({ ...novaFonte, nome: e.target.value })} />
-              <CampoTexto id="fonte-url" rotulo="URL https://" value={novaFonte.url} onChange={(e) => setNovaFonte({ ...novaFonte, url: e.target.value })} />
-              <CampoTexto
-                id="fonte-categoria"
-                rotulo="Categoria padrão (opcional)"
-                value={novaFonte.categoria_padrao}
-                onChange={(e) => setNovaFonte({ ...novaFonte, categoria_padrao: e.target.value })}
-              />
-              <Button onClick={() => void criar()} carregando={criarFonte.isPending}>
-                Adicionar
-              </Button>
-            </div>
-            <DataTable
-              legenda="Fontes RSS"
-              linhas={fontesQuery.data ?? []}
-              colunas={[
-                {
-                  cabecalho: "Nome",
-                  render: (f) =>
-                    editFonte?.id === f.id ? (
-                      <input aria-label="Nome da fonte" value={editFonte.nome} onChange={(e) => setEditFonte({ ...editFonte, nome: e.target.value })} />
-                    ) : (
-                      f.nome
-                    ),
-                },
-                {
-                  cabecalho: "URL",
-                  render: (f) =>
-                    editFonte?.id === f.id ? (
-                      <input aria-label="URL da fonte" value={editFonte.url} onChange={(e) => setEditFonte({ ...editFonte, url: e.target.value })} style={{ width: "100%" }} />
-                    ) : (
-                      <a href={f.url} target="_blank" rel="noreferrer">
-                        {f.url}
-                      </a>
-                    ),
-                },
-                {
-                  cabecalho: "Cat.",
-                  render: (f) =>
-                    editFonte?.id === f.id ? (
-                      <input aria-label="Categoria padrão" value={editFonte.categoria_padrao} onChange={(e) => setEditFonte({ ...editFonte, categoria_padrao: e.target.value })} style={{ width: 100 }} />
-                    ) : (
-                      f.categoria_padrao || "—"
-                    ),
-                },
-                {
-                  cabecalho: "Ativo",
-                  render: (f) => (
-                    <Button variante={f.ativo ? "primaria" : "secundaria"} tamanho="pequeno" onClick={() => void alternarAtiva(f)}>
-                      {f.ativo ? "ativo" : "inativo"}
-                    </Button>
-                  ),
-                },
-                {
-                  cabecalho: "Ações",
-                  render: (f) => (
-                    <span style={{ display: "flex", gap: 6 }}>
-                      {editFonte?.id === f.id ? (
-                        <>
-                          <Button tamanho="pequeno" onClick={() => void salvarEdicao()}>
-                            Salvar
-                          </Button>
-                          <Button variante="secundaria" tamanho="pequeno" onClick={() => setEditFonte(null)}>
-                            Cancelar
-                          </Button>
-                        </>
+        <div className="grid gap-6">
+          <Card className="shadow-sm">
+            <CardHeader>
+              <CardTitle className="text-base">Fontes RSS</CardTitle>
+              <CardDescription>Cadastre e gerencie as fontes que alimentam o portal.</CardDescription>
+            </CardHeader>
+            <CardContent className="grid gap-4">
+              <div className="flex flex-wrap items-end gap-3 rounded-lg border border-[var(--cor-borda)] bg-[var(--cor-fundo)] p-4">
+                <div className="min-w-[140px] flex-1"><CampoTexto id="fonte-nome" rotulo="Nome (ex: G1)" value={novaFonte.nome} onChange={(e) => setNovaFonte({ ...novaFonte, nome: e.target.value })} /></div>
+                <div className="min-w-[200px] flex-1"><CampoTexto id="fonte-url" rotulo="URL https://" value={novaFonte.url} onChange={(e) => setNovaFonte({ ...novaFonte, url: e.target.value })} /></div>
+                <div className="min-w-[160px] flex-1"><CampoTexto id="fonte-categoria" rotulo="Categoria padrão (opcional)" value={novaFonte.categoria_padrao} onChange={(e) => setNovaFonte({ ...novaFonte, categoria_padrao: e.target.value })} /></div>
+                <Button onClick={() => void criar()} carregando={criarFonte.isPending} className="h-10">Adicionar</Button>
+              </div>
+              <DataTable
+                legenda="Fontes RSS"
+                linhas={fontesQuery.data ?? []}
+                colunas={[
+                  {
+                    cabecalho: "Nome",
+                    render: (f) =>
+                      editFonte?.id === f.id ? (
+                        <Input aria-label="Nome da fonte" value={editFonte.nome} onChange={(e) => setEditFonte({ ...editFonte, nome: e.target.value })} />
                       ) : (
-                        <>
-                          <Button variante="secundaria" tamanho="pequeno" onClick={() => setEditFonte(f)}>
-                            Editar
-                          </Button>
-                          <Button variante="secundaria" tamanho="pequeno" onClick={() => void remover(f.id)}>
-                            Remover
-                          </Button>
-                        </>
-                      )}
-                    </span>
-                  ),
-                },
-              ]}
-            />
-            {(fontesQuery.data?.length ?? 0) === 0 && (
-              <p className="texto-suave">Nenhuma fonte. Cadastradas no DB sobrescrevem as de settings; se vazias, usam as 4 padrão.</p>
-            )}
-          </section>
+                        f.nome
+                      ),
+                  },
+                  {
+                    cabecalho: "URL",
+                    render: (f) =>
+                      editFonte?.id === f.id ? (
+                        <Input aria-label="URL da fonte" value={editFonte.url} onChange={(e) => setEditFonte({ ...editFonte, url: e.target.value })} />
+                      ) : (
+                        <a href={f.url} target="_blank" rel="noreferrer" className="text-sm text-[var(--cor-primaria)] hover:underline break-all">{f.url}</a>
+                      ),
+                  },
+                  {
+                    cabecalho: "Cat.",
+                    render: (f) =>
+                      editFonte?.id === f.id ? (
+                        <Input aria-label="Categoria padrão" value={editFonte.categoria_padrao} onChange={(e) => setEditFonte({ ...editFonte, categoria_padrao: e.target.value })} />
+                      ) : (
+                        f.categoria_padrao || "—"
+                      ),
+                  },
+                  {
+                    cabecalho: "Ativo",
+                    render: (f) => (
+                      <Button variante={f.ativo ? "primaria" : "secundaria"} tamanho="pequeno" onClick={() => void alternarAtiva(f)}>{f.ativo ? "ativo" : "inativo"}</Button>
+                    ),
+                  },
+                  {
+                    cabecalho: "Ações",
+                    render: (f) => (
+                      <span className="flex gap-2">
+                        {editFonte?.id === f.id ? (
+                          <>
+                            <Button tamanho="pequeno" onClick={() => void salvarEdicao()}>Salvar</Button>
+                            <Button variante="secundaria" tamanho="pequeno" onClick={() => setEditFonte(null)}>Cancelar</Button>
+                          </>
+                        ) : (
+                          <>
+                            <Button variante="secundaria" tamanho="pequeno" onClick={() => setEditFonte(f)}>Editar</Button>
+                            <Button variante="secundaria" tamanho="pequeno" onClick={() => void remover(f.id)}>Remover</Button>
+                          </>
+                        )}
+                      </span>
+                    ),
+                  },
+                ]}
+              />
+              {(fontesQuery.data?.length ?? 0) === 0 && <p className="text-sm text-[var(--cor-texto-suave)]">Nenhuma fonte. Cadastradas no DB sobrescrevem as de settings; se vazias, usam as 4 padrão.</p>}
+            </CardContent>
+          </Card>
 
-          <section style={{ marginTop: 32 }}>
-            <h2>Parâmetros do robô</h2>
-            <p className="texto-suave">
-              Valores editáveis viram padrão da próxima ingestão; se o registro não existir ainda, o sistema usa os
-              defaults de settings.py.
-            </p>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(260px,1fr))", gap: 12, marginTop: 12 }}>
-              <CampoTexto id="cfg-intervalo" rotulo="Intervalo (min)" type="number" value={cfgForm.intervalo_minutos ?? ""} onChange={(e) => setCfgForm({ ...cfgForm, intervalo_minutos: Number(e.target.value) })} />
-              <CampoTexto id="cfg-categorias" rotulo="Categorias sensíveis (vírgula)" value={cfgForm.categorias_sensiveis ?? ""} onChange={(e) => setCfgForm({ ...cfgForm, categorias_sensiveis: e.target.value })} />
-              <CampoTexto id="cfg-limiar" rotulo="Limiar fontes alta relevância" type="number" value={cfgForm.limiar_fontes_alta_relevancia ?? ""} onChange={(e) => setCfgForm({ ...cfgForm, limiar_fontes_alta_relevancia: Number(e.target.value) })} />
-              <CampoTexto id="cfg-dedup-limiar" rotulo="Dedup limiar (0-1)" type="number" step="0.01" value={cfgForm.dedup_limiar_similaridade ?? ""} onChange={(e) => setCfgForm({ ...cfgForm, dedup_limiar_similaridade: Number(e.target.value) })} />
-              <CampoTexto id="cfg-dedup-janela" rotulo="Dedup janela (h)" type="number" step="0.5" value={cfgForm.dedup_janela_horas ?? ""} onChange={(e) => setCfgForm({ ...cfgForm, dedup_janela_horas: Number(e.target.value) })} />
-              <CampoTexto id="cfg-dedup-max" rotulo="Dedup max itens" type="number" value={cfgForm.dedup_max_itens ?? ""} onChange={(e) => setCfgForm({ ...cfgForm, dedup_max_itens: Number(e.target.value) })} />
-              <CampoTexto id="cfg-resumo-sim" rotulo="Resumo similaridade max (0-1)" type="number" step="0.01" value={cfgForm.resumo_similaridade_maxima ?? ""} onChange={(e) => setCfgForm({ ...cfgForm, resumo_similaridade_maxima: Number(e.target.value) })} />
-              <CampoTexto id="cfg-resumo-trecho" rotulo="Resumo trecho copiado max (0-1)" type="number" step="0.01" value={cfgForm.resumo_trecho_copiado_maximo ?? ""} onChange={(e) => setCfgForm({ ...cfgForm, resumo_trecho_copiado_maximo: Number(e.target.value) })} />
-              <CampoTexto id="cfg-llm-model" rotulo="LLM modelo" value={cfgForm.llm_model ?? ""} onChange={(e) => setCfgForm({ ...cfgForm, llm_model: e.target.value })} />
-              <CampoTexto id="cfg-llm-url" rotulo="LLM base URL" value={cfgForm.llm_api_base_url ?? ""} onChange={(e) => setCfgForm({ ...cfgForm, llm_api_base_url: e.target.value })} />
-              <CampoTexto id="cfg-llm-lote" rotulo="LLM tamanho lote" type="number" value={cfgForm.llm_tamanho_lote ?? ""} onChange={(e) => setCfgForm({ ...cfgForm, llm_tamanho_lote: Number(e.target.value) })} />
-              <CampoTexto id="cfg-llm-tokens" rotulo="LLM max tokens/item" type="number" value={cfgForm.llm_max_tokens_por_item ?? ""} onChange={(e) => setCfgForm({ ...cfgForm, llm_max_tokens_por_item: Number(e.target.value) })} />
-              <CampoTexto id="cfg-llm-teto" rotulo="LLM teto USD/dia" type="number" step="0.01" value={cfgForm.llm_teto_gasto_diario_usd ?? ""} onChange={(e) => setCfgForm({ ...cfgForm, llm_teto_gasto_diario_usd: Number(e.target.value) })} />
-              <CampoTexto id="cfg-llm-preco" rotulo="LLM preço /1k tokens" type="number" step="0.01" value={cfgForm.llm_preco_por_1k_tokens ?? ""} onChange={(e) => setCfgForm({ ...cfgForm, llm_preco_por_1k_tokens: Number(e.target.value) })} />
-              <CampoTexto id="cfg-llm-timeout" rotulo="LLM timeout (s)" type="number" value={cfgForm.llm_timeout_segundos ?? ""} onChange={(e) => setCfgForm({ ...cfgForm, llm_timeout_segundos: Number(e.target.value) })} />
-            </div>
-            <div style={{ display: "flex", gap: 12, marginTop: 12, flexWrap: "wrap" }}>
-              <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <input type="checkbox" checked={!!cfgForm.ativo} onChange={(e) => setCfgForm({ ...cfgForm, ativo: e.target.checked })} /> Robô ativo
-              </label>
-              <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <input type="checkbox" checked={!!cfgForm.dedup_cluster_sempre_exige_revisao} onChange={(e) => setCfgForm({ ...cfgForm, dedup_cluster_sempre_exige_revisao: e.target.checked })} /> Cluster sempre exige revisão
-              </label>
-            </div>
-            <Button style={{ marginTop: 16 }} carregando={salvarConfig.isPending} onClick={() => void salvarConfig.mutateAsync(cfgForm)}>
-              Salvar configuração
-            </Button>
-          </section>
+          <Card className="shadow-sm">
+            <CardHeader>
+              <CardTitle className="text-base">Parâmetros do robô</CardTitle>
+              <CardDescription>Valores editáveis viram padrão da próxima ingestão.</CardDescription>
+            </CardHeader>
+            <CardContent className="grid gap-4">
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                <CampoTexto id="cfg-intervalo" rotulo="Intervalo (min)" type="number" value={cfgForm.intervalo_minutos ?? ""} onChange={(e) => setCfgForm({ ...cfgForm, intervalo_minutos: Number(e.target.value) })} />
+                <CampoTexto id="cfg-categorias" rotulo="Categorias sensíveis (vírgula)" value={cfgForm.categorias_sensiveis ?? ""} onChange={(e) => setCfgForm({ ...cfgForm, categorias_sensiveis: e.target.value })} />
+                <CampoTexto id="cfg-limiar" rotulo="Limiar fontes alta relevância" type="number" value={cfgForm.limiar_fontes_alta_relevancia ?? ""} onChange={(e) => setCfgForm({ ...cfgForm, limiar_fontes_alta_relevancia: Number(e.target.value) })} />
+                <CampoTexto id="cfg-dedup-limiar" rotulo="Dedup limiar (0-1)" type="number" step="0.01" value={cfgForm.dedup_limiar_similaridade ?? ""} onChange={(e) => setCfgForm({ ...cfgForm, dedup_limiar_similaridade: Number(e.target.value) })} />
+                <CampoTexto id="cfg-dedup-janela" rotulo="Dedup janela (h)" type="number" step="0.5" value={cfgForm.dedup_janela_horas ?? ""} onChange={(e) => setCfgForm({ ...cfgForm, dedup_janela_horas: Number(e.target.value) })} />
+                <CampoTexto id="cfg-dedup-max" rotulo="Dedup max itens" type="number" value={cfgForm.dedup_max_itens ?? ""} onChange={(e) => setCfgForm({ ...cfgForm, dedup_max_itens: Number(e.target.value) })} />
+                <CampoTexto id="cfg-resumo-sim" rotulo="Resumo similaridade max (0-1)" type="number" step="0.01" value={cfgForm.resumo_similaridade_maxima ?? ""} onChange={(e) => setCfgForm({ ...cfgForm, resumo_similaridade_maxima: Number(e.target.value) })} />
+                <CampoTexto id="cfg-resumo-trecho" rotulo="Resumo trecho copiado max (0-1)" type="number" step="0.01" value={cfgForm.resumo_trecho_copiado_maximo ?? ""} onChange={(e) => setCfgForm({ ...cfgForm, resumo_trecho_copiado_maximo: Number(e.target.value) })} />
+                <CampoTexto id="cfg-llm-model" rotulo="LLM modelo" value={cfgForm.llm_model ?? ""} onChange={(e) => setCfgForm({ ...cfgForm, llm_model: e.target.value })} />
+                <CampoTexto id="cfg-llm-url" rotulo="LLM base URL" value={cfgForm.llm_api_base_url ?? ""} onChange={(e) => setCfgForm({ ...cfgForm, llm_api_base_url: e.target.value })} />
+                <CampoTexto id="cfg-llm-lote" rotulo="LLM tamanho lote" type="number" value={cfgForm.llm_tamanho_lote ?? ""} onChange={(e) => setCfgForm({ ...cfgForm, llm_tamanho_lote: Number(e.target.value) })} />
+                <CampoTexto id="cfg-llm-tokens" rotulo="LLM max tokens/item" type="number" value={cfgForm.llm_max_tokens_por_item ?? ""} onChange={(e) => setCfgForm({ ...cfgForm, llm_max_tokens_por_item: Number(e.target.value) })} />
+                <CampoTexto id="cfg-llm-teto" rotulo="LLM teto USD/dia" type="number" step="0.01" value={cfgForm.llm_teto_gasto_diario_usd ?? ""} onChange={(e) => setCfgForm({ ...cfgForm, llm_teto_gasto_diario_usd: Number(e.target.value) })} />
+                <CampoTexto id="cfg-llm-preco" rotulo="LLM preço /1k tokens" type="number" step="0.01" value={cfgForm.llm_preco_por_1k_tokens ?? ""} onChange={(e) => setCfgForm({ ...cfgForm, llm_preco_por_1k_tokens: Number(e.target.value) })} />
+                <CampoTexto id="cfg-llm-timeout" rotulo="LLM timeout (s)" type="number" value={cfgForm.llm_timeout_segundos ?? ""} onChange={(e) => setCfgForm({ ...cfgForm, llm_timeout_segundos: Number(e.target.value) })} />
+              </div>
+              <div className="flex flex-wrap gap-4">
+                <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={!!cfgForm.ativo} onChange={(e) => setCfgForm({ ...cfgForm, ativo: e.target.checked })} className="h-4 w-4 rounded accent-[var(--cor-primaria)]" /> Robô ativo</label>
+                <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={!!cfgForm.dedup_cluster_sempre_exige_revisao} onChange={(e) => setCfgForm({ ...cfgForm, dedup_cluster_sempre_exige_revisao: e.target.checked })} className="h-4 w-4 rounded accent-[var(--cor-primaria)]" /> Cluster sempre exige revisão</label>
+              </div>
+              <Button className="w-fit" carregando={salvarConfig.isPending} onClick={() => void salvarConfig.mutateAsync(cfgForm)}>Salvar configuração</Button>
+            </CardContent>
+          </Card>
 
-          <section style={{ marginTop: 32 }}>
-            <h2>Últimas execuções</h2>
-            <DataTable
-              legenda="Execuções do robô"
-              linhas={execsQuery.data ?? []}
-              colunas={[
-                { cabecalho: "Quando", render: (r) => new Date(r.executado_em).toLocaleString("pt-BR") },
-                { cabecalho: "Itens", render: (r) => String(r.total_itens_ingeridos) },
-                { cabecalho: "Grupos", render: (r) => String(r.total_grupos_formados) },
-                { cabecalho: "Dedup", render: (r) => String(r.total_duplicatas_agrupadas) },
-                { cabecalho: "LLM calls", render: (r) => String(r.chamadas_summarization_provider) },
-                { cabecalho: "Custo USD", render: (r) => r.custo_estimado_summarization_usd?.toFixed(4) ?? "—" },
-                {
-                  cabecalho: "Por fonte / erros",
-                  render: (r) => (
-                    <span style={{ fontSize: 12 }}>
-                      {Object.entries(r.itens_por_fonte).map(([k, v]) => (
-                        <span key={k} style={{ marginRight: 8 }}>
-                          {k}:{v}
-                        </span>
-                      ))}
-                      {Object.keys(r.erros_por_fonte).length > 0 && (
-                        <Badge variante="erro">{Object.keys(r.erros_por_fonte).length} erros</Badge>
-                      )}
-                    </span>
-                  ),
-                },
-              ]}
-            />
-            {(execsQuery.data?.length ?? 0) === 0 && (
-              <p className="texto-suave">Nenhuma execução registrada.</p>
-            )}
-          </section>
-        </>
+          <Card className="shadow-sm">
+            <CardHeader>
+              <CardTitle className="text-base">Últimas execuções</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <DataTable
+                legenda="Execuções do robô"
+                linhas={execsQuery.data ?? []}
+                colunas={[
+                  { cabecalho: "Quando", render: (r) => new Date(r.executado_em).toLocaleString("pt-BR") },
+                  { cabecalho: "Itens", render: (r) => String(r.total_itens_ingeridos) },
+                  { cabecalho: "Grupos", render: (r) => String(r.total_grupos_formados) },
+                  { cabecalho: "Dedup", render: (r) => String(r.total_duplicatas_agrupadas) },
+                  { cabecalho: "LLM calls", render: (r) => String(r.chamadas_summarization_provider) },
+                  { cabecalho: "Custo USD", render: (r) => r.custo_estimado_summarization_usd?.toFixed(4) ?? "—" },
+                  {
+                    cabecalho: "Por fonte / erros",
+                    render: (r) => (
+                      <span className="text-xs">
+                        {Object.entries(r.itens_por_fonte).map(([k, v]) => (
+                          <span key={k} className="mr-2">{k}:{String(v)}</span>
+                        ))}
+                        {Object.keys(r.erros_por_fonte).length > 0 && <Badge variante="erro">{Object.keys(r.erros_por_fonte).length} erros</Badge>}
+                      </span>
+                    ),
+                  },
+                ]}
+              />
+              {(execsQuery.data?.length ?? 0) === 0 && <p className="text-sm text-[var(--cor-texto-suave)]">Nenhuma execução registrada.</p>}
+            </CardContent>
+          </Card>
+        </div>
       )}
-    </div>
+    </section>
   );
 }

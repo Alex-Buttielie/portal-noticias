@@ -1,19 +1,92 @@
 "use client";
 
-import { useEffect, useId, useRef, type ReactNode } from "react";
-import { createPortal } from "react-dom";
+import * as React from "react";
+import * as DialogPrimitive from "@radix-ui/react-dialog";
+import { X, Loader2 } from "lucide-react";
+import { cn } from "@/lib/utils";
 
-/**
- * Diálogo modal com overlay (implementation-contract.md run
- * 20260903-1134-seo-lgpd-design-system, escopo D, critério de aceite 6):
- * `Escape` ou clique fora fecham o modal e o foco retorna ao elemento que
- * o abriu (capturado automaticamente via `document.activeElement` no
- * instante em que `aberto` vira `true` — o chamador não precisa gerenciar
- * foco manualmente). Foco preso dentro do modal enquanto aberto (Tab/
- * Shift+Tab não escapam para o resto da página). `carregando` desabilita o
- * fechamento (Escape/clique fora/botão "X") enquanto uma ação estiver em
- * andamento — evita fechar no meio de um envio.
- */
+const Dialog = DialogPrimitive.Root;
+const DialogTrigger = DialogPrimitive.Trigger;
+const DialogPortal = DialogPrimitive.Portal;
+const DialogClose = DialogPrimitive.Close;
+
+const DialogOverlay = React.forwardRef<
+  React.ElementRef<typeof DialogPrimitive.Overlay>,
+  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Overlay>
+>(({ className, ...props }, ref) => (
+  <DialogPrimitive.Overlay
+    ref={ref}
+    className={cn(
+      "fixed inset-0 z-50 bg-black/50 backdrop-blur-sm [overscroll-behavior:contain] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 motion-reduce:animate-none",
+      className
+    )}
+    {...props}
+  />
+));
+DialogOverlay.displayName = DialogPrimitive.Overlay.displayName;
+
+const DialogContent = React.forwardRef<
+  React.ElementRef<typeof DialogPrimitive.Content>,
+  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content>
+>(({ className, children, ...props }, ref) => (
+  <DialogPortal>
+    <DialogOverlay />
+    <DialogPrimitive.Content
+      ref={ref}
+      className={cn(
+        "fixed left-[50%] top-[50%] z-50 grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 border border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] p-6 shadow-lg duration-200 [overscroll-behavior:contain]",
+        "rounded-lg data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%]",
+        "motion-reduce:animate-none max-h-[80vh] overflow-y-auto",
+        className
+      )}
+      {...props}
+    >
+      {children}
+      <DialogPrimitive.Close
+        className={cn(
+          "absolute right-4 top-4 inline-flex min-h-[44px] min-w-[44px] touch-manipulation items-center justify-center rounded-sm opacity-70 ring-offset-[var(--cor-fundo)] transition-opacity hover:opacity-100 motion-reduce:transition-none",
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cor-foco)] focus-visible:ring-offset-2",
+          "disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground"
+        )}
+      >
+        <X className="h-4 w-4" />
+        <span className="sr-only">Fechar</span>
+      </DialogPrimitive.Close>
+    </DialogPrimitive.Content>
+  </DialogPortal>
+));
+DialogContent.displayName = DialogPrimitive.Content.displayName;
+
+const DialogHeader = ({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
+  <div className={cn("flex flex-col space-y-1.5 text-center sm:text-left", className)} {...props} />
+);
+DialogHeader.displayName = "DialogHeader";
+
+const DialogFooter = ({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
+  <div className={cn("flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2", className)} {...props} />
+);
+DialogFooter.displayName = "DialogFooter";
+
+const DialogTitle = React.forwardRef<
+  React.ElementRef<typeof DialogPrimitive.Title>,
+  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Title>
+>(({ className, ...props }, ref) => (
+  <DialogPrimitive.Title ref={ref} className={cn("text-lg font-semibold leading-none tracking-tight", className)} {...props} />
+));
+DialogTitle.displayName = DialogPrimitive.Title.displayName;
+
+const DialogDescription = React.forwardRef<
+  React.ElementRef<typeof DialogPrimitive.Description>,
+  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Description>
+>(({ className, ...props }, ref) => (
+  <DialogPrimitive.Description
+    ref={ref}
+    className={cn("text-sm text-[var(--cor-texto-suave)]", className)}
+    {...props}
+  />
+));
+DialogDescription.displayName = DialogPrimitive.Description.displayName;
+
 export default function Modal({
   aberto,
   aoFechar,
@@ -25,82 +98,37 @@ export default function Modal({
   aberto: boolean;
   aoFechar: () => void;
   titulo: string;
-  children: ReactNode;
-  rodape?: ReactNode;
+  children: React.ReactNode;
+  rodape?: React.ReactNode;
   carregando?: boolean;
 }) {
-  const tituloId = useId();
-  const modalRef = useRef<HTMLDivElement>(null);
-  const elementoQueAbriuRef = useRef<HTMLElement | null>(null);
-
-  useEffect(() => {
-    if (aberto) {
-      elementoQueAbriuRef.current = document.activeElement as HTMLElement | null;
-      const temporizador = window.setTimeout(() => modalRef.current?.focus(), 0);
-      return () => window.clearTimeout(temporizador);
-    }
-    elementoQueAbriuRef.current?.focus();
-    elementoQueAbriuRef.current = null;
-  }, [aberto]);
-
-  useEffect(() => {
-    if (!aberto) return;
-
-    function aoPressionarTecla(evento: KeyboardEvent) {
-      if (carregando) return;
-      if (evento.key === "Escape") {
-        evento.preventDefault();
-        aoFechar();
-        return;
-      }
-      if (evento.key === "Tab") {
-        const focaveis = modalRef.current?.querySelectorAll<HTMLElement>(
-          'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])'
-        );
-        if (!focaveis || focaveis.length === 0) return;
-        const primeiro = focaveis[0];
-        const ultimo = focaveis[focaveis.length - 1];
-        if (evento.shiftKey && document.activeElement === primeiro) {
-          evento.preventDefault();
-          ultimo.focus();
-        } else if (!evento.shiftKey && document.activeElement === ultimo) {
-          evento.preventDefault();
-          primeiro.focus();
-        }
-      }
-    }
-    document.addEventListener("keydown", aoPressionarTecla);
-    return () => document.removeEventListener("keydown", aoPressionarTecla);
-  }, [aberto, aoFechar, carregando]);
-
-  if (!aberto || typeof document === "undefined") return null;
-
-  return createPortal(
-    <div
-      className="modal-fundo"
-      onClick={(evento) => {
-        if (evento.target === evento.currentTarget && !carregando) aoFechar();
-      }}
-    >
-      <div className="modal" role="dialog" aria-modal="true" aria-labelledby={tituloId} ref={modalRef} tabIndex={-1}>
-        <div className="modal-cabecalho">
-          <h2 id={tituloId} className="modal-titulo">
-            {titulo}
-          </h2>
-          <button
-            type="button"
-            className="modal-fechar"
-            aria-label="Fechar"
-            disabled={carregando}
-            onClick={() => aoFechar()}
-          >
-            ✕
-          </button>
+  return (
+    <Dialog open={aberto} onOpenChange={(open) => !open && !carregando && aoFechar()}>
+      <DialogContent
+        aria-describedby={undefined}
+        onInteractOutside={(e) => {
+          if (carregando) e.preventDefault();
+        }}
+        onEscapeKeyDown={(e) => {
+          if (carregando) e.preventDefault();
+        }}
+      >
+        <DialogHeader>
+          <DialogTitle>{titulo}</DialogTitle>
+        </DialogHeader>
+        <div className={cn("py-2")}>
+          {children}
+          {carregando && (
+            <p className="mt-4 flex items-center gap-2 text-sm text-[var(--cor-texto-suave)]" role="status" aria-live="polite">
+              <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+              Carregando…
+            </p>
+          )}
         </div>
-        <div className="modal-corpo">{children}</div>
-        {rodape && <div className="modal-rodape">{rodape}</div>}
-      </div>
-    </div>,
-    document.body
+        {rodape && <DialogFooter>{rodape}</DialogFooter>}
+      </DialogContent>
+    </Dialog>
   );
 }
+
+export { Dialog, DialogPortal, DialogOverlay, DialogClose, DialogTrigger, DialogContent, DialogHeader, DialogFooter, DialogTitle, DialogDescription };

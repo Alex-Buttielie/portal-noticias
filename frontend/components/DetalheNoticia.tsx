@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import Link from "next/link";
+import { Clock, FileText } from "lucide-react";
 import * as api from "@/lib/api";
 import { useDetalheCluster, useDetalheItem, useFeed } from "@/lib/queries";
 import * as intencao from "@/lib/intent";
@@ -11,19 +12,20 @@ import { ReadingProgress } from "@/components/ui/ReadingProgress";
 import { ShareButtons } from "@/components/ui/ShareButtons";
 import { CompactNewsCard } from "@/components/ui/Cards";
 import { EmptyState, ErrorState, SkeletonCard } from "@/components/ui/Estados";
+import { cn } from "@/lib/utils";
 
-function formatarData(timestamp: string): string {
-  try {
-    return new Date(timestamp).toLocaleString("pt-BR", {
-      day: "2-digit",
-      month: "2-digit",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  } catch {
-    return timestamp;
-  }
+const formatoDataHora = new Intl.DateTimeFormat("pt-BR", {
+  day: "2-digit",
+  month: "2-digit",
+  year: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+});
+
+function DataPublicacao({ timestamp }: { timestamp: string }) {
+  const data = new Date(timestamp);
+  if (Number.isNaN(data.getTime())) return <span>{timestamp}</span>;
+  return <time dateTime={timestamp}>{formatoDataHora.format(data)}</time>;
 }
 
 const PALAVRAS_POR_MINUTO = 200;
@@ -59,7 +61,7 @@ export default function DetalheNoticia({
   if (consulta.isLoading && !detalhe) {
     return (
       <div aria-live="polite" aria-busy="true">
-        <span className="visualmente-oculto">Carregando notícia…</span>
+        <span className="sr-only botao--medio">Carregando notícia…</span>
         <SkeletonCard />
       </div>
     );
@@ -88,71 +90,116 @@ export default function DetalheNoticia({
   return (
     <>
       <ReadingProgress />
-      <article style={{ animation: "entrada-suave var(--duracao-lenta) var(--curva-padrao) both" }}>
+      <article className={cn("animate-in fade-in duration-300 motion-reduce:animate-none")}>
         {detalhe.exibir_publicidade && (
-          <div className="faixa-publicidade">
+          <div className={cn("mb-4 rounded-lg border border-[var(--cor-borda)] border-l-[3px] bg-[var(--cor-fundo-card)] px-3 py-2 text-xs text-[var(--cor-texto-suave)]")}>
             Espaço publicitário — assine o Premium para navegar sem anúncios.
           </div>
         )}
-        <div className="cartao-meta">
-          {detalhe.urgente && <Badge variante="erro">Urgente</Badge>}
+<nav className={cn("mb-3 flex items-center gap-2 text-xs text-[var(--cor-texto-suave)]")} aria-label="Você está aqui">
+          <Link href="/" className={cn("hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cor-foco)] rounded-sm")}>
+            Início
+          </Link>
+          <span aria-hidden="true">/</span>
+          <Link
+            href={`/?categoria=${encodeURIComponent(detalhe.categoria)}`}
+            className={cn("hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cor-foco)] rounded-sm")}
+          >
+            {detalhe.categoria}
+          </Link>
+          <span aria-hidden="true">/</span>
+          <span aria-current="page" className="text-[var(--cor-texto-suave)] cartao-meta etiqueta-urgente">
+            Esta notícia
+          </span>
+        </nav>
+        <div className={cn("mb-3 flex flex-wrap items-center gap-2")}>
+          {detalhe.urgente && (
+            <span className={cn("inline-flex items-center rounded bg-[var(--cor-erro)] px-1.5 py-0.5 text-xs font-bold uppercase text-white")}>
+              Urgente
+            </span>
+          )}
           {detalhe.categoria && (
-            <Badge variante="neutro">
-              <span className="cartao-emoji" aria-hidden="true">
-                {visual.emoji}
-              </span>
+            <Badge variante="neutro" className={cn("gap-1")}>
+              <span aria-hidden="true">{visual.emoji}</span>
               {detalhe.categoria}
             </Badge>
           )}
-          <span>{formatarData(detalhe.timestamp)}</span>
+<span className={cn("text-xs text-[var(--cor-texto-suave)]")}>
+            <DataPublicacao timestamp={detalhe.timestamp} />
+          </span>
         </div>
-        <h1>{detalhe.titulo}</h1>
+        <h1 className={cn("font-[var(--fonte-titulo,Georgia)] text-3xl font-bold leading-tight tracking-[-0.025em] text-wrap-balance")}>
+          {detalhe.titulo}
+        </h1>
 
-        <div className="info-leitura">
-          <span>{estimarTempoLeitura(detalhe)} min de leitura</span>
+        <div className={cn("mt-3 flex items-center gap-2 text-xs text-[var(--cor-texto-suave)]")}>
+          <span className={cn("inline-flex items-center gap-1")}>
+            <Clock className="h-3.5 w-3.5" aria-hidden="true" />
+            {estimarTempoLeitura(detalhe)} min de leitura
+          </span>
           <span aria-hidden="true">·</span>
-          <span>{detalhe.fontes.length} {detalhe.fontes.length === 1 ? "fonte" : "fontes"}</span>
+          <span className={cn("inline-flex items-center gap-1")}>
+            <FileText className="h-3.5 w-3.5" aria-hidden="true" />
+            {detalhe.fontes.length} {detalhe.fontes.length === 1 ? "fonte" : "fontes"}
+          </span>
         </div>
         {urlCanonica && (
-          <ShareButtons titulo={detalhe.titulo} texto={detalhe.fontes[0]?.resumo} url={urlCanonica} />
+          <div className="mt-4">
+            <ShareButtons titulo={detalhe.titulo} texto={detalhe.fontes[0]?.resumo} url={urlCanonica} />
+          </div>
         )}
 
-        <h2 style={{ fontSize: "1rem", marginTop: "1.5rem" }}>
-          Fontes ({detalhe.fontes.length})
-        </h2>
+<h2 className={cn("mt-6 text-base font-semibold")}>Por que confiar</h2>
+        <div className={cn("mt-2 rounded-lg border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] p-4 shadow-sm border-l-[3px]")} style={{ borderLeftColor: visual.cor }}>
+          <p className={cn("text-sm leading-relaxed")}>
+            Apuramos esta notícia em {detalhe.fontes.length} {detalhe.fontes.length === 1 ? "fonte independente" : "fontes independentes"}. Você
+            pode conferir cada uma abaixo e ler a matéria original.
+          </p>
+        </div>
+        <h2 className={cn("mt-6 text-base font-semibold")}>Fontes ({detalhe.fontes.length})</h2>
         {detalhe.fontes.map((fonte, indice) => (
           <div
-            className="cartao cartao-acento"
-            style={{ ["--acento" as string]: visual.cor }}
             key={`${fonte.url_fonte_original}-${indice}`}
+            className={cn("mt-3 rounded-lg border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] p-4 shadow-sm border-l-[3px]")}
+            style={{ borderLeftColor: visual.cor }}
           >
-            <div className="cartao-meta">
+            <div className={cn("mb-1 text-sm font-semibold")}>
               <strong>{fonte.nome_fonte}</strong>
             </div>
-            <p className="artigo-corpo" style={{ fontSize: "1rem" }}>
-              {fonte.resumo}
-            </p>
-            <a href={fonte.url_fonte_original} target="_blank" rel="noopener noreferrer">
-              Ler matéria original em {fonte.nome_fonte} →
+<p className={cn("text-sm leading-relaxed text-[var(--cor-texto-suave)]")}>{fonte.resumo}</p>
+            <a
+              href={fonte.url_fonte_original}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={cn(
+                "mt-2 inline-flex text-sm font-medium text-[var(--cor-primaria)] hover:underline",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cor-foco)] rounded-sm"
+              )}
+            >
+              Ler matéria original em {fonte.nome_fonte}
             </a>
           </div>
         ))}
       </article>
 
-      <nav className="fluxo-leitura" aria-label="Continue explorando">
-        <Link href="/" className="botao botao--fantasma botao--medio">
+      <nav className={cn("mt-8 space-y-6")} aria-label="Continue explorando">
+        <Link
+          href="/"
+          className={cn(
+            "inline-flex h-10 items-center justify-center rounded-md border border-[var(--cor-borda)] bg-white px-4 text-sm font-medium",
+            "hover:bg-[var(--cor-primaria-suave)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cor-foco)] focus-visible:ring-offset-2",
+            "motion-reduce:transition-none transition-colors"
+          )}
+        >
           ← Voltar ao feed
         </Link>
         {relacionados.length > 0 && (
           <section aria-label="Continue explorando">
-            <p className="secao-eyebrow">O rio continua</p>
-            <h2 className="secao-titulo">Continue explorando</h2>
-            <div className="lista-compacta">
+            <p className={cn("text-xs font-semibold uppercase tracking-widest text-[var(--cor-texto-suave)]")}>O rio continua</p>
+            <h2 className={cn("mt-1 font-[var(--fonte-titulo,Georgia)] text-lg font-bold tracking-[-0.01em]")}>Continue explorando</h2>
+            <div className={cn("mt-3 grid gap-3")}>
               {relacionados.map((entrada) => (
-                <CompactNewsCard
-                  key={`${entrada.tipo}-${entrada.id}`}
-                  entrada={entrada}
-                />
+                <CompactNewsCard key={`${entrada.tipo}-${entrada.id}`} entrada={entrada} />
               ))}
             </div>
           </section>

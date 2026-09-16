@@ -1,15 +1,25 @@
 "use client";
 
-import type { ReactNode } from "react";
+import * as React from "react";
+import { cva, type VariantProps } from "class-variance-authority";
+import { X } from "lucide-react";
+import { cn } from "@/lib/utils";
 
-/**
- * Tag interativa (selecionável e/ou removível) — ex.: filtro ativo, interesse
- * selecionado no onboarding (implementation-contract.md run
- * 20260903-1134-seo-lgpd-design-system, escopo D). O clique principal e o
- * botão de remover são elementos irmãos, nunca um `<button>` aninhado dentro
- * de outro (HTML inválido e confuso para leitor de tela) — a raiz é um
- * `<span>` não interativo que só agrupa visualmente os dois.
- */
+const chipVariants = cva(
+  "inline-flex min-h-[44px] touch-manipulation items-center gap-1.5 break-words rounded-full border px-3 py-1 text-sm font-medium transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cor-foco)] focus-visible:ring-offset-2",
+  {
+    variants: {
+      selecionado: {
+        true: "border-[var(--cor-primaria)] bg-[var(--cor-primaria-suave)] text-[var(--cor-primaria)]",
+        false: "border-[var(--cor-borda)] bg-white text-[var(--cor-texto)] hover:border-[var(--cor-primaria)]",
+      },
+    },
+    defaultVariants: {
+      selecionado: false,
+    },
+  }
+);
+
 export default function Chip({
   children,
   selecionado = false,
@@ -17,44 +27,46 @@ export default function Chip({
   aoClicar,
   aoRemover,
   removerRotulo,
+  className,
 }: {
-  children: ReactNode;
+  children: React.ReactNode;
   selecionado?: boolean;
   disabled?: boolean;
   aoClicar?: () => void;
   aoRemover?: () => void;
-  /** Texto acessível do botão de remover (ex.: "Remover filtro Economia"). */
   removerRotulo?: string;
-}) {
-  const classe = selecionado ? "chip chip--selecionado" : "chip";
-  const conteudo = <span>{children}</span>;
-
+  className?: string;
+} & VariantProps<typeof chipVariants>) {
   return (
-    <span className={classe} aria-disabled={disabled || undefined}>
+    <span className={cn(chipVariants({ selecionado }), disabled && "opacity-50 pointer-events-none", className)}>
       {aoClicar ? (
         <button
           type="button"
-          style={{ all: "unset", cursor: disabled ? "not-allowed" : "pointer" }}
           aria-pressed={selecionado}
           disabled={disabled}
           onClick={aoClicar}
+          className="inline-flex min-h-[44px] touch-manipulation items-center bg-transparent p-0 font-inherit text-inherit focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cor-foco)] motion-reduce:transition-none"
         >
-          {conteudo}
+          {children}
         </button>
       ) : (
-        conteudo
+        <span className="break-words">{children}</span>
       )}
       {aoRemover && (
         <button
           type="button"
-          className="chip-remover"
+          className={cn(
+            "inline-flex min-h-[44px] min-w-[44px] touch-manipulation items-center justify-center rounded-full hover:bg-black/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cor-foco)] motion-reduce:transition-none"
+          )}
           aria-label={removerRotulo || "Remover"}
           disabled={disabled}
           onClick={aoRemover}
         >
-          ✕
+          <X className="h-3 w-3" aria-hidden="true" />
         </button>
       )}
     </span>
   );
 }
+
+export { chipVariants };

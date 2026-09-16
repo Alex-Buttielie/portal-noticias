@@ -3,7 +3,7 @@ import VerificarEmailConteudo from "./VerificarEmailConteudo";
 
 export default function PaginaVerificarEmail() {
   return (
-    <Suspense fallback={<p className="texto-suave">Carregando...</p>}>
+    <Suspense fallback={<p className="texto-suave">Carregando…</p>}>
       <VerificarEmailConteudo />
     </Suspense>
   );

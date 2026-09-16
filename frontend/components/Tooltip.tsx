@@ -1,50 +1,50 @@
 "use client";
 
-import { useId, useState, type ReactNode } from "react";
+import * as React from "react";
+import * as TooltipPrimitive from "@radix-ui/react-tooltip";
+import { cn } from "@/lib/utils";
 
-/**
- * Dica curta associada a um elemento — aparece no hover E no foco por
- * teclado (não só no mouse, para não excluir quem navega por teclado),
- * some com `Escape` (implementation-contract.md run
- * 20260903-1134-seo-lgpd-design-system, escopo D). `aria-describedby`
- * conecta o gatilho ao texto para leitores de tela, mesmo quando o balão
- * não está visualmente aberto ainda (o leitor de tela anuncia ao focar).
- */
+const TooltipProvider = TooltipPrimitive.Provider;
+const TooltipRoot = TooltipPrimitive.Root;
+const TooltipTrigger = TooltipPrimitive.Trigger;
+
+const TooltipContent = React.forwardRef<
+  React.ElementRef<typeof TooltipPrimitive.Content>,
+  React.ComponentPropsWithoutRef<typeof TooltipPrimitive.Content>
+>(({ className, sideOffset = 4, ...props }, ref) => (
+  <TooltipPrimitive.Content
+    ref={ref}
+    sideOffset={sideOffset}
+    className={cn(
+      "z-50 overflow-hidden break-words rounded-md bg-[var(--cor-texto)] px-3 py-1.5 text-xs font-medium text-[var(--cor-fundo)] shadow-md [overscroll-behavior:contain]",
+      "animate-in fade-in-0 zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[side=bottom]:slide-in-from-top-2 data-[side=top]:slide-in-from-bottom-2",
+      "motion-reduce:animate-none max-w-[240px] text-wrap-balance",
+      className
+    )}
+    {...props}
+  />
+));
+TooltipContent.displayName = TooltipPrimitive.Content.displayName;
+
 export default function Tooltip({
   texto,
   children,
   posicao = "cima",
 }: {
   texto: string;
-  children: ReactNode;
+  children: React.ReactNode;
   posicao?: "cima" | "baixo";
 }) {
-  const [visivel, setVisivel] = useState(false);
-  const tooltipId = useId();
-
-  function aoPressionarTecla(evento: React.KeyboardEvent) {
-    if (evento.key === "Escape") setVisivel(false);
-  }
-
   return (
-    <span
-      className="tooltip"
-      onMouseEnter={() => setVisivel(true)}
-      onMouseLeave={() => setVisivel(false)}
-      onFocus={() => setVisivel(true)}
-      onBlur={() => setVisivel(false)}
-      onKeyDown={aoPressionarTecla}
-    >
-      <span aria-describedby={visivel ? tooltipId : undefined}>{children}</span>
-      {visivel && (
-        <span
-          role="tooltip"
-          id={tooltipId}
-          className={posicao === "baixo" ? "tooltip-balao tooltip-balao--baixo" : "tooltip-balao"}
-        >
-          {texto}
-        </span>
-      )}
-    </span>
+    <TooltipProvider>
+      <TooltipRoot>
+        <TooltipTrigger asChild>
+          <span className={cn("inline-flex min-h-[44px] touch-manipulation items-center")}>{children}</span>
+        </TooltipTrigger>
+        <TooltipContent side={posicao === "baixo" ? "bottom" : "top"}>{texto}</TooltipContent>
+      </TooltipRoot>
+    </TooltipProvider>
   );
 }
+
+export { TooltipProvider, TooltipRoot, TooltipTrigger, TooltipContent };

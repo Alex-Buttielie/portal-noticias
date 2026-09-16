@@ -3,6 +3,9 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import * as api from "@/lib/api";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Cards";
+import { ErrorState, LoadingSpinner } from "@/components/ui/Estados";
+import { cn } from "@/lib/utils";
 
 export default function PaginaEditorialPage() {
   const params = useParams<{ slug: string }>();
@@ -19,29 +22,44 @@ export default function PaginaEditorialPage() {
       .then(setPagina)
       .catch((e: unknown) => {
         setErro(
-          e instanceof api.ApiError && e.status === 404
-            ? "Página não encontrada."
-            : "Não foi possível carregar esta página."
+          e instanceof api.ApiError && e.status === 404 ? "Página não encontrada." : "Não foi possível carregar esta página."
         );
       })
       .finally(() => setCarregando(false));
   }, [params.slug]);
 
-  if (carregando) return <p className="texto-suave">Carregando...</p>;
-  if (erro) return <p className="mensagem-erro">{erro}</p>;
+  if (carregando)
+    return (
+      <div className={cn("container mx-auto max-w-2xl px-4 py-10")}>
+        <LoadingSpinner rotulo="Carregando página…" />
+      </div>
+    );
+  if (erro)
+    return (
+      <div className={cn("container mx-auto max-w-2xl px-4 py-10")}>
+        <ErrorState mensagem={erro} />
+      </div>
+    );
   if (!pagina) return null;
 
   return (
-    <div className="pagina-editorial">
-      <h1>{pagina.titulo}</h1>
-      <p className="texto-suave">
-        Atualizado em {new Date(pagina.atualizado_em).toLocaleDateString("pt-BR")}
-      </p>
-      {pagina.conteudo.split("\n\n").map((paragrafo, indice) => (
-        <p key={indice} style={{ whiteSpace: "pre-line", marginTop: "1rem" }}>
-          {paragrafo}
-        </p>
-      ))}
+<div className={cn("container mx-auto max-w-3xl px-4 py-8 sm:px-6")}>
+      <Card className="shadow-sm container--estreito secao-bloco">
+        <CardHeader className="space-y-2">
+          <p className="text-xs font-bold uppercase tracking-widest text-[var(--cor-primaria)] secao-eyebrow">Institucional</p>
+          <CardTitle id="pagina-editorial-titulo" className="text-3xl leading-tight">
+            {pagina.titulo}
+          </CardTitle>
+          <p className="text-sm text-[var(--cor-texto-suave)]">Atualizado em {new Date(pagina.atualizado_em).toLocaleDateString("pt-BR")}</p>
+        </CardHeader>
+        <CardContent className="grid gap-4">
+          {pagina.conteudo.split("\n\n").map((paragrafo, indice) => (
+            <p key={indice} className="whitespace-pre-line text-sm leading-relaxed text-[var(--cor-texto)]">
+              {paragrafo}
+            </p>
+          ))}
+        </CardContent>
+      </Card>
     </div>
   );
 }

@@ -10,6 +10,8 @@ import { usePublicarAnalise } from "@/lib/queries";
 import { Button } from "@/components/ui/Button";
 import { CampoAreaTexto, CampoSelecao, CampoTexto } from "@/components/ui/FormField";
 import { ErrorState } from "@/components/ui/Estados";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Cards";
+import { cn } from "@/lib/utils";
 
 export default function PaginaNovaPublicacao() {
   const router = useRouter();
@@ -49,10 +51,11 @@ export default function PaginaNovaPublicacao() {
 
   if (sucesso) {
     return (
-      <div className="formulario">
-        <h1>Publicado!</h1>
-        <p className="mensagem-sucesso">Sua análise foi publicada na comunidade.</p>
-        <Link href="/comunidade" className="botao botao--primaria botao--medio">
+<div className="mx-auto max-w-[640px] space-y-4 formulario botao--primaria botao--medio">
+        <p className="text-xs font-bold uppercase tracking-[0.14em] text-[var(--cor-primaria)] secao-eyebrow">Comunidade</p>
+        <h1 className="font-[var(--fonte-titulo)] text-2xl font-bold tracking-tight">Publicado!</h1>
+        <p className="rounded-md border border-[var(--cor-sucesso)]/20 bg-[var(--cor-sucesso)]/10 px-3 py-2 text-sm text-[var(--cor-sucesso)]">Sua análise foi publicada na comunidade.</p>
+        <Link href="/comunidade" className={cn("inline-flex h-10 items-center justify-center rounded-md bg-[var(--cor-primaria)] px-4 text-sm font-semibold text-white hover:bg-[var(--cor-primaria-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cor-foco)]")}>
           Ver comunidade
         </Link>
       </div>
@@ -60,32 +63,40 @@ export default function PaginaNovaPublicacao() {
   }
 
   return (
-    <div className="formulario" style={{ maxWidth: 640 }}>
-      <h1>Nova publicação</h1>
-      <p className="texto-suave">
-        Disponível apenas para jornalistas credenciados —{" "}
-        <Link href="/jornalista/status">ver status do credenciamento</Link>.
-      </p>
+<div className="mx-auto max-w-[640px] space-y-6 formulario">
+      <header className="space-y-1">
+        <p className="text-xs font-bold uppercase tracking-[0.14em] text-[var(--cor-primaria)] secao-eyebrow">Comunidade</p>
+        <h1 className="font-[var(--fonte-titulo)] text-2xl font-bold tracking-tight">Nova publicação</h1>
+        <p className="text-sm text-[var(--cor-texto-suave)]">
+          Disponível apenas para jornalistas credenciados —{" "}
+          <Link href="/jornalista/status" className="font-medium text-[var(--cor-primaria)] hover:underline">ver status do credenciamento</Link>.
+        </p>
+      </header>
       {erro && <ErrorState mensagem={erro} />}
-      <form onSubmit={aoSubmeter}>
-        <CampoSelecao id="tipo" rotulo="Tipo" value={tipo} onChange={(e) => setTipo(e.target.value as api.TipoPublicacao)}>
-          <option value="analise">Análise</option>
-          <option value="opiniao">Opinião</option>
-        </CampoSelecao>
-        <CampoTexto id="titulo" rotulo="Título" required value={titulo} onChange={(e) => setTitulo(e.target.value)} />
-        <CampoTexto id="categoria" rotulo="Categoria" value={categoria} onChange={(e) => setCategoria(e.target.value)} />
-        <CampoAreaTexto
-          id="conteudo"
-          rotulo="Conteúdo"
-          rows={12}
-          required
-          value={conteudo}
-          onChange={(e) => setConteudo(e.target.value)}
-        />
-        <Button type="submit" carregando={publicar.isPending}>
-          Publicar
-        </Button>
-      </form>
+      <Card>
+        <CardContent className="pt-6">
+          <form onSubmit={aoSubmeter} className="space-y-4">
+            <CampoSelecao id="tipo" rotulo="Tipo" value={tipo} onChange={(e) => setTipo(e.target.value as api.TipoPublicacao)}>
+              <option value="analise">Análise</option>
+              <option value="opiniao">Opinião</option>
+            </CampoSelecao>
+            <CampoTexto id="titulo" rotulo="Título" required value={titulo} onChange={(e) => setTitulo(e.target.value)} placeholder="Título da publicação…" />
+            <CampoTexto id="categoria" rotulo="Categoria" value={categoria} onChange={(e) => setCategoria(e.target.value)} placeholder="Ex: política, economia…" />
+            <CampoAreaTexto
+              id="conteudo"
+              rotulo="Conteúdo"
+              rows={12}
+              required
+              value={conteudo}
+              onChange={(e) => setConteudo(e.target.value)}
+              placeholder="Escreva sua análise respeitando as diretrizes editoriais…"
+            />
+            <Button type="submit" carregando={publicar.isPending} className="w-full sm:w-auto">
+              Publicar
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
     </div>
   );
 }

@@ -8,6 +8,8 @@ import { usePainelMetricas } from "@/lib/queries";
 import Tabs from "@/components/Tabs";
 import Badge from "@/components/Badge";
 import { EmptyState, ErrorState, SkeletonLista } from "@/components/ui/Estados";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Cards";
+import { cn } from "@/lib/utils";
 
 function pct(v: number) {
   return `${(v * 100).toFixed(1)}%`;
@@ -21,7 +23,7 @@ function maxY(series: api.SeriePonto[]) {
   return Math.max(1, ...series.map((p) => p.total));
 }
 function Sparkline({ serie, cor = "var(--cor-primaria)" }: { serie: api.SeriePonto[]; cor?: string }) {
-  if (!serie.length) return <p className="texto-suave">Sem dados no período.</p>;
+  if (!serie.length) return <p className="text-sm text-[var(--cor-texto-suave)]">Sem dados no período.</p>;
   const W = 520;
   const H = 96;
   const pad = 12;
@@ -53,28 +55,28 @@ function Sparkline({ serie, cor = "var(--cor-primaria)" }: { serie: api.SeriePon
           <circle key={i} cx={x} cy={ys[i]} r={2.6} fill={cor} />
         ))}
       </svg>
-      <div className="dashboard-legenda">
-        <span className="texto-suave">{serie[0]?.dia}</span>
-        <span className="texto-suave">{serie[serie.length - 1]?.dia}</span>
+      <div className="flex justify-between text-xs text-[var(--cor-texto-suave)]">
+        <span className="text-sm text-[var(--cor-texto-suave)]">{serie[0]?.dia}</span>
+        <span className="text-sm text-[var(--cor-texto-suave)]">{serie[serie.length - 1]?.dia}</span>
       </div>
     </div>
   );
 }
 
 function Barras({ itens, cor = "var(--cor-primaria)" }: { itens: api.DistribuicaoItem[]; cor?: string }) {
-  if (!itens.length) return <p className="texto-suave">Sem dados.</p>;
+  if (!itens.length) return <p className="text-sm text-[var(--cor-texto-suave)]">Sem dados.</p>;
   const m = Math.max(1, ...itens.map((x) => x.total));
   return (
-    <div className="barras">
+    <div className="grid gap-2">
       {itens.map((it) => (
-        <div key={it.label} className="barra-linha">
-          <span className="barra-rotulo" title={it.label}>
+        <div key={it.label} className="grid grid-cols-[120px_1fr_40px] items-center gap-2">
+          <span className="truncate text-xs font-medium text-[var(--cor-texto)]" title={it.label}>
             {it.label}
           </span>
-          <div className="barra-trilho">
-            <div className="barra-preenchida" style={{ width: `${(it.total / m) * 100}%`, background: cor }} />
+          <div className="h-2 rounded-full bg-[var(--cor-borda)] overflow-hidden">
+            <div className="h-full rounded-full" style={{ width: `${(it.total / m) * 100}%`, background: cor }} />
           </div>
-          <span className="barra-valor">{it.total}</span>
+          <span className="text-xs tabular-nums text-[var(--cor-texto-suave)]">{it.total}</span>
         </div>
       ))}
     </div>
@@ -82,7 +84,7 @@ function Barras({ itens, cor = "var(--cor-primaria)" }: { itens: api.Distribuica
 }
 
 function Donut({ itens, size = 140 }: { itens: api.DistribuicaoItem[]; size?: number }) {
-  if (!itens.length) return <p className="texto-suave">Sem dados.</p>;
+  if (!itens.length) return <p className="text-sm text-[var(--cor-texto-suave)]">Sem dados.</p>;
   const total = itens.reduce((a, b) => a + b.total, 0) || 1;
   const cores = ["var(--cor-primaria)", "var(--cor-sucesso)", "var(--cor-premium)", "var(--cor-erro)", "#7c5cff", "#00b8a9", "#888"];
   let acc = 0;
@@ -91,7 +93,7 @@ function Donut({ itens, size = 140 }: { itens: api.DistribuicaoItem[]; size?: nu
   const cy = size / 2;
   const circ = 2 * Math.PI * r;
   return (
-    <div className="donut-wrap">
+    <div className="flex flex-col items-center gap-3">
       <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} role="img" aria-label="Distribuição">
         <circle cx={cx} cy={cy} r={r} fill="none" stroke="var(--cor-borda)" strokeWidth={18} />
         {itens.map((it, i) => {
@@ -107,10 +109,10 @@ function Donut({ itens, size = 140 }: { itens: api.DistribuicaoItem[]; size?: nu
           {total}
         </text>
       </svg>
-      <div className="donut-legenda">
+      <div className="grid gap-1 text-xs">
         {itens.map((it, i) => (
-          <span key={it.label} className="donut-legenda-item">
-            <span className="donut-bolinha" style={{ background: cores[i % cores.length] }} /> {it.label}: {it.total} ({pct(it.total / total)})
+          <span key={it.label} className="flex items-center gap-2">
+            <span className="h-3 w-3 rounded-full" style={{ background: cores[i % cores.length] }} /> {it.label}: {it.total} ({pct(it.total / total)})
           </span>
         ))}
       </div>
@@ -120,12 +122,14 @@ function Donut({ itens, size = 140 }: { itens: api.DistribuicaoItem[]; size?: nu
 
 function KpiCard({ titulo, valor, subtitulo, destaque }: { titulo: string; valor: string; subtitulo?: string; destaque?: string }) {
   return (
-    <div className="kpi">
-      <div className="kpi-titulo">{titulo}</div>
-      <div className="kpi-valor">{valor}</div>
-      {subtitulo && <div className="kpi-sub">{subtitulo}</div>}
-      {destaque && <Badge variante="neutro">{destaque}</Badge>}
-    </div>
+    <Card className="min-w-0 overflow-hidden shadow-sm">
+      <CardContent className="min-w-0 p-5">
+        <p className="text-xs font-semibold uppercase tracking-wider text-[var(--cor-texto-suave)]">{titulo}</p>
+        <p className="mt-1 break-words text-2xl font-bold tracking-tight text-[var(--cor-texto)]">{valor}</p>
+        {subtitulo && <p className="mt-1 break-words text-xs text-[var(--cor-texto-suave)]">{subtitulo}</p>}
+        {destaque && <div className="mt-2"><Badge variante="neutro">{destaque}</Badge></div>}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -162,34 +166,34 @@ export default function PaginaAdminMetricas() {
         rotulo: "Visão geral",
         conteudo: (
           <div>
-            <div className="kpi-grid">
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
               <KpiCard titulo="Usuários totais" valor={String(painel.usuarios_cadastrados_total)} subtitulo={`+${painel.usuarios_cadastrados_periodo} no período`} destaque={`${painel.periodo_dias} dias`} />
               <KpiCard titulo="DAU / MAU" valor={`${painel.usuarios_ativos_diarios} / ${painel.usuarios_ativos_mensais}`} subtitulo={`Retenção ${pct(painel.retencao_periodo)}`} />
               <KpiCard titulo="Assinaturas ativas" valor={String(painel.assinaturas_ativas)} subtitulo={`Conversão ${pct(painel.conversao_free_premium)} · Churn ${pct(painel.churn_periodo)}`} />
               <KpiCard titulo="Receita no período" valor={moeda(painel.receita_recorrente_periodo)} subtitulo={`Ticket médio ${moeda(painel.receita_media_por_assinante)} · Renovação ${pct(painel.taxa_renovacao_periodo)}`} />
             </div>
 
-            <div className="dashboard-grid">
-              <div className="dashboard-card">
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="rounded-xl border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] p-4 shadow-sm">
                 <h3>Cadastros por dia</h3>
                 <Sparkline serie={s.cadastros} cor="var(--cor-primaria)" />
               </div>
-              <div className="dashboard-card">
+              <div className="rounded-xl border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] p-4 shadow-sm">
                 <h3>Receita por dia (R$)</h3>
                 <Sparkline serie={s.receita} cor="var(--cor-sucesso)" />
               </div>
-              <div className="dashboard-card">
+              <div className="rounded-xl border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] p-4 shadow-sm">
                 <h3>Novas assinaturas por dia</h3>
                 <Sparkline serie={s.assinaturas} cor="var(--cor-premium)" />
               </div>
-              <div className="dashboard-card">
+              <div className="rounded-xl border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] p-4 shadow-sm">
                 <h3>Notícias ingeridas por dia</h3>
                 <Sparkline serie={s.noticias} />
               </div>
             </div>
 
-            <div className="dashboard-grid">
-              <div className="dashboard-card">
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="rounded-xl border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] p-4 shadow-sm">
                 <h3>Funil — lista → cadastro → premium</h3>
                 <div className="funil">
                   <div className="funil-etapa">
@@ -208,11 +212,11 @@ export default function PaginaAdminMetricas() {
                   </div>
                 </div>
               </div>
-              <div className="dashboard-card">
+              <div className="rounded-xl border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] p-4 shadow-sm">
                 <h3>Usuários por papel</h3>
                 <Donut itens={d.papel} />
               </div>
-              <div className="dashboard-card">
+              <div className="rounded-xl border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] p-4 shadow-sm">
                 <h3>Assinaturas por status</h3>
                 <Barras itens={d.assinaturas_status} cor="var(--cor-premium)" />
               </div>
@@ -225,42 +229,42 @@ export default function PaginaAdminMetricas() {
         rotulo: "Receita & Assinaturas",
         conteudo: (
           <div>
-            <div className="kpi-grid">
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
               <KpiCard titulo="Receita período" valor={moeda(painel.receita_recorrente_periodo)} />
               <KpiCard titulo="Ticket médio" valor={moeda(painel.receita_media_por_assinante)} />
               <KpiCard titulo="Churn" valor={pct(painel.churn_periodo)} subtitulo={`Renovação ${pct(painel.taxa_renovacao_periodo)}`} />
               <KpiCard titulo="Conversão free→premium" valor={pct(painel.conversao_free_premium)} subtitulo={`${painel.assinaturas_ativas} ativas`} />
             </div>
-            <div className="dashboard-grid">
-              <div className="dashboard-card">
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="rounded-xl border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] p-4 shadow-sm">
                 <h3>Receita por dia</h3>
                 <Sparkline serie={s.receita} cor="var(--cor-sucesso)" />
               </div>
-              <div className="dashboard-card">
+              <div className="rounded-xl border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] p-4 shadow-sm">
                 <h3>Assinaturas criadas por dia</h3>
                 <Sparkline serie={s.assinaturas} cor="var(--cor-premium)" />
               </div>
-              <div className="dashboard-card">
+              <div className="rounded-xl border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] p-4 shadow-sm">
                 <h3>Status das assinaturas</h3>
                 <Donut itens={d.assinaturas_status} />
               </div>
-              <div className="dashboard-card">
+              <div className="rounded-xl border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] p-4 shadow-sm">
                 <h3>B2B — planos das organizações</h3>
                 <Barras itens={d.b2b_plano} cor="#7c5cff" />
-                <p className="texto-suave">
+                <p className="text-sm text-[var(--cor-texto-suave)]">
                   B2B ativas: {k.b2b.ativas} / {k.b2b.total} · Critérios ativos: {k.b2b.criterios_ativos}
                 </p>
               </div>
             </div>
-            <div className="dashboard-card">
+            <div className="rounded-xl border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] p-4 shadow-sm">
               <h3>Lista de espera por dia</h3>
               <Sparkline serie={s.lista_espera} cor="var(--cor-primaria)" />
-              <p className="texto-suave">Total em espera: {k.lista_espera.total}</p>
+              <p className="text-sm text-[var(--cor-texto-suave)]">Total em espera: {k.lista_espera.total}</p>
             </div>
-            <div className="dashboard-card">
+            <div className="rounded-xl border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] p-4 shadow-sm">
               <h3>Newsletter</h3>
               <Barras itens={d.newsletter_tipo} cor="#00b8a9" />
-              <p className="texto-suave">
+              <p className="text-sm text-[var(--cor-texto-suave)]">
                 Ativas {k.newsletter.ativas} / {k.newsletter.total}
               </p>
             </div>
@@ -272,45 +276,45 @@ export default function PaginaAdminMetricas() {
         rotulo: "Conteúdo & Comunidade",
         conteudo: (
           <div>
-            <div className="kpi-grid">
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
               <KpiCard titulo="Notícias no período" valor={String(k.ingestao.noticias_periodo)} subtitulo={`Pendentes moderação: ${k.ingestao.noticias_pendentes}`} />
               <KpiCard titulo="Taxa aprovação" valor={pct(k.ingestao.taxa_aprovacao)} subtitulo="aprovadas + não aplicável / total" />
               <KpiCard titulo="Publicações" valor={`${k.comunidade.publicacoes_publicadas} / ${k.comunidade.publicacoes_total}`} subtitulo="publicadas / total" />
               <KpiCard titulo="Comentários / Seguidores" valor={`${k.comunidade.comentarios_total} / ${k.comunidade.seguidores_total}`} />
             </div>
-            <div className="dashboard-grid">
-              <div className="dashboard-card">
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="rounded-xl border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] p-4 shadow-sm">
                 <h3>Notícias por dia</h3>
                 <Sparkline serie={s.noticias} />
               </div>
-              <div className="dashboard-card">
+              <div className="rounded-xl border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] p-4 shadow-sm">
                 <h3>Publicações por dia</h3>
                 <Sparkline serie={s.publicacoes} />
               </div>
-              <div className="dashboard-card">
+              <div className="rounded-xl border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] p-4 shadow-sm">
                 <h3>Comentários por dia</h3>
                 <Sparkline serie={s.comentarios} cor="var(--cor-premium)" />
               </div>
-              <div className="dashboard-card">
+              <div className="rounded-xl border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] p-4 shadow-sm">
                 <h3>Ingestão — custo estimado/dia (USD)</h3>
                 <Sparkline serie={s.ingestao_custo} cor="var(--cor-erro)" />
-                <p className="texto-suave">Custo no período: ${k.ingestao.custo_periodo.toFixed(4)} · Hoje: ${(painel.custo_llm_hoje_usd ?? 0).toFixed(4)} / teto ${(painel.teto_llm_diario_usd ?? 0).toFixed(2)}</p>
+                <p className="text-sm text-[var(--cor-texto-suave)]">Custo no período: ${k.ingestao.custo_periodo.toFixed(4)} · Hoje: ${(painel.custo_llm_hoje_usd ?? 0).toFixed(4)} / teto ${(painel.teto_llm_diario_usd ?? 0).toFixed(2)}</p>
               </div>
             </div>
-            <div className="dashboard-grid">
-              <div className="dashboard-card">
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="rounded-xl border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] p-4 shadow-sm">
                 <h3>Notícias por categoria</h3>
                 <Barras itens={d.noticias_categoria} />
               </div>
-              <div className="dashboard-card">
+              <div className="rounded-xl border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] p-4 shadow-sm">
                 <h3>Notícias por fonte</h3>
                 <Barras itens={d.noticias_fonte} cor="var(--cor-sucesso)" />
               </div>
-              <div className="dashboard-card">
+              <div className="rounded-xl border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] p-4 shadow-sm">
                 <h3>Status revisão (notícias)</h3>
                 <Donut itens={d.noticias_status} />
               </div>
-              <div className="dashboard-card">
+              <div className="rounded-xl border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] p-4 shadow-sm">
                 <h3>Publicações por status</h3>
                 <Donut itens={d.publicacoes_status} />
               </div>
@@ -323,29 +327,29 @@ export default function PaginaAdminMetricas() {
         rotulo: "Moderação & Operação",
         conteudo: (
           <div>
-            <div className="kpi-grid">
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
               <KpiCard titulo="Denúncias pendentes" valor={String(k.moderacao.denuncias_pendentes)} subtitulo={`Total ${k.moderacao.denuncias_total}`} destaque={k.moderacao.denuncias_pendentes > 0 ? "Ação necessária" : "Em dia"} />
               <KpiCard titulo="Ações de moderação" valor={String(k.moderacao.acoes_total)} />
               <KpiCard titulo="Solicitações credenciamento" valor={String(d.credenciamento_status.reduce((a, b) => a + b.total, 0))} subtitulo="total histórico" />
               <KpiCard titulo="Custo LLM hoje" valor={`$${(painel.custo_llm_hoje_usd ?? 0).toFixed(4)}`} subtitulo={`Teto $${(painel.teto_llm_diario_usd ?? 0).toFixed(2)}${painel.teto_llm_excedido_hoje ? " · EXCEDIDO" : ""}`} />
             </div>
-            <div className="dashboard-grid">
-              <div className="dashboard-card">
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="rounded-xl border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] p-4 shadow-sm">
                 <h3>Denúncias por status</h3>
                 <Donut itens={d.denuncias_status} />
               </div>
-              <div className="dashboard-card">
+              <div className="rounded-xl border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] p-4 shadow-sm">
                 <h3>Ações por tipo</h3>
                 <Barras itens={d.acoes_tipo} cor="var(--cor-erro)" />
               </div>
-              <div className="dashboard-card">
+              <div className="rounded-xl border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] p-4 shadow-sm">
                 <h3>Credenciamento por status</h3>
                 <Donut itens={d.credenciamento_status} />
               </div>
-              <div className="dashboard-card">
+              <div className="rounded-xl border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] p-4 shadow-sm">
                 <h3>B2B — critérios por tipo</h3>
                 <Barras itens={d.criterio_tipo} cor="#7c5cff" />
-                <p className="texto-suave">Critérios ativos: {k.b2b.criterios_ativos}</p>
+                <p className="text-sm text-[var(--cor-texto-suave)]">Critérios ativos: {k.b2b.criterios_ativos}</p>
               </div>
             </div>
           </div>
@@ -359,24 +363,24 @@ export default function PaginaAdminMetricas() {
   if (!painel) return <EmptyState titulo="Sem dados" descricao="Nenhuma métrica para o período." />;
 
   return (
-    <div>
-      <div className="metricas-topbar">
-        <h1 style={{ margin: 0 }}>Métricas — dashboards</h1>
-        <div className="metricas-controles">
-          <label className="texto-suave" htmlFor="dias">
-            Período
-          </label>
-          <select id="dias" value={dias} onChange={(e) => setDias(Number(e.target.value))}>
-            <option value={7}>7 dias</option>
-            <option value={30}>30 dias</option>
-            <option value={90}>90 dias</option>
-          </select>
+<section className="grid min-w-0 w-full max-w-full gap-6 overflow-hidden secao-bloco metricas-topbar metricas-controles" aria-labelledby="admin-metricas-titulo">
+      <div className="grid min-w-0 gap-1">
+        <p className="text-xs font-bold uppercase tracking-widest text-[var(--cor-primaria)] secao-eyebrow">Administração</p>
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <h1 id="admin-metricas-titulo" className="font-[var(--fonte-titulo)] text-2xl font-bold tracking-tight secao-titulo">Métricas</h1>
+          <div className="flex items-center gap-2">
+            <label className="text-sm text-[var(--cor-texto-suave)]" htmlFor="dias">Período</label>
+            <select id="dias" value={dias} onChange={(e) => setDias(Number(e.target.value))} className={cn("h-9 rounded-md border border-[var(--cor-borda)] bg-white px-3 text-sm")}>
+              <option value={7}>7 dias</option>
+              <option value={30}>30 dias</option>
+              <option value={90}>90 dias</option>
+            </select>
+          </div>
         </div>
+        <p className="texto-suave max-w-2xl text-sm text-[var(--cor-texto-suave)] break-words">Acompanhe cadastros, receita, conteúdo e moderação. Séries por dia (UTC) no período selecionado; distribuições cobrem o mesmo período salvo onde indicado. Dados 100% do banco — sem mock.</p>
       </div>
-      <p className="texto-suave" style={{ marginTop: 6 }}>
-        Séries são por dia (UTC) no período selecionado; distribuições cobrem o mesmo período salvo onde indicado. Dados 100% do banco — sem mock.
-      </p>
+
       <Tabs abas={abas} abaInicial="overview" />
-    </div>
+    </section>
   );
 }

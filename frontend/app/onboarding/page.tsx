@@ -8,7 +8,9 @@ import * as api from "@/lib/api";
 import { useOnboarding, useSalvarOnboarding } from "@/lib/queries";
 import { Button } from "@/components/ui/Button";
 import { CampoSelecao, CampoTexto } from "@/components/ui/FormField";
-import { ErrorState } from "@/components/ui/Estados";
+import { ErrorState, LoadingSpinner } from "@/components/ui/Estados";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/Cards";
+import { cn } from "@/lib/utils";
 
 export default function PaginaOnboarding() {
   const router = useRouter();
@@ -63,71 +65,106 @@ export default function PaginaOnboarding() {
     void salvar(false);
   }
 
-  if (carregandoAuth || onboarding.isLoading) return <p className="texto-suave">Carregando...</p>;
+  if (carregandoAuth || onboarding.isLoading)
+    return (
+      <div className={cn("container mx-auto max-w-md px-4 py-10")}>
+        <LoadingSpinner rotulo="Carregando seu onboarding…" />
+      </div>
+    );
 
   if (concluido) {
     return (
-      <div className="formulario">
-        <h1>Tudo pronto!</h1>
-        <p className="mensagem-sucesso">Suas preferências foram salvas.</p>
-        <a href="/" className="botao botao--primaria botao--medio">
-          Ir para o feed
-        </a>
+<div className={cn("container mx-auto max-w-md px-4 py-10 sm:px-6")}>
+        <Card className="shadow-lg botao--primaria botao--medio">
+          <CardHeader className="space-y-2">
+            <p className="text-xs font-bold uppercase tracking-widest text-[var(--cor-sucesso)] secao-eyebrow">Tudo certo</p>
+            <CardTitle id="onboarding-ok-titulo" className="text-2xl">
+              Seu feed está pronto
+            </CardTitle>
+            <CardDescription>Salvamos suas preferências. Boa leitura!</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button asChild className="w-full" tamanho="grande">
+              <a href="/">Ir para o feed</a>
+            </Button>
+          </CardContent>
+        </Card>
       </div>
     );
   }
 
   if (usuario && !usuario.email_verificado) {
     return (
-      <div className="formulario">
-        <h1>Confirme seu e-mail</h1>
-        <p className="texto-suave">
-          Você precisa confirmar seu e-mail antes de completar o onboarding. Verifique sua
-          caixa de entrada.
-        </p>
+<div className={cn("container mx-auto max-w-md px-4 py-10 sm:px-6")}>
+        <Card className="shadow-lg">
+          <CardHeader className="space-y-2">
+            <p className="text-xs font-bold uppercase tracking-widest text-[var(--cor-erro)] secao-eyebrow">Falta um passo</p>
+            <CardTitle id="onboarding-email-titulo" className="text-2xl">
+              Confirme seu e-mail
+            </CardTitle>
+            <CardDescription>
+              Você precisa confirmar seu e-mail antes de personalizar o feed. Abra sua caixa de entrada e clique no link de
+              confirmação.
+            </CardDescription>
+          </CardHeader>
+        </Card>
       </div>
     );
   }
 
   return (
-    <div className="formulario">
-      <h1>Personalize sua experiência</h1>
-      {erro && <ErrorState mensagem={erro} />}
-      {onboarding.isError && <ErrorState mensagem="Não foi possível carregar o onboarding." aoTentarNovamente={() => void onboarding.refetch()} />}
-      <form onSubmit={aoSubmeter}>
-        <CampoTexto
-          id="interesses"
-          rotulo="Interesses (separados por vírgula)"
-          placeholder="política, tecnologia, esportes"
-          value={interesses}
-          onChange={(e) => setInteresses(e.target.value)}
-        />
-        <CampoTexto
-          id="localidade"
-          rotulo="Localidade de interesse"
-          placeholder="Cidade, estado"
-          value={localidade}
-          onChange={(e) => setLocalidade(e.target.value)}
-        />
-        <CampoSelecao
-          id="canal"
-          rotulo="Canal preferido"
-          value={canalPreferido}
-          onChange={(e) => setCanalPreferido(e.target.value as "email" | "push" | "")}
-        >
-          <option value="">Selecione</option>
-          <option value="email">E-mail</option>
-          <option value="push">Notificação push</option>
-        </CampoSelecao>
-        <div style={{ display: "flex", gap: "0.6rem" }}>
-          <Button type="submit" carregando={salvarMutacao.isPending}>
-            Salvar
-          </Button>
-          <Button variante="secundaria" disabled={salvarMutacao.isPending} onClick={() => void salvar(true)}>
-            Pular por agora
-          </Button>
-        </div>
-      </form>
+<div className={cn("container mx-auto max-w-md px-4 py-10 sm:px-6")}>
+      <Card className="shadow-lg secao-bloco formulario">
+        <CardHeader className="space-y-2">
+          <p className="text-xs font-bold uppercase tracking-widest text-[var(--cor-primaria)] secao-eyebrow texto-suave">Primeiros passos</p>
+          <CardTitle id="onboarding-titulo" className="text-2xl">
+            Personalize sua experiência
+          </CardTitle>
+          <CardDescription>Conte do que você gosta e montaremos um feed sob medida. Leva menos de um minuto.</CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-6">
+          {erro && <ErrorState mensagem={erro} />}
+          {onboarding.isError && <ErrorState mensagem="Não foi possível carregar o onboarding." aoTentarNovamente={() => void onboarding.refetch()} />}
+          <form onSubmit={aoSubmeter} className="grid gap-4">
+            <CampoTexto
+              id="interesses"
+              name="interesses"
+              rotulo="Interesses (separados por vírgula)"
+              placeholder="política, tecnologia, esportes…"
+              autoFocus
+              value={interesses}
+              onChange={(e) => setInteresses(e.target.value)}
+            />
+            <CampoTexto
+              id="localidade"
+              name="localidade"
+              rotulo="Localidade de interesse"
+              placeholder="Cidade, estado…"
+              autoComplete="address-level2"
+              value={localidade}
+              onChange={(e) => setLocalidade(e.target.value)}
+            />
+            <CampoSelecao
+              id="canal"
+              rotulo="Canal preferido"
+              value={canalPreferido}
+              onChange={(e) => setCanalPreferido(e.target.value as "email" | "push" | "")}
+            >
+              <option value="">Selecione</option>
+              <option value="email">E-mail</option>
+              <option value="push">Notificação push</option>
+            </CampoSelecao>
+            <div className="flex flex-wrap gap-3 container--estreito">
+              <Button type="submit" carregando={salvarMutacao.isPending} className="flex-1 min-w-[160px]">
+                Salvar preferências
+              </Button>
+              <Button variante="secundaria" disabled={salvarMutacao.isPending} onClick={() => void salvar(true)} className="flex-1 min-w-[160px]">
+                Pular por agora
+              </Button>
+            </div>
+          </form>
+        </CardContent>
+      </Card>
     </div>
   );
 }

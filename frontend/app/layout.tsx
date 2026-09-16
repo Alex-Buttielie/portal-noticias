@@ -6,6 +6,7 @@ import "./globals.css";
 import { Providers } from "./providers";
 import Header from "@/components/Header";
 import Rodape from "@/components/Rodape";
+import BottomNav from "@/components/BottomNav";
 import PularParaConteudo from "@/components/PularParaConteudo";
 import BannerConsentimentoCookies from "@/components/BannerConsentimentoCookies";
 import JsonLd from "@/components/JsonLd";
@@ -71,6 +72,7 @@ export const metadata: Metadata = {
 
 // Aplica a preferência de tema salva antes da primeira pintura, evitando o
 // flash de tema errado (light->dark) na carga da página.
+// Mantido idêntico para contrato anti-flash + LGPD + SEO — não remover.
 const SCRIPT_TEMA_INICIAL = `
 (function () {
   try {
@@ -84,8 +86,8 @@ const SCRIPT_TEMA_INICIAL = `
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="pt-BR" suppressHydrationWarning className={`${fonteCorpo.variable} ${fonteTitulo.variable}`}>
-      <body>
+    <html lang="pt-BR" suppressHydrationWarning className={`${fonteCorpo.variable} ${fonteTitulo.variable} scroll-smooth`}>
+      <body className="min-h-screen bg-[var(--cor-fundo)] font-[var(--fonte-corpo)] text-[var(--cor-texto)] antialiased selection:bg-[var(--cor-texto)] selection:text-[var(--cor-fundo)]">
         <JsonLd data={organizationJsonLd()} />
         <Script id="tema-inicial" strategy="beforeInteractive">
           {SCRIPT_TEMA_INICIAL}
@@ -93,10 +95,17 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <Providers>
           <PularParaConteudo />
           <Header />
-          <main id="conteudo-principal" className="container" tabIndex={-1}>
+          <main
+            id="conteudo-principal"
+            tabIndex={-1}
+            className="container scroll-mt-24 py-6 pb-[calc(4rem+env(safe-area-inset-bottom))] focus:outline-none focus-visible:outline-none sm:py-8 sm:pb-6 motion-reduce:transition-none"
+          >
             {children}
           </main>
-          <Rodape />
+          <div className="pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)] sm:pb-0">
+            <Rodape />
+          </div>
+          <BottomNav />
           <BannerConsentimentoCookies />
         </Providers>
       </body>

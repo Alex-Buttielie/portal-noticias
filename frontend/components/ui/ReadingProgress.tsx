@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { cn } from "@/lib/utils";
 
 export function ReadingProgress() {
   const [progresso, setProgresso] = useState(0);
@@ -16,8 +17,20 @@ export function ReadingProgress() {
   }, []);
 
   return (
-    <div className="progresso-leitura" role="progressbar" aria-valuenow={Math.round(progresso)} aria-valuemin={0} aria-valuemax={100} aria-label="Progresso de leitura">
-      <div className="progresso-leitura__barra" style={{ width: `${progresso}%` }} />
+    <div
+      className={cn("fixed top-0 left-0 z-50 h-1 w-full bg-transparent pointer-events-none")}
+      role="progressbar"
+      aria-valuenow={Math.round(progresso)}
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-label="Progresso de leitura"
+    >
+      <div
+        className={cn(
+          "h-full bg-[var(--cor-primaria)] transition-[width] duration-150 ease-out motion-reduce:transition-none"
+        )}
+        style={{ width: `${progresso}%` }}
+      />
     </div>
   );
 }

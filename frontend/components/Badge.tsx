@@ -1,22 +1,35 @@
-import type { ReactNode } from "react";
+import * as React from "react";
+import { cva, type VariantProps } from "class-variance-authority";
+import { cn } from "@/lib/utils";
+
+const badgeVariants = cva(
+  "inline-flex touch-manipulation items-center break-words rounded-full border px-2.5 py-0.5 text-xs font-semibold uppercase tracking-wide transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cor-foco)] focus-visible:ring-offset-2",
+  {
+    variants: {
+      variante: {
+        padrao: "border-transparent bg-[var(--cor-primaria)] text-white",
+        sucesso: "border-transparent bg-[var(--cor-sucesso)] text-white",
+        erro: "border-transparent bg-[var(--cor-erro)] text-white",
+        neutro: "border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] text-[var(--cor-texto-suave)]",
+        premium: "border-transparent bg-[var(--cor-premium)] text-white",
+      },
+    },
+    defaultVariants: {
+      variante: "padrao",
+    },
+  }
+);
 
 export type VarianteBadge = "padrao" | "sucesso" | "erro" | "neutro" | "premium";
 
-/**
- * Rótulo de status curto, NÃO interativo (ex.: "Publicado", "Pendente",
- * "Premium") — implementation-contract.md run
- * 20260903-1134-seo-lgpd-design-system, escopo D. Só usa tokens definidos em
- * `globals.css` (`.badge`, `.badge--*`), nenhuma cor/espaçamento literal.
- * Não tem estado `disabled`/`loading` por não ser interativo — variantes
- * cobrem os estados visuais possíveis (ver `VarianteBadge`).
- */
-export default function Badge({
-  children,
-  variante = "padrao",
-}: {
-  children: ReactNode;
+export interface BadgeProps
+  extends React.HTMLAttributes<HTMLDivElement>,
+    VariantProps<typeof badgeVariants> {
   variante?: VarianteBadge;
-}) {
-  const classe = variante === "padrao" ? "badge" : `badge badge--${variante}`;
-  return <span className={classe}>{children}</span>;
 }
+
+export default function Badge({ className, variante = "padrao", ...props }: BadgeProps) {
+  return <span className={cn(badgeVariants({ variante }), className)} {...props} />;
+}
+
+export { badgeVariants };

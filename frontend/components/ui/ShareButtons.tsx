@@ -1,7 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import { Share2, MessageCircle, Copy, Check } from "lucide-react";
 import { useToast } from "@/components/ToastProvider";
+import { cn } from "@/lib/utils";
 
 interface Propriedades {
   titulo: string;
@@ -39,14 +41,43 @@ export function ShareButtons({ titulo, texto, url }: Propriedades) {
   const whatsapp = `https://wa.me/?text=${encodeURIComponent(`${titulo} ${url}`)}`;
 
   return (
-    <div className="compartilhar">
-      <button type="button" className="botao botao--secundaria botao--pequeno" onClick={compartilharNativo}>
-        Compartilhar
+<div className={cn("flex flex-wrap items-center gap-2")}>
+      <button
+        type="button"
+        className={cn(
+          "inline-flex h-9 items-center justify-center gap-2 rounded-full bg-[var(--cor-primaria)] px-4 text-sm font-medium text-white",
+          "hover:bg-[var(--cor-primaria-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cor-foco)] focus-visible:ring-offset-2",
+          "motion-reduce:transition-none transition-colors"
+        )}
+        onClick={compartilharNativo}
+        aria-label="Compartilhar esta notícia"
+      >
+        <Share2 className="h-4 w-4 botao botao--secundaria botao--pequeno botao--fantasma" aria-hidden="true" /> Compartilhar
       </button>
-      <a className="botao botao--fantasma botao--pequeno" href={whatsapp} target="_blank" rel="noopener noreferrer">
-        WhatsApp
+      <a
+        className={cn(
+          "inline-flex h-9 items-center justify-center gap-2 rounded-full border border-[var(--cor-borda)] bg-white px-4 text-sm font-medium",
+          "hover:bg-[var(--cor-primaria-suave)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cor-foco)] focus-visible:ring-offset-2",
+          "motion-reduce:transition-none transition-colors"
+        )}
+        href={whatsapp}
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label="Compartilhar no WhatsApp"
+      >
+<MessageCircle className="h-4 w-4 botao botao--fantasma botao--pequeno" aria-hidden="true" /> WhatsApp
       </a>
-      <button type="button" className="botao botao--fantasma botao--pequeno" onClick={copiarLink}>
+      <button
+        type="button"
+        className={cn(
+          "inline-flex h-9 items-center justify-center gap-2 rounded-full border border-[var(--cor-borda)] bg-white px-4 text-sm font-medium",
+          "hover:bg-[var(--cor-primaria-suave)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cor-foco)] focus-visible:ring-offset-2",
+          "motion-reduce:transition-none transition-colors"
+        )}
+        onClick={copiarLink}
+        aria-label={copiado ? "Link copiado para a área de transferência" : "Copiar link desta notícia"}
+      >
+        {copiado ? <Check className="h-4 w-4 text-[var(--cor-sucesso)]" aria-hidden="true" /> : <Copy className="h-4 w-4" aria-hidden="true" />}
         {copiado ? "Copiado!" : "Copiar link"}
       </button>
     </div>

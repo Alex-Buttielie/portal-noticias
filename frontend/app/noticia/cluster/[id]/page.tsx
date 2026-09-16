@@ -6,11 +6,7 @@ import { breadcrumbListJsonLd, newsArticleJsonLd } from "@/lib/schema";
 import { IMAGEM_OG_PADRAO, SITE_URL } from "@/lib/site";
 
 /**
- * Mesmo padrão de `noticia/item/[id]/page.tsx` — ver comentário lá. Um
- * `NewsCluster` também vira `NewsArticle` no JSON-LD (é um acontecimento
- * coberto por 2+ fontes, com um título/timestamp representativo — ver
- * `feed/services.py::detalhe_cluster`), com `citation` listando TODAS as
- * fontes agrupadas.
+ * Wrapper cluster — mesmo padrão item, Tailwind container max-w-prose delegando a DetalheNoticia.
  */
 export async function generateMetadata({
   params,
@@ -50,7 +46,7 @@ export default async function PaginaDetalheCluster({ params }: { params: { id: s
   const detalhe = await api.obterDetalheCluster(params.id).catch(() => null);
 
   return (
-    <>
+    <div className="mx-auto max-w-prose space-y-4 px-4 sm:px-0">
       {detalhe && (
         <>
           <JsonLd
@@ -75,6 +71,6 @@ export default async function PaginaDetalheCluster({ params }: { params: { id: s
         </>
       )}
       <DetalheNoticia tipo="cluster" id={params.id} inicial={detalhe} />
-    </>
+    </div>
   );
 }

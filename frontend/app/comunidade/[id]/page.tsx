@@ -11,8 +11,16 @@ import Badge from "@/components/Badge";
 import { Button } from "@/components/ui/Button";
 import { CampoAreaTexto, CampoTexto } from "@/components/ui/FormField";
 import { EmptyState, ErrorState, SkeletonCard } from "@/components/ui/Estados";
+import { Card, CardContent } from "@/components/ui/Cards";
+import { cn } from "@/lib/utils";
 
 const ID_TEMPORARIO_BASE = -1;
+const formatoData = new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+
+function formatarData(iso: string): string {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? iso : formatoData.format(d);
+}
 
 export default function PaginaDetalhePublicacao({ params }: { params: { id: string } }) {
   const router = useRouter();
@@ -128,8 +136,11 @@ export default function PaginaDetalhePublicacao({ params }: { params: { id: stri
   }
 
   return (
-    <article>
-      <div className="cartao-meta">
+<article className="mx-auto max-w-prose space-y-6 cartao-meta">
+      <p className="text-sm text-[var(--cor-texto-suave)]">
+        <Link href="/comunidade" className="font-medium text-[var(--cor-primaria)] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cor-foco)]">Voltar para a comunidade</Link>
+      </p>
+      <div className="flex flex-wrap gap-1.5">
         <Badge variante={publicacao.tipo === "opiniao" ? "premium" : "neutro"}>
           {publicacao.tipo === "opiniao" ? "Opinião" : "Análise"}
         </Badge>
@@ -137,37 +148,43 @@ export default function PaginaDetalhePublicacao({ params }: { params: { id: stri
       </div>
 
       {editando ? (
-        <form onSubmit={salvarEdicao}>
-          <CampoTexto
-            id="titulo-edicao"
-            rotulo="Título"
-            value={tituloEdicao}
-            onChange={(e) => setTituloEdicao(e.target.value)}
-            required
-          />
-          <CampoAreaTexto
-            id="conteudo-edicao"
-            rotulo="Conteúdo"
-            rows={10}
-            value={conteudoEdicao}
-            onChange={(e) => setConteudoEdicao(e.target.value)}
-            required
-          />
-          <Button type="submit" carregando={editarMutacao.isPending}>
-            Salvar alterações
-          </Button>{" "}
-          <Button variante="secundaria" onClick={() => setEditando(false)}>
-            Cancelar
-          </Button>
-        </form>
+        <Card>
+          <CardContent className="pt-6">
+            <form onSubmit={salvarEdicao} className="space-y-4">
+              <CampoTexto
+                id="titulo-edicao"
+                rotulo="Título"
+                value={tituloEdicao}
+                onChange={(e) => setTituloEdicao(e.target.value)}
+                required
+              />
+              <CampoAreaTexto
+                id="conteudo-edicao"
+                rotulo="Conteúdo"
+                rows={10}
+                value={conteudoEdicao}
+                onChange={(e) => setConteudoEdicao(e.target.value)}
+                required
+              />
+              <div className="flex flex-wrap gap-2">
+                <Button type="submit" carregando={editarMutacao.isPending}>
+                  Salvar alterações
+                </Button>
+                <Button type="button" variante="secundaria" onClick={() => setEditando(false)}>
+                  Cancelar
+                </Button>
+              </div>
+            </form>
+          </CardContent>
+        </Card>
       ) : (
         <>
-          <h1>{publicacao.titulo}</h1>
-          <p className="texto-suave">
-            por <Link href={`/autor/${publicacao.autor}`}>{publicacao.autor_nome}</Link>
+          <h1 className="font-[var(--fonte-titulo)] text-2xl font-bold leading-tight tracking-[-0.02em] text-wrap-balance">{publicacao.titulo}</h1>
+          <p className="flex flex-wrap items-center gap-2 text-sm text-[var(--cor-texto-suave)]">
+            por <Link href={`/autor/${publicacao.autor}`} className="font-medium text-[var(--cor-primaria)] hover:underline">{publicacao.autor_nome}</Link>
             {ehAutor && (
               <>
-                {" — "}
+                <span aria-hidden="true">—</span>
                 <Button variante="fantasma" tamanho="pequeno" onClick={iniciarEdicao}>
                   Editar
                 </Button>
@@ -175,40 +192,55 @@ export default function PaginaDetalhePublicacao({ params }: { params: { id: stri
             )}
             {podeExcluirPub && (
               <>
-                {" — "}
+                <span aria-hidden="true">—</span>
                 <Button variante="perigo" tamanho="pequeno" carregando={excluirPubMutacao.isPending} onClick={() => void excluirPublicacao()}>
                   Excluir
                 </Button>
               </>
             )}
           </p>
-          <div style={{ whiteSpace: "pre-wrap" }}>{publicacao.conteudo}</div>
+          <div className="whitespace-pre-wrap break-words text-[15px] leading-relaxed text-[var(--cor-texto)]">{publicacao.conteudo}</div>
         </>
       )}
 
-      <h2 style={{ fontSize: "1rem", marginTop: "1.5rem" }}>Comentários ({comentarios.length})</h2>
-      {comentarios.map((comentario) => (
-        <div key={comentario.id} className="cartao" style={comentario.id < 0 ? { opacity: 0.6 } : undefined}>
-          <div className="cartao-meta">
-            <strong>{comentario.autor_nome}</strong>
-            {comentario.id < 0 && <span className="texto-suave">Enviando...</span>}
-            {comentario.id > 0 && podeExcluirComentario(comentario.autor) && (
-              <Button variante="fantasma" tamanho="pequeno" onClick={() => void excluirComentario(comentario.id)}>
-                Excluir
-              </Button>
-            )}
-          </div>
-          <p>{comentario.conteudo}</p>
+<section className="space-y-3 secao-bloco secao-titulo cartao-meta" aria-label="Comentários">
+        <div className="flex items-baseline gap-3 border-b-2 border-[var(--cor-borda)] pb-3 secao-cabecalho cartao">
+          <h2 className="font-[var(--fonte-titulo)] text-lg font-bold tracking-tight">Comentários ({comentarios.length})</h2>
         </div>
-      ))}
+        <div aria-live="polite" className="space-y-3">
+          {comentarios.length === 0 ? (
+            <p className="text-sm text-[var(--cor-texto-suave)]">Seja o primeiro a comentar.</p>
+          ) : (
+            comentarios.map((comentario) => (
+              <Card key={comentario.id} className={cn(comentario.id < 0 && "opacity-60")}>
+                <CardContent className="space-y-2 p-4">
+                  <div className="flex flex-wrap items-center gap-2 text-sm">
+                    <strong className="text-[var(--cor-texto)]">{comentario.autor_nome}</strong>
+                    <span className="text-xs text-[var(--cor-texto-suave)]">
+                      <time dateTime={comentario.criado_em}>{formatarData(comentario.criado_em)}</time>
+                    </span>
+                    {comentario.id < 0 && <span className="text-xs text-[var(--cor-texto-suave)]">Enviando…</span>}
+                    {comentario.id > 0 && podeExcluirComentario(comentario.autor) && (
+                      <Button variante="fantasma" tamanho="pequeno" className="ml-auto" onClick={() => void excluirComentario(comentario.id)}>
+                        Excluir
+                      </Button>
+                    )}
+                  </div>
+                  <p className="whitespace-pre-wrap break-words text-sm leading-relaxed">{comentario.conteudo}</p>
+                </CardContent>
+              </Card>
+            ))
+          )}
+        </div>
+      </section>
 
       {token ? (
-        <form onSubmit={aoComentar} style={{ marginTop: "1rem" }}>
+        <form onSubmit={aoComentar} className="space-y-3">
           <CampoAreaTexto
             id="novo-comentario"
             rotulo="Deixe seu comentário"
             rows={3}
-            placeholder="Escreva um comentário respeitoso..."
+            placeholder="Escreva um comentário respeitoso…"
             value={novoComentario}
             onChange={(e) => setNovoComentario(e.target.value)}
           />
@@ -217,8 +249,8 @@ export default function PaginaDetalhePublicacao({ params }: { params: { id: stri
           </Button>
         </form>
       ) : (
-        <p className="texto-suave">
-          <Link href="/login">Entre</Link> para comentar.
+        <p className="text-sm text-[var(--cor-texto-suave)]">
+          <Link href="/login" className="font-medium text-[var(--cor-primaria)] hover:underline">Entre</Link> para comentar.
         </p>
       )}
     </article>

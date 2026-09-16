@@ -6,16 +6,7 @@ import { breadcrumbListJsonLd, newsArticleJsonLd } from "@/lib/schema";
 import { IMAGEM_OG_PADRAO, SITE_URL } from "@/lib/site";
 
 /**
- * SEO técnico (implementation-contract.md run
- * 20260903-1134-seo-lgpd-design-system, escopo A, critério de aceite 1):
- * `page.tsx` virou um Server Component que busca o detalhe da notícia UMA
- * VEZ (o Next.js faz dedupe automático de `fetch()` idêntico dentro do
- * mesmo request — "Request Memoization" — então `generateMetadata` e este
- * componente não geram duas chamadas de rede) para montar metadata +
- * JSON-LD server-side. O corpo visível continua sendo renderizado pelo
- * `DetalheNoticia` client component já existente (seu próprio fetch
- * client-side é um comportamento pré-existente, não introduzido por esta
- * run — ver implementation-history.md).
+ * Wrapper server-side Tailwind: container + max-w-prose delegando visual a DetalheNoticia (FRENTE C).
  */
 export async function generateMetadata({
   params,
@@ -55,7 +46,7 @@ export default async function PaginaDetalheItem({ params }: { params: { id: stri
   const detalhe = await api.obterDetalheItem(params.id).catch(() => null);
 
   return (
-    <>
+    <div className="mx-auto max-w-prose space-y-4 px-4 sm:px-0">
       {detalhe && (
         <>
           <JsonLd
@@ -80,6 +71,6 @@ export default async function PaginaDetalheItem({ params }: { params: { id: stri
         </>
       )}
       <DetalheNoticia tipo="item" id={params.id} inicial={detalhe} />
-    </>
+    </div>
   );
 }
