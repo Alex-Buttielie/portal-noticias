@@ -5,6 +5,7 @@ import { obterDetalheCluster, obterDetalheItem, obterFeed, type FeedDetalhe } fr
 import { imagemNoticia } from "@/lib/imagens";
 import { LeituraPremium } from "../LeituraPremium";
 import { NoticiaReporter } from "@/components/Reporters";
+import { CoberturaCompleta } from "@/components/CoberturaCompleta";
 
 export async function generateMetadata({ params }: { params: { id: string } }): Promise<Metadata> {
   const d = await getDetalhe(params.id);
@@ -33,6 +34,9 @@ export default async function Page({ params }: { params: { id: string } }) {
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
       <NoticiaReporter entryTipo={d.tipo === "cluster" ? "cluster" : "item"} entryId={d.id} categoria={d.categoria} />
       <LeituraPremium detalhe={d} relacionados={relacionados} heroSrc={heroSrc} imagemReal={imagemReal} />
+      <div className="mx-auto mt-6 max-w-3xl px-4">
+        <CoberturaCompleta tipo={d.tipo === "cluster" ? "cluster" : "item"} id={d.id} />
+      </div>
     </>
   );
 }
