@@ -14,6 +14,7 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from assinatura import services
+from gating.models import ConfiguracaoSistema
 from assinatura.models import (
     AssinaturaMudancaEstadoLog,
     ConfiguracaoAssinatura,
@@ -201,6 +202,7 @@ def test_cancelar_ou_expirar_nunca_apaga_o_usuario():
 
 
 def test_endpoint_assinar_via_api():
+    ConfiguracaoSistema.objects.update_or_create(pk=1, defaults={"premium_ativo": True})
     plano = _plano()
     usuario = _usuario("free", email="api-assinar@example.com")
     client = APIClient()
@@ -210,6 +212,20 @@ def test_endpoint_assinar_via_api():
 
     assert resposta.status_code == 201
     assert resposta.data["status"] in (Subscription.STATUS_ATIVA, Subscription.STATUS_PAGAMENTO_PENDENTE)
+
+
+def test_endpoint_assinar_pausado_quando_flag_desligada():
+    """Com a flag de Premium DESLIGADA, assinar é pausado (409) — todos os
+    recursos já estão liberados."""
+    ConfiguracaoSistema.objects.update_or_create(pk=1, defaults={"premium_ativo": False})
+    plano = _plano()
+    usuario = _usuario("free", email="api-assinar-pausado@example.com")
+    client = APIClient()
+    client.force_authenticate(user=usuario)
+
+    resposta = client.post("/api/assinatura/assinar/", {"plan_id": plano.id}, format="json")
+
+    assert resposta.status_code == 409
 
 
 def test_endpoint_cancelar_requer_autenticacao():
