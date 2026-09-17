@@ -20,11 +20,53 @@ from django.db.models import Avg, Count
 from django.db.models.functions import TruncDate
 from django.utils import timezone
 
-from feed.models import EventoBusca, InteracaoNoticia
-
 from .models import EventoSite
 
 User = get_user_model()
+
+
+def _feed_models():
+    """Import tardio de `feed` (FRENTE 3): devolve (EventoBusca,
+    InteracaoNoticia) ou (None, None) quando o app ainda não tem os
+    modelos — a Central funciona só com `EventoSite` nesse caso."""
+    try:
+        from feed.models import EventoBusca, InteracaoNoticia
+
+        return EventoBusca, InteracaoNoticia
+    except Exception:
+        return None, None
+
+
+class _QueryVazia:
+    """Substituto de queryset quando os modelos do `feed` ainda não existem:
+    cadeia filter/exclude/values/annotate/order_by e itera vazio."""
+
+    def filter(self, *a, **k):
+        return self
+
+    def exclude(self, *a, **k):
+        return self
+
+    def values(self, *a, **k):
+        return self
+
+    def values_list(self, *a, **k):
+        return []
+
+    def annotate(self, *a, **k):
+        return self
+
+    def order_by(self, *a, **k):
+        return self
+
+    def count(self):
+        return 0
+
+    def __iter__(self):
+        return iter([])
+
+    def __getitem__(self, fatia):
+        return []
 
 PERIODOS_VALIDOS = ("hoje", "ontem", "7d", "30d", "90d", "custom")
 
@@ -132,7 +174,19 @@ def _titulos_entradas(chaves):
 
 
 def _agregar_interacoes(ini, fim):
-    """Agrega InteracaoNoticia no período por entrada."""
+    """Agrega InteracaoNoticia no período por entrada (vazio sem FRENTE 3)."""
+    vazio = {
+        "por_entrada": {},
+        "total_views": 0,
+        "total_cliques": 0,
+        "total_shares": 0,
+        "total_salvos": 0,
+        "tempo_medio_leitura_seg": 0.0,
+        "leituras_com_tempo": 0,
+    }
+    _, InteracaoNoticia = _feed_models()
+    if InteracaoNoticia is None:
+        return vazio
     qs = InteracaoNoticia.objects.filter(criado_em__gte=ini, criado_em__lte=fim).values(
         "tipo", "entry_tipo", "cluster_id", "item_id", "categoria", "tempo_leitura_seg", "criado_em"
     )
@@ -234,9 +288,22 @@ def central_inteligencia(periodo: str = "30d", inicio: str | None = None, fim: s
     distintos_com_view = len([k for k, v in por_entrada.items() if v["views"] > 0])
     views_por_noticia = round(inter["total_views"] / distintos_com_view, 2) if distintos_com_view else 0.0
 
-    buscas = EventoBusca.objects.filter(criado_em__gte=ini, criado_em__lte=fim_dt)
-    buscas_ant = EventoBusca.objects.filter(criado_em__gte=ini_ant, criado_em__lt=fim_ant)
-    total_buscas, total_buscas_ant = buscas.count(), buscas_ant.count()
+    EventoBusca, _ = _feed_models()
+    if EventoBusca is None:
+        buscas = buscas_ant = _QueryVazia()
+        total_buscas = total_buscas_ant = 0
+        buscas_sem_resultado = 0
+        termos_top: list = []
+    else:
+        buscas = EventoBusca.objects.filter(criado_em__gte=ini, criado_em__lte=fim_dt)
+        buscas_ant = EventoBusca.objects.filter(criado_em__gte=ini_ant, criado_em__lt=fim_ant)
+        total_buscas, total_buscas_ant = buscas.count(), buscas_ant.count()
+        buscas_sem_resultado = buscas.filter(resultados=0).count()
+        termos_top = [
+            {"termo": r["query_normalizada"], "total": r["total"]}
+            for r in buscas.exclude(query_normalizada="").values("query_normalizada")
+            .annotate(total=Count("id")).order_by("-total")[:10]
+        ]
     buscas_sem_resultado = buscas.filter(resultados=0).count()
     termos_top = [
         {"termo": r["query_normalizada"], "total": r["total"]}
@@ -404,16 +471,18 @@ def central_inteligencia(periodo: str = "30d", inicio: str | None = None, fim: s
         "localidades_salvas_total": salvas_total,
     }
 
+    _, _InteracaoNoticia = _feed_models()
+    if _InteracaoNoticia is None:
+        qs_views_noticia = _QueryVazia()
+    else:
+        qs_views_noticia = _InteracaoNoticia.objects.filter(
+            tipo__in=[_InteracaoNoticia.TIPO_VIEW, _InteracaoNoticia.TIPO_CLICK,
+                      _InteracaoNoticia.TIPO_READ, _InteracaoNoticia.TIPO_SEARCH_CLICK]
+        )
     series = {
         "visitas": _serie_diaria(page, "criado_em", dias, ini, fim_dt),
         "sessoes_note": "Sessões são distintas por dia (aproximação sem joins caros).",
-        "views_noticia": _serie_diaria(
-            InteracaoNoticia.objects.filter(
-                tipo__in=[InteracaoNoticia.TIPO_VIEW, InteracaoNoticia.TIPO_CLICK,
-                          InteracaoNoticia.TIPO_READ, InteracaoNoticia.TIPO_SEARCH_CLICK]
-            ),
-            "criado_em", dias, ini, fim_dt,
-        ),
+        "views_noticia": _serie_diaria(qs_views_noticia, "criado_em", dias, ini, fim_dt),
         "buscas": _serie_diaria(buscas, "criado_em", dias, ini, fim_dt),
     }
 
@@ -472,6 +541,7 @@ def central_inteligencia(periodo: str = "30d", inicio: str | None = None, fim: s
             "urgentes_top": urgentes_top,
         },
         "comportamento": {
+            "views_noticia": inter["total_views"],
             "cliques_noticia": inter["total_cliques"],
             "shares": inter["total_shares"],
             "salvos": inter["total_salvos"],
@@ -507,12 +577,13 @@ def _gerar_inteligencia(*, ini, fim, ini_ant, fim_ant, page, ev, por_entrada, ti
         if agg["views"] and agg.get("categoria"):
             cur[agg["categoria"]] += agg["views"]
     ant = Counter()
-    for r in InteracaoNoticia.objects.filter(
-        criado_em__gte=ini_ant, criado_em__lt=fim_ant,
-        tipo__in=[InteracaoNoticia.TIPO_VIEW, InteracaoNoticia.TIPO_CLICK,
-                  InteracaoNoticia.TIPO_READ, InteracaoNoticia.TIPO_SEARCH_CLICK],
-    ).exclude(categoria="").values("categoria").annotate(total=Count("id")).iterator(chunk_size=2000):
-        ant[r["categoria"]] += r["total"]
+    _, _IN = _feed_models()
+    if _IN is not None:
+        for r in _IN.objects.filter(
+            criado_em__gte=ini_ant, criado_em__lt=fim_ant,
+            tipo__in=[_IN.TIPO_VIEW, _IN.TIPO_CLICK, _IN.TIPO_READ, _IN.TIPO_SEARCH_CLICK],
+        ).exclude(categoria="").values("categoria").annotate(total=Count("id")).iterator(chunk_size=2000):
+            ant[r["categoria"]] += r["total"]
     for cat, total in cur.most_common(15):
         if total < 5:
             continue
@@ -575,8 +646,9 @@ def _gerar_inteligencia(*, ini, fim, ini_ant, fim_ant, page, ev, por_entrada, ti
     horas = Counter()
     for r in page.values("criado_em").iterator(chunk_size=2000):
         horas[r["criado_em"].hour] += 1
-    for r in InteracaoNoticia.objects.filter(criado_em__gte=ini, criado_em__lte=fim).values("criado_em").iterator(chunk_size=2000):
-        horas[r["criado_em"].hour] += 1
+    if _IN is not None:
+        for r in _IN.objects.filter(criado_em__gte=ini, criado_em__lte=fim).values("criado_em").iterator(chunk_size=2000):
+            horas[r["criado_em"].hour] += 1
     if sum(horas.values()) >= 10:
         top_horas = horas.most_common(3)
         insights.append({
