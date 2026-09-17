@@ -1,241 +1,27 @@
 "use client";
-
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
-import { useToast } from "@/components/ToastProvider";
-import * as api from "@/lib/api";
-import {
-  useCancelarAssinatura,
-  useHistoricoPagamentos,
-  useMinhaAssinatura,
-  useNewsletterCancelar,
-  useNewsletterSalvar,
-} from "@/lib/queries";
-import Badge from "@/components/Badge";
-import { Button } from "@/components/ui/Button";
-import { CampoSelecao, CampoTexto } from "@/components/ui/FormField";
-import { DataTable } from "@/components/ui/Data";
-import { EmptyState, ErrorState, SkeletonLista } from "@/components/ui/Estados";
-
-const ROTULOS_STATUS: Record<api.StatusAssinatura, string> = {
-  teste: "Em teste",
-  ativa: "Ativa",
-  pagamento_pendente: "Pagamento pendente",
-  inadimplente: "Pagamento em atraso",
-  cancelada: "Cancelada (acesso mantido até o vencimento)",
-  expirada: "Expirada",
-  encerrada: "Encerrada",
-};
-
-function formatarData(data: string | null): string {
-  if (!data) return "—";
-  try {
-    return new Date(data).toLocaleDateString("pt-BR");
-  } catch {
-    return data;
-  }
-}
-
-function formatarPreco(preco: string): string {
-  const numero = Number(preco);
-  if (Number.isNaN(numero)) return preco;
-  return numero.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-}
-
-export default function PaginaMinhaConta() {
-  const router = useRouter();
-  const { token, usuario, carregando: carregandoAuth } = useAuth();
-  const { notificar } = useToast();
-  const assinaturaQuery = useMinhaAssinatura();
-  const pagamentosQuery = useHistoricoPagamentos();
-  const cancelarMutacao = useCancelarAssinatura();
-  const newsletterSalvar = useNewsletterSalvar();
-  const newsletterCancelar = useNewsletterCancelar();
-
-  const [tipoNewsletter, setTipoNewsletter] = useState<api.TipoNewsletter>("padrao");
-  const [periodoNewsletter, setPeriodoNewsletter] = useState<api.PeriodoNewsletter>("manha");
-  const [categoriasNewsletter, setCategoriasNewsletter] = useState("");
-  const [newsletterAtiva, setNewsletterAtiva] = useState<boolean | null>(null);
-
-  useEffect(() => {
-    if (!carregandoAuth && !token) {
-      router.push("/login");
-    }
-  }, [carregandoAuth, token, router]);
-
-  if (carregandoAuth) return <p className="texto-suave">Carregando...</p>;
-
-  const assinatura = assinaturaQuery.data ?? null;
-  const carregando = assinaturaQuery.isLoading || pagamentosQuery.isLoading;
-  const erro = assinaturaQuery.isError || pagamentosQuery.isError;
-
-  async function cancelar() {
-    if (!token) return;
-    const confirmado = window.confirm(
-      "Tem certeza que deseja cancelar sua assinatura? Você mantém acesso Premium até o fim do período já pago."
-    );
-    if (!confirmado) return;
-    try {
-      await cancelarMutacao.mutateAsync();
-      notificar("Assinatura cancelada. Você mantém o acesso Premium até o vencimento.", "info");
-    } catch (e) {
-      notificar(
-        e instanceof api.ApiError ? e.message : "Não foi possível cancelar a assinatura.",
-        "erro"
-      );
-    }
-  }
-
-  async function inscreverNaNewsletter() {
-    if (!token) return;
-    try {
-      const categorias = categoriasNewsletter
-        .split(",")
-        .map((c) => c.trim())
-        .filter(Boolean);
-      const resultado = await newsletterSalvar.mutateAsync({
-        tipo: tipoNewsletter,
-        periodo: periodoNewsletter,
-        categorias: tipoNewsletter === "padrao" ? undefined : categorias,
-      });
-      setNewsletterAtiva(resultado.ativa);
-      notificar("Inscrição na newsletter salva.", "sucesso");
-    } catch (e) {
-      notificar(
-        e instanceof api.ApiError ? e.message : "Não foi possível salvar a inscrição.",
-        "erro"
-      );
-    }
-  }
-
-  async function cancelarNewsletterAtual() {
-    if (!token) return;
-    try {
-      await newsletterCancelar.mutateAsync();
-      setNewsletterAtiva(false);
-      notificar("Inscrição na newsletter cancelada.", "info");
-    } catch (e) {
-      notificar(
-        e instanceof api.ApiError ? e.message : "Não foi possível cancelar a inscrição.",
-        "erro"
-      );
-    }
-  }
-
-  const salvandoNewsletter = newsletterSalvar.isPending || newsletterCancelar.isPending;
-
-  return (
-    <div>
-      <h1>Minha conta</h1>
-      {usuario && (
-        <p className="texto-suave">
-          {usuario.email} —{" "}
-          <Badge variante={usuario.papel === "free" ? "neutro" : "premium"}>
-            {usuario.papel === "premium" ? "Premium" : usuario.papel === "admin" ? "Admin" : "Free"}
-          </Badge>
-        </p>
-      )}
-
-      {carregando && <SkeletonLista quantidade={2} />}
-      {erro && (
-        <ErrorState
-          mensagem="Não foi possível carregar sua conta."
-          aoTentarNovamente={() => {
-            void assinaturaQuery.refetch();
-            void pagamentosQuery.refetch();
-          }}
-        />
-      )}
-
-      {!carregando && !erro && (
-        <>
-          <h2 style={{ fontSize: "1.1rem", marginTop: "1.5rem" }}>Assinatura</h2>
-          {!assinatura && (
-            <p className="texto-suave">
-              Você ainda não tem uma assinatura. <a href="/planos">Ver planos</a>
-            </p>
-          )}
-          {assinatura && (
-            <div className="cartao">
-              <p>
-                <strong>Plano:</strong> {assinatura.plan.nome}
-              </p>
-              <p>
-                <strong>Status:</strong> {ROTULOS_STATUS[assinatura.status]}
-              </p>
-              <p>
-                <strong>Início:</strong> {formatarData(assinatura.inicio)} —{" "}
-                <strong>Vencimento:</strong> {formatarData(assinatura.vencimento)}
-              </p>
-              {(assinatura.status === "ativa" || assinatura.status === "teste") && (
-                <Button variante="perigo" onClick={() => void cancelar()} carregando={cancelarMutacao.isPending}>
-                  Cancelar assinatura
-                </Button>
-              )}
-            </div>
-          )}
-
-          <h2 style={{ fontSize: "1.1rem", marginTop: "1.5rem" }}>Histórico de pagamentos</h2>
-          {(pagamentosQuery.data?.length ?? 0) === 0 ? (
-            <EmptyState titulo="Nenhum pagamento registrado" descricao="Seus pagamentos aparecerão aqui." />
-          ) : (
-            <DataTable
-              legenda="Histórico de pagamentos"
-              linhas={pagamentosQuery.data ?? []}
-              colunas={[
-                { cabecalho: "Data", render: (p) => formatarData(p.criado_em) },
-                { cabecalho: "Valor", render: (p) => formatarPreco(p.valor) },
-                { cabecalho: "Status", render: (p) => p.status },
-              ]}
-            />
-          )}
-
-          <h2 style={{ fontSize: "1.1rem", marginTop: "1.5rem" }}>Newsletter</h2>
-          <div className="cartao">
-            {newsletterAtiva === true && (
-              <p className="mensagem-sucesso">Inscrição salva — você receberá a newsletter.</p>
-            )}
-            {newsletterAtiva === false && (
-              <p className="texto-suave">Você não está inscrito na newsletter no momento.</p>
-            )}
-            <CampoSelecao
-              id="tipo-newsletter"
-              rotulo="Tipo"
-              value={tipoNewsletter}
-              onChange={(e) => setTipoNewsletter(e.target.value as api.TipoNewsletter)}
-            >
-              <option value="padrao">Padrão (destaques do dia)</option>
-              <option value="categoria">Por categoria</option>
-              {usuario?.papel === "premium" && <option value="personalizada">Personalizada (Premium)</option>}
-            </CampoSelecao>
-            <CampoSelecao
-              id="periodo-newsletter"
-              rotulo="Período de envio"
-              value={periodoNewsletter}
-              onChange={(e) => setPeriodoNewsletter(e.target.value as api.PeriodoNewsletter)}
-            >
-              <option value="manha">Resumo da manhã</option>
-              <option value="noite">Resumo da noite</option>
-            </CampoSelecao>
-            {tipoNewsletter !== "padrao" && (
-              <CampoTexto
-                id="categorias-newsletter"
-                rotulo="Categorias (separadas por vírgula)"
-                placeholder="política, economia, esportes"
-                value={categoriasNewsletter}
-                onChange={(e) => setCategoriasNewsletter(e.target.value)}
-              />
-            )}
-            <Button onClick={() => void inscreverNaNewsletter()} carregando={salvandoNewsletter}>
-              Inscrever-se / atualizar
-            </Button>{" "}
-            <Button variante="secundaria" onClick={() => void cancelarNewsletterAtual()} disabled={salvandoNewsletter}>
-              Cancelar inscrição
-            </Button>
-          </div>
-        </>
-      )}
-    </div>
-  );
+import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { MinhasFontes } from "@/components/MinhasFontes";
+import Link from "next/link";
+export default function Page(){
+  const { usuario, token, carregando, fazerLogout } = useAuth();
+  const r = useRouter();
+  const [out,setOut]=useState(false);
+  useEffect(()=>{ if(!carregando && !token) r.replace("/login"); },[carregando,token,r]);
+  if(carregando) return <div className="mx-auto max-w-xl py-10"><div className="h-32 animate-pulse rounded-[var(--raio-lg)] bg-[var(--cor-skeleton-base)]" /></div>;
+  if(!usuario) return null;
+  return (<div className="mx-auto max-w-2xl space-y-4 py-6"><div className="hud-line" aria-hidden />
+    <Card className="bento border-[var(--cor-borda)] bg-[var(--cor-fundo-card)]"><CardHeader><CardTitle>Minha conta</CardTitle><CardDescription className="text-[var(--cor-texto-suave)]">Gerencie seus dados e preferências</CardDescription></CardHeader><CardContent className="space-y-3">
+      <div className="grid gap-3 md:grid-cols-2">
+        <div className="rounded-[var(--raio-md)] border border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] p-3"><p className="text-xs tracking-widest text-[var(--cor-texto-suave)]">USUARIO</p><p className="font-medium text-[var(--cor-texto)]">{usuario.nome || usuario.email}</p><p className="text-sm text-[var(--cor-texto-suave)]">{usuario.email}</p><Badge className="mt-2 bg-[var(--cor-primaria)] text-[var(--cor-texto-invertido)]">{usuario.papel}</Badge></div>
+        <div className="rounded-[var(--raio-md)] border border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] p-3"><p className="text-xs tracking-widest text-[var(--cor-texto-suave)]">STATUS</p><p className="text-sm text-[var(--cor-texto)]">Email {usuario.email_verificado?"verificado":"nao verificado"}</p><p className="text-xs text-[var(--cor-texto-suave)]">Onboarding {usuario.onboarding_concluido?"concluido":"pendente"}</p></div>
+      </div>
+      <Card className="border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)]"><CardContent className="p-4"><MinhasFontes compact /></CardContent></Card>
+      <div className="flex flex-wrap gap-2"><Button asChild variant="outline" className="min-h-[44px]"><Link href="/onboarding">Onboarding</Link></Button><Button asChild variant="outline" className="min-h-[44px]"><Link href="/personalizar">Personalizar</Link></Button><Button asChild variant="outline" className="min-h-[44px]"><Link href="/favoritos">Favoritos</Link></Button></div>
+      <Button variant="destructive" disabled={out} onClick={async()=>{ setOut(true); await fazerLogout(); r.push("/"); }} className="min-h-[44px]">{out?"Saindo...":"Sair"}</Button>
+    </CardContent></Card></div>);
 }

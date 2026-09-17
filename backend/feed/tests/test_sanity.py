@@ -10,10 +10,18 @@ from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
 
 from catalogo_noticias.models import NewsCluster, NewsItem
+from gating.models import ConfiguracaoSistema
 
 pytestmark = pytest.mark.django_db
 
 User = get_user_model()
+
+
+@pytest.fixture(autouse=True)
+def _premium_ativo_para_gating():
+    """Estes testes validam a semântica Free x Premium — exigem a flag
+    LIGADA (com ela desligada, todo mundo navega como Premium)."""
+    ConfiguracaoSistema.objects.update_or_create(pk=1, defaults={"premium_ativo": True})
 
 
 def _news_item(**kwargs):

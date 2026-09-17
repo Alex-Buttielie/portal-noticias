@@ -1,5 +1,5 @@
-# Build multi-stage: a imagem final não carrega toolchain de build (~várias
-# centenas de MB a menos), só o output standalone do Next.js — importante
+# Build multi-stage: a imagem final n├úo carrega toolchain de build (~v├írias
+# centenas de MB a menos), s├│ o output standalone do Next.js ÔÇö importante
 # numa VPS onde essa imagem convive com Postgres/Redis/backend/Celery.
 
 FROM node:20-alpine AS deps
@@ -11,8 +11,8 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-# Variáveis NEXT_PUBLIC_* são embutidas no bundle JS NO MOMENTO DO BUILD
-# (não em runtime) — precisam estar disponíveis aqui via build arg, não só
+# Vari├íveis NEXT_PUBLIC_* s├úo embutidas no bundle JS NO MOMENTO DO BUILD
+# (n├úo em runtime) ÔÇö precisam estar dispon├¡veis aqui via build arg, n├úo s├│
 # no ambiente do container final.
 ARG NEXT_PUBLIC_API_BASE_URL
 ARG NEXT_PUBLIC_SITE_URL

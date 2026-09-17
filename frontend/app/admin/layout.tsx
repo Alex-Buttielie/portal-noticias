@@ -1,40 +1,32 @@
-"use client";
-
-import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { notFound } from "next/navigation";
-import { useAuth } from "@/lib/auth-context";
-
+import type { ReactNode } from "react";
+export const metadata = { title: "Admin — Painel de controle" };
 const NAV = [
-  { href: "/admin", label: "Visão geral", exact: true },
+  { href: "/admin", label: "Dashboard" },
   { href: "/admin/usuarios", label: "Usuários" },
-  { href: "/admin/fila", label: "Fila editorial" },
-  { href: "/admin/planos", label: "Planos & Limites" },
+  { href: "/admin/fila", label: "Fila" },
+  { href: "/admin/planos", label: "Planos" },
+  { href: "/admin/limites", label: "Limites" },
   { href: "/admin/assinaturas", label: "Assinaturas" },
   { href: "/admin/moderacao", label: "Moderação" },
   { href: "/admin/metricas", label: "Métricas" },
   { href: "/admin/robos", label: "Robôs" },
+  { href: "/admin/configuracoes", label: "Configurações" },
 ];
-
-export default function AdminLayout({ children }: { children: React.ReactNode }) {
-  const { usuario, carregando } = useAuth();
-  const pathname = usePathname();
-  if (carregando) return <div className="container"><p className="texto-suave">Carregando…</p></div>;
-  if (!usuario || usuario.papel !== "admin") notFound();
+export default function Layout({ children }: { children: ReactNode }) {
   return (
-    <div className="container admin-layout">
-      <nav className="admin-sidebar" aria-label="Painel admin">
-        <h2 className="admin-sidebar-titulo">Painel</h2>
-        {NAV.map((item) => {
-          const ativo = item.exact ? pathname === item.href : pathname?.startsWith(item.href);
-          return (
-            <Link key={item.href} href={item.href} className={`admin-nav-link${ativo ? " admin-nav-link--ativo" : ""}`} aria-current={ativo ? "page" : undefined}>
-              {item.label}
-            </Link>
-          );
-        })}
-      </nav>
-      <div className="admin-conteudo">{children}</div>
+    <div className="space-y-4">
+      <div className="rounded-[var(--raio-lg)] border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] p-3">
+        <p className="text-xs tracking-[0.2em] text-[var(--cor-texto-suave)]">ADMIN — PAINEL DE CONTROLE</p>
+        <p className="text-xs text-[var(--cor-texto-suave)]">Operação completa do sistema — usuários, fila, planos, limites, assinaturas, moderação, métricas e robôs</p>
+        <div className="mt-3 flex flex-wrap gap-2 text-xs">
+          {NAV.map((n) => (
+            <a key={n.href} href={n.href} className="rounded-full border border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] px-3 py-1.5 text-[var(--cor-texto)] hover:bg-[var(--cor-primaria-suave)] hover:text-[var(--cor-primaria)] transition-colors">
+              {n.label}
+            </a>
+          ))}
+        </div>
+      </div>
+      {children}
     </div>
   );
 }

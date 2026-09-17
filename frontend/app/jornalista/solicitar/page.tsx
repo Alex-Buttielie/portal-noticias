@@ -1,120 +1,30 @@
 "use client";
-
-import { useEffect, useState, type FormEvent } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/lib/auth-context";
-import { useToast } from "@/components/ToastProvider";
 import * as api from "@/lib/api";
-import { useSolicitarCredenciamento } from "@/lib/queries";
-import { Button } from "@/components/ui/Button";
-import { CampoAreaTexto, CampoTexto } from "@/components/ui/FormField";
-import { ErrorState } from "@/components/ui/Estados";
-
-export default function PaginaSolicitarCredenciamento() {
-  const router = useRouter();
-  const { token, carregando: carregandoAuth } = useAuth();
-  const { notificar } = useToast();
-  const solicitar = useSolicitarCredenciamento();
-
-  const [telefone, setTelefone] = useState("");
-  const [cidade, setCidade] = useState("");
-  const [uf, setUf] = useState("");
-  const [miniBio, setMiniBio] = useState("");
-  const [dadosProfissionais, setDadosProfissionais] = useState("");
-  const [documento, setDocumento] = useState<File | null>(null);
-  const [erro, setErro] = useState<string | null>(null);
-  const [sucesso, setSucesso] = useState(false);
-
-  useEffect(() => {
-    if (!carregandoAuth && !token) {
-      router.push("/login");
-    }
-  }, [carregandoAuth, token, router]);
-
-  async function aoSubmeter(evento: FormEvent) {
-    evento.preventDefault();
-    setErro(null);
-
-    if (!token) return;
-    if (!documento) {
-      setErro("Anexe o documento comprobatório (diploma ou registro profissional).");
-      return;
-    }
-
-    try {
-      await solicitar.mutateAsync({
-        telefone,
-        cidade,
-        uf,
-        mini_bio: miniBio,
-        dados_profissionais: dadosProfissionais,
-        documento,
-      });
-      setSucesso(true);
-      notificar("Solicitação de credenciamento enviada.", "sucesso");
-    } catch (e) {
-      const mensagem = e instanceof api.ApiError ? e.message : "Não foi possível enviar a solicitação.";
-      setErro(mensagem);
-      notificar(mensagem, "erro");
-    }
-  }
-
-  if (sucesso) {
-    return (
-      <div className="formulario">
-        <h1>Solicitação enviada</h1>
-        <p className="mensagem-sucesso">
-          Sua solicitação de credenciamento foi enviada e está em análise. Prazo de referência: até
-          24h após o recebimento de documentação válida.
-        </p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="formulario">
-      <h1>Solicitar credenciamento de jornalista</h1>
-      <p className="texto-suave">
-        O credenciamento é manual — anexe um documento que comprove sua formação em Jornalismo ou
-        registro profissional equivalente.
-      </p>
-      {erro && <ErrorState mensagem={erro} />}
-      <form onSubmit={aoSubmeter}>
-        <CampoTexto
-          id="telefone"
-          rotulo="Telefone (opcional)"
-          type="tel"
-          placeholder="(11) 99999-0000"
-          autoComplete="tel"
-          value={telefone}
-          onChange={(e) => setTelefone(e.target.value)}
-        />
-        <CampoTexto id="cidade" rotulo="Cidade" autoComplete="address-level2" value={cidade} onChange={(e) => setCidade(e.target.value)} />
-        <CampoTexto id="uf" rotulo="UF" maxLength={2} value={uf} onChange={(e) => setUf(e.target.value.toUpperCase())} />
-        <CampoAreaTexto id="mini-bio" rotulo="Mini bio" rows={3} value={miniBio} onChange={(e) => setMiniBio(e.target.value)} />
-        <CampoAreaTexto
-          id="dados-profissionais"
-          rotulo="Dados profissionais"
-          rows={3}
-          placeholder="Formação, veículos onde já publicou, etc."
-          value={dadosProfissionais}
-          onChange={(e) => setDadosProfissionais(e.target.value)}
-        />
-        <div className="campo">
-          <label className="campo__rotulo" htmlFor="documento">
-            Documento comprobatório (PDF ou imagem)
-          </label>
-          <input
-            id="documento"
-            type="file"
-            accept="application/pdf,image/*"
-            onChange={(e) => setDocumento(e.target.files?.[0] || null)}
-          />
-        </div>
-        <Button type="submit" carregando={solicitar.isPending}>
-          Enviar solicitação
-        </Button>
-      </form>
-    </div>
-  );
+import EnderecoAutocomplete from "@/components/EnderecoAutocomplete";
+import BuscaCep from "@/components/BuscaCep";
+export default function Page(){
+  const { token } = useAuth(); const r=useRouter();
+  const [cidade,setCidade]=useState(""); const [uf,setUf]=useState(""); const [cepAuto,setCepAuto]=useState(""); const [mini,setMini]=useState(""); const [dados,setDados]=useState(""); const [tel,setTel]=useState(""); const [arquivo,setArquivo]=useState<File|null>(null); const [err,setErr]=useState<string|null>(null); const [ok,setOk]=useState(false); const [loading,setLoading]=useState(false);
+  const enviar=async(e:React.FormEvent)=>{ e.preventDefault(); setErr(null); if(!token){ setErr("Entre para solicitar credenciamento."); return; } if(!arquivo){ setErr("Anexe o documento."); return; } setLoading(true); try{ await api.solicitarCredenciamento(token,{cidade,uf,mini_bio:mini,dados_profissionais:dados,documento:arquivo,telefone:tel||undefined}); setOk(true); setTimeout(()=>r.push("/jornalista/status"),800);}catch(e:any){ setErr(e?.message||"Falha ao enviar."); } finally{ setLoading(false); } };
+  if(!token) return (<div className="mx-auto max-w-xl py-8"><Card className="bento border-[var(--cor-borda)] bg-[var(--cor-fundo-card)]"><CardContent className="p-6 text-center"><p className="text-sm text-[var(--cor-texto-suave)]">Entre para solicitar credenciamento.</p><Button onClick={()=>r.push("/login")} className="mt-3 bg-[var(--cor-primaria)] text-[var(--cor-texto-invertido)]">Entrar</Button></CardContent></Card></div>);
+   return (<div className="mx-auto max-w-2xl space-y-4 py-6"><div className="hud-line" aria-hidden /><Card className="bento border-[var(--cor-borda)] bg-[var(--cor-fundo-card)]"><CardHeader><CardTitle>Solicitar credenciamento</CardTitle><CardDescription className="text-[var(--cor-texto-suave)]">Envie seus dados para análise</CardDescription></CardHeader><CardContent><form onSubmit={enviar} className="space-y-3">
+    <EnderecoAutocomplete value={cepAuto} onChange={setCepAuto} onEndereco={(e)=>{ setCidade(e.localidade); setUf(e.uf); }} label="CEP (preenche cidade/UF automaticamente)" placeholder="01310-100" compact />
+    <div className="grid gap-3 md:grid-cols-2"><div className="space-y-2"><Label htmlFor="cidade">Cidade</Label><Input id="cidade" value={cidade} onChange={e=>setCidade(e.target.value)} placeholder="Ex: Sao Paulo" required /></div><div className="space-y-2"><Label htmlFor="uf">UF</Label><Input id="uf" value={uf} onChange={e=>setUf(e.target.value)} placeholder="SP" maxLength={2} required /></div></div>
+    <details className="rounded-md border border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] px-3 py-2"><summary className="cursor-pointer text-sm font-medium text-[var(--cor-texto)]">Busca avançada por endereço</summary><div className="pt-2"><BuscaCep compact onEndereco={(e)=>{ setCidade(e.localidade); setUf(e.uf); setCepAuto(e.cep); }} /></div></details>
+    <div className="space-y-2"><Label htmlFor="tel">Telefone</Label><Input id="tel" value={tel} onChange={e=>setTel(e.target.value)} placeholder="(11) 99999-9999" autoComplete="tel" /></div>
+    <div className="space-y-2"><Label htmlFor="mini">Mini bio</Label><Textarea id="mini" value={mini} onChange={e=>setMini(e.target.value)} rows={3} placeholder="Sua trajetoria..." required /></div>
+    <div className="space-y-2"><Label htmlFor="dados">Dados profissionais</Label><Textarea id="dados" value={dados} onChange={e=>setDados(e.target.value)} rows={3} placeholder="Veiculos, registro..." required /></div>
+    <div className="space-y-2"><Label htmlFor="doc">Documento (PDF/imagem)</Label><Input id="doc" type="file" accept=".pdf,image/*" onChange={e=>setArquivo(e.target.files?.[0]||null)} required /></div>
+    {err&&<p role="alert" className="rounded-md border border-[var(--cor-erro)] bg-[var(--cor-erro-suave)] px-3 py-2 text-sm text-[var(--cor-erro)]">{err}</p>}
+    {ok&&<p className="rounded-md border border-[var(--cor-sucesso)] bg-[var(--cor-sucesso-suave)] px-3 py-2 text-sm text-[var(--cor-sucesso)]">Solicitacao enviada - redirecionando...</p>}
+    <Button type="submit" disabled={loading} className="w-full bg-[var(--cor-primaria)] text-[var(--cor-texto-invertido)] min-h-[44px]">{loading?"Enviando...":"Enviar solicitacao"}</Button>
+  </form></CardContent></Card></div>);
 }

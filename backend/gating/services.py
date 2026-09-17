@@ -11,9 +11,30 @@ from __future__ import annotations
 from rest_framework import status
 from rest_framework.exceptions import APIException
 
-from .models import FeatureLimit
+from .models import ConfiguracaoSistema, FeatureLimit
 
 _VALORES_VERDADEIROS = {"true", "1", "sim", "yes"}
+
+
+def premium_ativo() -> bool:
+    """
+    Flag geral da Central (`/admin/configuracoes` > "Ativar planos Premium").
+    Padrão DESLIGADO: premium liberado a todos, assinaturas pausadas.
+    Fail-safe: se a tabela ainda não existir (migração pendente), considera
+    desligado — nunca limita por falta de configuração.
+    """
+    try:
+        cfg = ConfiguracaoSistema.objects.filter(pk=1).first()
+    except Exception:
+        return False
+    if cfg is None:
+        return False
+    return bool(cfg.premium_ativo)
+
+
+def premium_liberado_geral() -> bool:
+    """`True` quando a flag está DESMARCADA: todo mundo navega como Premium."""
+    return not premium_ativo()
 
 
 class RecursoGatedException(APIException):
@@ -40,6 +61,8 @@ def plano_do_usuario(user) -> str:
     sem `papel` reconhecido) é tratado como Free — nunca libera acesso por
     omissão (fail-safe).
     """
+    if premium_liberado_geral():
+        return FeatureLimit.PLANO_PREMIUM
     if getattr(user, "is_authenticated", False):
         papel = getattr(user, "papel", None)
         if papel in ("premium", "admin"):
@@ -66,7 +89,12 @@ def has_feature(user, chave: str) -> bool:
     Critérios de aceite 1-4: interpretação booleana de uma feature. Ausência
     de registro para `(chave, plano)` retorna `False` — nunca lança exceção,
     nunca libera acesso por omissão de configuração (fail-safe, critério 3).
+
+    Exceção deliberada: com a flag de Premium DESLIGADA na Central, tudo
+    fica liberado para todos (`premium_liberado_geral`).
     """
+    if premium_liberado_geral():
+        return True
     plano = plano_do_usuario(user)
     valor = obter_valor(chave, plano)
     if valor is None:

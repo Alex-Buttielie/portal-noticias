@@ -32,6 +32,14 @@ class AssinarView(APIView):
         serializer = AssinarPlanoSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
+        from gating.services import premium_liberado_geral
+
+        if premium_liberado_geral():
+            return Response(
+                {"detail": "Assinaturas pausadas no momento — todos os recursos Premium estão liberados."},
+                status=409,
+            )
+
         try:
             plan = Plan.objects.get(pk=serializer.validated_data["plan_id"], ativo=True)
         except Plan.DoesNotExist:

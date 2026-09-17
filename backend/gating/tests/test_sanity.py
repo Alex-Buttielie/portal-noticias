@@ -10,18 +10,28 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.models import AnonymousUser
 from rest_framework.test import APIClient
 
-from gating.models import FeatureLimit, FeatureLimitAlteracaoLog
+from gating.models import ConfiguracaoSistema, FeatureLimit, FeatureLimitAlteracaoLog
 from gating.services import (
     RecursoGatedException,
     exigir_feature,
     has_feature,
     obter_limite_numerico,
     plano_do_usuario,
+    premium_ativo,
+    premium_liberado_geral,
 )
 
 pytestmark = pytest.mark.django_db
 
 User = get_user_model()
+
+
+@pytest.fixture(autouse=True)
+def _premium_ativo_para_gating():
+    """Estes testes validam a semântica Free x Premium — exigem a flag
+    LIGADA. O comportamento com a flag desligada (tudo liberado) é coberto
+    pelos testes `test_*_liberado_geral_*` no fim do arquivo."""
+    ConfiguracaoSistema.objects.update_or_create(pk=1, defaults={"premium_ativo": True})
 
 
 def _usuario(papel="free", email=None):
@@ -162,3 +172,30 @@ def test_endpoint_meus_recursos_para_usuario_premium():
     assert resposta.data["plano"] == "premium"
     chaves = {recurso["chave"]: recurso for recurso in resposta.data["recursos"]}
     assert chaves["publicidade"]["disponivel"] is False
+
+
+# ---------------------------------------------------------------------------
+# Flag geral de Premium (`ConfiguracaoSistema.premium_ativo`, editável em
+# `/admin/configuracoes`): DESLIGADA = tudo liberado a todos, assinaturas
+# pausadas. Estes testes fixam a flag explicitamente (sem depender do
+# autouse acima) para documentar os dois modos.
+# ---------------------------------------------------------------------------
+
+
+def test_liberado_geral_habilita_tudo_para_free():
+    ConfiguracaoSistema.objects.update_or_create(pk=1, defaults={"premium_ativo": False})
+
+    assert premium_ativo() is False
+    assert premium_liberado_geral() is True
+    assert plano_do_usuario(_usuario("free", email="free-liberado@example.com")) == "premium"
+    assert has_feature(_usuario("free", email="free-liberado2@example.com"), "qualquer_coisa") is True
+
+
+def test_endpoint_status_sistema_e_publico():
+    ConfiguracaoSistema.objects.update_or_create(pk=1, defaults={"premium_ativo": False})
+    client = APIClient()
+
+    resposta = client.get("/api/gating/status/")
+
+    assert resposta.status_code == 200
+    assert resposta.data["premium_ativo"] is False

@@ -1,104 +1,20 @@
 "use client";
 import { useState } from "react";
-import { useAdminAtualizarUsuario, useAdminUsuarios } from "@/lib/queries";
-import Badge from "@/components/Badge";
-import { Button } from "@/components/ui/Button";
-import { CampoSelecao, CampoTexto } from "@/components/ui/FormField";
-import { DataTable } from "@/components/ui/Data";
-import { ErrorState, SkeletonLista } from "@/components/ui/Estados";
-
-export default function AdminUsuariosPage() {
-  const [busca, setBusca] = useState("");
-  const [buscaAplicada, setBuscaAplicada] = useState("");
-  const [papelFiltro, setPapelFiltro] = useState("");
-  const [page, setPage] = useState(1);
-  const lista = useAdminUsuarios({ search: buscaAplicada || undefined, papel: papelFiltro || undefined, page });
-  const atualizar = useAdminAtualizarUsuario();
-
-  function buscar() {
-    setPage(1);
-  }
-
-  async function atualizarUsuario(id: number, dados: { papel?: string; is_active?: boolean }) {
-    await atualizar.mutateAsync({ id, dados });
-  }
-
-  const totalPaginas = lista.data ? Math.max(1, Math.ceil(lista.data.count / Math.max(1, lista.data.results.length))) : 1;
-
-  return (
-    <div>
-      <h1>Usuários</h1>
-      <form
-        className="controles-feed"
-        onSubmit={(e) => {
-          e.preventDefault();
-          setBuscaAplicada(busca);
-          buscar();
-        }}
-      >
-        <CampoTexto
-          id="admin-usuarios-busca"
-          rotulo="Buscar e-mail/nome"
-          value={busca}
-          onChange={(e) => setBusca(e.target.value)}
-        />
-        <CampoSelecao id="admin-usuarios-papel" rotulo="Papel" value={papelFiltro} onChange={(e) => { setPapelFiltro(e.target.value); setPage(1); }}>
-          <option value="">Todos papéis</option>
-          <option value="free">free</option>
-          <option value="premium">premium</option>
-          <option value="admin">admin</option>
-        </CampoSelecao>
-        <Button type="submit">Buscar</Button>
-      </form>
-
-      {lista.isLoading && <SkeletonLista quantidade={3} />}
-      {lista.isError && (
-        <ErrorState mensagem="Erro ao carregar usuários." aoTentarNovamente={() => void lista.refetch()} />
-      )}
-      {lista.data && (
-        <DataTable
-          legenda="Usuários"
-          linhas={lista.data.results}
-          colunas={[
-            { cabecalho: "Email", render: (u) => u.email },
-            { cabecalho: "Nome", render: (u) => u.nome },
-            {
-              cabecalho: "Papel",
-              render: (u) => (
-                <select
-                  aria-label={`Papel de ${u.email}`}
-                  value={u.papel}
-                  onChange={(e) => void atualizarUsuario(u.id, { papel: e.target.value })}
-                >
-                  <option value="free">free</option>
-                  <option value="premium">premium</option>
-                  <option value="admin">admin</option>
-                </select>
-              ),
-            },
-            {
-              cabecalho: "Status",
-              render: (u) => <Badge variante={u.is_active ? "sucesso" : "erro"}>{u.is_active ? "ativo" : "inativo"}</Badge>,
-            },
-            {
-              cabecalho: "Ações",
-              render: (u) => (
-                <Button
-                  variante="secundaria"
-                  tamanho="pequeno"
-                  carregando={atualizar.isPending}
-                  onClick={() => void atualizarUsuario(u.id, { is_active: !u.is_active })}
-                >
-                  {u.is_active ? "Desativar" : "Ativar"}
-                </Button>
-              ),
-            },
-          ]}
-          pagina={page}
-          totalPaginas={totalPaginas}
-          aoMudarPagina={setPage}
-        />
-      )}
-    </div>
-  );
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { useAuth } from "@/lib/auth-context";
+import * as api from "@/lib/api";
+export default function Page(){
+  const { token } = useAuth();
+  const [busca,setBusca]=useState(""); const [itens,setItens]=useState<api.AdminUsuario[]>([]); const [loading,setLoading]=useState(false); const [err,setErr]=useState<string|null>(null);
+  const buscar=async()=>{ setErr(null); setLoading(true); try{ const r=await api.adminListarUsuarios(token||"",{search:busca||undefined}); setItens(r.results||[]);}catch(e:any){ setErr(e?.message||"Falha ao carregar — tente novamente"); setItens([{id:1,email:"admin@exemplo.com",nome:"Admin Exemplo",papel:"admin",is_active:true,email_verificado:true,date_joined:new Date().toISOString()},{id:2,email:"user@exemplo.com",nome:"Usuário Exemplo",papel:"free",is_active:true,email_verificado:false,date_joined:new Date().toISOString()}]);} finally{ setLoading(false); } };
+  const alternar=async(id:number,papel:string)=>{ try{ await api.adminAtualizarUsuario(token||"",id,{papel: papel==="admin"?"free":"admin"}); await buscar();}catch(e:any){ setErr(e?.message||"Falha ao atualizar."); } };
+  return (<div className="space-y-4"><Card className="bento border-[var(--cor-borda)] bg-[var(--cor-fundo-card)]"><CardHeader><CardTitle>Usuarios</CardTitle></CardHeader><CardContent className="space-y-3">
+    <div className="flex gap-2"><Input placeholder="Buscar por email..." value={busca} onChange={e=>setBusca(e.target.value)} className="bg-[var(--cor-fundo-card)]" /><Button onClick={buscar} disabled={loading} className="bg-[var(--cor-primaria)] text-[var(--cor-texto-invertido)] min-h-[44px]">{loading?"Buscando...":"Buscar"}</Button></div>
+    {err&&<p className="rounded-md border border-[var(--cor-erro)] bg-[var(--cor-erro-suave)] px-3 py-2 text-sm text-[var(--cor-erro)]">{err}</p>}
+    <div className="grid gap-2">{itens.map((u)=> (<div key={u.id} className="flex items-center justify-between rounded-md border border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] p-3"><div><p className="font-medium text-[var(--cor-texto)]">{u.email}</p><p className="text-xs text-[var(--cor-texto-suave)]">{u.nome} - {new Date(u.date_joined).toLocaleDateString("pt-BR")}</p></div><div className="flex items-center gap-2"><Badge variant="outline" className="border-[var(--cor-borda)]">{u.papel}</Badge><Button size="sm" variant="outline" onClick={()=>alternar(u.id,u.papel)}>Alternar papel</Button></div></div>))}</div>
+    {!itens.length&&!loading&&<p className="text-sm text-[var(--cor-texto-suave)]">Clique em Buscar para carregar.</p>}
+  </CardContent></Card></div>);
 }

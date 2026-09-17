@@ -1,54 +1,14 @@
 import type { Metadata } from "next";
-import JsonLd from "@/components/JsonLd";
-import PerfilAutorConteudo from "./PerfilAutorConteudo";
-import * as api from "@/lib/api";
-import { personJsonLd } from "@/lib/schema";
-import { SITE_URL } from "@/lib/site";
-
-/**
- * Server Component (metadata + JSON-LD `Person` — implementation-contract.md
- * run 20260903-1134-seo-lgpd-design-system, escopo A). O corpo interativo
- * (seguir/deixar de seguir, lista de publicações) foi extraído para
- * `PerfilAutorConteudo.tsx` (Client Component) — `generateMetadata` só pode
- * ser exportado por um Server Component.
- */
-export async function generateMetadata({
-  params,
-}: {
-  params: { id: string };
-}): Promise<Metadata> {
-  const perfil = await api.obterPerfilAutor(Number(params.id)).catch(() => null);
-  if (!perfil) {
-    return { title: "Autor não encontrado", robots: { index: false, follow: false } };
-  }
-  const nome = perfil.nome || `Autor #${perfil.id}`;
-  const url = `${SITE_URL}/autor/${perfil.id}`;
-  const descricao = `Perfil de ${nome} no Portal de Notícias — ${perfil.numero_seguidores} seguidor${perfil.numero_seguidores === 1 ? "" : "es"}.`;
-
-  return {
-    title: nome,
-    description: descricao,
-    alternates: { canonical: url },
-    openGraph: { type: "profile", title: nome, description: descricao, url },
-    twitter: { card: "summary", title: nome, description: descricao },
-  };
-}
-
-export default async function PaginaPerfilAutor({ params }: { params: { id: string } }) {
-  const perfil = await api.obterPerfilAutor(Number(params.id)).catch(() => null);
-
-  return (
-    <>
-      {perfil && (
-        <JsonLd
-          data={personJsonLd({
-            id: perfil.id,
-            nome: perfil.nome,
-            url: `${SITE_URL}/autor/${perfil.id}`,
-          })}
-        />
-      )}
-      <PerfilAutorConteudo id={params.id} />
-    </>
-  );
+import Link from "next/link";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { SITE_NAME } from "@/lib/site";
+import { obterPerfilAutor } from "@/lib/api";
+export async function generateMetadata({params}:{params:{id:string}}): Promise<Metadata>{ return { title:`Autor #${params.id} - ${SITE_NAME}` }; }
+export function generateStaticParams(){ return [{id:"1"}]; }
+export const revalidate=60;
+export default async function Page({params}:{params:{id:string}}){
+  const id=Number(params.id);
+  let perfil:any=null; try{ perfil=await obterPerfilAutor(Number.isFinite(id)?id:1);}catch{ perfil={id, nome:`Autor #${params.id}`, credenciado:false, numero_seguidores:0, publicacoes:[]}; }
+  return (<div className="mx-auto max-w-2xl space-y-4 py-6"><div className="hud-line" aria-hidden /><Card className="bento border-[var(--cor-borda)] bg-[var(--cor-fundo-card)]"><CardHeader><CardTitle>{perfil.nome}</CardTitle></CardHeader><CardContent><div className="flex gap-2"><Badge className="bg-[var(--cor-primaria)] text-[var(--cor-texto-invertido)]">{perfil.numero_seguidores} seguidores</Badge>{perfil.credenciado&&<Badge className="bg-[var(--cor-sucesso)] text-[var(--cor-texto-invertido)]">credenciado</Badge>}</div>{perfil.publicacoes?.length? <div className="mt-4 grid gap-2">{perfil.publicacoes.map((p:any)=> (<Link key={p.id} href={`/comunidade/${p.id}`} className="rounded-md border border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] p-3 hover:bg-[var(--cor-primaria-suave)]"><p className="font-medium text-[var(--cor-texto)]">{p.titulo}</p><p className="text-xs text-[var(--cor-texto-suave)]">{p.categoria} - {p.tipo}</p></Link>))}</div> : <p className="mt-3 text-sm text-[var(--cor-texto-suave)]">Nenhuma publicacao.</p>}</CardContent></Card></div>);
 }

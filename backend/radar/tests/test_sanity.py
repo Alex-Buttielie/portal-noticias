@@ -4,12 +4,19 @@ import pytest
 from django.contrib.auth import get_user_model
 
 from catalogo_noticias.models import NewsItem
-from gating.models import FeatureLimit
+from gating.models import ConfiguracaoSistema, FeatureLimit
 from radar import services
 
 pytestmark = pytest.mark.django_db
 
 User = get_user_model()
+
+
+@pytest.fixture(autouse=True)
+def _premium_ativo_para_gating():
+    """O teste de gating abaixo exige a flag LIGADA (com ela desligada,
+    todo mundo navega como Premium)."""
+    ConfiguracaoSistema.objects.update_or_create(pk=1, defaults={"premium_ativo": True})
 
 
 def _item(titulo, categoria, cidade="", estado="", pais="", url=None):

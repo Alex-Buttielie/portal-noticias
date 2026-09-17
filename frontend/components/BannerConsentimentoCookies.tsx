@@ -1,146 +1,60 @@
 "use client";
-
-import { useCallback, useEffect, useId, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
+import { Cookie, ShieldCheck } from "lucide-react";
+import { consentimentoRespondido, aceitarTodos, recusarNaoEssenciais, definirEscolhas } from "@/lib/cookie-consent";
 import { useAuth } from "@/lib/auth-context";
-import * as consentimento from "@/lib/cookie-consent";
-
-/**
- * Banner de consentimento de cookies (implementation-contract.md run
- * 20260903-1134-seo-lgpd-design-system, escopo B — LGPD, critérios de
- * aceite 3 e 4 do task-plan.md).
- *
- * Aparece para qualquer visitante sem escolha registrada (`localStorage`,
- * ver `lib/cookie-consent.ts`) e oferece três ações: "Aceitar todos",
- * "Recusar não essenciais" e "Gerenciar preferências" (expande um painel
- * com um toggle por categoria opcional — "essenciais" é sempre ativa e
- * aparece só como informação, não como controle). Nenhum script de
- * analytics/personalização deste projeto pode inicializar antes de uma
- * dessas ações — hoje não há nenhum desses scripts implementados ainda
- * (ver implementation-history.md), então este componente é a peça de
- * bloqueio que qualquer script futuro dessas categorias deve consultar via
- * `consentimento.permiteCategoria`.
- */
-export default function BannerConsentimentoCookies() {
-  const { token } = useAuth();
+import { sincronizarComBackendSeAutenticado } from "@/lib/cookie-consent";
+export function BannerConsentimentoCookies() {
   const [visivel, setVisivel] = useState(false);
-  const [gerenciando, setGerenciando] = useState(false);
-  const [analyticsRascunho, setAnalyticsRascunho] = useState(false);
-  const [personalizacaoRascunho, setPersonalizacaoRascunho] = useState(false);
-  const painelId = useId();
-
-  const atualizarVisibilidade = useCallback(() => {
-    setVisivel(!consentimento.consentimentoRespondido());
-  }, []);
-
-  useEffect(() => {
-    atualizarVisibilidade();
-    window.addEventListener(consentimento.EVENTO_CONSENTIMENTO_ALTERADO, atualizarVisibilidade);
-    return () =>
-      window.removeEventListener(consentimento.EVENTO_CONSENTIMENTO_ALTERADO, atualizarVisibilidade);
-  }, [atualizarVisibilidade]);
-
-  useEffect(() => {
-    if (!gerenciando) return;
-    function aoPressionarTecla(evento: KeyboardEvent) {
-      if (evento.key === "Escape") setGerenciando(false);
-    }
-    document.addEventListener("keydown", aoPressionarTecla);
-    return () => document.removeEventListener("keydown", aoPressionarTecla);
-  }, [gerenciando]);
-
+  const [prefOpen, setPrefOpen] = useState(false);
+  const [analytics, setAnalytics] = useState(false);
+  const [personalizacao, setPersonalizacao] = useState(false);
+  const { token } = useAuth();
+  useEffect(() => { setVisivel(!consentimentoRespondido()); }, []);
+  function fechar() { setVisivel(false); }
   if (!visivel) return null;
-
-  function aoAceitarTodos() {
-    consentimento.aceitarTodos();
-    void consentimento.sincronizarComBackendSeAutenticado(token);
-  }
-
-  function aoRecusarNaoEssenciais() {
-    consentimento.recusarNaoEssenciais();
-    void consentimento.sincronizarComBackendSeAutenticado(token);
-  }
-
-  function abrirGerenciar() {
-    setAnalyticsRascunho(false);
-    setPersonalizacaoRascunho(false);
-    setGerenciando(true);
-  }
-
-  function aoSalvarPreferencias() {
-    consentimento.definirEscolhas({
-      analytics: analyticsRascunho,
-      personalizacao: personalizacaoRascunho,
-    });
-    void consentimento.sincronizarComBackendSeAutenticado(token);
-    setGerenciando(false);
-  }
-
   return (
-    <div className="banner-cookies" role="region" aria-label="Aviso de cookies">
-      <div className="banner-cookies-conteudo">
-        <p>
-          Usamos cookies essenciais para o funcionamento do site. Com o seu consentimento,
-          também usamos cookies de análise e personalização para melhorar sua experiência.
-          Veja nossa{" "}
-          <Link href="/privacidade/politica">política de privacidade</Link>.
-        </p>
-        <div className="banner-cookies-acoes">
-          <button type="button" className="botao botao-secundario" onClick={abrirGerenciar}>
-            Gerenciar preferências
-          </button>
-          <button type="button" className="botao botao-secundario" onClick={aoRecusarNaoEssenciais}>
-            Recusar não essenciais
-          </button>
-          <button type="button" className="botao" onClick={aoAceitarTodos}>
-            Aceitar todos
-          </button>
+    <>
+      <div role="dialog" aria-label="Consentimento de cookies" aria-modal="true" className="fixed inset-x-0 bottom-0 z-[var(--z-cookies)] border-t border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] p-4 shadow-2 md:bottom-4 md:left-1/2 md:w-[min(640px,calc(100%-2rem))] md:-translate-x-1/2 md:rounded-lg md:border">
+        <p className="text-sm leading-relaxed text-[var(--cor-texto)]">Usamos cookies essenciais e, com seu consentimento, cookies de analytics e personalização. Veja nossa <Link href="/privacidade/cookies" className="underline decoration-[var(--cor-borda)] underline-offset-2 hover:text-[var(--cor-primaria)]">política de cookies</Link>.</p>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <button type="button" onClick={() => { aceitarTodos(); void sincronizarComBackendSeAutenticado(token); fechar(); }} className="inline-flex min-h-[44px] items-center rounded-md bg-[var(--cor-primaria)] px-4 text-sm font-medium text-[var(--cor-texto-invertido)] hover:bg-[var(--cor-primaria-hover)]">Aceitar todos</button>
+          <button type="button" onClick={() => { recusarNaoEssenciais(); void sincronizarComBackendSeAutenticado(token); fechar(); }} className="inline-flex min-h-[44px] items-center rounded-md border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] px-4 text-sm font-medium text-[var(--cor-texto)] hover:bg-[var(--cor-borda)]">Rejeitar não essenciais</button>
+          <button type="button" onClick={() => setPrefOpen(true)} className="inline-flex min-h-[44px] items-center rounded-md border border-transparent px-4 text-sm font-medium text-[var(--cor-texto-suave)] hover:text-[var(--cor-texto)]">Personalizar</button>
         </div>
       </div>
-
-      {gerenciando && (
-        <div id={painelId} className="banner-cookies-painel" role="dialog" aria-label="Gerenciar preferências de cookies">
-          <div className="campo-toggle">
-            <div>
-              <strong>Essenciais</strong>
-              <p className="texto-suave">Necessários para o site funcionar. Sempre ativos.</p>
+      <Dialog open={prefOpen} onOpenChange={setPrefOpen}>
+        <DialogContent className="border-[var(--cor-borda)] bg-[var(--cor-fundo-card)]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><Cookie className="h-5 w-5 text-[var(--cor-primaria)]" /> Preferências de cookies</DialogTitle>
+            <DialogDescription>Escolha quais cookies podemos usar. Você pode mudar isso a qualquer momento.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between rounded-md border border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] p-3">
+              <div className="space-y-0.5"><Label className="text-sm font-medium">Essenciais</Label><p className="text-xs text-[var(--cor-texto-suave)]">Necessários para o site funcionar. Sempre ativos.</p></div>
+              <span className="inline-flex items-center gap-1 rounded-full bg-[var(--cor-sucesso-suave)] px-2 py-1 text-xs font-medium text-[var(--cor-sucesso)]"><ShieldCheck className="h-3 w-3" /> Ativo</span>
             </div>
-            <input type="checkbox" checked disabled aria-label="Cookies essenciais (sempre ativos)" />
-          </div>
-          <div className="campo-toggle">
-            <div>
-              <strong>Analytics</strong>
-              <p className="texto-suave">Nos ajudam a entender como o site é usado.</p>
+            <div className="flex items-center justify-between rounded-md border border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] p-3">
+              <div className="space-y-0.5"><Label htmlFor="cc-analytics">Analytics</Label><p className="text-xs text-[var(--cor-texto-suave)]">Medição anônima de uso.</p></div>
+              <Switch id="cc-analytics" checked={analytics} onCheckedChange={setAnalytics} />
             </div>
-            <input
-              type="checkbox"
-              checked={analyticsRascunho}
-              onChange={(e) => setAnalyticsRascunho(e.target.checked)}
-              aria-label="Cookies de análise"
-            />
-          </div>
-          <div className="campo-toggle">
-            <div>
-              <strong>Personalização</strong>
-              <p className="texto-suave">Usados para adaptar conteúdo e recomendações ao seu perfil.</p>
+            <div className="flex items-center justify-between rounded-md border border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] p-3">
+              <div className="space-y-0.5"><Label htmlFor="cc-pers">Personalização</Label><p className="text-xs text-[var(--cor-texto-suave)]">Recomendações e feed personalizado.</p></div>
+              <Switch id="cc-pers" checked={personalizacao} onCheckedChange={setPersonalizacao} />
             </div>
-            <input
-              type="checkbox"
-              checked={personalizacaoRascunho}
-              onChange={(e) => setPersonalizacaoRascunho(e.target.checked)}
-              aria-label="Cookies de personalização"
-            />
+            <p className="text-xs text-[var(--cor-texto-suave)]">Preferências completas em <Link href="/privacidade/preferencias-cookies" onClick={()=>setPrefOpen(false)} className="text-[var(--cor-primaria)] underline">/privacidade/preferencias-cookies</Link>.</p>
           </div>
-          <div className="banner-cookies-acoes">
-            <button type="button" className="botao botao-secundario" onClick={() => setGerenciando(false)}>
-              Cancelar
-            </button>
-            <button type="button" className="botao" onClick={aoSalvarPreferencias}>
-              Salvar preferências
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
+          <DialogFooter className="flex-col gap-2 sm:flex-col">
+            <Button onClick={() => { definirEscolhas({ analytics, personalizacao }); void sincronizarComBackendSeAutenticado(token); setPrefOpen(false); fechar(); }} className="w-full bg-[var(--cor-primaria)] text-[var(--cor-texto-invertido)] min-h-[44px]">Salvar escolhas</Button>
+            <Button variant="outline" onClick={() => setPrefOpen(false)} className="w-full min-h-[44px]">Fechar</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

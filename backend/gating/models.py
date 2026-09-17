@@ -46,6 +46,34 @@ class FeatureLimit(models.Model):
         return f"{self.chave} ({self.plano}) = {self.valor}"
 
 
+class ConfiguracaoSistema(models.Model):
+    """
+    Chave geral do produto (singleton pk=1, ver `save()`): enquanto
+    `premium_ativo` estiver DESMARCADO, todas as funcionalidades Premium ficam
+    liberadas para todos os usuários e as assinaturas ficam pausadas — o
+    produto opera como se todo mundo fosse Premium, sem cobrar ninguém
+    (ver `gating/services.premium_liberado_geral`). Editável SOMENTE pela
+    Central (`/admin/configuracoes`), nunca por endpoint público.
+    """
+
+    premium_ativo = models.BooleanField(
+        default=False,
+        help_text="Quando marcado, os planos Premium passam a valer e as funcionalidades voltam a ser limitadas por plano. Quando desmarcado, tudo fica liberado e assinar é pausado.",
+    )
+    atualizado_em = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "configuração do sistema"
+        verbose_name_plural = "configuração do sistema"
+
+    def __str__(self):
+        return f"ConfiguracaoSistema (premium_ativo={self.premium_ativo})"
+
+    def save(self, *args, **kwargs):
+        self.pk = 1
+        super().save(*args, **kwargs)
+
+
 class FeatureLimitAlteracaoLog(models.Model):
     """
     Auditoria (BRD seção 17; implementation-contract.md, critério de aceite

@@ -1,9 +1,10 @@
-/** Link de acessibilidade para quem navega por teclado/leitor de tela
- * pular a navegação repetida e ir direto ao conteúdo principal. */
-export default function PularParaConteudo() {
+export function PularParaConteudo() {
   return (
-    <a href="#conteudo-principal" className="pular-para-conteudo">
-      Pular para o conteúdo principal
+    <a
+      href="#conteudo-principal"
+      className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[var(--z-banner)] focus:rounded-md focus:bg-[var(--cor-texto)] focus:px-4 focus:py-2 focus:text-[var(--cor-texto-invertido)] focus:outline-none focus:ring-2 focus:ring-[var(--cor-foco)] focus:ring-offset-2"
+    >
+      Pular para o conteúdo
     </a>
   );
 }

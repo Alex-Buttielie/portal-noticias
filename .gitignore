@@ -9,3 +9,11 @@ infra/backup/*.tar.gz
 
 # Estado de runtime local do Claude Code, não do projeto.
 .claude/scheduled_tasks.lock
+
+# Runtime local / logs temporários — não versionar (ver code-review 20260915-2246)
+frontend-dev.log
+frontend-dev.err.log
+temp_tsc.log
+backend/ensure_local_admin.py
+.env.localhost
+docker-compose.localhost.yml

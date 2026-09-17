@@ -78,6 +78,7 @@ def construir_feed_entries(itens: list[NewsItem]) -> list[dict]:
                 "urgente": item.urgente,
                 "numero_fontes": numero_fontes,
                 "timestamp": timestamp_item,
+                "imagem_url": getattr(item, "imagem_url", "") or "",
             }
         elif item.urgente and not entradas[chave]["urgente"]:
             # Qualquer item urgente dentro do subconjunto filtrado do mesmo
@@ -162,6 +163,8 @@ def detalhe_cluster(cluster_id: int) -> dict | None:
                 "nome_fonte": item.nome_fonte,
                 "url_fonte_original": item.url_fonte_original,
                 "resumo": item.resumo_proprio,
+                "imagem_url": getattr(item, "imagem_url", "") or "",
+                "conteudo": (getattr(item, "conteudo_completo", "") or "")[:6000],
             }
             for item in itens
         ],
@@ -190,6 +193,8 @@ def detalhe_item(item_id: int) -> dict | None:
                 "nome_fonte": item.nome_fonte,
                 "url_fonte_original": item.url_fonte_original,
                 "resumo": item.resumo_proprio,
+                "imagem_url": getattr(item, "imagem_url", "") or "",
+                "conteudo": (getattr(item, "conteudo_completo", "") or "")[:6000],
             }
         ],
     }
@@ -214,7 +219,17 @@ def exibir_publicidade(user) -> bool:
     Critério de aceite 7: `false` só para usuário autenticado com
     `papel=premium`; visitante (`AnonymousUser`, `is_authenticated=False`)
     ou usuário `free` sempre recebe `true`.
+
+    Exceção deliberada: com a flag de Premium DESLIGADA na Central, todos
+    navegam como Premium — sem publicidade para ninguém.
     """
+    try:
+        from gating.services import premium_liberado_geral
+
+        if premium_liberado_geral():
+            return False
+    except Exception:
+        pass
     if getattr(user, "is_authenticated", False) and getattr(user, "papel", None) == "premium":
         return False
     return True

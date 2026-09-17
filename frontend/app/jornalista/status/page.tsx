@@ -1,145 +1,21 @@
 "use client";
-
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth-context";
-import { useToast } from "@/components/ToastProvider";
 import * as api from "@/lib/api";
-import { useMeuPerfilJornalista, useMinhaSolicitacao, useSalvarPerfilJornalista } from "@/lib/queries";
-import Badge from "@/components/Badge";
-import { Button } from "@/components/ui/Button";
-import { CampoAreaTexto } from "@/components/ui/FormField";
-import { ErrorState, SkeletonCard } from "@/components/ui/Estados";
-
-const ROTULOS_STATUS: Record<api.StatusCredenciamento, string> = {
-  pendente: "Em análise",
-  aprovado: "Aprovado — você é um jornalista credenciado",
-  reprovado: "Reprovado",
-  info_solicitada: "Informação adicional solicitada",
-};
-
-export default function PaginaStatusCredenciamento() {
-  const router = useRouter();
-  const { token, carregando: carregandoAuth } = useAuth();
-  const { notificar } = useToast();
-  const solicitacaoQuery = useMinhaSolicitacao();
-  const perfilQuery = useMeuPerfilJornalista();
-  const salvarPerfil = useSalvarPerfilJornalista();
-
-  const [editandoPerfil, setEditandoPerfil] = useState(false);
-  const [miniBioPerfil, setMiniBioPerfil] = useState("");
-  const [dadosProfissionaisPerfil, setDadosProfissionaisPerfil] = useState("");
-
-  useEffect(() => {
-    if (!carregandoAuth && !token) {
-      router.push("/login");
-    }
-  }, [carregandoAuth, token, router]);
-
-  if (carregandoAuth || solicitacaoQuery.isLoading) return <p className="texto-suave">Carregando...</p>;
-  if (solicitacaoQuery.isError) {
-    return (
-      <ErrorState
-        mensagem="Não foi possível carregar sua solicitação."
-        aoTentarNovamente={() => void solicitacaoQuery.refetch()}
-      />
-    );
-  }
-
-  const solicitacao = solicitacaoQuery.data ?? null;
-  const perfil = perfilQuery.data ?? null;
-
-  function iniciarEdicaoPerfil() {
-    if (!perfil) return;
-    setMiniBioPerfil(perfil.mini_bio);
-    setDadosProfissionaisPerfil(perfil.dados_profissionais);
-    setEditandoPerfil(true);
-  }
-
-  async function salvarPerfilHandler(evento: FormEvent) {
-    evento.preventDefault();
-    if (!token) return;
-    try {
-      await salvarPerfil.mutateAsync({ mini_bio: miniBioPerfil, dados_profissionais: dadosProfissionaisPerfil });
-      setEditandoPerfil(false);
-      notificar("Perfil profissional atualizado.", "sucesso");
-    } catch (e) {
-      notificar(e instanceof api.ApiError ? e.message : "Não foi possível salvar o perfil.", "erro");
-    }
-  }
-
-  if (solicitacao === null) {
-    return (
-      <div className="formulario">
-        <h1>Credenciamento de jornalista</h1>
-        <p className="texto-suave">Você ainda não solicitou credenciamento.</p>
-        <Link href="/jornalista/solicitar" className="botao botao--primaria botao--medio">
-          Solicitar agora
-        </Link>
-      </div>
-    );
-  }
-
-  return (
-    <div className="formulario">
-      <h1>Status do seu credenciamento</h1>
-      <div className="cartao">
-        <Badge variante={solicitacao.status === "aprovado" ? "sucesso" : solicitacao.status === "reprovado" ? "erro" : "neutro"}>
-          {ROTULOS_STATUS[solicitacao.status]}
-        </Badge>
-        {solicitacao.motivo_decisao && (
-          <p className="texto-suave" style={{ marginTop: "0.4rem" }}>
-            {solicitacao.motivo_decisao}
-          </p>
-        )}
-      </div>
-      {solicitacao.status === "aprovado" && (
-        <Link href="/comunidade/nova" className="botao botao--primaria botao--medio">
-          Escrever uma análise
-        </Link>
-      )}
-
-      {perfilQuery.isLoading && <SkeletonCard />}
-      {perfil && (
-        <div className="cartao" style={{ marginTop: "1.5rem" }}>
-          <h2 style={{ fontSize: "1.1rem" }}>Meu perfil profissional</h2>
-          {editandoPerfil ? (
-            <form onSubmit={salvarPerfilHandler}>
-              <CampoAreaTexto
-                id="mini-bio-perfil"
-                rotulo="Mini bio"
-                rows={3}
-                value={miniBioPerfil}
-                onChange={(e) => setMiniBioPerfil(e.target.value)}
-              />
-              <CampoAreaTexto
-                id="dados-profissionais-perfil"
-                rotulo="Dados profissionais"
-                rows={3}
-                value={dadosProfissionaisPerfil}
-                onChange={(e) => setDadosProfissionaisPerfil(e.target.value)}
-              />
-              <Button type="submit" carregando={salvarPerfil.isPending}>
-                Salvar perfil
-              </Button>{" "}
-              <Button variante="secundaria" onClick={() => setEditandoPerfil(false)}>
-                Cancelar
-              </Button>
-            </form>
-          ) : (
-            <>
-              <p className="texto-suave">{perfil.mini_bio || "Nenhuma bio cadastrada ainda."}</p>
-              <p className="texto-suave">
-                {perfil.dados_profissionais || "Nenhum dado profissional cadastrado ainda."}
-              </p>
-              <Button variante="secundaria" onClick={iniciarEdicaoPerfil}>
-                Editar perfil
-              </Button>
-            </>
-          )}
-        </div>
-      )}
-    </div>
-  );
+export default function Page(){
+  const { token } = useAuth(); const r=useRouter();
+  const [solic,setSolic]=useState<api.SolicitacaoCredenciamento|null>(null); const [perfil,setPerfil]=useState<api.PerfilJornalista|null>(null); const [loading,setLoading]=useState(true); const [err,setErr]=useState<string|null>(null);
+  useEffect(()=>{ if(!token) return; (async()=>{ setLoading(true); try{ const [s,p]=await Promise.all([api.obterMinhaSolicitacaoCredenciamento(token).catch(()=>null), api.obterMeuPerfilJornalista(token).catch(()=>null)]); setSolic(s); setPerfil(p);}catch(e:any){ setErr(e?.message||"Falha ao carregar."); } finally{ setLoading(false); } })(); },[token]);
+  if(!token) return (<div className="mx-auto max-w-xl py-8"><Card className="bento border-[var(--cor-borda)] bg-[var(--cor-fundo-card)]"><CardContent className="p-6 text-center"><p className="text-sm text-[var(--cor-texto-suave)]">Entre para ver status.</p><Button onClick={()=>r.push("/login")} className="mt-3 bg-[var(--cor-primaria)] text-[var(--cor-texto-invertido)]">Entrar</Button></CardContent></Card></div>);
+  if(loading) return <div className="mx-auto max-w-xl py-8"><div className="h-24 animate-pulse rounded-[var(--raio-lg)] bg-[var(--cor-skeleton-base)]" /></div>;
+  return (<div className="mx-auto max-w-2xl space-y-4 py-6"><div className="hud-line" aria-hidden />
+    <Card className="bento border-[var(--cor-borda)] bg-[var(--cor-fundo-card)]"><CardHeader><CardTitle>Status do credenciamento</CardTitle><CardDescription className="text-[var(--cor-texto-suave)]">Acompanhe sua solicitação</CardDescription></CardHeader><CardContent className="space-y-4">
+      {err&&<p className="rounded-md border border-[var(--cor-erro)] bg-[var(--cor-erro-suave)] px-3 py-2 text-sm text-[var(--cor-erro)]">{err}</p>}
+      {solic? (<div className="rounded-[var(--raio-md)] border border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] p-3"><p className="text-sm text-[var(--cor-texto)]">Solicitacao #{solic.id} - <Badge className="bg-[var(--cor-primaria)] text-[var(--cor-texto-invertido)]">{solic.status}</Badge></p><p className="text-xs text-[var(--cor-texto-suave)]">{solic.cidade}/{solic.uf} - {new Date(solic.criado_em).toLocaleDateString("pt-BR")}</p>{solic.motivo_decisao&&<p className="mt-2 text-sm text-[var(--cor-texto-suave)]">{solic.motivo_decisao}</p>}</div>) : <p className="text-sm text-[var(--cor-texto-suave)]">Nenhuma solicitacao encontrada - <a href="/jornalista/solicitar" className="text-[var(--cor-primaria)] underline">solicitar</a>.</p>}
+      {perfil&&<div className="rounded-[var(--raio-md)] border border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] p-3"><p className="text-sm font-medium text-[var(--cor-texto)]">Perfil jornalistico</p><p className="text-sm text-[var(--cor-texto-suave)]">{perfil.mini_bio}</p><div className="mt-2 flex gap-2"><Badge variant="outline" className="border-[var(--cor-borda)]">{perfil.selo_ativo?"selo ativo":"sem selo"}</Badge>{perfil.suspenso&&<Badge className="bg-[var(--cor-erro)] text-[var(--cor-texto-invertido)]">suspenso</Badge>}</div></div>}
+    </CardContent></Card></div>);
 }
