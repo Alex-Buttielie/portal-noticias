@@ -28,6 +28,7 @@ export default async function Page({ searchParams }: { searchParams: { page?: st
         ))}
       </div>
       <AdsSlot id="arquivo-infeed" formato="in-feed" />
+      {itens.length > 6 && <AdsSlot id="arquivo-horizontal" formato="horizontal" className="my-6" />}
       <div className="flex gap-2">
         {page > 1 && <Link href={`/arquivo?page=${page - 1}`} className="rounded-md border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] px-3 py-2 text-sm text-[var(--cor-texto)] hover:bg-[var(--cor-borda)]">← Anterior</Link>}
         <Link href={`/arquivo?page=${page + 1}`} className="rounded-md border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] px-3 py-2 text-sm text-[var(--cor-texto)] hover:bg-[var(--cor-borda)]">Próxima →</Link>

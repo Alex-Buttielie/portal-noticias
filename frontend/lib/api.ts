@@ -225,6 +225,7 @@ export interface FeedEntrada {
   urgente: boolean;
   numero_fontes: number;
   timestamp: string;
+  imagem_url?: string;
 }
 
 export interface FeedResposta {
@@ -266,6 +267,7 @@ export interface FonteDetalhe {
   nome_fonte: string;
   url_fonte_original: string;
   resumo: string;
+  imagem_url?: string;
 }
 
 export interface FeedDetalhe {

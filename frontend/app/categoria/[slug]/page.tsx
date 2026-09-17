@@ -46,6 +46,7 @@ export default async function Page({ params }: { params: { slug: string } }) {
         )) : <Skeleton className="h-24 w-full bg-[var(--cor-skeleton-base)]" />}
       </div>
       {itens.length>0 && itens.length%6!==0 && <AdsSlot id="categoria-infeed-final" formato="in-feed" />}
+      {itens.length < 18 && <AdsSlot id="categoria-pos" formato="horizontal" className="my-6" />}
     </div>
   );
 }

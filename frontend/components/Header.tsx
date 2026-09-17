@@ -2,11 +2,15 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
-import { Menu, X, Search, LogOut } from "lucide-react";
+import { Menu, X, Search, LogOut, Compass } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { NAV_ITENS, NAV_ITEM_CONTA, NAV_ITEM_LOGIN, NAV_ITEM_ADMIN } from "@/lib/nav-itens";
 import { useAuth } from "@/lib/auth-context";
 import { ThemeToggle } from "./ThemeToggle";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+const CATS=["política","economia","tecnologia","esportes","cultura","saúde","mundo","cidades"];
 export function Header() {
   const pathname = usePathname();
   const router = useRouter();
@@ -14,13 +18,16 @@ export function Header() {
   const isAdmin = usuario?.papel === "admin";
   const [aberto, setAberto] = useState(false);
   const [busca, setBusca] = useState("");
+  const [sugestOpen,setSugestOpen]=useState(false);
   function onBusca(e: React.FormEvent) {
     e.preventDefault();
     const q = busca.trim();
-    router.push(q ? `/?busca=${encodeURIComponent(q)}` : "/");
+    if(!q){ setSugestOpen(true); return; }
+    router.push(`/?busca=${encodeURIComponent(q)}`);
     setAberto(false);
   }
   return (
+    <>
     <header className="sticky top-0 z-[var(--z-cabecalho)] glass border-b border-[var(--cor-borda)]">
       <div className="hud-line" />
       <div className="mx-auto flex h-14 max-w-[1280px] items-center gap-3 px-4 md:h-16 md:px-6">
@@ -89,5 +96,23 @@ export function Header() {
         </div>
       )}
     </header>
+    <Dialog open={sugestOpen} onOpenChange={setSugestOpen}>
+      <DialogContent className="border-[var(--cor-borda)] bg-[var(--cor-fundo-card)]">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2"><Compass className="h-5 w-5 text-[var(--cor-primaria)]" /> Que tal explorar por categoria?</DialogTitle>
+          <DialogDescription>Digite um termo ou escolha uma editoria abaixo para começar.</DialogDescription>
+        </DialogHeader>
+        <div className="flex flex-wrap gap-2">
+          {CATS.map(c=>(
+            <Link key={c} href={`/categoria/${encodeURIComponent(c)}`} onClick={()=>setSugestOpen(false)} className="inline-flex min-h-[36px] items-center rounded-full border border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] px-3 text-sm capitalize text-[var(--cor-texto)] hover:bg-[var(--cor-borda)]">{c}</Link>
+          ))}
+        </div>
+        <div className="flex gap-2">
+          <Button asChild className="flex-1 bg-[var(--cor-primaria)] text-[var(--cor-texto-invertido)] min-h-[44px]"><Link href="/" onClick={()=>setSugestOpen(false)}>Ver últimas notícias</Link></Button>
+          <Button variant="outline" onClick={()=>setSugestOpen(false)} className="min-h-[44px]">Fechar</Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+    </>
   );
 }

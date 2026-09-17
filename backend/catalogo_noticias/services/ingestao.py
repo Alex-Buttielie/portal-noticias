@@ -119,6 +119,7 @@ def _itens_recentes_persistidos() -> tuple[list[ItemBruto], dict[str, NewsItem]]
             nome_fonte=ni.nome_fonte,
             conteudo_bruto=ni.conteudo_bruto,
             categoria=ni.categoria,
+            imagem_url=getattr(ni, "imagem_url", "") or "",
             timestamp_publicacao_fonte=ni.timestamp_publicacao_fonte,
         )
         for ni in por_url.values()
@@ -356,6 +357,7 @@ def _persistir_grupo(
             url_fonte_original=item_bruto.url_fonte_original,
             nome_fonte=item_bruto.nome_fonte,
             categoria=categoria_item,
+            imagem_url=getattr(item_bruto, "imagem_url", "") or "",
             timestamp_publicacao_fonte=item_bruto.timestamp_publicacao_fonte,
             urgente=resultado.urgente,
             status_revisao=status_revisao,
@@ -492,6 +494,7 @@ def _persistir_grupo_mesclado(
             url_fonte_original=item_bruto.url_fonte_original,
             nome_fonte=item_bruto.nome_fonte,
             categoria=categoria_item,
+            imagem_url=getattr(item_bruto, "imagem_url", "") or "",
             timestamp_publicacao_fonte=item_bruto.timestamp_publicacao_fonte,
             urgente=resultado.urgente,
             status_revisao=status_revisao_item,

@@ -6,6 +6,7 @@ import { Header } from "@/components/Header";
 import { Rodape } from "@/components/Rodape";
 import { BottomNav } from "@/components/BottomNav";
 import { BannerConsentimentoCookies } from "@/components/BannerConsentimentoCookies";
+import { TutorialTour } from "@/components/TutorialTour";
 import { PularParaConteudo } from "@/components/PularParaConteudo";
 import { SITE_DESCRIPTION, SITE_NAME, SITE_URL } from "@/lib/site";
 import { organizationJsonLd } from "@/lib/schema";
@@ -47,6 +48,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <Rodape />
           <BottomNav />
           <BannerConsentimentoCookies />
+          <TutorialTour />
         </Providers>
       </body>
     </html>

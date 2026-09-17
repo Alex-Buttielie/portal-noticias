@@ -26,8 +26,9 @@ function fmt(iso: string){ return new Intl.DateTimeFormat("pt-BR",{dateStyle:"lo
 export default async function Page({ params }: { params: { id: string } }) {
   const d = (await getDetalhe(params.id))!;
   const jsonLd = newsArticleJsonLd({ id: d.id, tipo: d.tipo, titulo: d.titulo, categoria: d.categoria, timestamp: d.timestamp, fontes: d.fontes.map(f=>({ nome_fonte:f.nome_fonte, url_fonte_original:f.url_fonte_original })) });
-  const entrada = { tipo: d.tipo, id: d.id, titulo: d.titulo, resumo: d.fontes[0]?.resumo || "", categoria: d.categoria, urgente: d.urgente, numero_fontes: d.fontes.length, timestamp: d.timestamp } as const;
-  const heroSrc = imagemNoticia({ categoria: d.categoria, id: d.id, titulo: d.titulo });
+  const imagemReal = d.fontes.find((f) => f.imagem_url)?.imagem_url || "";
+  const entrada = { tipo: d.tipo, id: d.id, titulo: d.titulo, resumo: d.fontes[0]?.resumo || "", categoria: d.categoria, urgente: d.urgente, numero_fontes: d.fontes.length, timestamp: d.timestamp, imagem_url: imagemReal } as const;
+  const heroSrc = imagemNoticia({ imagem_url: imagemReal, categoria: d.categoria, id: d.id, titulo: d.titulo });
   return (
     <article className="mx-auto max-w-3xl space-y-4">
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
@@ -45,6 +46,7 @@ export default async function Page({ params }: { params: { id: string } }) {
       <AcoesNoticia entrada={entrada} />
       <Card className="bento border-[var(--cor-borda)] bg-[var(--cor-fundo-card)]"><CardContent className="prose max-w-none p-5 prose-p:text-[var(--cor-texto)] prose-headings:text-[var(--cor-texto)]"><p className="text-pretty leading-relaxed text-[var(--cor-texto-suave)]">{d.fontes[0]?.resumo}</p><AdsSlot id="noticia-infeed" formato="in-feed" className="my-4 not-prose" /><Separator className="my-4 bg-[var(--cor-borda)]" /><h2 className="text-lg font-bold">Fontes</h2><ul className="space-y-2">{d.fontes.map((f,i)=>(<li key={i} className="rounded-md border border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] p-3"><a href={f.url_fonte_original} target="_blank" rel="noopener noreferrer" className="font-medium text-[var(--cor-primaria)] hover:underline">{f.nome_fonte}</a><span className="ml-2 text-xs text-[var(--cor-texto-suave)]">↗ {new URL(f.url_fonte_original).hostname}</span>{f.resumo&&<p className="mt-1 text-sm text-[var(--cor-texto-suave)]">{f.resumo}</p>}</li>))}</ul></CardContent></Card>
       <p className="text-xs text-[var(--cor-texto-suave)]">Rastreabilidade: {d.fontes.length} fonte(s) citada(s) • <Link href="/sobre" className="underline">como apuramos</Link></p>
+      <AdsSlot id="noticia-pos" formato="horizontal" className="my-6" />
     </article>
   );
 }

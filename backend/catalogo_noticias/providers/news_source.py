@@ -32,15 +32,50 @@ class FonteIndisponivelError(Exception):
     """
 
 
+def extrair_imagem_url(entrada) -> str:
+    for key in ("enclosures", "media_content", "media_thumbnail"):
+        vals = getattr(entrada, key, None)
+        if vals:
+            for v in vals:
+                href = (v.get("url") if isinstance(v, dict) else getattr(v, "url", "")) or (v.get("href") if isinstance(v, dict) else getattr(v, "href", ""))
+                if href and href.startswith("http"):
+                    return href.strip()
+    for key in ("image",):
+        val = getattr(entrada, key, None)
+        if val:
+            href = val.get("href") if isinstance(val, dict) else getattr(val, "href", "")
+            if href and href.startswith("http"):
+                return href.strip()
+            if isinstance(val, str) and val.startswith("http"):
+                return val.strip()
+    links = getattr(entrada, "links", None)
+    if links:
+        for lk in links:
+            rel = lk.get("rel") if isinstance(lk, dict) else getattr(lk, "rel", "")
+            href = lk.get("href") if isinstance(lk, dict) else getattr(lk, "href", "")
+            tipo = lk.get("type") if isinstance(lk, dict) else getattr(lk, "type", "")
+            if href and href.startswith("http") and (rel == "enclosure" or (tipo or "").startswith("image/")):
+                return href.strip()
+    summary = getattr(entrada, "summary", "") or ""
+    if summary and "og:image" in summary:
+        import re
+        m = re.search(r'og:image["\']?\s*content=["\']([^"\']+)["\']', summary)
+        if m and m.group(1).startswith("http"):
+            return m.group(1).strip()
+        m2 = re.search(r'<img[^>]+src=["\']([^"\']+)["\']', summary)
+        if m2 and m2.group(1).startswith("http"):
+            return m2.group(1).strip()
+    return ""
+
+
 @dataclass
 class ItemBruto:
-    """Item de noticia ainda nao processado por dedup/resumo/classificacao."""
-
     titulo: str
     url_fonte_original: str
     nome_fonte: str
     conteudo_bruto: str = ""
     categoria: str = ""
+    imagem_url: str = ""
     timestamp_publicacao_fonte: Optional[datetime] = None
 
 
@@ -130,6 +165,7 @@ class RSSNewsSourceProvider(NewsSourceProvider):
                     nome_fonte=self.nome_fonte,
                     conteudo_bruto=conteudo.strip(),
                     categoria=categoria.strip().lower(),
+                    imagem_url=extrair_imagem_url(entrada),
                     timestamp_publicacao_fonte=timestamp_publicacao,
                 )
             )

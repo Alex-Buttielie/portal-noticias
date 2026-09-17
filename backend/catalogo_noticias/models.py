@@ -77,6 +77,8 @@ class NewsItem(models.Model):
     estado = models.CharField(max_length=100, blank=True)
     cidade = models.CharField(max_length=150, blank=True)
 
+    imagem_url = models.URLField(max_length=1000, blank=True, help_text="URL da imagem extraída do RSS/enclosure — opcional, best-effort")
+
     timestamp_publicacao_fonte = models.DateTimeField(null=True, blank=True)
     timestamp_ingestao = models.DateTimeField(auto_now_add=True)
 

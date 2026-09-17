@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { SITE_NAME } from "@/lib/site";
+import { AdsSlot } from "@/components/AdsSlot";
 import { obterFeed, type FeedEntrada } from "@/lib/api";
 export const metadata: Metadata = { title: `Buscar — ${SITE_NAME}`, description: `Busca no ${SITE_NAME}.` };
 export const revalidate = 0;
@@ -35,6 +36,8 @@ export default async function Page({ searchParams }: { searchParams: { q?: strin
               <Card key={`${n.tipo}-${n.id}`} className="bento border-[var(--cor-borda)] bg-[var(--cor-fundo-card)]"><CardContent className="p-4"><div className="mb-1 flex gap-2"><Badge variant="outline" className="border-[var(--cor-borda)] capitalize">{n.categoria}</Badge><span className="text-xs text-[var(--cor-texto-suave)]">{n.numero_fontes} fontes</span></div><Link href={`/noticia/${n.id}`} className="font-bold text-[var(--cor-texto)] hover:text-[var(--cor-primaria)]">{n.titulo}</Link><p className="mt-1 text-sm text-[var(--cor-texto-suave)]">{n.resumo}</p></CardContent></Card>
             ))}
           </div>
+          <AdsSlot id="buscar-infeed" formato="in-feed" className="my-6" />
+          {itens.length > 6 && <AdsSlot id="buscar-horizontal" formato="horizontal" />}
         </div>
       )}
     </div>

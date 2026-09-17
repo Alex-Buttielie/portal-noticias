@@ -2,13 +2,6 @@ from rest_framework import serializers
 
 
 class FeedEntrySerializer(serializers.Serializer):
-    """
-    Uma entrada do feed (implementation-contract.md run
-    20260902-1409-feed-consumo, critério de aceite 1) — representa um
-    `NewsCluster` (`tipo="cluster"`) ou um `NewsItem` standalone
-    (`tipo="item"`). Ver `services.construir_feed_entries`.
-    """
-
     tipo = serializers.ChoiceField(choices=["cluster", "item"])
     id = serializers.IntegerField()
     titulo = serializers.CharField()
@@ -17,23 +10,17 @@ class FeedEntrySerializer(serializers.Serializer):
     urgente = serializers.BooleanField()
     numero_fontes = serializers.IntegerField()
     timestamp = serializers.DateTimeField()
+    imagem_url = serializers.URLField(allow_blank=True, required=False, default="")
 
 
 class FonteDetalheSerializer(serializers.Serializer):
     nome_fonte = serializers.CharField()
     url_fonte_original = serializers.URLField()
     resumo = serializers.CharField(allow_blank=True)
+    imagem_url = serializers.URLField(allow_blank=True, required=False, default="")
 
 
 class FeedDetalheSerializer(serializers.Serializer):
-    """
-    Página de detalhe de um acontecimento (critério de aceite 5 e 6) —
-    lista TODAS as fontes publicáveis, cada uma com seu próprio resumo (ver
-    `agentic-framework/state/run-20260902-0727-ingestao-noticias/
-    implementation-history.md`, Iteração 5: cada `NewsItem` tem seu PRÓPRIO
-    `resumo_proprio`, nunca compartilhado entre itens do mesmo cluster).
-    """
-
     tipo = serializers.ChoiceField(choices=["cluster", "item"])
     id = serializers.IntegerField()
     titulo = serializers.CharField()

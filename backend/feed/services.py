@@ -78,6 +78,7 @@ def construir_feed_entries(itens: list[NewsItem]) -> list[dict]:
                 "urgente": item.urgente,
                 "numero_fontes": numero_fontes,
                 "timestamp": timestamp_item,
+                "imagem_url": getattr(item, "imagem_url", "") or "",
             }
         elif item.urgente and not entradas[chave]["urgente"]:
             # Qualquer item urgente dentro do subconjunto filtrado do mesmo
@@ -162,6 +163,7 @@ def detalhe_cluster(cluster_id: int) -> dict | None:
                 "nome_fonte": item.nome_fonte,
                 "url_fonte_original": item.url_fonte_original,
                 "resumo": item.resumo_proprio,
+                "imagem_url": getattr(item, "imagem_url", "") or "",
             }
             for item in itens
         ],
@@ -190,6 +192,7 @@ def detalhe_item(item_id: int) -> dict | None:
                 "nome_fonte": item.nome_fonte,
                 "url_fonte_original": item.url_fonte_original,
                 "resumo": item.resumo_proprio,
+                "imagem_url": getattr(item, "imagem_url", "") or "",
             }
         ],
     }
