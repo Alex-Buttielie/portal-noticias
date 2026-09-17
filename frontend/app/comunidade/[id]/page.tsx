@@ -43,11 +43,11 @@ export default function Page({ params }: { params: { id: string } }) {
     (async () => {
       try {
         const p = await api.obterPublicacao(token, safeId);
-        const resolved: api.Publicacao = p ?? { id: safeId, titulo: `Publicação #${params.id} (mock — API offline)`, conteudo: "Conteúdo mock para não quebrar build. API offline ou publicação não encontrada.", tipo: "opiniao", status: "publicado", categoria: "geral", autor: 1, autor_nome: "Autor Mock", tags: ["mock"], news_cluster: null, news_item: null, destaque: false, criado_em: new Date().toISOString(), publicado_em: new Date().toISOString() };
+        const resolved: api.Publicacao = p ?? { id: safeId, titulo: `Publicação #${params.id}`, conteudo: "Conteúdo indisponível no momento.", tipo: "opiniao", status: "publicado", categoria: "geral", autor: 1, autor_nome: "Autor Exemplo", tags: ["exemplo"], news_cluster: null, news_item: null, destaque: false, criado_em: new Date().toISOString(), publicado_em: new Date().toISOString() };
         if (alive) { setPub(resolved); setEditVals({ titulo: resolved.titulo, conteudo: resolved.conteudo }); }
       } catch {
         if (alive) {
-          const m: api.Publicacao = { id: safeId, titulo: `Publicação #${params.id} (mock — API offline)`, conteudo: "Conteúdo mock — falha ao buscar.", tipo: "opiniao", status: "publicado", categoria: "geral", autor: 1, autor_nome: "Autor Mock", tags: ["mock"], news_cluster: null, news_item: null, destaque: false, criado_em: new Date().toISOString(), publicado_em: new Date().toISOString() };
+          const m: api.Publicacao = { id: safeId, titulo: `Publicação #${params.id}`, conteudo: "Conteúdo indisponível no momento.", tipo: "opiniao", status: "publicado", categoria: "geral", autor: 1, autor_nome: "Autor Exemplo", tags: ["exemplo"], news_cluster: null, news_item: null, destaque: false, criado_em: new Date().toISOString(), publicado_em: new Date().toISOString() };
           setPub(m); setEditVals({ titulo: m.titulo, conteudo: m.conteudo });
         }
       } finally { if (alive) setLoading(false); }

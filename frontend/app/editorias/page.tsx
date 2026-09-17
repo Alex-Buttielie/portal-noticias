@@ -17,7 +17,7 @@ const EDS = [
 export default function Page() {
   return (
     <div className="space-y-4">
-      <div className="rounded-[var(--raio-lg)] border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] p-5"><div className="hud-line mb-3" aria-hidden /><h1 className="text-2xl font-bold tracking-tight text-[var(--cor-texto)]">Editorias</h1><p className="text-sm text-[var(--cor-texto-suave)]">Bento HUD — navegue por assunto. Neon ciano/violeta contido.</p></div>
+      <div className="rounded-[var(--raio-lg)] border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] p-5"><div className="hud-line mb-3" aria-hidden /><h1 className="text-2xl font-bold tracking-tight text-[var(--cor-texto)]">Editorias</h1><p className="text-sm text-[var(--cor-texto-suave)]">Navegue por assunto.</p></div>
       <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
         {EDS.map((e)=>(
           <Card key={e.slug} className="bento bento-hover border-[var(--cor-borda)] bg-[var(--cor-fundo-card)]"><CardContent className="p-4"><Badge variant="outline" className="border-[var(--cor-borda)] capitalize">{e.slug}</Badge><Link href={`/categoria/${encodeURIComponent(e.slug)}`} className="mt-2 block font-bold capitalize text-[var(--cor-texto)] hover:text-[var(--cor-primaria)]">{e.slug}</Link><p className="mt-1 text-sm text-[var(--cor-texto-suave)]">{e.desc}</p><Link href={`/categoria/${encodeURIComponent(e.slug)}`} className="mt-3 inline-flex text-xs font-medium text-[var(--cor-primaria)] hover:underline">Ver editoria →</Link></CardContent></Card>

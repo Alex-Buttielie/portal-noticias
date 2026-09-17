@@ -10,6 +10,7 @@ const NAV = [
   { href: "/admin/moderacao", label: "Moderação" },
   { href: "/admin/metricas", label: "Métricas" },
   { href: "/admin/robos", label: "Robôs" },
+  { href: "/admin/configuracoes", label: "Configurações" },
 ];
 export default function Layout({ children }: { children: ReactNode }) {
   return (

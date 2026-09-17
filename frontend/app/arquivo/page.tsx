@@ -8,7 +8,7 @@ import { AdsSlot } from "@/components/AdsSlot";
 import { imagemNoticia } from "@/lib/imagens";
 export const metadata: Metadata = { title: `Arquivo — ${SITE_NAME}`, description: `Arquivo de notícias do ${SITE_NAME}.` };
 export const revalidate = 60;
-const MOCK: FeedEntrada[] = Array.from({ length: 12 }, (_, i) => ({ tipo: i % 3 === 0 ? "cluster" : "item", id: 300 + i, titulo: `Arquivo mock #${300 + i} — manchete demonstrativa`, resumo: "Fallback para build sem API — paginação mock para demonstrar UI.", categoria: ["política", "economia", "tecnologia", "cidades"][i % 4], urgente: i === 0, numero_fontes: 2 + (i % 3), timestamp: new Date(Date.now() - i * 3600000 * 6).toISOString() }));
+const MOCK: FeedEntrada[] = Array.from({ length: 12 }, (_, i) => ({ tipo: i % 3 === 0 ? "cluster" : "item", id: 300 + i, titulo: `Arquivo #${300 + i} — manchete demonstrativa`, resumo: "Conteúdo de exemplo para demonstração.", categoria: ["política", "economia", "tecnologia", "cidades"][i % 4], urgente: i === 0, numero_fontes: 2 + (i % 3), timestamp: new Date(Date.now() - i * 3600000 * 6).toISOString() }));
 function fmt(iso: string){ return new Intl.DateTimeFormat("pt-BR",{dateStyle:"short",timeStyle:"short"}).format(new Date(iso)); }
 export default async function Page({ searchParams }: { searchParams: { page?: string } }) {
   const page = Math.max(1, Number(searchParams.page) || 1);
@@ -16,7 +16,7 @@ export default async function Page({ searchParams }: { searchParams: { page?: st
   try { const r = await obterFeed({ page }); itens = r.results?.length ? r.results : MOCK; } catch { itens = MOCK; }
   return (
     <div className="space-y-4">
-      <div className="rounded-[var(--raio-lg)] border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] p-5"><div className="hud-line mb-3" aria-hidden /><h1 className="text-2xl font-bold text-[var(--cor-texto)]">Arquivo</h1><p className="text-sm text-[var(--cor-texto-suave)]">Bento cronológico — página {page} • HUD grid</p></div>
+      <div className="rounded-[var(--raio-lg)] border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] p-5"><div className="hud-line mb-3" aria-hidden /><h1 className="text-2xl font-bold text-[var(--cor-texto)]">Arquivo</h1><p className="text-sm text-[var(--cor-texto-suave)]">Página {page} — arquivo cronológico</p></div>
       <div className="grid gap-3">
         {itens.map((n)=>(
           <Link key={`${n.tipo}-${n.id}`} href={`/noticia/${n.id}`} className="flex gap-3 rounded-[var(--raio-lg)] border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] p-3 hover:bg-[var(--cor-primaria-suave)]">

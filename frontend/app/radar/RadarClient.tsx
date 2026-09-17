@@ -13,10 +13,11 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { RefreshCw, MapPin, TrendingUp, BarChart3, BookmarkPlus, Bookmark, X, AlertCircle, Loader2, ExternalLink } from "lucide-react";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { RefreshCw, MapPin, TrendingUp, BarChart3, BookmarkPlus, Bookmark, X, AlertCircle, Loader2, ExternalLink, Crown } from "lucide-react";
 
-const MOCK_T: RadarTendencias = { aviso_metodologia: "Mock — API offline", localidade: { pais: null, estado: null, cidade: null }, assuntos_em_alta: [{ categoria: "politica", numero_noticias: 12, numero_fontes: 4, cluster_id: 1, item_id: null }, { categoria: "tecnologia", numero_noticias: 8, numero_fontes: 3, cluster_id: null, item_id: 2 }, { categoria: "economia", numero_noticias: 5, numero_fontes: 2, cluster_id: 3, item_id: null }] };
-function mockSerie(): RadarEvolucao { const hoje = new Date(); const serie = Array.from({ length: 7 }, (_, i) => { const d = new Date(hoje); d.setDate(hoje.getDate() - (6 - i)); return { dia: d.toISOString().slice(0, 10), numero_noticias: Math.floor(2 + Math.random() * 8) }; }); return { aviso_metodologia: "Mock — API offline", categoria: null, serie }; }
+const MOCK_T: RadarTendencias = { aviso_metodologia: "Dados de exemplo", localidade: { pais: null, estado: null, cidade: null }, assuntos_em_alta: [{ categoria: "politica", numero_noticias: 12, numero_fontes: 4, cluster_id: 1, item_id: null }, { categoria: "tecnologia", numero_noticias: 8, numero_fontes: 3, cluster_id: null, item_id: 2 }, { categoria: "economia", numero_noticias: 5, numero_fontes: 2, cluster_id: 3, item_id: null }] };
+function mockSerie(): RadarEvolucao { const hoje = new Date(); const serie = Array.from({ length: 7 }, (_, i) => { const d = new Date(hoje); d.setDate(hoje.getDate() - (6 - i)); return { dia: d.toISOString().slice(0, 10), numero_noticias: Math.floor(2 + Math.random() * 8) }; }); return { aviso_metodologia: "Dados de exemplo", categoria: null, serie }; }
 const CATS = ["", "politica", "economia", "tecnologia", "cidades", "esportes", "cultura", "geral"];
 
 function fmtDia(s: string) { try { const d = new Date(s); return `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}`; } catch { return s.slice(5); } }
@@ -24,7 +25,8 @@ function fmtDia(s: string) { try { const d = new Date(s); return `${String(d.get
 function locLabel(l: { pais?: string | null; estado?: string | null; cidade?: string | null }) { const p = [l.pais, l.estado, l.cidade].filter(Boolean).join(" · "); return p || "Recorte nacional"; }
 
 export default function RadarClient() {
-  const { token } = useAuth();
+  const { token, usuario } = useAuth();
+  const isPremium = usuario?.papel === "premium" || usuario?.papel === "admin";
   const [draftPais, setDraftPais] = useState("");
   const [draftEstado, setDraftEstado] = useState("");
   const [draftCidade, setDraftCidade] = useState("");
@@ -41,6 +43,7 @@ export default function RadarClient() {
   const [salvas, setSalvas] = useState<LocalidadeSalva[]>([]);
   const [msg, setMsg] = useState<string | null>(null);
   const [tab, setTab] = useState("tendencias");
+  const [upsellOpen, setUpsellOpen] = useState(false);
 
   const fetchTend = useCallback(async (f = filtros) => {
     setLoadingT(true);
@@ -59,7 +62,7 @@ export default function RadarClient() {
       setEvo(d);
     } catch (e: unknown) {
       const err = e as { status?: number };
-      if (err?.status === 403) setEvo({ aviso_metodologia: "Evolução é recurso Premium.", categoria: ef.categoria || null, serie: [] });
+      if (err?.status === 403) setEvo({ aviso_metodologia: "Prévia de 7 dias — seja Premium para ver a série completa, sem limites.", categoria: ef.categoria || null, serie: mockSerie().serie });
       else setEvo({ ...mockSerie(), categoria: ef.categoria || null });
     }
     setLoadingE(false);
@@ -104,7 +107,8 @@ export default function RadarClient() {
   function usarSalva(l: LocalidadeSalva) { setDraftPais(l.pais || ""); setDraftEstado(l.estado || ""); setDraftCidade(l.cidade || ""); setFiltros({ pais: l.pais || undefined, estado: l.estado || undefined, cidade: l.cidade || undefined }); setEvoPais(l.pais || ""); setEvoEstado(l.estado || ""); setEvoCidade(l.cidade || ""); }
 
   const assuntos = tend?.assuntos_em_alta ?? [];
-  const maxEvo = evo ? Math.max(...evo.serie.map((s) => s.numero_noticias), 1) : 1;
+  const evoExibido = evo && !isPremium ? { ...evo, serie: evo.serie.slice(-7) } : evo;
+  const maxEvo = evoExibido ? Math.max(...evoExibido.serie.map((s) => s.numero_noticias), 1) : 1;
 
   return (
     <div className="mx-auto max-w-4xl space-y-4 py-6 px-4">
@@ -184,13 +188,13 @@ export default function RadarClient() {
                     <div className="space-y-1"><Label>Estado</Label><Input placeholder="SP" value={evoEstado} onChange={(e) => setEvoEstado(e.target.value)} className="border-[var(--cor-borda)] bg-[var(--cor-fundo-card)]" /></div>
                     <div className="space-y-1"><Label>Cidade</Label><Input placeholder="São Paulo" value={evoCidade} onChange={(e) => setEvoCidade(e.target.value)} className="border-[var(--cor-borda)] bg-[var(--cor-fundo-card)]" /></div>
                   </div>
-                  <Button onClick={aplicarEvo} size="sm" className="bg-[var(--cor-primaria)] text-[var(--cor-texto-invertido)] min-h-[44px]">Aplicar</Button>
-                  {evo?.aviso_metodologia && <p className="text-xs text-[var(--cor-texto-suave)] border-l-2 border-[var(--cor-neon-ciano)] pl-2">{evo.aviso_metodologia}</p>}
-                  {loadingE ? <div className="h-40 animate-pulse rounded-[var(--raio-md)] bg-[var(--cor-borda)]" /> : !evo || evo.serie.length === 0 ? <div className="rounded-[var(--raio-md)] border border-dashed border-[var(--cor-borda)] p-8 text-center text-sm text-[var(--cor-texto-suave)]">Sem dados para esta categoria/recorte.</div> : (
+                  <div className="flex items-center gap-2"><Button onClick={aplicarEvo} size="sm" className="bg-[var(--cor-primaria)] text-[var(--cor-texto-invertido)] min-h-[44px]">Aplicar</Button>{!isPremium && evo && <Badge variant="outline" className="border-[var(--cor-premium)] text-[var(--cor-premium)]"><Crown className="mr-1 h-3 w-3" /> 7 dias no Free</Badge>}</div>
+                  {evoExibido?.aviso_metodologia && <p className="text-xs text-[var(--cor-texto-suave)] border-l-2 border-[var(--cor-neon-ciano)] pl-2">{evoExibido.aviso_metodologia}</p>}
+                  {loadingE ? <div className="h-40 animate-pulse rounded-[var(--raio-md)] bg-[var(--cor-borda)]" /> : !evoExibido || evoExibido.serie.length === 0 ? <div className="rounded-[var(--raio-md)] border border-dashed border-[var(--cor-borda)] p-8 text-center text-sm text-[var(--cor-texto-suave)]">Sem dados para esta categoria/recorte.</div> : (
                     <>
                       <div className="rounded-[var(--raio-md)] border border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] p-3">
                         <div className="flex items-end gap-1 h-40">
-                          {evo.serie.map((p) => (
+                          {evoExibido.serie.map((p) => (
                             <div key={p.dia} className="flex flex-1 flex-col items-center justify-end gap-1">
                               <span className="text-[10px] font-medium text-[var(--cor-texto)]">{p.numero_noticias}</span>
                               <div className="w-full rounded-t-[var(--raio-sm)] bg-[var(--cor-neon-ciano)] transition-all" style={{ height: `${Math.max(4, (p.numero_noticias / maxEvo) * 100)}%`, minHeight: 4 }} aria-label={`${p.dia}: ${p.numero_noticias}`} />
@@ -200,10 +204,11 @@ export default function RadarClient() {
                         </div>
                       </div>
                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                        {evo.serie.map((p) => (
+                        {evoExibido.serie.map((p) => (
                           <div key={p.dia} className="rounded-[var(--raio-sm)] border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] px-2 py-1 flex justify-between text-xs"><span className="text-[var(--cor-texto-suave)]">{p.dia.slice(5)}</span><span className="font-medium text-[var(--cor-texto)]">{p.numero_noticias}</span></div>
                         ))}
                       </div>
+                      {!isPremium && evo && evo.serie.length > 7 && <div className="rounded-[var(--raio-md)] border border-[var(--cor-premium)]/30 bg-[var(--cor-premium-suave)] p-3 flex items-center justify-between gap-3"><p className="text-xs text-[var(--cor-texto)]"><Crown className="inline h-3.5 w-3.5 text-[var(--cor-premium)] mr-1" />Você está vendo apenas os últimos 7 dias. Seja Premium para ver até 30 dias e comparar recortes.</p><Button size="sm" variant="outline" className="shrink-0 border-[var(--cor-premium)] text-[var(--cor-premium)]" onClick={() => setUpsellOpen(true)}>Ver Premium</Button></div>}
                     </>
                   )}
                 </>
@@ -214,6 +219,19 @@ export default function RadarClient() {
         </TabsContent>
       </Tabs>
       <AdsSlot id="radar-retangulo" formato="retangulo" />
+      <Dialog open={upsellOpen} onOpenChange={setUpsellOpen}>
+        <DialogContent className="border-[var(--cor-borda)] bg-[var(--cor-fundo-card)]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><Crown className="h-5 w-5 text-[var(--cor-premium)]" /> Quer ver mais do Radar?</DialogTitle>
+            <DialogDescription>Com Premium você vê até 30 dias de evolução, compara recortes com mais profundidade e usa o feed sem anúncios. Sem pressão — só mais contexto quando precisar.</DialogDescription>
+          </DialogHeader>
+          <div className="rounded-md border border-[var(--cor-premium)]/20 bg-[var(--cor-premium-suave)] p-3 text-sm text-[var(--cor-texto)]">No plano free, a evolução mostra os últimos 7 dias. É útil para um olhar rápido; o histórico completo fica para quem precisa acompanhar um tema por mais tempo.</div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setUpsellOpen(false)} className="border-[var(--cor-borda)]">Continuar no Free</Button>
+            <Button asChild className="bg-[var(--cor-premium)] text-[var(--cor-texto-invertido)]"><Link href="/planos">Conhecer Premium</Link></Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -76,8 +76,8 @@ export default function Page(){
       setItens(r.results||[]); setTotal(r.count||0);
       if(!(r.results||[]).length) setOk(s==="pendente"?"Fila vazia — nada pendente para curadoria.":`Nenhum item com status "${s}".`);
     }catch(e:any){
-      setErr(e?.message||"Falha ao carregar fila (API offline — mock)");
-      setItens([{tipo:"item",id:1,titulo:"[MOCK] Reforma tributária entra em fase de regulamentação",categoria:"economia",status_revisao:"pendente",nome_fonte:"Fonte Mock",url_fonte_original:"https://example.com/a",urgente:false,cluster:null,cluster_titulo:"",timestamp_ingestao:new Date().toISOString()},{tipo:"cluster",id:2,titulo:"[MOCK] Cluster — frente fria avança pelo Sudeste",categoria:"cidades",status_revisao:"pendente",nome_fonte:"G1",url_fonte_original:"https://example.com/b",urgente:true,cluster:10,cluster_titulo:"Frente fria no Sudeste",timestamp_ingestao:new Date(Date.now()-3600000*2).toISOString()},{tipo:"item",id:3,titulo:"[MOCK] Vacina nacional entra em testes finais",categoria:"saúde",status_revisao:"pendente",nome_fonte:"CNN",url_fonte_original:"https://example.com/c",urgente:false,cluster:null,cluster_titulo:"",timestamp_ingestao:new Date(Date.now()-3600000*5).toISOString()}]);
+      setErr(e?.message||"Falha ao carregar fila — tente novamente em instantes");
+      setItens([{tipo:"item",id:1,titulo:"Reforma tributária entra em fase de regulamentação",categoria:"economia",status_revisao:"pendente",nome_fonte:"Fonte Exemplo",url_fonte_original:"https://example.com/a",urgente:false,cluster:null,cluster_titulo:"",timestamp_ingestao:new Date().toISOString()},{tipo:"cluster",id:2,titulo:"Frente fria avança pelo Sudeste",categoria:"cidades",status_revisao:"pendente",nome_fonte:"G1",url_fonte_original:"https://example.com/b",urgente:true,cluster:10,cluster_titulo:"Frente fria no Sudeste",timestamp_ingestao:new Date(Date.now()-3600000*2).toISOString()},{tipo:"item",id:3,titulo:"Vacina nacional entra em testes finais",categoria:"saúde",status_revisao:"pendente",nome_fonte:"CNN",url_fonte_original:"https://example.com/c",urgente:false,cluster:null,cluster_titulo:"",timestamp_ingestao:new Date(Date.now()-3600000*5).toISOString()}]);
       setTotal(3);
     } finally{ setLoading(false); }
   },[tk,page,status]);
@@ -137,8 +137,8 @@ export default function Page(){
     <div className="space-y-4">
       <Card className="bento">
         <CardHeader>
-          <CardTitle className="flex items-center gap-2"><Layers className="h-5 w-5 text-[var(--cor-neon-violeta)]" /> Fila de curadoria — processamento</CardTitle>
-          <CardDescription className="text-[var(--cor-texto-suave)]">Pipeline plausível: triagem, filtros, seleção em lote, auditoria implícita e publicação. Status via <code className="rounded bg-[var(--cor-fundo-elevado)] px-1">/api/admin/fila</code> → decisão <code className="rounded bg-[var(--cor-fundo-elevado)] px-1">/decisao</code>.</CardDescription>
+          <CardTitle className="flex items-center gap-2"><Layers className="h-5 w-5 text-[var(--cor-neon-violeta)]" /> Fila de curadoria</CardTitle>
+          <CardDescription className="text-[var(--cor-texto-suave)]">Triagem, filtros e publicação — aprove para publicar, rejeite para arquivar.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="grid gap-2 md:grid-cols-4">
@@ -202,7 +202,7 @@ export default function Page(){
             <Button size="sm" onClick={()=>bulkDecidir("aprovar")} disabled={!totalSel||bulk} className="gap-1 bg-emerald-600 text-white hover:bg-emerald-700"><CheckCheck className="h-4 w-4" /> Aprovar selecionados</Button>
             <Button size="sm" variant="destructive" onClick={()=>bulkDecidir("rejeitar")} disabled={!totalSel||bulk} className="gap-1"><XCircle className="h-4 w-4" /> Rejeitar selecionados</Button>
             {bulk&&<span className="text-xs text-[var(--cor-texto-suave)]">Processando lote...</span>}
-            <span className="ml-auto text-xs text-[var(--cor-texto-suave)] flex items-center gap-1"><Clock className="h-3 w-3" /> {filtrados.length} visíveis · {total} no backend · pág {page}/{totalPages}</span>
+            <span className="ml-auto text-xs text-[var(--cor-texto-suave)] flex items-center gap-1"><Clock className="h-3 w-3" /> {filtrados.length} em exibição · {total} no total · pág {page}/{totalPages}</span>
           </div>
         </CardContent>
       </Card>
@@ -263,7 +263,7 @@ export default function Page(){
       <Card className="bento border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)]">
         <CardContent className="p-3 text-xs leading-relaxed text-[var(--cor-texto-suave)]">
           <p className="font-medium text-[var(--cor-texto)]">Como funciona esta tela</p>
-          <p>Fila = <code className="rounded bg-[var(--cor-fundo-card)] px-1">NewsItem</code> com <code className="rounded bg-[var(--cor-fundo-card)] px-1">status_revisao</code> pendente/aprovado/rejeitado. Urgente e cluster sempre exigem revisão (ver <code className="rounded bg-[var(--cor-fundo-card)] px-1">ConfigRobo</code>). Aprovar publica no feed; rejeitar arquiva. <span className="font-medium text-emerald-700">Aprovar tudo</span> aprova em lote todos os pendentes dos filtros atuais (quando há paginação, pagina todas as páginas). Seleção em lote processa sequencialmente com confirmação. Paginação real do backend (20/pág). Auto-refresh opcional a cada 30s.</p>
+          <p>Aprovar publica no feed; rejeitar arquiva. <span className="font-medium text-emerald-700">Aprovar tudo</span> publica todos os pendentes dos filtros atuais, passando por todas as páginas quando necessário. Seleção em lote é processada uma a uma com confirmação. 20 itens por página. Atualização automática opcional a cada 30s.</p>
         </CardContent>
       </Card>
 
@@ -280,7 +280,7 @@ export default function Page(){
             <div className="space-y-2 rounded-md border border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] p-3">
               <div className="flex justify-between text-xs"><span className="text-[var(--cor-texto-suave)]">{aprovarTudoProg.done} / {aprovarTudoProg.total}</span><span className={aprovarTudoProg.fail?"text-[var(--cor-erro)]":"text-emerald-700"}>{aprovarTudoProg.fail?`${aprovarTudoProg.fail} falhas`:"ok"}</span></div>
               <div className="h-2 overflow-hidden rounded-full bg-[var(--cor-borda)]"><div className="h-full bg-emerald-600 transition-all" style={{width:`${aprovarTudoProg.total?Math.round((aprovarTudoProg.done/aprovarTudoProg.total)*100):0}%`}} /></div>
-              <p className="text-xs text-[var(--cor-texto-suave)]">Aprovando sequencialmente via <code className="rounded bg-[var(--cor-fundo-card)] px-1">POST /api/admin/fila/{"{id}"}/decisao/</code> — aguarde.</p>
+              <p className="text-xs text-[var(--cor-texto-suave)]">Publicando um a um — aguarde.</p>
             </div>
           )}
           <DialogFooter className="gap-2">

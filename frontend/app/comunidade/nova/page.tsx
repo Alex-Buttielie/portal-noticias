@@ -68,8 +68,8 @@ export default function Page() {
             <div className="space-y-2"><Label htmlFor="tags">Tags (vírgula)</Label><Input id="tags" placeholder="ex: cidades, mobilidade, opinião" {...register("tags")} /><p className="text-xs text-[var(--cor-texto-suave)]">Ajuda a agrupar no grupo certo.</p></div>
             <div className="space-y-2">
               <Label htmlFor="news_cluster" className="flex items-center gap-1.5"><Link2 className="h-3.5 w-3.5" /> Vincular a cluster (opcional)</Label>
-              <Input id="news_cluster" placeholder="ID do cluster (mock — deixe vazio se não houver)" {...register("news_cluster")} />
-              <p className="text-xs text-[var(--cor-texto-suave)]">Mock apenas — backend ignora se não existir.</p>
+              <Input id="news_cluster" placeholder="ID do agrupamento (opcional — deixe vazio se não houver)" {...register("news_cluster")} />
+              <p className="text-xs text-[var(--cor-texto-suave)]">Opcional — deixe vazio se não houver agrupamento.</p>
             </div>
             <div className="space-y-2"><Label htmlFor="conteudo">Conteúdo *</Label><Textarea id="conteudo" rows={10} placeholder="Escreva com contexto, fontes e opinião fundamentada..." {...register("conteudo", { required: "Informe o conteúdo" })} />{errors.conteudo && <p className="text-xs text-[var(--cor-erro)]">{errors.conteudo.message as string}</p>}</div>
             <div className="flex flex-wrap gap-1.5"><Badge variant="outline" className="border-[var(--cor-borda)]">{tipo}</Badge><Badge className="bg-[var(--cor-primaria)] text-[var(--cor-texto-invertido)]">comunidade</Badge></div>

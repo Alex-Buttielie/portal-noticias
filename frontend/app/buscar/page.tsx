@@ -9,7 +9,7 @@ import { AdsSlot } from "@/components/AdsSlot";
 import { obterFeed, type FeedEntrada } from "@/lib/api";
 export const metadata: Metadata = { title: `Buscar — ${SITE_NAME}`, description: `Busca no ${SITE_NAME}.` };
 export const revalidate = 0;
-const MOCK: FeedEntrada[] = [{ tipo: "item", id: 201, titulo: "Resultado mock — busque por política, economia...", resumo: "Fallback sem API.", categoria: "geral", urgente: false, numero_fontes: 1, timestamp: new Date().toISOString() }];
+const MOCK: FeedEntrada[] = [{ tipo: "item", id: 201, titulo: "Resultados — busque por política, economia...", resumo: "Conteúdo de exemplo.", categoria: "geral", urgente: false, numero_fontes: 1, timestamp: new Date().toISOString() }];
 function BuscarForm({ q }: { q: string }) {
   return (
     <form action="/buscar" className="flex gap-2">
@@ -31,11 +31,15 @@ export default async function Page({ searchParams }: { searchParams: { q?: strin
       {q && (
         <div className="space-y-3">
           <p className="text-sm text-[var(--cor-texto-suave)]">{itens.length} resultado(s) para <span className="font-semibold text-[var(--cor-texto)]">“{q}”</span></p>
-          <div className="grid gap-3">
-            {itens.map((n)=>(
-              <Card key={`${n.tipo}-${n.id}`} className="bento border-[var(--cor-borda)] bg-[var(--cor-fundo-card)]"><CardContent className="p-4"><div className="mb-1 flex gap-2"><Badge variant="outline" className="border-[var(--cor-borda)] capitalize">{n.categoria}</Badge><span className="text-xs text-[var(--cor-texto-suave)]">{n.numero_fontes} fontes</span></div><Link href={`/noticia/${n.id}`} className="font-bold text-[var(--cor-texto)] hover:text-[var(--cor-primaria)]">{n.titulo}</Link><p className="mt-1 text-sm text-[var(--cor-texto-suave)]">{n.resumo}</p></CardContent></Card>
-            ))}
-          </div>
+          {itens.length===0 ? (
+            <Card className="border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)]"><CardContent className="p-6 text-center text-sm text-[var(--cor-texto-suave)]">Nenhum resultado para “{q}”. <Link href="/arquivo" className="font-medium text-[var(--cor-primaria)] underline">Ver arquivo</Link> • <Link href="/" className="font-medium text-[var(--cor-primaria)] underline">Voltar ao início</Link></CardContent></Card>
+          ) : (
+            <div className="grid gap-3">
+              {itens.map((n)=>(
+                <Card key={`${n.tipo}-${n.id}`} className="bento border-[var(--cor-borda)] bg-[var(--cor-fundo-card)]"><CardContent className="p-4"><div className="mb-1 flex gap-2"><Badge variant="outline" className="border-[var(--cor-borda)] capitalize">{n.categoria}</Badge><span className="text-xs text-[var(--cor-texto-suave)]">{n.numero_fontes} fontes</span></div><Link href={`/noticia/${n.id}`} className="font-bold text-[var(--cor-texto)] hover:text-[var(--cor-primaria)]">{n.titulo}</Link><p className="mt-1 text-sm text-[var(--cor-texto-suave)]">{n.resumo}</p></CardContent></Card>
+              ))}
+            </div>
+          )}
           <AdsSlot id="buscar-infeed" formato="in-feed" className="my-6" />
           {itens.length > 6 && <AdsSlot id="buscar-horizontal" formato="horizontal" />}
         </div>

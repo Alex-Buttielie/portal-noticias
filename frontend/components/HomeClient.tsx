@@ -12,7 +12,7 @@ import { obterTodasLeituras } from "@/lib/intent";
 import { alternarSalvo, estaSalvo } from "@/lib/bookmarks";
 import { useAuth } from "@/lib/auth-context";
 import type { FeedEntrada } from "@/lib/api";
-import { ArrowRight, Bookmark, BookmarkCheck, Clock3, Flame, Mail } from "lucide-react";
+import { ArrowRight, Bookmark, BookmarkCheck, Clock3, Flame, Mail, Info, Crown } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const EDITORIAS = ["política", "economia", "tecnologia", "esportes", "cultura", "saúde", "mundo", "cidades"];
@@ -27,6 +27,7 @@ function timeAgo(iso: string) {
 
 export function HomeClient({ feed: feedProp, urg: urgProp }: { feed: FeedEntrada[]; urg: FeedEntrada[] }) {
   const { usuario } = useAuth();
+  const isPremium = usuario?.papel === "premium" || usuario?.papel === "admin";
   const [filtro, setFiltro] = useState<string | null>(null);
   const [salvos, setSalvos] = useState<Set<string>>(new Set());
   const [leiturasTick, setLeiturasTick] = useState(0);
@@ -46,11 +47,11 @@ export function HomeClient({ feed: feedProp, urg: urgProp }: { feed: FeedEntrada
 
   useEffect(() => { setLeiturasTick((n) => n + 1); }, []);
 
+  const hasSignal = perfil.interesses.length > 0 || Object.values(leituras).some((v) => v >= 2);
   const ordenado = useMemo(() => {
-    const hasSignal = perfil.interesses.length > 0 || Object.values(leituras).some((v) => v >= 2);
     if (!hasSignal) return feedProp;
     try { return ordenarPorGosto(feedProp, perfil); } catch { return feedProp; }
-  }, [feedProp, perfil, leituras]);
+  }, [feedProp, perfil, hasSignal]);
 
   const filtrado = useMemo(() => {
     if (!filtro) return ordenado;
@@ -76,7 +77,7 @@ export function HomeClient({ feed: feedProp, urg: urgProp }: { feed: FeedEntrada
     } catch {}
   }
 
-  if (!hero) return null;
+  if (!hero) return (<Card className="border-[var(--cor-borda)] bg-[var(--cor-fundo-card)]"><CardContent className="p-6 text-center text-sm text-[var(--cor-texto-suave)]">Nenhuma manchete por aqui. <Link href="/arquivo" className="font-medium text-[var(--cor-primaria)] underline">Ver arquivo</Link> • <Link href="/personalizar" className="font-medium text-[var(--cor-primaria)] underline">Personalizar</Link></CardContent></Card>);
 
   return (
     <div className="space-y-6">
@@ -86,6 +87,7 @@ export function HomeClient({ feed: feedProp, urg: urgProp }: { feed: FeedEntrada
         <div className="relative p-4 md:p-6">
           <div className="mb-3 flex items-center gap-2">
             <h2 className="text-sm font-bold tracking-tight text-[var(--cor-texto)]">Destaque do dia</h2>
+            {isPremium && <span className="inline-flex items-center gap-1 rounded-full bg-[var(--cor-premium-suave)] px-2 py-0.5 text-xs font-semibold text-[var(--cor-premium)]"><Crown className="h-3 w-3" /> Premium • sem anúncios extras</span>}
             <span className="hidden h-3 w-px bg-[var(--cor-borda)] md:block" aria-hidden />
             <span className="text-xs text-[var(--cor-texto-suave)]">{new Date().toLocaleDateString("pt-BR")} • {urgProp.length} em alta</span>
           </div>
@@ -118,6 +120,8 @@ export function HomeClient({ feed: feedProp, urg: urgProp }: { feed: FeedEntrada
 
       <AdsSlot id="home-topo" formato="horizontal" />
 
+      {isPremium && <p className="flex items-center gap-1.5 rounded-full border border-[var(--cor-premium)] bg-[var(--cor-premium-suave)] px-3 py-1.5 text-xs font-medium text-[var(--cor-premium)]"><Crown className="h-3.5 w-3.5" /> Você navega com menos anúncios — benefício Premium</p>}
+
       <section className="grid gap-6 md:grid-cols-12">
         <div className="md:col-span-8 space-y-4">
           <div className="flex items-center justify-between gap-2">
@@ -125,7 +129,7 @@ export function HomeClient({ feed: feedProp, urg: urgProp }: { feed: FeedEntrada
             <Link href="/arquivo" className="text-sm font-medium text-[var(--cor-primaria)] hover:underline">Arquivo →</Link>
           </div>
           {filtrado.length === 0 ? (
-            <Card className="border-[var(--cor-borda)] bg-[var(--cor-fundo-card)]"><CardContent className="p-6 text-sm text-[var(--cor-texto-suave)]">Nenhuma manchete nesta editoria.</CardContent></Card>
+            <Card className="border-[var(--cor-borda)] bg-[var(--cor-fundo-card)]"><CardContent className="p-6 text-sm text-[var(--cor-texto-suave)]">Nenhuma manchete nesta editoria. <Link href="/arquivo" className="font-medium text-[var(--cor-primaria)] underline">Ver arquivo</Link> ou <Link href="/personalizar" className="font-medium text-[var(--cor-primaria)] underline">personalizar</Link>.</CardContent></Card>
           ) : (
             <div className="grid gap-4 md:grid-cols-2">
               {grid.map((n) => (
@@ -151,7 +155,28 @@ export function HomeClient({ feed: feedProp, urg: urgProp }: { feed: FeedEntrada
             </div>
           )}
 
-          <AdsSlot id="home-infeed" formato="in-feed" />
+          {hasSignal && resto.length > 0 && (
+            <div className="flex items-center gap-2 rounded-full border border-[var(--cor-borda)] bg-[var(--cor-primaria-suave)] px-3 py-2 text-xs text-[var(--cor-texto)]">
+              <Info className="h-3.5 w-3.5 shrink-0 text-[var(--cor-primaria)]" />
+              <span title={`Porque você vê isso: ${afinidade.slice(0,2).join(", ") || "seu histórico"} — leituras em ${Object.entries(leituras).filter(([,v])=>v>=2).map(([k])=>k).join(", ") || "categorias que você acompanha"}.`}>Porque você vê isso: feed ordenado por afinidade • <Link href="/personalizar" className="font-medium text-[var(--cor-primaria)] underline">ajustar</Link></span>
+            </div>
+          )}
+
+          {!isPremium ? <AdsSlot id="home-infeed" formato="in-feed" /> : <p className="flex items-center gap-1.5 rounded-full border border-dashed border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] px-3 py-2 text-xs text-[var(--cor-texto-suave)]"><Crown className="h-3.5 w-3.5 text-[var(--cor-premium)]" /> Leitura sem interrupção — anúncio removido no Premium</p>}
+
+          {resto.length > 0 && resto.slice(0,3).length>0 && hasSignal && (
+            <div className="rounded-[var(--raio-lg)] border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] p-3">
+              <p className="mb-2 text-sm font-bold text-[var(--cor-texto)]">Continuar lendo</p>
+              <div className="grid gap-2">
+                {resto.slice(0,3).map(n=>(
+                  <Link key={`cont-${n.tipo}-${n.id}`} href={`/noticia/${n.id}`} className="flex items-center justify-between gap-2 rounded-md border border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] px-3 py-2 text-sm hover:bg-[var(--cor-borda)]">
+                    <span className="line-clamp-1 font-medium text-[var(--cor-texto)]">{n.titulo}</span>
+                    <span className="shrink-0 text-xs text-[var(--cor-primaria)]">Ler →</span>
+                  </Link>
+                ))}
+              </div>
+            </div>
+          )}
 
           {resto.length > 0 && (
             <div className="grid gap-3">
@@ -173,7 +198,7 @@ export function HomeClient({ feed: feedProp, urg: urgProp }: { feed: FeedEntrada
             </div>
           )}
           <div className="rounded-[var(--raio-lg)] border border-dashed border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] px-4 py-6 text-center">
-            <p className="text-sm text-[var(--cor-texto-suave)]">Você chegou ao fim — role para ver mais ou <Link href="/personalizar" className="font-medium text-[var(--cor-primaria)] underline">personalize suas editorias</Link> para recomendações melhores.</p>
+            <p className="text-sm text-[var(--cor-texto-suave)]">Fim — veja mais em <Link href="/arquivo" className="font-medium text-[var(--cor-primaria)] underline">Arquivo</Link> ou <Link href="/personalizar" className="font-medium text-[var(--cor-primaria)] underline">Personalizar</Link>.</p>
           </div>
         </div>
 

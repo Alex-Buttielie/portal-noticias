@@ -16,7 +16,7 @@ export async function generateMetadata({ params }: { params: { slug: string } })
 }
 export function generateStaticParams() { return [{ slug: "politica" }, { slug: "economia" }, { slug: "tecnologia" }, { slug: "esportes" }, { slug: "cultura" }]; }
 export const revalidate = 60;
-const MOCK: FeedEntrada[] = [{ tipo: "item", id: 99, titulo: "Mock — categoria sem backend", resumo: "Fallback para build sem API.", categoria: "geral", urgente: false, numero_fontes: 1, timestamp: new Date().toISOString() }];
+const MOCK: FeedEntrada[] = [{ tipo: "item", id: 99, titulo: "Conteúdo de exemplo", resumo: "Conteúdo de exemplo.", categoria: "geral", urgente: false, numero_fontes: 1, timestamp: new Date().toISOString() }];
 function timeAgo(iso: string){const d=Date.now()-new Date(iso).getTime();const h=Math.floor(d/3600000);if(h<1)return"agora";if(h<24)return`${h}h`;return`${Math.floor(h/24)}d`;}
 export default async function Page({ params }: { params: { slug: string } }) {
   const slug = decodeURIComponent(params.slug);
@@ -30,7 +30,7 @@ export default async function Page({ params }: { params: { slug: string } }) {
       <div className="rounded-[var(--raio-lg)] border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] p-4">
         <div className="hud-line mb-3" aria-hidden />
         <h1 className="text-2xl font-bold capitalize tracking-tight text-[var(--cor-texto)]">{slug}</h1>
-        <p className="text-sm text-[var(--cor-texto-suave)]">{itens.length} manchetes • HUD bento</p>
+        <p className="text-sm text-[var(--cor-texto-suave)]">{itens.length} manchetes</p>
       </div>
       <AdsSlot id="categoria-topo" formato="horizontal" />
       <div className="grid gap-3 md:grid-cols-2">

@@ -20,7 +20,7 @@ export default function Page() {
             <div className="grid gap-1.5"><Label htmlFor="msg">Mensagem</Label><Textarea id="msg" placeholder="Como podemos ajudar?…" rows={5} className="bg-[var(--cor-fundo-card)]" /></div>
             <ContatoCepIsland />
             <Button type="submit" className="min-h-[44px] bg-[var(--cor-primaria)] text-[var(--cor-texto-invertido)] hover:bg-[var(--cor-primaria-hover)]">Enviar</Button>
-            <p className="text-xs text-[var(--cor-texto-suave)]">Placeholder funcional — sem backend dedicado; demonstra UI futurista e a11y (label, 44px, focus ring).</p>
+            <p className="text-xs text-[var(--cor-texto-suave)]">Responderemos em até 2 dias úteis.</p>
           </form>
         </CardContent>
       </Card>

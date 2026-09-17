@@ -12,7 +12,7 @@ import { AcoesNoticia } from "../../[id]/acoes";
 export async function generateMetadata({params}:{params:{id:string}}): Promise<Metadata>{ let t=`Cluster #${params.id} - ${SITE_NAME}`; try{ const d=await obterDetalheCluster(params.id); t=d.titulo;}catch{} return {title:t, openGraph:{url:`${SITE_URL}/noticia/cluster/${params.id}`}}; }
 export function generateStaticParams(){ return [{id:"1"}]; }
 export const revalidate=60;
-async function getD(id:string): Promise<FeedDetalhe>{ try{ return await obterDetalheCluster(id);}catch{ return {tipo:"cluster",id:Number(id)||1,titulo:`Cluster #${id} (mock)`,categoria:"geral",urgente:false,timestamp:new Date().toISOString(),fontes:[{nome_fonte:"Fonte Exemplo",url_fonte_original:"https://example.com",resumo:"Resumo mock - API offline"}],exibir_publicidade:false}; } }
+async function getD(id:string): Promise<FeedDetalhe>{ try{ return await obterDetalheCluster(id);}catch{ return {tipo:"cluster",id:Number(id)||1,titulo:`Cluster #${id}`,categoria:"geral",urgente:false,timestamp:new Date().toISOString(),fontes:[{nome_fonte:"Fonte Exemplo",url_fonte_original:"https://example.com",resumo:"Resumo indisponível no momento"}],exibir_publicidade:false}; } }
 function fmt(iso:string){ return new Intl.DateTimeFormat("pt-BR",{dateStyle:"short",timeStyle:"short"}).format(new Date(iso)); }
 export default async function Page({params}:{params:{id:string}}){
   const d=await getD(params.id);

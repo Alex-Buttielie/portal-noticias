@@ -47,7 +47,9 @@ const FAQ = [
 
 export default function Page() {
   const router = useRouter();
-  const { token } = useAuth();
+  const { token, usuario } = useAuth();
+  const isPremium = usuario?.papel === "premium" || usuario?.papel === "admin";
+  const isFree = usuario?.papel === "free";
   const [planos, setPlanos] = useState<Plano[]>([]);
   const [sel, setSel] = useState<Plano | null>(null);
   const [open, setOpen] = useState(false);
@@ -91,7 +93,7 @@ export default function Page() {
           </CardHeader>
           <CardContent className="space-y-4">
             <ul className="space-y-2 text-sm text-[var(--cor-texto)]">{FREE_BENEFICIOS.map((b) => <li key={b} className="flex gap-2"><span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--cor-borda)]"><X className="h-3.5 w-3.5 text-[var(--cor-texto-suave)]" /></span>{b}</li>)}</ul>
-            <Button variant="outline" onClick={() => escolher(free)} className="w-full min-h-[44px] border-[var(--cor-borda)]">Continuar no Free</Button>
+            {isPremium ? <><div className="rounded-md border border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] px-3 py-2 text-center text-sm text-[var(--cor-texto-suave)]">Incluído no seu Premium</div><Button asChild variant="outline" className="w-full min-h-[44px] border-[var(--cor-borda)]"><Link href="/minha-conta">Gerenciar</Link></Button></> : isFree ? <><Badge variant="outline" className="mx-auto flex w-fit border-[var(--cor-sucesso)] bg-[var(--cor-sucesso-suave)] text-[var(--cor-sucesso)]">Seu plano atual</Badge><Button variant="outline" disabled className="w-full min-h-[44px] border-[var(--cor-borda)]">Você está no Free</Button></> : <Button variant="outline" onClick={() => escolher(free)} className="w-full min-h-[44px] border-[var(--cor-borda)]">Continuar no Free</Button>}
             <p className="text-center text-xs text-[var(--cor-texto-suave)]">Sem cartão. Comece agora.</p>
           </CardContent>
         </Card>
@@ -105,7 +107,7 @@ export default function Page() {
           </CardHeader>
           <CardContent className="space-y-4">
             <ul className="space-y-2.5 text-sm text-[var(--cor-texto)]">{PREMIUM_BENEFICIOS.map(({ icon: Icon, text, sub }) => <li key={text} className="flex gap-2.5"><span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--cor-premium-suave)] text-[var(--cor-premium)]"><Check className="h-3.5 w-3.5" /></span><span><span className="font-medium">{text}</span> <span className="text-[var(--cor-texto-suave)]">— {sub}</span></span></li>)}</ul>
-            <Button onClick={() => escolher(premium)} className="w-full min-h-[44px] bg-[var(--cor-premium)] text-[var(--cor-texto-invertido)] hover:bg-[var(--cor-premium-hover)]"><Crown className="mr-2 h-4 w-4" /> Assinar premium</Button>
+            {isPremium ? <><Badge className="mx-auto flex w-fit bg-[var(--cor-premium)] text-[var(--cor-texto-invertido)]"><ShieldCheck className="mr-1 h-3 w-3" /> Seu plano</Badge><Button asChild className="w-full min-h-[44px] bg-[var(--cor-premium)] text-[var(--cor-texto-invertido)]"><Link href="/minha-conta">Gerenciar assinatura</Link></Button></> : <Button onClick={() => escolher(premium)} className="w-full min-h-[44px] bg-[var(--cor-premium)] text-[var(--cor-texto-invertido)] hover:bg-[var(--cor-premium-hover)]"><Crown className="mr-2 h-4 w-4" /> Assinar premium</Button>}
             <p className="text-center text-xs text-[var(--cor-texto-suave)]">Cobrança recorrente · cancele quando quiser</p>
           </CardContent>
         </Card>

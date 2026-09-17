@@ -56,7 +56,7 @@ export default function Page() {
       if (!lista.length) { setPlanos(MOCK); setErr("API offline — exibindo dados de exemplo."); }
       else setPlanos(lista);
     } catch (e: unknown) {
-      const m = e instanceof Error ? e.message : "API offline — mock";
+      const m = e instanceof Error ? e.message : "Falha ao carregar — tentaremos novamente";
       setErr(m + " — exibindo dados de exemplo."); setPlanos(MOCK);
     } finally { setLoading(false); }
   }, [token]);

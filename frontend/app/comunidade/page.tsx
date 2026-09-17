@@ -35,8 +35,8 @@ function readLS(key: string): string[] { try { const v = localStorage.getItem(ke
 function writeLS(key: string, v: string[]) { try { localStorage.setItem(key, JSON.stringify(v)); } catch { } }
 
 const MOCK_PUBS: api.Publicacao[] = [
-  { id: 901, autor: 1, autor_nome: "Ana Política", titulo: "Opinião: reforma e cidades (mock)", conteudo: "Conteúdo mock — API offline. Análise curta sobre impacto urbano.", tipo: "opiniao", status: "publicado", categoria: "politica", tags: ["mock", "cidades"], news_cluster: null, news_item: null, destaque: true, criado_em: new Date().toISOString(), publicado_em: new Date().toISOString() },
-  { id: 902, autor: 2, autor_nome: "Bruno Tech", titulo: "Análise: IA no jornalismo (mock)", conteudo: "Mock — como IA reorganiza redação e checagem.", tipo: "analise", status: "publicado", categoria: "tecnologia", tags: ["ia", "mock"], news_cluster: null, news_item: null, destaque: false, criado_em: new Date().toISOString(), publicado_em: new Date().toISOString() },
+  { id: 901, autor: 1, autor_nome: "Ana Política", titulo: "Opinião: reforma e cidades", conteudo: "Análise curta sobre impacto urbano.", tipo: "opiniao", status: "publicado", categoria: "politica", tags: ["exemplo", "cidades"], news_cluster: null, news_item: null, destaque: true, criado_em: new Date().toISOString(), publicado_em: new Date().toISOString() },
+  { id: 902, autor: 2, autor_nome: "Bruno Tech", titulo: "Análise: IA no jornalismo", conteudo: "Como IA reorganiza redação e checagem.", tipo: "analise", status: "publicado", categoria: "tecnologia", tags: ["ia", "exemplo"], news_cluster: null, news_item: null, destaque: false, criado_em: new Date().toISOString(), publicado_em: new Date().toISOString() },
 ];
 
 export default function Page() {

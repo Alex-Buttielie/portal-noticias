@@ -18,7 +18,7 @@ export async function GET() {
       data: new Date(e.timestamp).toUTCString(),
     }));
   } catch {
-    itens = [{ titulo: `${SITE_NAME} — feed indisponível (mock)`, link: SITE_URL, desc: SITE_DESCRIPTION, data: new Date().toUTCString() }];
+    itens = [{ titulo: `${SITE_NAME} — feed indisponível`, link: SITE_URL, desc: SITE_DESCRIPTION, data: new Date().toUTCString() }];
   }
   const xml = `<?xml version="1.0" encoding="UTF-8"?><rss version="2.0"><channel><title>${esc(SITE_NAME)}</title><link>${SITE_URL}</link><description>${esc(SITE_DESCRIPTION)}</description><language>pt-BR</language>${itens.map((i) => `<item><title>${esc(i.titulo)}</title><link>${i.link}</link><description>${esc(i.desc)}</description><pubDate>${i.data}</pubDate><guid>${i.link}</guid></item>`).join("")}</channel></rss>`;
   return new Response(xml, { headers: { "Content-Type": "application/rss+xml; charset=utf-8", "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600" } });

@@ -35,11 +35,11 @@ function isRecente(iso?: string | null) {
 }
 
 const MOCK: Lim[] = [
-  { id: 1, chave: "feed_max_itens", plano: "free", valor: "20", descricao: "Mock — limite de itens no feed (free)", atualizado_em: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString() },
-  { id: 2, chave: "feed_max_itens", plano: "premium", valor: "ilimitado", descricao: "Mock — sem limite no premium", atualizado_em: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString() },
-  { id: 3, chave: "radar_credito", plano: "free", valor: "3", descricao: "Mock — créditos diários do radar", atualizado_em: new Date(Date.now() - 30 * 60 * 1000).toISOString() },
-  { id: 4, chave: "radar_credito", plano: "premium", valor: "ilimitado", descricao: "Mock — radar ilimitado", atualizado_em: new Date().toISOString() },
-  { id: 5, chave: "feed_sem_anuncios", plano: "premium", valor: "1", descricao: "Mock — feed sem anúncios ativo", atualizado_em: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString() },
+  { id: 1, chave: "feed_max_itens", plano: "free", valor: "20", descricao: "Exemplo — limite de itens no feed (free)", atualizado_em: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString() },
+  { id: 2, chave: "feed_max_itens", plano: "premium", valor: "ilimitado", descricao: "Exemplo — sem limite no premium", atualizado_em: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString() },
+  { id: 3, chave: "radar_credito", plano: "free", valor: "3", descricao: "Exemplo — créditos diários do radar", atualizado_em: new Date(Date.now() - 30 * 60 * 1000).toISOString() },
+  { id: 4, chave: "radar_credito", plano: "premium", valor: "ilimitado", descricao: "Exemplo — radar ilimitado", atualizado_em: new Date().toISOString() },
+  { id: 5, chave: "feed_sem_anuncios", plano: "premium", valor: "1", descricao: "Exemplo — feed sem anúncios ativo", atualizado_em: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString() },
 ];
 
 export default function Page() {
