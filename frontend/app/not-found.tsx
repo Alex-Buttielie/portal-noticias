@@ -1,0 +1,4 @@
+import Link from "next/link";
+import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+export default function NotFound(){return (<div className="mx-auto max-w-2xl py-12"><Card className="bento border-[var(--cor-borda)] bg-[var(--cor-fundo-card)]"><CardContent className="p-8 text-center space-y-4"><p className="text-xs tracking-widest text-[var(--cor-texto-suave)]">404 • HUD</p><h1 className="text-2xl font-bold text-[var(--cor-texto)]">Página não encontrada</h1><p className="text-sm text-[var(--cor-texto-suave)]">O endereço não existe ou foi movido. Tente buscar ou voltar ao início.</p><div className="flex justify-center gap-2"><Button asChild className="bg-[var(--cor-primaria)] text-[var(--cor-texto-invertido)]"><Link href="/">Voltar ao início</Link></Button><Button asChild variant="outline"><Link href="/buscar">Buscar</Link></Button></div></CardContent></Card></div>);}
