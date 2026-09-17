@@ -18,9 +18,16 @@
    painel do MP; depois preencher `ASSINATURA_MP_ACCESS_TOKEN` (+ `=mercadopago`
    no provider). Para produção futura: token APP_USR + `SANDBOX=false`.
    Status: código pronto, aguardando credencial TEST do Alex.
-2. **LLM / e-mail / OAuth** — provedor e chave da LLM (`CATALOGO_NOTICIAS_LLM_*`),
-   backend de e-mail transacional (`DJANGO_EMAIL_BACKEND`), credenciais
-   `GOOGLE_OAUTH_CLIENT_ID/SECRET`. Status: pendente.
+2. **LLM / e-mail / OAuth** (decidido 2026-09-17: OpenAI + Resend, Google depois)
+   - LLM: código já fala Chat Completions (`gpt-4o-mini` default) — só falta
+     `CATALOGO_NOTICIAS_LLM_API_KEY` real no prod. Sem chave, cai em revisão
+     humana (comportamento seguro). Status: aguardando chave OpenAI do Alex.
+   - E-mail: backend Resend implementado (`config/email_resend.py`, sem SDK,
+     4 testes) — ligar com `DJANGO_EMAIL_BACKEND=config.email_resend.ResendEmailBackend`
+     + `RESEND_API_KEY=re_...` + remetente de domínio verificado.
+     Status: código pronto, aguardando chave Resend do Alex.
+   - OAuth Google: settings prontos (`GOOGLE_OAUTH_CLIENT_ID/SECRET`), fluxo
+     adiado. Status: aguardando credenciais do Alex.
 3. **AdSense** — publisher ID + `adsbygoogle.js` no layout + aprovação da conta
    (slots hoje são placeholder). Status: pendente.
 4. **Revisão jurídica da privacidade** — política atual é rascunho funcional.

@@ -447,15 +447,15 @@ else:
 
 
 # E-mail
-# Não há integração real com um provedor transacional (SendGrid, SES, etc.)
-# neste escopo — decisão em aberto (ver implementation-contract.md,
-# "Não-objetivos"). Em desenvolvimento/teste, usa o backend "console" do
-# Django (imprime o e-mail no stdout) para permitir inspecionar tokens de
-# verificação/redefinição de senha manualmente. Em produção, definir
-# DJANGO_EMAIL_BACKEND explicitamente para um backend real.
+# Provedor transacional: Resend (`config/email_resend.py`, sem SDK externo).
+# Em desenvolvimento/teste, o default "console" imprime o e-mail no stdout
+# (permite inspecionar tokens de verificação/redefinição manualmente). Em
+# produção: `DJANGO_EMAIL_BACKEND=config.email_resend.ResendEmailBackend` +
+# `RESEND_API_KEY=re_...` + remetente de domínio verificado no Resend.
 EMAIL_BACKEND = os.environ.get(
     "DJANGO_EMAIL_BACKEND", "django.core.mail.backends.console.EmailBackend"
 )
+RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
 DEFAULT_FROM_EMAIL = os.environ.get("DJANGO_DEFAULT_FROM_EMAIL", "no-reply@brdportalnoticias.local")
 
 # Front-end (run 20260902-1448-frontend-mvp-web, frontend/ na raiz do
