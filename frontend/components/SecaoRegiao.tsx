@@ -12,6 +12,7 @@ import { AdsSlot } from "@/components/AdsSlot";
 import { imagemNoticia } from "@/lib/imagens";
 import type { FeedEntrada } from "@/lib/api";
 import { carregarRegiao, salvarRegiao, limparRegiao, obterRegiaoPorGeolocation, formatarRegiao, cidadesVizinhasMock, type Regiao } from "@/lib/regiao";
+import { trackLocationPermission, trackLocationSelected } from "@/lib/analytics";
 import BuscaCep from "@/components/BuscaCep";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { MapPin, Locate, Navigation, Clock3, Filter, ArrowUpDown, Search, X, Sparkles, Crown } from "lucide-react";
@@ -67,9 +68,12 @@ export function SecaoRegiao({ feed }: { feed: FeedEntrada[] }) {
       salvarRegiao(r);
       setRegiao(r);
       setOpen(false);
+      trackLocationPermission(true);
+      trackLocationSelected({ pais: r.pais, estado: r.estado, cidade: r.cidade });
     } catch (e: unknown) {
       setErro(e instanceof Error ? e.message : "Não foi possível obter sua localização.");
       setOpen(true);
+      trackLocationPermission(false);
     } finally {
       setBuscando(false);
     }
@@ -81,6 +85,7 @@ export function SecaoRegiao({ feed }: { feed: FeedEntrada[] }) {
     setRegiao(r);
     setOpen(false);
     setErro(null);
+    trackLocationSelected({ pais: r.pais, estado: r.estado, cidade: r.cidade, regiao: `CEP ${e.cep}` });
   }, []);
 
   const categorias = useMemo(() => Array.from(new Set(feed.map((f) => f.categoria).filter(Boolean))).sort(), [feed]);

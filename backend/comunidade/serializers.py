@@ -10,6 +10,10 @@ class PublicacaoSerializer(serializers.ModelSerializer):
     # revisão de segurança, ver agentic-framework/state/HISTORY.md). `nome`
     # já é o campo usado para exibição pública em PerfilAutorPublicoView.
     autor_nome = serializers.CharField(source="autor.nome", read_only=True)
+    # FRENTE 4 (Comunidade viva): indicador de interação — nº de comentários
+    # visíveis. Computed, sem migração; anotado na listagem (`views`) e com
+    # fallback de contagem direta no detalhe.
+    numero_comentarios = serializers.SerializerMethodField()
 
     class Meta:
         model = Publicacao
@@ -26,10 +30,20 @@ class PublicacaoSerializer(serializers.ModelSerializer):
             "news_cluster",
             "news_item",
             "destaque",
+            "numero_comentarios",
             "criado_em",
             "publicado_em",
         ]
-        read_only_fields = ["id", "autor", "autor_nome", "status", "destaque", "criado_em", "publicado_em"]
+        read_only_fields = ["id", "autor", "autor_nome", "status", "destaque", "numero_comentarios", "criado_em", "publicado_em"]
+
+    def get_numero_comentarios(self, obj) -> int:
+        anotado = getattr(obj, "numero_comentarios", None)
+        if isinstance(anotado, int):
+            return anotado
+        try:
+            return obj.comentarios.filter(oculto=False).count()
+        except Exception:
+            return 0
 
 
 class ComentarioSerializer(serializers.ModelSerializer):

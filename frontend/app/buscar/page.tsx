@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { SITE_NAME } from "@/lib/site";
 import { AdsSlot } from "@/components/AdsSlot";
+import { BuscarReporter } from "@/components/Reporters";
 import { obterFeed, type FeedEntrada } from "@/lib/api";
 export const metadata: Metadata = { title: `Buscar — ${SITE_NAME}`, description: `Busca no ${SITE_NAME}.` };
 export const revalidate = 0;
@@ -26,6 +27,7 @@ export default async function Page({ searchParams }: { searchParams: { q?: strin
   }
   return (
     <div className="space-y-4">
+      {q && <BuscarReporter termo={q} resultados={itens.length} />}
       <div className="rounded-[var(--raio-lg)] border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] p-4"><div className="hud-line mb-3" aria-hidden /><h1 className="text-xl font-bold text-[var(--cor-texto)]">Buscar</h1><p className="text-sm text-[var(--cor-texto-suave)]">Query <code className="rounded bg-[var(--cor-borda)] px-1">?q=</code> • usa <code className="rounded bg-[var(--cor-borda)] px-1">lib/intent.ts</code> no client quando houver personalização.</p><div className="mt-3"><BuscarForm q={q} /></div></div>
       {!q && <Card className="bento border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)]"><CardContent className="p-4 text-sm text-[var(--cor-texto-suave)]">Digite um termo acima. Ex.: <Link href="/buscar?q=política" className="text-[var(--cor-primaria)] hover:underline">política</Link>, <Link href="/buscar?q=tecnologia" className="text-[var(--cor-primaria)] hover:underline">tecnologia</Link>.</CardContent></Card>}
       {q && (

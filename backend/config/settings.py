@@ -126,6 +126,7 @@ INSTALLED_APPS = [
     "comunidade",
     "moderacao",
     "radar",
+    "enderecos",
     "newsletter",
     "landing",
     "b2b",
@@ -370,8 +371,25 @@ REST_FRAMEWORK = {
         # Achado de revisão de segurança (minor): denúncia sem limite por
         # usuário autenticado — ver config/throttling.py:DenunciaUserThrottle.
         "denuncia": os.environ.get("THROTTLE_DENUNCIA_RATE", "20/hour"),
+        # FRENTE 5 — proxy de endereços (ViaCEP/IBGE com cache): leitura
+        # pública com upstream externo; teto folgado para digitação com
+        # debounce nunca bater, mas rajadas batem — ver
+        # config/throttling.py:EnderecosAnonThrottle.
+        "enderecos": os.environ.get("THROTTLE_ENDERECOS_RATE", "60/min"),
     },
 }
+
+# FRENTE 5 — endereços inteligentes: base URLs e TTLs do proxy
+# (`enderecos/services.py`). ViaCEP/IBGE são públicos e não exigem
+# credencial; quando um provedor com credencial (ex.: Correios) for
+# adotado, a chave entra aqui via env e o frontend não muda nada.
+ENDERECOS_VIACEP_BASE_URL = os.environ.get("ENDERECOS_VIACEP_BASE_URL", "https://viacep.com.br")
+ENDERECOS_IBGE_BASE_URL = os.environ.get(
+    "ENDERECOS_IBGE_BASE_URL", "https://servicodados.ibge.gov.br/api/v1"
+)
+ENDERECOS_UPSTREAM_TIMEOUT_SEGUNDOS = int(os.environ.get("ENDERECOS_UPSTREAM_TIMEOUT_SEGUNDOS", 8))
+ENDERECOS_CACHE_CEP_SEGUNDOS = int(os.environ.get("ENDERECOS_CACHE_CEP_SEGUNDOS", 86400))
+ENDERECOS_CACHE_IBGE_SEGUNDOS = int(os.environ.get("ENDERECOS_CACHE_IBGE_SEGUNDOS", 604800))
 
 
 # ---------------------------------------------------------------------------
@@ -490,6 +508,12 @@ CATALOGO_NOTICIAS_INTERVALO_INGESTAO_MINUTOS = int(
 # `assinatura/providers/payment.py::obter_gateway_pagamento` sem mudar
 # `services.py`. Ideia incorporada do protótipo `testes-ia` (PAYMENT_PROVIDER).
 ASSINATURA_PAYMENT_GATEWAY_PROVIDER = os.environ.get("ASSINATURA_PAYMENT_GATEWAY_PROVIDER", "manual")
+# Mercado Pago (assinatura/providers/payment.py::MercadoPagoGatewayProvider):
+# Access Token (TEST-... em sandbox, APP_USR-... em produção) + flag sandbox
+# (quando True, o checkout devolvido é o `sandbox_init_point`). Sem token
+# configurado, o provider falha alto ao ser usado — nunca silenciosamente.
+ASSINATURA_MP_ACCESS_TOKEN = os.environ.get("ASSINATURA_MP_ACCESS_TOKEN", "")
+ASSINATURA_MP_SANDBOX = env_bool("ASSINATURA_MP_SANDBOX", True)
 ASSINATURA_INTERVALO_PROCESSAR_VENCIMENTOS_MINUTOS = int(
     os.environ.get("ASSINATURA_INTERVALO_PROCESSAR_VENCIMENTOS_MINUTOS", 60)
 )

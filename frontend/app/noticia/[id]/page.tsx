@@ -4,6 +4,7 @@ import { newsArticleJsonLd } from "@/lib/schema";
 import { obterDetalheCluster, obterDetalheItem, obterFeed, type FeedDetalhe } from "@/lib/api";
 import { imagemNoticia } from "@/lib/imagens";
 import { LeituraPremium } from "../LeituraPremium";
+import { NoticiaReporter } from "@/components/Reporters";
 
 export async function generateMetadata({ params }: { params: { id: string } }): Promise<Metadata> {
   const d = await getDetalhe(params.id);
@@ -30,6 +31,7 @@ export default async function Page({ params }: { params: { id: string } }) {
   return (
     <>
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
+      <NoticiaReporter entryTipo={d.tipo === "cluster" ? "cluster" : "item"} entryId={d.id} categoria={d.categoria} />
       <LeituraPremium detalhe={d} relacionados={relacionados} heroSrc={heroSrc} imagemReal={imagemReal} />
     </>
   );

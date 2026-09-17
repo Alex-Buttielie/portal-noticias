@@ -1,0 +1,154 @@
+"""Proxy com cache para ViaCEP/IBGE (FRENTE 5 — endereços inteligentes).
+
+Por que existe um proxy em vez de chamar ViaCEP/IBGE direto do navegador
+(como `frontend/lib/cep.ts` e `frontend/lib/ibge.ts` fazem hoje)?
+
+- ViaCEP/IBGE são públicos e não exigem credencial — o proxy NÃO guarda
+  segredo nenhum. Ele existe para: (1) cache compartilhado entre todos os
+  visitantes (o cache do frontend é por navegador); (2) rate-limit no
+  servidor (`EnderecosAnonThrottle`), evitando rajadas de um único cliente;
+  (3) ponto único para trocar de provedor (ex.: Correios com credencial)
+  sem reimplantar o frontend — a credencial, quando existir, fica só aqui.
+- O frontend continua funcionando SEM o backend (fallback direto), então
+  este proxy é progressivo, não obrigatório — ver `frontend/lib/cep.ts`.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import logging
+import re
+
+import requests
+from django.conf import settings
+from django.core.cache import cache
+
+logger = logging.getLogger(__name__)
+
+
+class EnderecoInvalidoError(ValueError):
+    """CEP/endereço malformado (400)."""
+
+
+class CepNaoEncontradoError(LookupError):
+    """CEP inexistente ou sem resultados (404)."""
+
+
+class ServicoEnderecoIndisponivelError(RuntimeError):
+    """Upstream fora do ar, timeout ou resposta inválida (502)."""
+
+
+def normalizar_cep(cep: str) -> str:
+    return re.sub(r"\D", "", cep or "")[:8]
+
+
+def validar_cep(n: str) -> None:
+    if len(n) != 8 or not n.isdigit():
+        raise EnderecoInvalidoError("CEP inválido. Informe 8 dígitos (ex: 01310-100).")
+
+
+def _base_viacep() -> str:
+    return getattr(settings, "ENDERECOS_VIACEP_BASE_URL", "https://viacep.com.br").rstrip("/")
+
+
+def _base_ibge() -> str:
+    return getattr(
+        settings, "ENDERECOS_IBGE_BASE_URL", "https://servicodados.ibge.gov.br/api/v1"
+    ).rstrip("/")
+
+
+def _timeout() -> int:
+    return int(getattr(settings, "ENDERECOS_UPSTREAM_TIMEOUT_SEGUNDOS", 8))
+
+
+def _get_json(url: str):
+    try:
+        resposta = requests.get(url, timeout=_timeout())
+    except requests.RequestException as exc:
+        logger.warning("enderecos upstream inalcançável: %s (%s)", url, exc)
+        raise ServicoEnderecoIndisponivelError(
+            "Não foi possível consultar o serviço de endereços. Tente novamente em instantes."
+        ) from exc
+    if resposta.status_code >= 400:
+        logger.warning("enderecos upstream HTTP %s: %s", resposta.status_code, url)
+        raise ServicoEnderecoIndisponivelError(
+            "Não foi possível consultar o serviço de endereços. Tente novamente em instantes."
+        )
+    try:
+        return resposta.json()
+    except ValueError as exc:
+        raise ServicoEnderecoIndisponivelError("Resposta inválida do serviço de endereços.") from exc
+
+
+def consultar_cep(cep: str) -> dict:
+    """Consulta um CEP (8 dígitos). Resultado é o JSON do ViaCEP, cacheado 24h."""
+    n = normalizar_cep(cep)
+    validar_cep(n)
+    chave = f"enderecos:cep:{n}"
+    cached = cache.get(chave)
+    if cached is not None:
+        return cached
+    dados = _get_json(f"{_base_viacep()}/ws/{n}/json/")
+    if isinstance(dados, dict) and dados.get("erro"):
+        raise CepNaoEncontradoError("CEP não encontrado. Verifique o número digitado.")
+    if not isinstance(dados, dict) or not dados.get("cep"):
+        raise CepNaoEncontradoError("CEP não encontrado. Verifique o número digitado.")
+    cache.set(chave, dados, timeout=int(getattr(settings, "ENDERECOS_CACHE_CEP_SEGUNDOS", 86400)))
+    return dados
+
+
+def buscar_por_endereco(uf: str, cidade: str, logradouro: str) -> list:
+    """Busca CEPS por UF/cidade/logradouro (mín. 3 letras cada). Cache 24h."""
+    u = (uf or "").strip().upper()
+    c = (cidade or "").strip()
+    l = (logradouro or "").strip()
+    if not re.fullmatch(r"[A-Z]{2}", u):
+        raise EnderecoInvalidoError("UF inválida. Use a sigla com 2 letras (ex: SP).")
+    if len(c) < 3:
+        raise EnderecoInvalidoError("Informe a cidade com ao menos 3 letras.")
+    if len(l) < 3:
+        raise EnderecoInvalidoError("Informe o logradouro com ao menos 3 letras.")
+    chave = f"enderecos:busca:{u}:{hashlib.md5(f'{c.lower()}|{l.lower()}'.encode('utf-8')).hexdigest()}"
+    cached = cache.get(chave)
+    if cached is not None:
+        return cached
+    from urllib.parse import quote
+
+    dados = _get_json(
+        f"{_base_viacep()}/ws/{quote(u)}/{quote(c)}/{quote(l)}/json/"
+    )
+    if not isinstance(dados, list) or len(dados) == 0:
+        raise CepNaoEncontradoError("Nenhum endereço encontrado. Ajuste a busca.")
+    cache.set(chave, dados, timeout=int(getattr(settings, "ENDERECOS_CACHE_CEP_SEGUNDOS", 86400)))
+    return dados
+
+
+def listar_estados() -> list:
+    """Lista {sigla, nome} dos estados (IBGE). Cache 7 dias."""
+    chave = "enderecos:ibge:estados"
+    cached = cache.get(chave)
+    if cached is not None:
+        return cached
+    dados = _get_json(f"{_base_ibge()}/localidades/estados?orderBy=nome")
+    if not isinstance(dados, list):
+        raise ServicoEnderecoIndisponivelError("Resposta inválida do serviço de endereços.")
+    lista = [{"sigla": e.get("sigla"), "nome": e.get("nome")} for e in dados if isinstance(e, dict)]
+    cache.set(chave, lista, timeout=int(getattr(settings, "ENDERECOS_CACHE_IBGE_SEGUNDOS", 604800)))
+    return lista
+
+
+def listar_municipios(uf: str) -> list:
+    """Lista nomes de municípios de uma UF (IBGE). Cache 7 dias."""
+    u = (uf or "").strip().upper()
+    if not re.fullmatch(r"[A-Z]{2}", u):
+        raise EnderecoInvalidoError("UF inválida.")
+    chave = f"enderecos:ibge:municipios:{u}"
+    cached = cache.get(chave)
+    if cached is not None:
+        return cached
+    dados = _get_json(f"{_base_ibge()}/localidades/estados/{u}/municipios?orderBy=nome")
+    if not isinstance(dados, list):
+        raise ServicoEnderecoIndisponivelError("Resposta inválida do serviço de endereços.")
+    lista = [m.get("nome") for m in dados if isinstance(m, dict) and m.get("nome")]
+    cache.set(chave, lista, timeout=int(getattr(settings, "ENDERECOS_CACHE_IBGE_SEGUNDOS", 604800)))
+    return lista

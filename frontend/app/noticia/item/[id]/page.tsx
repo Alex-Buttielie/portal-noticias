@@ -4,6 +4,7 @@ import { newsArticleJsonLd } from "@/lib/schema";
 import { obterDetalheItem, obterFeed, type FeedDetalhe } from "@/lib/api";
 import { imagemNoticia } from "@/lib/imagens";
 import { LeituraPremium } from "../../LeituraPremium";
+import { NoticiaReporter } from "@/components/Reporters";
 export async function generateMetadata({params}:{params:{id:string}}): Promise<Metadata>{ let t=`Item #${params.id} - ${SITE_NAME}`; try{ const d=await obterDetalheItem(params.id); t=d.titulo;}catch{} return {title:t, openGraph:{url:`${SITE_URL}/noticia/item/${params.id}`}}; }
 export function generateStaticParams(){ return [{id:"1"}]; }
 export const revalidate=60;
@@ -19,5 +20,5 @@ export default async function Page({params}:{params:{id:string}}){
     const r=await obterFeed({categoria:d.categoria});
     relacionados=(r.results||[]).filter(x=>x.id!==d.id).slice(0,6).map(x=>({id:x.id,titulo:x.titulo,categoria:x.categoria||d.categoria,imagem_url:x.imagem_url}));
   }catch{}
-  return (<><script type="application/ld+json" dangerouslySetInnerHTML={{__html: JSON.stringify(jsonLd)}} /><LeituraPremium detalhe={d} relacionados={relacionados} heroSrc={heroSrc} imagemReal={imagemReal} /></>);
+  return (<><script type="application/ld+json" dangerouslySetInnerHTML={{__html: JSON.stringify(jsonLd)}} /><NoticiaReporter entryTipo="item" entryId={d.id} categoria={d.categoria} /><LeituraPremium detalhe={d} relacionados={relacionados} heroSrc={heroSrc} imagemReal={imagemReal} /></>);
 }

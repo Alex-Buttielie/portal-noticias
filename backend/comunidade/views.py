@@ -1,5 +1,6 @@
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
+from django.db.models import Count, Q
 from django.http import Http404
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -30,12 +31,33 @@ class PublicacoesListCreateView(APIView):
         return []
 
     def get(self, request):
+        # FRENTE 4 (Comunidade viva): feed vivo precisa filtrar/ordenar no
+        # servidor — categoria (grupo/editoria), tipo (opiniao/analise),
+        # busca textual simples e ordenação (recentes|discutidos|destaques).
+        # Tudo opcional e retrocompatível (destaque/autor continuam).
         qs = Publicacao.objects.filter(status=Publicacao.STATUS_PUBLICADO, oculto=False)
         if request.query_params.get("destaque"):
             qs = qs.filter(destaque=True)
         autor_id = request.query_params.get("autor")
         if autor_id:
             qs = qs.filter(autor_id=autor_id)
+        categoria = (request.query_params.get("categoria") or "").strip()
+        if categoria:
+            qs = qs.filter(categoria__iexact=categoria)
+        tipo = (request.query_params.get("tipo") or "").strip()
+        if tipo in (Publicacao.TIPO_OPINIAO, Publicacao.TIPO_ANALISE):
+            qs = qs.filter(tipo=tipo)
+        busca = (request.query_params.get("busca") or "").strip()
+        if busca:
+            qs = qs.filter(Q(titulo__icontains=busca) | Q(conteudo__icontains=busca) | Q(categoria__icontains=busca))
+        qs = qs.annotate(numero_comentarios=Count("comentarios", filter=Q(comentarios__oculto=False)))
+        ordenar = (request.query_params.get("ordenar") or "").strip()
+        if ordenar == "discutidos":
+            qs = qs.order_by("-numero_comentarios", "-criado_em")
+        elif ordenar == "destaques":
+            qs = qs.order_by("-destaque", "-criado_em")
+        else:  # "recentes" ou padrão
+            qs = qs.order_by("-criado_em")
         return Response(PublicacaoSerializer(qs, many=True).data)
 
     def post(self, request):
@@ -131,7 +153,9 @@ class ComentariosListCreateView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request):
-        qs = Comentario.objects.filter(oculto=False)
+        # FRENTE 4: thread estável (top-level primeiro, respostas logo após
+        # por criação) — frontend agrupa por `resposta_de` (1 nível).
+        qs = Comentario.objects.filter(oculto=False).select_related("autor").order_by("criado_em", "id")
         publicacao_id = request.query_params.get("publicacao")
         news_item_id = request.query_params.get("news_item")
         if publicacao_id:
@@ -198,6 +222,30 @@ class SeguirAutorView(APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+def _dados_publicos_jornalista(autor):
+    """FRENTE 2 (Colunistas): foto + mini-bio do perfil vivo do jornalista.
+
+    Best-effort e público por natureza (perfil profissional exibido na Home
+    e na página do autor). Retorna vazio quando não há perfil/foto — o
+    frontend usa iniciais, nunca inventa imagem.
+    """
+    foto_url = None
+    mini_bio = ""
+    try:
+        perfil = autor.perfil_jornalista
+    except Exception:
+        perfil = None
+    if perfil is not None:
+        mini_bio = getattr(perfil, "mini_bio", "") or ""
+        try:
+            foto = getattr(perfil, "foto", None)
+            if foto and getattr(foto, "name", ""):
+                foto_url = foto.url
+        except Exception:
+            foto_url = None
+    return {"foto_url": foto_url, "mini_bio": mini_bio}
+
+
 class PerfilAutorPublicoView(APIView):
     permission_classes = [AllowAny]
 
@@ -208,12 +256,15 @@ class PerfilAutorPublicoView(APIView):
             return Response(status=status.HTTP_404_NOT_FOUND)
 
         publicacoes = Publicacao.objects.filter(autor=autor, status=Publicacao.STATUS_PUBLICADO)
+        extra = _dados_publicos_jornalista(autor)
         return Response(
             {
                 "id": autor.id,
                 "nome": autor.nome,
                 "credenciado": pode_publicar(autor),
                 "numero_seguidores": Seguidor.objects.filter(autor=autor).count(),
+                "foto_url": extra.get("foto_url"),
+                "mini_bio": extra.get("mini_bio"),
                 "publicacoes": PublicacaoSerializer(publicacoes, many=True).data,
             }
         )

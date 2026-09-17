@@ -123,6 +123,9 @@ def assinar_plano(user, plan: Plan, payment_gateway: PaymentGatewayProvider | No
     resultado = payment_gateway.criar_cobranca(subscription, plan.preco)
     subscription.gateway_referencia = resultado.referencia_gateway
     subscription.save(update_fields=["gateway_referencia"])
+    # checkout_url é atributo em memória (não vai ao banco): a view devolve
+    # ao frontend para redirecionar ao checkout do gateway quando houver.
+    subscription.checkout_url = resultado.url_checkout
 
     HistoricoPagamento.objects.create(
         subscription=subscription,

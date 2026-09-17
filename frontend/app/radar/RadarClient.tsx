@@ -1,15 +1,16 @@
 "use client";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
 import { obterTendenciasRadar, obterEvolucaoRadar, obterLocalidadesSalvas, salvarLocalidade, removerLocalidade, type RadarTendencias, type RadarEvolucao, type LocalidadeSalva } from "@/lib/api";
 import { usePremiumAtivo } from "@/lib/premium";
 import { AdsSlot } from "@/components/AdsSlot";
+import RadarLocalSimples from "@/components/RadarLocalSimples";
+import type { Regiao } from "@/lib/regiao";
 import { cn } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -30,17 +31,22 @@ export default function RadarClient() {
   const isPremium = usuario?.papel === "premium" || usuario?.papel === "admin";
   const { liberado } = usePremiumAtivo();
   const premiumGeral = isPremium || liberado;
-  const [draftPais, setDraftPais] = useState("");
-  const [draftEstado, setDraftEstado] = useState("");
-  const [draftCidade, setDraftCidade] = useState("");
-  const [filtros, setFiltros] = useState<{ pais?: string; estado?: string; cidade?: string }>({});
+  const [regiao, setRegiao] = useState<Regiao | null>(null);
+  // Fonte única de local (FRENTE 5): tendências e evolução derivam da mesma região.
+  const filtros = useMemo(() => ({
+    pais: regiao?.pais || undefined,
+    estado: regiao?.estado || undefined,
+    cidade: regiao?.cidade || undefined,
+  }), [regiao]);
   const [tend, setTend] = useState<RadarTendencias | null>(null);
   const [loadingT, setLoadingT] = useState(true);
   const [evoCat, setEvoCat] = useState("");
-  const [evoPais, setEvoPais] = useState("");
-  const [evoEstado, setEvoEstado] = useState("");
-  const [evoCidade, setEvoCidade] = useState("");
-  const [evoFiltros, setEvoFiltros] = useState<{ categoria?: string; pais?: string; estado?: string; cidade?: string }>({});
+  const evoFiltros = useMemo(() => ({
+    categoria: evoCat || undefined,
+    pais: regiao?.pais || undefined,
+    estado: regiao?.estado || undefined,
+    cidade: regiao?.cidade || undefined,
+  }), [evoCat, regiao]);
   const [evo, setEvo] = useState<RadarEvolucao | null>(null);
   const [loadingE, setLoadingE] = useState(false);
   const [salvas, setSalvas] = useState<LocalidadeSalva[]>([]);
@@ -84,22 +90,11 @@ export default function RadarClient() {
     return () => clearInterval(id);
   }, [fetchTend, filtros]);
 
-  function aplicar() {
-    const f = { pais: draftPais.trim() || undefined, estado: draftEstado.trim() || undefined, cidade: draftCidade.trim() || undefined };
-    const clean: Record<string, string> = {};
-    if (f.pais) clean.pais = f.pais;
-    if (f.estado) clean.estado = f.estado;
-    if (f.cidade) clean.cidade = f.cidade;
-    setFiltros(clean);
-  }
-  function limpar() { setDraftPais(""); setDraftEstado(""); setDraftCidade(""); setFiltros({}); }
-  function aplicarEvo() {
-    setEvoFiltros({ categoria: evoCat || undefined, pais: evoPais.trim() || undefined, estado: evoEstado.trim() || undefined, cidade: evoCidade.trim() || undefined });
-  }
+  function limpar() { setRegiao(null); }
   async function handleSalvar() {
     if (!token) { setMsg("Faça login para salvar localidades."); setTimeout(() => setMsg(null), 3000); return; }
-    const p = draftPais.trim() || filtros.pais || ""; const e = draftEstado.trim() || filtros.estado || ""; const c = draftCidade.trim() || filtros.cidade || "";
-    if (!p && !e && !c) { setMsg("Informe ao menos país, estado ou cidade."); setTimeout(() => setMsg(null), 3000); return; }
+    const p = regiao?.pais || ""; const e = regiao?.estado || ""; const c = regiao?.cidade || "";
+    if (!p && !e && !c) { setMsg("Escolha um local acima para salvar."); setTimeout(() => setMsg(null), 3000); return; }
     try { await salvarLocalidade(token, { pais: p || undefined, estado: e || undefined, cidade: c || undefined }); setMsg("Localidade salva."); await fetchSalvas(); } catch (err: unknown) { setMsg((err as Error)?.message || "Erro ao salvar."); }
     setTimeout(() => setMsg(null), 3000);
   }
@@ -107,7 +102,7 @@ export default function RadarClient() {
     if (!token) return;
     try { await removerLocalidade(token, { pais: l.pais || undefined, estado: l.estado || undefined, cidade: l.cidade || undefined }); setSalvas((s) => s.filter((x) => !(x.pais === l.pais && x.estado === l.estado && x.cidade === l.cidade))); } catch {}
   }
-  function usarSalva(l: LocalidadeSalva) { setDraftPais(l.pais || ""); setDraftEstado(l.estado || ""); setDraftCidade(l.cidade || ""); setFiltros({ pais: l.pais || undefined, estado: l.estado || undefined, cidade: l.cidade || undefined }); setEvoPais(l.pais || ""); setEvoEstado(l.estado || ""); setEvoCidade(l.cidade || ""); }
+  function usarSalva(l: LocalidadeSalva) { setRegiao({ cidade: l.cidade || "", estado: l.estado || "", pais: l.pais || "Brasil" }); }
 
   const assuntos = tend?.assuntos_em_alta ?? [];
   const evoExibido = evo && !premiumGeral ? { ...evo, serie: evo.serie.slice(-7) } : evo;
@@ -125,15 +120,10 @@ export default function RadarClient() {
       {msg && <Alert className="border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)]"><AlertDescription className="text-sm text-[var(--cor-texto)]">{msg}</AlertDescription></Alert>}
 
       <Card className="bento border-[var(--cor-borda)] bg-[var(--cor-fundo-card)]">
-        <CardHeader className="pb-3"><CardTitle className="text-base flex items-center gap-2"><MapPin className="h-4 w-4 text-[var(--cor-neon-ciano)]" />Filtros de localidade</CardTitle><CardDescription className="text-[var(--cor-texto-suave)]">Aplique um recorte para tendências e evolução</CardDescription></CardHeader>
+        <CardHeader className="pb-3"><CardTitle className="text-base flex items-center gap-2"><MapPin className="h-4 w-4 text-[var(--cor-neon-ciano)]" />Local</CardTitle><CardDescription className="text-[var(--cor-texto-suave)]">Um recorte para tendências e evolução</CardDescription></CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div className="space-y-1"><Label htmlFor="pais">País</Label><Input id="pais" placeholder="Brasil" value={draftPais} onChange={(e) => setDraftPais(e.target.value)} className="bg-[var(--cor-fundo-card)] border-[var(--cor-borda)]" /></div>
-            <div className="space-y-1"><Label htmlFor="estado">Estado</Label><Input id="estado" placeholder="SP" value={draftEstado} onChange={(e) => setDraftEstado(e.target.value)} className="bg-[var(--cor-fundo-card)] border-[var(--cor-borda)]" /></div>
-            <div className="space-y-1"><Label htmlFor="cidade">Cidade</Label><Input id="cidade" placeholder="São Paulo" value={draftCidade} onChange={(e) => setDraftCidade(e.target.value)} className="bg-[var(--cor-fundo-card)] border-[var(--cor-borda)]" /></div>
-          </div>
+          <RadarLocalSimples value={regiao} onChange={setRegiao} />
           <div className="flex flex-wrap gap-2">
-            <Button onClick={aplicar} className="bg-[var(--cor-primaria)] text-[var(--cor-texto-invertido)] min-h-[44px]">Aplicar</Button>
             <Button variant="outline" onClick={limpar} className="border-[var(--cor-borda)] min-h-[44px]">Limpar</Button>
             <Button variant="outline" onClick={handleSalvar} className="border-[var(--cor-neon-ciano)]/40 text-[var(--cor-texto)] min-h-[44px]"><BookmarkPlus className="h-4 w-4" />Salvar localidade</Button>
           </div>
@@ -179,7 +169,7 @@ export default function RadarClient() {
             <CardContent className="space-y-4">
               {!token ? <div className="rounded-[var(--raio-md)] border border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] p-6 text-center"><p className="text-sm font-medium text-[var(--cor-texto)]">Faça login para ver a evolução</p><p className="text-xs text-[var(--cor-texto-suave)] mt-1">Este recurso é Premium e requer autenticação.</p><Button asChild size="sm" className="mt-3 bg-[var(--cor-primaria)] text-[var(--cor-texto-invertido)]"><Link href="/login">Entrar</Link></Button></div> : (
                 <>
-                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div className="space-y-1">
                       <Label>Categoria</Label>
                       <Select value={evoCat} onValueChange={setEvoCat}>
@@ -187,11 +177,9 @@ export default function RadarClient() {
                         <SelectContent>{CATS.map((c) => <SelectItem key={c} value={c}>{c || "Todas"}</SelectItem>)}</SelectContent>
                       </Select>
                     </div>
-                    <div className="space-y-1"><Label>País</Label><Input placeholder="Brasil" value={evoPais} onChange={(e) => setEvoPais(e.target.value)} className="border-[var(--cor-borda)] bg-[var(--cor-fundo-card)]" /></div>
-                    <div className="space-y-1"><Label>Estado</Label><Input placeholder="SP" value={evoEstado} onChange={(e) => setEvoEstado(e.target.value)} className="border-[var(--cor-borda)] bg-[var(--cor-fundo-card)]" /></div>
-                    <div className="space-y-1"><Label>Cidade</Label><Input placeholder="São Paulo" value={evoCidade} onChange={(e) => setEvoCidade(e.target.value)} className="border-[var(--cor-borda)] bg-[var(--cor-fundo-card)]" /></div>
+                    <p className="self-end text-xs text-[var(--cor-texto-suave)]">Usa o mesmo local acima — sem repetir campos.</p>
                   </div>
-                   <div className="flex items-center gap-2"><Button onClick={aplicarEvo} size="sm" className="bg-[var(--cor-primaria)] text-[var(--cor-texto-invertido)] min-h-[44px]">Aplicar</Button>{!premiumGeral && evo && <Badge variant="outline" className="border-[var(--cor-premium)] text-[var(--cor-premium)]"><Crown className="mr-1 h-3 w-3" /> 7 dias no Free</Badge>}</div>
+                   <div className="flex items-center gap-2">{!premiumGeral && evo && <Badge variant="outline" className="border-[var(--cor-premium)] text-[var(--cor-premium)]"><Crown className="mr-1 h-3 w-3" /> 7 dias no Free</Badge>}</div>
                   {evoExibido?.aviso_metodologia && <p className="text-xs text-[var(--cor-texto-suave)] border-l-2 border-[var(--cor-neon-ciano)] pl-2">{evoExibido.aviso_metodologia}</p>}
                   {loadingE ? <div className="h-40 animate-pulse rounded-[var(--raio-md)] bg-[var(--cor-borda)]" /> : !evoExibido || evoExibido.serie.length === 0 ? <div className="rounded-[var(--raio-md)] border border-dashed border-[var(--cor-borda)] p-8 text-center text-sm text-[var(--cor-texto-suave)]">Sem dados para esta categoria/recorte.</div> : (
                     <>

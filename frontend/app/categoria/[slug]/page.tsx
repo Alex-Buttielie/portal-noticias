@@ -8,6 +8,7 @@ import { SITE_NAME, SITE_URL } from "@/lib/site";
 import { obterFeed, type FeedEntrada } from "@/lib/api";
 import { imagemNoticia } from "@/lib/imagens";
 import { AdsSlot } from "@/components/AdsSlot";
+import { CategoriaReporter } from "@/components/Reporters";
 import { breadcrumbListJsonLd } from "@/lib/schema";
 
 export async function generateMetadata({ params }: { params: { slug: string } }): Promise<Metadata> {
@@ -25,6 +26,7 @@ export default async function Page({ params }: { params: { slug: string } }) {
   const jsonLd = breadcrumbListJsonLd([{ nome: "Início", url: SITE_URL }, { nome: slug, url: `${SITE_URL}/categoria/${encodeURIComponent(slug)}` }]);
   return (
     <div className="space-y-4">
+      <CategoriaReporter categoria={slug} />
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
       <div className="flex items-center gap-2 text-xs text-[var(--cor-texto-suave)]"><Link href="/" className="hover:underline">Início</Link><span aria-hidden>›</span><Link href="/editorias" className="hover:underline">Editorias</Link><span aria-hidden>›</span><span className="capitalize text-[var(--cor-texto)]">{slug}</span></div>
       <div className="rounded-[var(--raio-lg)] border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] p-4">

@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { Suspense } from "react";
 import { Inter, Source_Serif_4 } from "next/font/google";
 import "./globals.css";
 import { Providers } from "./providers";
@@ -6,6 +7,7 @@ import { Header } from "@/components/Header";
 import { Rodape } from "@/components/Rodape";
 import { BottomNav } from "@/components/BottomNav";
 import { BannerConsentimentoCookies } from "@/components/BannerConsentimentoCookies";
+import { AnalyticsTracker } from "@/components/AnalyticsTracker";
 import { TutorialTour } from "@/components/TutorialTour";
 import { PularParaConteudo } from "@/components/PularParaConteudo";
 import { SITE_DESCRIPTION, SITE_NAME, SITE_URL } from "@/lib/site";
@@ -48,6 +50,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <Rodape />
           <BottomNav />
           <BannerConsentimentoCookies />
+          <Suspense fallback={null}>
+            <AnalyticsTracker />
+          </Suspense>
           <TutorialTour />
         </Providers>
       </body>

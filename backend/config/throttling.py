@@ -59,3 +59,15 @@ class DenunciaUserThrottle(UserRateThrottle):
     """
 
     scope = "denuncia"
+
+
+class EnderecosAnonThrottle(AnonRateThrottle):
+    """
+    FRENTE 5 — proxy de endereços (`enderecos/`): endpoints públicos de
+    LEITURA com upstream externo (ViaCEP/IBGE). Sem throttle, um único
+    cliente em loop de debounce mal implementado repassa rajadas ao
+    upstream; com cache + este limite folgado (60/min), uso legítimo
+    (digitação com debounce) nunca bate no teto.
+    """
+
+    scope = "enderecos"

@@ -119,3 +119,44 @@ class DenunciaAcaoSerializer(serializers.Serializer):
     tipo = serializers.ChoiceField(choices=[c[0] for c in AcaoModeracao.TIPO_CHOICES])
     motivo = serializers.CharField()
     procedente = serializers.BooleanField(required=False, default=True)
+
+
+# ---------------------------------------------------------------------------
+# FRENTE 6 — Central de Inteligência: controles editoriais.
+# ---------------------------------------------------------------------------
+
+
+class DestaqueEditorialAdminSerializer(serializers.Serializer):
+    id = serializers.IntegerField(read_only=True)
+    tipo = serializers.ChoiceField(choices=["destaque", "manchete", "bloqueio"])
+    entry_tipo = serializers.ChoiceField(choices=["item", "cluster"])
+    entry_id = serializers.IntegerField()
+    titulo = serializers.CharField(read_only=True, required=False, allow_blank=True)
+    posicao = serializers.IntegerField(required=False, default=0)
+    ativo = serializers.BooleanField(required=False, default=True)
+    inicio = serializers.DateTimeField(required=False, allow_null=True, default=None)
+    fim = serializers.DateTimeField(required=False, allow_null=True, default=None)
+    motivo = serializers.CharField(required=False, allow_blank=True, default="")
+    vigente = serializers.BooleanField(read_only=True, required=False)
+    criado_em = serializers.DateTimeField(read_only=True, required=False)
+
+
+class RegraCuradoriaAdminSerializer(serializers.Serializer):
+    id = serializers.IntegerField(read_only=True)
+    tipo = serializers.ChoiceField(
+        choices=[
+            "boost_entrada", "bloqueio_entrada", "boost_categoria", "bloqueio_categoria",
+            "ordem_categorias", "colunista_destaque", "selo_forcado",
+            "urgente_forcado", "exclusivo_forcado",
+        ]
+    )
+    entry_tipo = serializers.ChoiceField(choices=["item", "cluster"], required=False, allow_blank=True, default="")
+    entry_id = serializers.IntegerField(required=False, allow_null=True, default=None)
+    alvo = serializers.CharField(required=False, allow_blank=True, default="")
+    ordem = serializers.IntegerField(required=False, default=0)
+    ativo = serializers.BooleanField(required=False, default=True)
+    inicio = serializers.DateTimeField(required=False, allow_null=True, default=None)
+    fim = serializers.DateTimeField(required=False, allow_null=True, default=None)
+    motivo = serializers.CharField(required=False, allow_blank=True, default="")
+    vigente = serializers.BooleanField(read_only=True, required=False)
+    criado_em = serializers.DateTimeField(read_only=True, required=False)
