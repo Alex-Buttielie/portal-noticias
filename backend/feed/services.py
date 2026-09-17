@@ -164,6 +164,7 @@ def detalhe_cluster(cluster_id: int) -> dict | None:
                 "url_fonte_original": item.url_fonte_original,
                 "resumo": item.resumo_proprio,
                 "imagem_url": getattr(item, "imagem_url", "") or "",
+                "conteudo": (getattr(item, "conteudo_completo", "") or "")[:6000],
             }
             for item in itens
         ],
@@ -193,6 +194,7 @@ def detalhe_item(item_id: int) -> dict | None:
                 "url_fonte_original": item.url_fonte_original,
                 "resumo": item.resumo_proprio,
                 "imagem_url": getattr(item, "imagem_url", "") or "",
+                "conteudo": (getattr(item, "conteudo_completo", "") or "")[:6000],
             }
         ],
     }

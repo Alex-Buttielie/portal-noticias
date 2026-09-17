@@ -15,6 +15,7 @@ import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime, timezone as dt_timezone
+from html.parser import HTMLParser
 from typing import Optional
 
 import feedparser
@@ -68,12 +69,69 @@ def extrair_imagem_url(entrada) -> str:
     return ""
 
 
+class _StripperDeHtml(HTMLParser):
+    """Remove tags HTML mantendo o texto (stdlib, sem dependência nova)."""
+
+    def __init__(self):
+        super().__init__()
+        self._partes: list[str] = []
+
+    def handle_data(self, data: str):
+        self._partes.append(data)
+
+    def texto(self) -> str:
+        return "".join(self._partes)
+
+
+def limpar_html_para_texto(html: str) -> str:
+    """Converte HTML do RSS em texto puro: remove tags/scripts, decodifica
+    entidades e colapsa espaços. Nunca lança exceção (best-effort)."""
+    import html as _html
+    import re as _re
+
+    bruto = html or ""
+    try:
+        sem_script = _re.sub(r"(?is)<(script|style)[^>]*>.*?</\1>", " ", bruto)
+        com_quebras = _re.sub(r"(?i)<\s*(br|p|div|li|h[1-6])[^>]*>", "\n", sem_script)
+        stripper = _StripperDeHtml()
+        stripper.feed(com_quebras)
+        texto = _html.unescape(stripper.texto())
+    except Exception:
+        texto = _re.sub(r"<[^>]+>", " ", bruto)
+    texto = _re.sub(r"[ \t\xa0]+", " ", texto)
+    texto = _re.sub(r"\n\s*\n+", "\n\n", texto)
+    return texto.strip()
+
+
+TETO_CONTEUDO_COMPLETO_CHARS = 8000
+
+
+def extrair_conteudo_completo(entrada) -> str:
+    """Texto integral da matéria direto do RSS (`content:encoded` quando o
+    feed traz; senão o summary/description), limpo de HTML e limitado a
+    `TETO_CONTEUDO_COMPLETO_CHARS` chars. Best-effort: retorna "" se o feed
+    só trouxer título/link. Exibido de forma TRUNCADA no frontend, sempre
+    com crédito + link para a fonte original (BRD seção 18)."""
+    html_completo = ""
+    conteudos = getattr(entrada, "content", None)
+    if conteudos:
+        for bloco in conteudos:
+            valor = (bloco.get("value") if isinstance(bloco, dict) else getattr(bloco, "value", "")) or ""
+            if valor and len(valor) > len(html_completo):
+                html_completo = valor
+    if not html_completo.strip():
+        html_completo = getattr(entrada, "summary", "") or getattr(entrada, "description", "") or ""
+    texto = limpar_html_para_texto(html_completo)
+    return texto[:TETO_CONTEUDO_COMPLETO_CHARS].strip()
+
+
 @dataclass
 class ItemBruto:
     titulo: str
     url_fonte_original: str
     nome_fonte: str
     conteudo_bruto: str = ""
+    conteudo_completo: str = ""
     categoria: str = ""
     imagem_url: str = ""
     timestamp_publicacao_fonte: Optional[datetime] = None
@@ -164,6 +222,7 @@ class RSSNewsSourceProvider(NewsSourceProvider):
                     url_fonte_original=url_item.strip(),
                     nome_fonte=self.nome_fonte,
                     conteudo_bruto=conteudo.strip(),
+                    conteudo_completo=extrair_conteudo_completo(entrada),
                     categoria=categoria.strip().lower(),
                     imagem_url=extrair_imagem_url(entrada),
                     timestamp_publicacao_fonte=timestamp_publicacao,

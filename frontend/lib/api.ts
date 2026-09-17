@@ -268,6 +268,7 @@ export interface FonteDetalhe {
   url_fonte_original: string;
   resumo: string;
   imagem_url?: string;
+  conteudo?: string;
 }
 
 export interface FeedDetalhe {

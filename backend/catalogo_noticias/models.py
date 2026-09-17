@@ -63,6 +63,15 @@ class NewsItem(models.Model):
             "(implementation-contract.md, criterio de aceite 4)."
         ),
     )
+    conteudo_completo = models.TextField(
+        blank=True,
+        help_text=(
+            "Texto integral da matéria extraído do RSS (content:encoded quando "
+            "disponível, senão o summary), limpo de HTML. Exibido SEMPRE de forma "
+            "truncada no frontend, com crédito + link para a fonte original "
+            "(BRD secao 18) — nunca como conteúdo próprio."
+        ),
+    )
 
     url_fonte_original = models.URLField(max_length=1000, unique=True)
     nome_fonte = models.CharField(max_length=150)

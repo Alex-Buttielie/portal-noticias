@@ -69,6 +69,18 @@ export function LeituraPremium({
     [d]
   );
   const temReal = temImagemReal({ imagem_url: imagemReal });
+  const materiaFonte = useMemo(() => {
+    const comTexto = d.fontes.filter((f) => (f.conteudo || "").trim().length > 120);
+    if (!comTexto.length) return null;
+    return [...comTexto].sort((a, b) => (b.conteudo || "").length - (a.conteudo || "").length)[0];
+  }, [d]);
+  const materiaParagrafos = useMemo(() => {
+    if (!materiaFonte?.conteudo) return [];
+    const texto = materiaFonte.conteudo.slice(0, 1800);
+    const partes = texto.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
+    const lista = partes.length ? partes : [texto.trim()];
+    return lista.slice(0, 4);
+  }, [materiaFonte]);
   const prevId = Math.max(1, d.id - 1);
   const nextId = d.id + 1;
   const hostname = (url: string) => {
@@ -167,6 +179,24 @@ export function LeituraPremium({
             </div>
 
             <AdsSlot id="noticia-infeed" formato="in-feed" className="my-5" />
+
+            {materiaFonte && (
+              <section aria-label="Matéria" className="overflow-hidden rounded-[var(--raio-md)] border border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)]">
+                <div className="flex flex-wrap items-center gap-2 border-b border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] px-4 py-3">
+                  <Badge className="bg-[var(--cor-primaria)] text-[var(--cor-texto-invertido)]">Matéria</Badge>
+                  <span className="text-xs text-[var(--cor-texto-suave)]">Texto da cobertura original • por <span className="font-semibold text-[var(--cor-texto)]">{materiaFonte.nome_fonte}</span></span>
+                </div>
+                <div className={cn("space-y-4 px-4 py-4 leading-relaxed text-[var(--cor-texto)]", fonteGrande ? "text-lg leading-loose" : "text-[15px]")}>
+                  {materiaParagrafos.map((p, i) => (
+                    <p key={i} className="text-pretty whitespace-pre-line">{p}</p>
+                  ))}
+                </div>
+                <div className="flex flex-wrap items-center gap-2 border-t border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] px-4 py-3">
+                  <p className="text-xs text-[var(--cor-texto-suave)]">Trecho exibido com crédito à fonte original.</p>
+                  <a href={materiaFonte.url_fonte_original} target="_blank" rel="noopener noreferrer" className="ml-auto inline-flex min-h-[44px] items-center rounded-md bg-[var(--cor-primaria)] px-4 text-sm font-semibold text-[var(--cor-texto-invertido)] hover:bg-[var(--cor-primaria-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cor-foco)]">Continuar lendo em {materiaFonte.nome_fonte} ↗</a>
+                </div>
+              </section>
+            )}
 
             <Separator className="my-5 bg-[var(--cor-borda)]" />
 

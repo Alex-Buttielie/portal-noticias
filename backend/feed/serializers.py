@@ -17,6 +17,9 @@ class FonteDetalheSerializer(serializers.Serializer):
     nome_fonte = serializers.CharField()
     url_fonte_original = serializers.URLField()
     resumo = serializers.CharField(allow_blank=True)
+    # Texto integral extraído do RSS (limitado no service). O frontend exibe
+    # SEMPRE truncado + crédito + link para a original (BRD secao 18).
+    conteudo = serializers.CharField(allow_blank=True, required=False, default="")
     imagem_url = serializers.URLField(allow_blank=True, required=False, default="")
 
 
