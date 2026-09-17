@@ -1,5 +1,5 @@
 import type { LucideIcon } from "lucide-react";
-import { Home, Users, Compass, Crown, User } from "lucide-react";
+import { Home, Users, Compass, Crown, User, Shield } from "lucide-react";
 
 export type NavItem = {
   href: string;
@@ -24,4 +24,10 @@ export const NAV_ITEM_LOGIN: NavItem = {
   href: "/login",
   label: "Entrar",
   icon: User,
+};
+
+export const NAV_ITEM_ADMIN: NavItem = {
+  href: "/admin",
+  label: "Central",
+  icon: Shield,
 };

@@ -4,13 +4,14 @@ import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
 import { Menu, X, Search, LogOut } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { NAV_ITENS, NAV_ITEM_CONTA, NAV_ITEM_LOGIN } from "@/lib/nav-itens";
+import { NAV_ITENS, NAV_ITEM_CONTA, NAV_ITEM_LOGIN, NAV_ITEM_ADMIN } from "@/lib/nav-itens";
 import { useAuth } from "@/lib/auth-context";
 import { ThemeToggle } from "./ThemeToggle";
 export function Header() {
   const pathname = usePathname();
   const router = useRouter();
   const { usuario, fazerLogout } = useAuth();
+  const isAdmin = usuario?.papel === "admin";
   const [aberto, setAberto] = useState(false);
   const [busca, setBusca] = useState("");
   function onBusca(e: React.FormEvent) {
@@ -31,8 +32,8 @@ export function Header() {
           <span className="hidden text-xs text-[var(--cor-texto-suave)] sm:block">HUD</span>
         </Link>
         <nav className="hidden items-center gap-1 md:flex" aria-label="Principal">
-          {NAV_ITENS.map((item) => {
-            const ativo = pathname === item.href;
+          {[...NAV_ITENS, ...(isAdmin ? [NAV_ITEM_ADMIN] : [])].map((item) => {
+            const ativo = pathname === item.href || (item.href === "/admin" && pathname.startsWith("/admin"));
             return (
               <Link key={item.href} href={item.href} className={cn("rounded-md px-3 py-2 text-sm font-medium transition-colors", ativo ? "bg-[var(--cor-primaria-suave)] text-[var(--cor-primaria)]" : "text-[var(--cor-texto-suave)] hover:bg-[var(--cor-borda)] hover:text-[var(--cor-texto)]")}>
                 {item.label}
@@ -68,11 +69,14 @@ export function Header() {
             <button type="submit" className="inline-flex h-10 items-center rounded-md bg-[var(--cor-primaria)] px-4 text-sm font-medium text-[var(--cor-texto-invertido)]"><Search className="h-4 w-4" /></button>
           </form>
           <nav className="grid gap-1" aria-label="Principal mobile">
-            {NAV_ITENS.map((item) => (
-              <Link key={item.href} href={item.href} onClick={() => setAberto(false)} className={cn("rounded-md px-3 py-2.5 text-sm font-medium", pathname === item.href ? "bg-[var(--cor-primaria-suave)] text-[var(--cor-primaria)]" : "text-[var(--cor-texto)] hover:bg-[var(--cor-borda)]")}>
-                {item.label}
-              </Link>
-            ))}
+            {[...NAV_ITENS, ...(isAdmin ? [NAV_ITEM_ADMIN] : [])].map((item) => {
+              const ativo = pathname === item.href || (item.href === "/admin" && pathname.startsWith("/admin"));
+              return (
+                <Link key={item.href} href={item.href} onClick={() => setAberto(false)} className={cn("rounded-md px-3 py-2.5 text-sm font-medium", ativo ? "bg-[var(--cor-primaria-suave)] text-[var(--cor-primaria)]" : "text-[var(--cor-texto)] hover:bg-[var(--cor-borda)]")}>
+                  {item.label}
+                </Link>
+              );
+            })}
             <div className="mt-2 flex items-center justify-between border-t border-[var(--cor-borda)] pt-3">
               <ThemeToggle />
               {usuario ? (

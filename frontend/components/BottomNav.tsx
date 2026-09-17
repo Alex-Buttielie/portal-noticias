@@ -2,10 +2,13 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { NAV_ITENS, NAV_ITEM_CONTA } from "@/lib/nav-itens";
+import { NAV_ITENS, NAV_ITEM_CONTA, NAV_ITEM_ADMIN } from "@/lib/nav-itens";
+import { useAuth } from "@/lib/auth-context";
 export function BottomNav() {
   const pathname = usePathname();
-  const itens = [...NAV_ITENS.slice(0, 4), NAV_ITEM_CONTA].slice(0, 5);
+  const { usuario } = useAuth();
+  const isAdmin = usuario?.papel === "admin";
+  const itens = isAdmin ? [NAV_ITENS[0], NAV_ITENS[1], NAV_ITENS[2], NAV_ITEM_ADMIN, NAV_ITEM_CONTA] : [...NAV_ITENS.slice(0, 4), NAV_ITEM_CONTA].slice(0, 5);
   return (
     <nav aria-label="Navegação inferior" className="fixed inset-x-0 bottom-0 z-[var(--z-banner)] border-t border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] pb-[env(safe-area-inset-bottom)] md:hidden">
       <ul className="mx-auto flex max-w-[1280px] items-center justify-around px-2 py-1">
