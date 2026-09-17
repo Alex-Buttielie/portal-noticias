@@ -90,7 +90,6 @@ export default function RadarClient() {
     return () => clearInterval(id);
   }, [fetchTend, filtros]);
 
-  function limpar() { setRegiao(null); }
   async function handleSalvar() {
     if (!token) { setMsg("Faça login para salvar localidades."); setTimeout(() => setMsg(null), 3000); return; }
     const p = regiao?.pais || ""; const e = regiao?.estado || ""; const c = regiao?.cidade || "";
@@ -124,7 +123,6 @@ export default function RadarClient() {
         <CardContent className="space-y-4">
           <RadarLocalSimples value={regiao} onChange={setRegiao} />
           <div className="flex flex-wrap gap-2">
-            <Button variant="outline" onClick={limpar} className="border-[var(--cor-borda)] min-h-[44px]">Limpar</Button>
             <Button variant="outline" onClick={handleSalvar} className="border-[var(--cor-neon-ciano)]/40 text-[var(--cor-texto)] min-h-[44px]"><BookmarkPlus className="h-4 w-4" />Salvar localidade</Button>
           </div>
           <div className="space-y-2">

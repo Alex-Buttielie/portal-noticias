@@ -112,7 +112,7 @@ export function LeituraPremium({
             <Badge variant="outline" className="border-[var(--cor-borda)] capitalize hover:bg-[var(--cor-primaria-suave)] hover:text-[var(--cor-primaria)]">{d.categoria}</Badge>
           </Link>
           {d.urgente && <Badge className="bg-[var(--cor-sinal)] text-[var(--cor-texto-invertido)] motion-safe:animate-pulse">urgente</Badge>}
-          <span className="inline-flex items-center gap-1 text-xs text-[var(--cor-texto-suave)]"><Clock3 className="h-3 w-3" />{fmt(d.timestamp)} • {minutos} min de leitura • {d.fontes.length} {d.fontes.length === 1 ? "fonte" : "fontes"}</span>
+          <span className="inline-flex items-center gap-1 text-xs text-[var(--cor-texto-suave)]"><Clock3 className="h-3 w-3" />{fmt(d.timestamp)} • {minutos} min de leitura • {d.fontes.length} {d.fontes.length === 1 ? "fonte" : "fontes"}</span>{((d.cidade || "") || (d.estado || "") || (d.pais || "")) ? (<span className="inline-flex items-center gap-1 text-xs text-[var(--cor-texto-suave)]"><MapPin className="h-3 w-3" aria-hidden />{[d.cidade, d.estado].filter(Boolean).join("/") || d.pais}</span>) : null}
         </div>
 
         <h1 className="text-balance font-serif text-3xl font-bold leading-[1.15] tracking-tight text-[var(--cor-texto)] md:text-4xl">{d.titulo}</h1>
