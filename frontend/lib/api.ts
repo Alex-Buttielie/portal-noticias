@@ -968,3 +968,32 @@ export function robosSalvarConfig(token: string, dados: Partial<ConfigRobo>): Pr
 }
 export function robosListarExecucoes(token: string): Promise<ExecucaoRobo[]> { return request("/api/admin/robos/execucoes/", { method: "GET" }, token); }
 export function robosExecutar(token: string): Promise<ExecucaoRobo> { return request("/api/admin/robos/executar/", { method: "POST" }, token); }
+
+// ---------------------------------------------------------------------------
+// gating/sistema — flag Premium (fail-open: desligada = tudo liberado).
+// ---------------------------------------------------------------------------
+
+export interface StatusSistema {
+  premium_ativo: boolean;
+}
+
+export function obterStatusSistema(): Promise<StatusSistema> {
+  return request("/api/gating/status/", { method: "GET" });
+}
+
+export function obterConfigSistemaAdmin(
+  token: string
+): Promise<StatusSistema & { atualizado_em: string }> {
+  return request("/api/admin/sistema/", { method: "GET" }, token);
+}
+
+export function atualizarConfigSistemaAdmin(
+  token: string,
+  dados: { premium_ativo: boolean }
+): Promise<StatusSistema & { atualizado_em: string }> {
+  return request(
+    "/api/admin/sistema/",
+    { method: "PATCH", body: JSON.stringify(dados) },
+    token
+  );
+}

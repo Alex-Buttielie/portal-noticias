@@ -7,7 +7,7 @@ from rest_framework.views import APIView
 
 from assinatura.models import Plan, Subscription, HistoricoPagamento
 from catalogo_noticias.models import NewsItem
-from gating.models import FeatureLimit, FeatureLimitAlteracaoLog
+from gating.models import ConfiguracaoSistema, FeatureLimit, FeatureLimitAlteracaoLog
 from identidade.models import User
 from moderacao.models import Denuncia
 from moderacao import services as moderacao_services
@@ -332,3 +332,30 @@ class DenunciaAcaoView(APIView):
         moderacao_services.resolver_denuncia(denuncia, request.user, procedente, d["motivo"])
         auditar(acao="moderacao_acao", alvo_tipo="Denuncia", alvo_id=denuncia.id, detalhe={"tipo": d["tipo"], "procedente": procedente}, alterado_por=request.user)
         return Response({"detail": "acao aplicada", "acao_id": acao.id})
+
+
+class SistemaConfigView(APIView):
+    permission_classes = [IsAuthenticated, IsAdmin404]
+
+    def get(self, request):
+        cfg, _ = ConfiguracaoSistema.objects.get_or_create(pk=1)
+        return Response({"premium_ativo": cfg.premium_ativo, "atualizado_em": cfg.atualizado_em})
+
+    def patch(self, request):
+        cfg, _ = ConfiguracaoSistema.objects.get_or_create(pk=1)
+        valor = request.data.get("premium_ativo")
+        if not isinstance(valor, bool):
+            return Response(
+                {"detail": "Informe premium_ativo como verdadeiro ou falso."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        cfg.premium_ativo = valor
+        cfg.save()
+        auditar(
+            acao="sistema_premium_update",
+            alvo_tipo="ConfiguracaoSistema",
+            alvo_id=1,
+            detalhe={"premium_ativo": valor},
+            alterado_por=request.user,
+        )
+        return Response({"premium_ativo": cfg.premium_ativo, "atualizado_em": cfg.atualizado_em})

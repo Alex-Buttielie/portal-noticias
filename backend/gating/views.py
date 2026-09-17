@@ -33,3 +33,10 @@ class MeusRecursosView(APIView):
 
         serializer = MeusRecursosResponseSerializer({"plano": plano, "recursos": recursos})
         return Response(serializer.data)
+
+
+class StatusSistemaView(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        return Response({"premium_ativo": services.premium_ativo()})

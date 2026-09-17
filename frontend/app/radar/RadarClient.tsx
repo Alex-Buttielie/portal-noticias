@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
 import { obterTendenciasRadar, obterEvolucaoRadar, obterLocalidadesSalvas, salvarLocalidade, removerLocalidade, type RadarTendencias, type RadarEvolucao, type LocalidadeSalva } from "@/lib/api";
+import { usePremiumAtivo } from "@/lib/premium";
 import { AdsSlot } from "@/components/AdsSlot";
 import { cn } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -27,6 +28,8 @@ function locLabel(l: { pais?: string | null; estado?: string | null; cidade?: st
 export default function RadarClient() {
   const { token, usuario } = useAuth();
   const isPremium = usuario?.papel === "premium" || usuario?.papel === "admin";
+  const { liberado } = usePremiumAtivo();
+  const premiumGeral = isPremium || liberado;
   const [draftPais, setDraftPais] = useState("");
   const [draftEstado, setDraftEstado] = useState("");
   const [draftCidade, setDraftCidade] = useState("");
@@ -107,7 +110,7 @@ export default function RadarClient() {
   function usarSalva(l: LocalidadeSalva) { setDraftPais(l.pais || ""); setDraftEstado(l.estado || ""); setDraftCidade(l.cidade || ""); setFiltros({ pais: l.pais || undefined, estado: l.estado || undefined, cidade: l.cidade || undefined }); setEvoPais(l.pais || ""); setEvoEstado(l.estado || ""); setEvoCidade(l.cidade || ""); }
 
   const assuntos = tend?.assuntos_em_alta ?? [];
-  const evoExibido = evo && !isPremium ? { ...evo, serie: evo.serie.slice(-7) } : evo;
+  const evoExibido = evo && !premiumGeral ? { ...evo, serie: evo.serie.slice(-7) } : evo;
   const maxEvo = evoExibido ? Math.max(...evoExibido.serie.map((s) => s.numero_noticias), 1) : 1;
 
   return (
@@ -188,7 +191,7 @@ export default function RadarClient() {
                     <div className="space-y-1"><Label>Estado</Label><Input placeholder="SP" value={evoEstado} onChange={(e) => setEvoEstado(e.target.value)} className="border-[var(--cor-borda)] bg-[var(--cor-fundo-card)]" /></div>
                     <div className="space-y-1"><Label>Cidade</Label><Input placeholder="São Paulo" value={evoCidade} onChange={(e) => setEvoCidade(e.target.value)} className="border-[var(--cor-borda)] bg-[var(--cor-fundo-card)]" /></div>
                   </div>
-                  <div className="flex items-center gap-2"><Button onClick={aplicarEvo} size="sm" className="bg-[var(--cor-primaria)] text-[var(--cor-texto-invertido)] min-h-[44px]">Aplicar</Button>{!isPremium && evo && <Badge variant="outline" className="border-[var(--cor-premium)] text-[var(--cor-premium)]"><Crown className="mr-1 h-3 w-3" /> 7 dias no Free</Badge>}</div>
+                   <div className="flex items-center gap-2"><Button onClick={aplicarEvo} size="sm" className="bg-[var(--cor-primaria)] text-[var(--cor-texto-invertido)] min-h-[44px]">Aplicar</Button>{!premiumGeral && evo && <Badge variant="outline" className="border-[var(--cor-premium)] text-[var(--cor-premium)]"><Crown className="mr-1 h-3 w-3" /> 7 dias no Free</Badge>}</div>
                   {evoExibido?.aviso_metodologia && <p className="text-xs text-[var(--cor-texto-suave)] border-l-2 border-[var(--cor-neon-ciano)] pl-2">{evoExibido.aviso_metodologia}</p>}
                   {loadingE ? <div className="h-40 animate-pulse rounded-[var(--raio-md)] bg-[var(--cor-borda)]" /> : !evoExibido || evoExibido.serie.length === 0 ? <div className="rounded-[var(--raio-md)] border border-dashed border-[var(--cor-borda)] p-8 text-center text-sm text-[var(--cor-texto-suave)]">Sem dados para esta categoria/recorte.</div> : (
                     <>
@@ -208,7 +211,7 @@ export default function RadarClient() {
                           <div key={p.dia} className="rounded-[var(--raio-sm)] border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] px-2 py-1 flex justify-between text-xs"><span className="text-[var(--cor-texto-suave)]">{p.dia.slice(5)}</span><span className="font-medium text-[var(--cor-texto)]">{p.numero_noticias}</span></div>
                         ))}
                       </div>
-                      {!isPremium && evo && evo.serie.length > 7 && <div className="rounded-[var(--raio-md)] border border-[var(--cor-premium)]/30 bg-[var(--cor-premium-suave)] p-3 flex items-center justify-between gap-3"><p className="text-xs text-[var(--cor-texto)]"><Crown className="inline h-3.5 w-3.5 text-[var(--cor-premium)] mr-1" />Você está vendo apenas os últimos 7 dias. Seja Premium para ver até 30 dias e comparar recortes.</p><Button size="sm" variant="outline" className="shrink-0 border-[var(--cor-premium)] text-[var(--cor-premium)]" onClick={() => setUpsellOpen(true)}>Ver Premium</Button></div>}
+                      {!premiumGeral && evo && evo.serie.length > 7 && <div className="rounded-[var(--raio-md)] border border-[var(--cor-premium)]/30 bg-[var(--cor-premium-suave)] p-3 flex items-center justify-between gap-3"><p className="text-xs text-[var(--cor-texto)]"><Crown className="inline h-3.5 w-3.5 text-[var(--cor-premium)] mr-1" />Você está vendo apenas os últimos 7 dias. Seja Premium para ver até 30 dias e comparar recortes.</p><Button size="sm" variant="outline" className="shrink-0 border-[var(--cor-premium)] text-[var(--cor-premium)]" onClick={() => setUpsellOpen(true)}>Ver Premium</Button></div>}
                     </>
                   )}
                 </>

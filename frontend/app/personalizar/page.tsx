@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { CheckCircle2, Sparkles } from "lucide-react";
 import { obterTodasLeituras } from "@/lib/intent";
 import { categoriasPorAfinidade } from "@/lib/personalizar";
+import { MinhasFontes } from "@/components/MinhasFontes";
 import { useAuth } from "@/lib/auth-context";
 export default function Page(){
   const { usuario } = useAuth(); const router=useRouter();
@@ -43,6 +44,7 @@ export default function Page(){
     <Card className="bento border-[var(--cor-borda)] bg-[var(--cor-fundo-card)]"><CardHeader><CardTitle>Personalizar</CardTitle><CardDescription className="text-[var(--cor-texto-suave)]">Ajuste o que você quer ver primeiro</CardDescription></CardHeader><CardContent className="space-y-4">
       <div><p className="text-sm font-medium text-[var(--cor-texto)]">Afinidade</p>{cats.length? <div className="mt-2 flex flex-wrap gap-2">{cats.map((c)=> (<Badge key={c} className="bg-[var(--cor-neon-ciano)] text-[var(--cor-texto-invertido)] capitalize">{c}</Badge>))}</div> : <p className="text-sm text-[var(--cor-texto-suave)]">Sem sinal ainda — leia notícias para personalizar. <Link href="/" className="text-[var(--cor-primaria)] underline">Ir para o feed</Link></p>}</div>
       <div><p className="text-sm font-medium text-[var(--cor-texto)]">Leituras por categoria</p>{Object.keys(leituras).length? <div className="mt-2 grid grid-cols-2 gap-2">{Object.entries(leituras).map(([k,v])=> (<div key={k} className="rounded-md border border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] p-2"><p className="text-xs capitalize text-[var(--cor-texto-suave)]">{k}</p><p className="font-bold text-[var(--cor-texto)]">{v}</p></div>))}</div> : <p className="text-sm text-[var(--cor-texto-suave)]">Nenhuma leitura registrada. <Link href="/arquivo" className="text-[var(--cor-primaria)] underline">Explorar arquivo</Link></p>}</div>
+      <Card className="border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)]"><CardContent className="p-4"><MinhasFontes /></CardContent></Card>
       <div className="flex flex-wrap gap-2">
         <Button onClick={()=>setSavedOpen(true)} className="bg-[var(--cor-primaria)] text-[var(--cor-texto-invertido)] min-h-[44px]">Salvar preferências</Button>
         <Button variant="outline" onClick={limpar} className="min-h-[44px]">Limpar sinais</Button>

@@ -77,3 +77,7 @@ export async function buscarCepPorEndereco(uf: string, cidade: string, logradour
   }
   return lista;
 }
+
+export async function buscarSugestoesCep(_prefixo: string): Promise<EnderecoViaCep[]> {
+  return [];
+}

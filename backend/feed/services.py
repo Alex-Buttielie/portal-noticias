@@ -217,7 +217,17 @@ def exibir_publicidade(user) -> bool:
     Critério de aceite 7: `false` só para usuário autenticado com
     `papel=premium`; visitante (`AnonymousUser`, `is_authenticated=False`)
     ou usuário `free` sempre recebe `true`.
+
+    Exceção deliberada: com a flag de Premium DESLIGADA na Central, todos
+    navegam como Premium — sem publicidade para ninguém.
     """
+    try:
+        from gating.services import premium_liberado_geral
+
+        if premium_liberado_geral():
+            return False
+    except Exception:
+        pass
     if getattr(user, "is_authenticated", False) and getattr(user, "papel", None) == "premium":
         return False
     return True

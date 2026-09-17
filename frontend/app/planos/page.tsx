@@ -9,6 +9,7 @@ import { Separator } from "@/components/ui/separator";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Check, X, Crown, ShieldCheck, Sparkles, Zap, Newspaper, Bell, Archive, Users, HelpCircle } from "lucide-react";
 import { obterPlanos, assinarPlano, type Plano } from "@/lib/api";
+import { usePremiumAtivo } from "@/lib/premium";
 import { useAuth } from "@/lib/auth-context";
 import { toast } from "sonner";
 import { AdsSlot } from "@/components/AdsSlot";
@@ -50,6 +51,7 @@ export default function Page() {
   const { token, usuario } = useAuth();
   const isPremium = usuario?.papel === "premium" || usuario?.papel === "admin";
   const isFree = usuario?.papel === "free";
+  const { liberado } = usePremiumAtivo();
   const [planos, setPlanos] = useState<Plano[]>([]);
   const [sel, setSel] = useState<Plano | null>(null);
   const [open, setOpen] = useState(false);
@@ -68,6 +70,7 @@ export default function Page() {
 
   async function confirmar() {
     if (!sel) return;
+    if (liberado) { setErro("Assinaturas pausadas — todos os recursos Premium estão liberados para você."); return; }
     if (!token) { setOpen(false); router.push("/login"); return; }
     setLoading(true); setErro(null);
     try { await assinarPlano(token, sel.id); setOk(true); toast.success("Assinatura confirmada"); }
@@ -85,6 +88,12 @@ export default function Page() {
         <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-[var(--cor-texto-suave)]"><Badge variant="outline" className="border-[var(--cor-borda)]"><Users className="mr-1 h-3 w-3" /> +12.000 assinantes</Badge><span>·</span><span>Cancele quando quiser</span></div>
       </div>
 
+      {liberado && (
+        <div role="status" className="rounded-[var(--raio-lg)] border border-[var(--cor-sucesso)] bg-[var(--cor-sucesso-suave)] px-4 py-3 text-sm text-[var(--cor-sucesso)]">
+          Assinaturas pausadas — todos os recursos Premium estão liberados para você.
+        </div>
+      )}
+
       <div className="grid gap-4 md:grid-cols-2">
         <Card className="bento border-[var(--cor-borda)] bg-[var(--cor-fundo-card)]">
           <CardHeader>
@@ -93,7 +102,7 @@ export default function Page() {
           </CardHeader>
           <CardContent className="space-y-4">
             <ul className="space-y-2 text-sm text-[var(--cor-texto)]">{FREE_BENEFICIOS.map((b) => <li key={b} className="flex gap-2"><span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--cor-borda)]"><X className="h-3.5 w-3.5 text-[var(--cor-texto-suave)]" /></span>{b}</li>)}</ul>
-            {isPremium ? <><div className="rounded-md border border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] px-3 py-2 text-center text-sm text-[var(--cor-texto-suave)]">Incluído no seu Premium</div><Button asChild variant="outline" className="w-full min-h-[44px] border-[var(--cor-borda)]"><Link href="/minha-conta">Gerenciar</Link></Button></> : isFree ? <><Badge variant="outline" className="mx-auto flex w-fit border-[var(--cor-sucesso)] bg-[var(--cor-sucesso-suave)] text-[var(--cor-sucesso)]">Seu plano atual</Badge><Button variant="outline" disabled className="w-full min-h-[44px] border-[var(--cor-borda)]">Você está no Free</Button></> : <Button variant="outline" onClick={() => escolher(free)} className="w-full min-h-[44px] border-[var(--cor-borda)]">Continuar no Free</Button>}
+            {isPremium ? <><div className="rounded-md border border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] px-3 py-2 text-center text-sm text-[var(--cor-texto-suave)]">Incluído no seu Premium</div><Button asChild variant="outline" className="w-full min-h-[44px] border-[var(--cor-borda)]"><Link href="/minha-conta">Gerenciar</Link></Button></> : isFree ? <><Badge variant="outline" className="mx-auto flex w-fit border-[var(--cor-sucesso)] bg-[var(--cor-sucesso-suave)] text-[var(--cor-sucesso)]">Seu plano atual</Badge><Button variant="outline" disabled className="w-full min-h-[44px] border-[var(--cor-borda)]">Você está no Free</Button></> : <Button variant="outline" onClick={() => escolher(free)} disabled={liberado} className="w-full min-h-[44px] border-[var(--cor-borda)]">{liberado ? "Pausado" : "Continuar no Free"}</Button>}
             <p className="text-center text-xs text-[var(--cor-texto-suave)]">Sem cartão. Comece agora.</p>
           </CardContent>
         </Card>
@@ -107,7 +116,7 @@ export default function Page() {
           </CardHeader>
           <CardContent className="space-y-4">
             <ul className="space-y-2.5 text-sm text-[var(--cor-texto)]">{PREMIUM_BENEFICIOS.map(({ icon: Icon, text, sub }) => <li key={text} className="flex gap-2.5"><span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--cor-premium-suave)] text-[var(--cor-premium)]"><Check className="h-3.5 w-3.5" /></span><span><span className="font-medium">{text}</span> <span className="text-[var(--cor-texto-suave)]">— {sub}</span></span></li>)}</ul>
-            {isPremium ? <><Badge className="mx-auto flex w-fit bg-[var(--cor-premium)] text-[var(--cor-texto-invertido)]"><ShieldCheck className="mr-1 h-3 w-3" /> Seu plano</Badge><Button asChild className="w-full min-h-[44px] bg-[var(--cor-premium)] text-[var(--cor-texto-invertido)]"><Link href="/minha-conta">Gerenciar assinatura</Link></Button></> : <Button onClick={() => escolher(premium)} className="w-full min-h-[44px] bg-[var(--cor-premium)] text-[var(--cor-texto-invertido)] hover:bg-[var(--cor-premium-hover)]"><Crown className="mr-2 h-4 w-4" /> Assinar premium</Button>}
+            {isPremium ? <><Badge className="mx-auto flex w-fit bg-[var(--cor-premium)] text-[var(--cor-texto-invertido)]"><ShieldCheck className="mr-1 h-3 w-3" /> Seu plano</Badge><Button asChild className="w-full min-h-[44px] bg-[var(--cor-premium)] text-[var(--cor-texto-invertido)]"><Link href="/minha-conta">Gerenciar assinatura</Link></Button></> : <Button onClick={() => escolher(premium)} disabled={liberado} className="w-full min-h-[44px] bg-[var(--cor-premium)] text-[var(--cor-texto-invertido)] hover:bg-[var(--cor-premium-hover)]"><Crown className="mr-2 h-4 w-4" /> {liberado ? "Pausado" : "Assinar premium"}</Button>}
             <p className="text-center text-xs text-[var(--cor-texto-suave)]">Cobrança recorrente · cancele quando quiser</p>
           </CardContent>
         </Card>
@@ -164,7 +173,7 @@ export default function Page() {
                 </div>
               )}
               <DialogFooter className="flex-col gap-2 sm:flex-col">
-                <Button onClick={confirmar} disabled={loading || !sel} className="w-full min-h-[44px] bg-[var(--cor-premium)] text-[var(--cor-texto-invertido)] hover:bg-[var(--cor-premium-hover)]">{loading ? "Confirmando…" : token ? "Confirmar assinatura" : "Entrar e assinar"}</Button>
+                <Button onClick={confirmar} disabled={loading || !sel || liberado} className="w-full min-h-[44px] bg-[var(--cor-premium)] text-[var(--cor-texto-invertido)] hover:bg-[var(--cor-premium-hover)]">{liberado ? "Pausado" : loading ? "Confirmando…" : token ? "Confirmar assinatura" : "Entrar e assinar"}</Button>
                 <Button variant="outline" onClick={() => setOpen(false)} className="w-full min-h-[44px] border-[var(--cor-borda)]">Voltar</Button>
               </DialogFooter>
             </>

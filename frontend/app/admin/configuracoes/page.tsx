@@ -3,17 +3,19 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { SITE_NAME, SITE_DESCRIPTION, SITE_URL, IMAGEM_OG_PADRAO } from "@/lib/site";
 import { API_BASE_URL } from "@/lib/api";
-import { Globe, Mail, FileText, Settings, ExternalLink, Info } from "lucide-react";
+import { Globe, Mail, FileText, Settings, ExternalLink, Info, Newspaper } from "lucide-react";
+import { FontesIsland } from "./FontesIsland";
+import { PremiumFlagIsland } from "./PremiumFlagIsland";
 
 export const metadata = { title: "Configurações — Admin" };
 
 const ENVS = [
   { variavel: "NEXT_PUBLIC_SITE_URL", valor: SITE_URL, padrao: "http://localhost:3000", onde: "frontend/.env — NEXT_PUBLIC_SITE_URL", nota: "Usado em canonical / OG / sitemap" },
   { variavel: "NEXT_PUBLIC_API_BASE_URL", valor: API_BASE_URL, padrao: "http://localhost:8000", onde: "frontend/.env — NEXT_PUBLIC_API_BASE_URL", nota: "Base da API consumida pelo frontend" },
-  { variavel: "FRONTEND_BASE_URL", valor: SITE_URL, padrao: "http://localhost:3000", onde: "backend/.env — FRONTEND_BASE_URL", nota: "Links de e-mail (verificação / reset) e CORS" },
-  { variavel: "DJANGO_EMAIL_BACKEND", valor: "django.core.mail.backends.console.EmailBackend", padrao: "console", onde: "backend/.env — DJANGO_EMAIL_BACKEND", nota: "Dev: console · Prod: provedor transacional" },
-  { variavel: "TERMOS_VERSAO_ATUAL", valor: "1.0", padrao: "1.0", onde: "backend/.env — TERMOS_VERSAO_ATUAL", nota: "Versão vigente aceita no cadastro (LGPD)" },
-  { variavel: "DJANGO_DEFAULT_FROM_EMAIL", valor: "no-reply@brdportalnoticias.local", padrao: "no-reply@brdportalnoticias.local", onde: "backend/.env — DJANGO_DEFAULT_FROM_EMAIL", nota: "Remetente padrão dos e-mails" },
+  { variavel: "FRONTEND_BASE_URL", valor: SITE_URL, padrao: "http://localhost:3000", onde: "servidor — FRONTEND_BASE_URL", nota: "Links de e-mail (verificação / reset) e CORS" },
+  { variavel: "DJANGO_EMAIL_BACKEND", valor: "django.core.mail.backends.console.EmailBackend", padrao: "console", onde: "servidor — DJANGO_EMAIL_BACKEND", nota: "Dev: console · Prod: provedor transacional" },
+  { variavel: "TERMOS_VERSAO_ATUAL", valor: "1.0", padrao: "1.0", onde: "servidor — TERMOS_VERSAO_ATUAL", nota: "Versão vigente aceita no cadastro (LGPD)" },
+  { variavel: "DJANGO_DEFAULT_FROM_EMAIL", valor: "no-reply@brdportalnoticias.local", padrao: "no-reply@brdportalnoticias.local", onde: "servidor — DJANGO_DEFAULT_FROM_EMAIL", nota: "Remetente padrão dos e-mails" },
 ];
 
 function statusEnv(v: string, padrao: string) {
@@ -37,6 +39,14 @@ export default function Page() {
           <CardDescription className="text-[var(--cor-texto-suave)]">Tudo que não tem módulo dedicado — identidade, envs, páginas editoriais e e-mail/onboarding. Valores de env são somente leitura aqui: edite via <code className="rounded bg-[var(--cor-fundo-elevado)] px-1 py-0.5 font-mono text-xs">.env</code>.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
+          <div className="rounded-[var(--raio-lg)] border border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] p-4">
+            <p className="flex items-center gap-2 text-sm font-semibold text-[var(--cor-texto)]"><Settings className="h-4 w-4 text-[var(--cor-primaria)]" /> Planos Premium</p>
+            <p className="mt-1 text-xs text-[var(--cor-texto-suave)]">Liga ou desliga a cobrança: desligado libera tudo e pausa assinaturas.</p>
+            <div className="mt-3 rounded-[var(--raio-md)] border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] p-3">
+              <PremiumFlagIsland />
+            </div>
+          </div>
+
           <div className="rounded-[var(--raio-lg)] border border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] p-4">
             <p className="flex items-center gap-2 text-xs font-semibold tracking-widest text-[var(--cor-texto-suave)]"><Globe className="h-3.5 w-3.5" /> IDENTIDADE DO SITE — lib/site.ts</p>
             <div className="mt-3 grid gap-3 text-sm md:grid-cols-2">
@@ -72,6 +82,14 @@ export default function Page() {
           </div>
 
           <Separator className="bg-[var(--cor-borda)]" />
+
+          <div className="rounded-[var(--raio-lg)] border border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] p-4">
+            <p className="flex items-center gap-2 text-sm font-semibold text-[var(--cor-texto)]"><Newspaper className="h-4 w-4 text-[var(--cor-primaria)]" /> Minhas fontes</p>
+            <p className="mt-1 text-xs text-[var(--cor-texto-suave)]">Gerencie aqui mesmo as fontes dos robôs — sem sair das configurações.</p>
+            <div className="mt-3 rounded-[var(--raio-md)] border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] p-3">
+              <FontesIsland />
+            </div>
+          </div>
 
           <div className="rounded-[var(--raio-lg)] border border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] p-4">
             <p className="flex items-center gap-2 text-sm font-semibold text-[var(--cor-texto)]"><FileText className="h-4 w-4 text-[var(--cor-primaria)]" /> Conteúdo editorial</p>

@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { MinhasFontes } from "@/components/MinhasFontes";
 import Link from "next/link";
 export default function Page(){
   const { usuario, token, carregando, fazerLogout } = useAuth();
@@ -19,6 +20,7 @@ export default function Page(){
         <div className="rounded-[var(--raio-md)] border border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] p-3"><p className="text-xs tracking-widest text-[var(--cor-texto-suave)]">USUARIO</p><p className="font-medium text-[var(--cor-texto)]">{usuario.nome || usuario.email}</p><p className="text-sm text-[var(--cor-texto-suave)]">{usuario.email}</p><Badge className="mt-2 bg-[var(--cor-primaria)] text-[var(--cor-texto-invertido)]">{usuario.papel}</Badge></div>
         <div className="rounded-[var(--raio-md)] border border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] p-3"><p className="text-xs tracking-widest text-[var(--cor-texto-suave)]">STATUS</p><p className="text-sm text-[var(--cor-texto)]">Email {usuario.email_verificado?"verificado":"nao verificado"}</p><p className="text-xs text-[var(--cor-texto-suave)]">Onboarding {usuario.onboarding_concluido?"concluido":"pendente"}</p></div>
       </div>
+      <Card className="border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)]"><CardContent className="p-4"><MinhasFontes compact /></CardContent></Card>
       <div className="flex flex-wrap gap-2"><Button asChild variant="outline" className="min-h-[44px]"><Link href="/onboarding">Onboarding</Link></Button><Button asChild variant="outline" className="min-h-[44px]"><Link href="/personalizar">Personalizar</Link></Button><Button asChild variant="outline" className="min-h-[44px]"><Link href="/favoritos">Favoritos</Link></Button></div>
       <Button variant="destructive" disabled={out} onClick={async()=>{ setOut(true); await fazerLogout(); r.push("/"); }} className="min-h-[44px]">{out?"Saindo...":"Sair"}</Button>
     </CardContent></Card></div>);
