@@ -374,6 +374,23 @@ class SistemaConfigView(APIView):
 # ---------------------------------------------------------------------------
 
 
+def _modelo_destaque():
+    """Modelo `DestaqueEditorial` (FRENTE 3) ou None se ainda não mergeado."""
+    try:
+        from feed.models import DestaqueEditorial
+
+        return DestaqueEditorial
+    except Exception:
+        return None
+
+
+def _sem_feed():
+    return Response(
+        {"detail": "Overrides por entrada indisponíveis: modelos editoriais do feed ainda não presentes."},
+        status=status.HTTP_501_NOT_IMPLEMENTED,
+    )
+
+
 def _titulo_entrada(entry_tipo, entry_id):
     try:
         if entry_tipo == "cluster":
@@ -410,7 +427,9 @@ class DestaqueEditorialListCreateView(APIView):
     permission_classes = [IsAuthenticated, IsAdmin404]
 
     def get(self, request):
-        from feed.models import DestaqueEditorial
+        DestaqueEditorial = _modelo_destaque()
+        if DestaqueEditorial is None:
+            return _sem_feed()
 
         qs = DestaqueEditorial.objects.all().order_by("posicao", "-criado_em")
         tipo = request.query_params.get("tipo")
@@ -419,7 +438,9 @@ class DestaqueEditorialListCreateView(APIView):
         return Response([_serializar_destaque(ov) for ov in qs[:200]])
 
     def post(self, request):
-        from feed.models import DestaqueEditorial
+        DestaqueEditorial = _modelo_destaque()
+        if DestaqueEditorial is None:
+            return _sem_feed()
 
         ser = DestaqueEditorialAdminSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
@@ -473,7 +494,9 @@ class DestaqueEditorialDetailView(APIView):
     permission_classes = [IsAuthenticated, IsAdmin404]
 
     def _objeto(self, destaque_id):
-        from feed.models import DestaqueEditorial
+        DestaqueEditorial = _modelo_destaque()
+        if DestaqueEditorial is None:
+            return None
 
         try:
             return DestaqueEditorial.objects.get(pk=destaque_id)
@@ -481,6 +504,8 @@ class DestaqueEditorialDetailView(APIView):
             return None
 
     def patch(self, request, destaque_id):
+        if _modelo_destaque() is None:
+            return _sem_feed()
         ov = self._objeto(destaque_id)
         if ov is None:
             return Response(status=status.HTTP_404_NOT_FOUND)
@@ -497,6 +522,8 @@ class DestaqueEditorialDetailView(APIView):
         return Response(_serializar_destaque(ov))
 
     def delete(self, request, destaque_id):
+        if _modelo_destaque() is None:
+            return _sem_feed()
         ov = self._objeto(destaque_id)
         if ov is None:
             return Response(status=status.HTTP_404_NOT_FOUND)

@@ -149,7 +149,7 @@ export default function RadarClient() {
                 const hasLink = !!(a.cluster_id || a.item_id);
                 return (
                   <div key={`${a.categoria}-${i}`} className={cn("flex items-center justify-between rounded-[var(--raio-md)] border border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] p-3 glass")}>
-                    <div className="min-w-0"><p className="font-medium capitalize text-[var(--cor-texto)] truncate">{a.categoria}</p><p className="text-xs text-[var(--cor-texto-suave)]">{a.numero_noticias} notícias · {a.numero_fontes} fontes</p></div>
+                    <div className="min-w-0"><p className="font-medium capitalize text-[var(--cor-texto)] truncate">{a.categoria}</p><p className="text-xs text-[var(--cor-texto-suave)]">{a.numero_noticias} notícias · {a.numero_fontes} fontes{(a.crescimento_24h ?? 0) > 0 ? ` · +${Math.round((a.crescimento_24h ?? 0) * 100)}% em 24h` : ""}{(a.buscas_relacionadas ?? 0) > 0 ? ` · ${a.buscas_relacionadas} buscas` : ""}</p></div>
                     <div className="flex items-center gap-2 shrink-0 ml-3">
                       {hasLink ? <Link href={href} className="inline-flex items-center gap-1 text-xs font-medium text-[var(--cor-primaria)] hover:underline">Ver<ExternalLink className="h-3 w-3" /></Link> : <span className="text-xs text-[var(--cor-texto-suave)]">—</span>}
                       <Badge className="bg-[var(--cor-neon-ciano)] text-[var(--cor-texto-invertido)] border-transparent shrink-0">#{i + 1}</Badge>

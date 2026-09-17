@@ -308,6 +308,148 @@ export function obterDetalheItem(id: number | string): Promise<FeedDetalhe> {
 }
 
 // ---------------------------------------------------------------------------
+// feed/ — FRENTE 3 (algoritmos + busca + agrupamento). Transporte puro: todo
+// score/ranking/seção vem pronto do backend (feed/recomendacao.py,
+// feed/busca.py); aqui só tipos + chamadas.
+// ---------------------------------------------------------------------------
+
+export interface EntradaRanqueda extends FeedEntrada {
+  score?: number;
+  motivo?: string;
+  override?: string | null;
+}
+
+export type NomeSecaoHome = "manchetes" | "curadoria" | "para_voce" | "populares" | "tendencia" | "recentes";
+
+export type SecoesHome = Record<NomeSecaoHome, EntradaRanqueda[]>;
+
+export interface HomeSecoesResposta extends SecoesHome {
+  exibir_publicidade: boolean;
+}
+
+export function obterHomeSecoes(params: {
+  limite?: number;
+  pais?: string;
+  estado?: string;
+  cidade?: string;
+} = {}): Promise<HomeSecoesResposta> {
+  const query = new URLSearchParams();
+  if (params.limite) query.set("limite", String(params.limite));
+  if (params.pais) query.set("pais", params.pais);
+  if (params.estado) query.set("estado", params.estado);
+  if (params.cidade) query.set("cidade", params.cidade);
+  const qs = query.toString();
+  return request(`/api/feed/home/${qs ? `?${qs}` : ""}`, { method: "GET" });
+}
+
+export function obterDestaquesDia(params: {
+  limite?: number;
+  pais?: string;
+  estado?: string;
+  cidade?: string;
+} = {}): Promise<EntradaRanqueda[]> {
+  const query = new URLSearchParams();
+  if (params.limite) query.set("limite", String(params.limite));
+  if (params.pais) query.set("pais", params.pais);
+  if (params.estado) query.set("estado", params.estado);
+  if (params.cidade) query.set("cidade", params.cidade);
+  const qs = query.toString();
+  return request(`/api/feed/destaques/${qs ? `?${qs}` : ""}`, { method: "GET" });
+}
+
+export interface ResultadoBusca extends EntradaRanqueda {
+  relevancia?: number;
+  trecho?: string;
+}
+
+export interface BuscaResposta {
+  query: string;
+  count: number;
+  total_candidatos: number;
+  results: ResultadoBusca[];
+  sugestao?: string;
+}
+
+export function buscarNoticias(params: {
+  q: string;
+  categoria?: string;
+  autor?: string;
+  pais?: string;
+  estado?: string;
+  cidade?: string;
+  data_de?: string;
+  data_ate?: string;
+  limite?: number;
+}): Promise<BuscaResposta> {
+  const query = new URLSearchParams();
+  query.set("q", params.q);
+  if (params.categoria) query.set("categoria", params.categoria);
+  if (params.autor) query.set("autor", params.autor);
+  if (params.pais) query.set("pais", params.pais);
+  if (params.estado) query.set("estado", params.estado);
+  if (params.cidade) query.set("cidade", params.cidade);
+  if (params.data_de) query.set("data_de", params.data_de);
+  if (params.data_ate) query.set("data_ate", params.data_ate);
+  if (params.limite) query.set("limite", String(params.limite));
+  return request(`/api/feed/busca/?${query.toString()}`, { method: "GET" });
+}
+
+export function autocompleteBusca(q: string): Promise<{ query: string; sugestoes: string[] }> {
+  return request(`/api/feed/busca/autocomplete/?q=${encodeURIComponent(q)}`, { method: "GET" });
+}
+
+export function termosPopularesBusca(): Promise<{ termos: { termo: string; total: number }[] }> {
+  return request("/api/feed/busca/populares/", { method: "GET" });
+}
+
+export function historicoBusca(): Promise<{ historico: string[] }> {
+  return request("/api/feed/busca/historico/", { method: "GET" });
+}
+
+export interface AtualizacaoCobertura {
+  nome_fonte: string;
+  url_fonte_original: string;
+  titulo: string;
+  timestamp: string;
+}
+
+export interface CoberturaCompleta extends FeedDetalhe {
+  total_atualizacoes: number;
+  numero_fontes: number;
+  atualizacoes: AtualizacaoCobertura[];
+  relacionadas: ResultadoBusca[];
+}
+
+export function obterCobertura(tipo: "cluster" | "item", id: number | string): Promise<CoberturaCompleta> {
+  return request(`/api/feed/cobertura/${tipo}/${id}/`, { method: "GET" });
+}
+
+export function registrarInteracaoFeed(dados: {
+  tipo: "view" | "click" | "read" | "save" | "unsave" | "share" | "search_click";
+  entry_tipo: "cluster" | "item";
+  entry_id: number;
+  tempo_leitura_seg?: number;
+  query?: string;
+}): Promise<{ detail: string }> {
+  return request("/api/feed/interacoes/", { method: "POST", body: JSON.stringify(dados) });
+}
+
+export function obterRadarParaVoce(params: {
+  pais?: string;
+  estado?: string;
+  cidade?: string;
+  limite?: number;
+} = {}): Promise<{ aviso_metodologia: string; localidade: { pais: string | null; estado: string | null; cidade: string | null }; secoes: SecoesHome }> {
+  const query = new URLSearchParams();
+  if (params.pais) query.set("pais", params.pais);
+  if (params.estado) query.set("estado", params.estado);
+  if (params.cidade) query.set("cidade", params.cidade);
+  if (params.limite) query.set("limite", String(params.limite));
+  const qs = query.toString();
+  return request(`/api/radar/para-voce/${qs ? `?${qs}` : ""}`, { method: "GET" });
+}
+
+// ---------------------------------------------------------------------------
 // assinatura/
 // ---------------------------------------------------------------------------
 
@@ -650,6 +792,11 @@ export interface AssuntoEmAlta {
   numero_fontes: number;
   cluster_id: number | null;
   item_id: number | null;
+  // FRENTE 3 — crescimento 24h, buscas relacionadas e score (mesma lógica
+  // da Home). Opcionais para compatibilidade com payloads antigos/cache.
+  crescimento_24h?: number;
+  buscas_relacionadas?: number;
+  score?: number;
 }
 
 export interface RadarTendencias {

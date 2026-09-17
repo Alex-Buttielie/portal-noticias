@@ -8,10 +8,13 @@ import { Locate, MapPin, ShieldCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 // ---------------------------------------------------------------------------
-// Consentimento de localização (FRENTE 2) — padrão único usado na Home
-// ("Perto de você") e no Radar. Sempre: pergunta, explica o benefício,
-// permite recusar ("Agora não"), escolher manualmente (CEP) e alterar depois.
-// Nunca presume local: sem consentimento, nada é detectado nem exibido.
+// Consentimento de localização (FRENTE 2) — padrão usado em "Perto de você"
+// (Home). O Radar segue o mesmo padrão via `RadarLocalSimples` (perguntar
+// antes de detectar, explicar o benefício, manual por cidade/CEP, alterar e
+// limpar depois, exibição minimalista cidade/UF, nunca presume local).
+// Aqui: pergunta, explica o benefício, permite recusar ("Agora não"),
+// escolher manualmente (CEP) e alterar depois. Sem consentimento, nada é
+// detectado nem exibido.
 // ---------------------------------------------------------------------------
 
 const CHAVE_RECUSA = "brd.regiao.consentimento";
@@ -37,9 +40,7 @@ export function limparRecusaLocal() {
 }
 
 interface ConsentimentoLocalProps {
-  /** "cartao": bloco central da Home. "faixa": banner compacto do Radar. */
-  variante?: "cartao" | "faixa";
-  /** Para quê o local será usado (ex.: "tendências da sua cidade"). */
+  /** Para quê o local será usado (ex.: "notícias da sua cidade e vizinhança"). */
   beneficio?: string;
   onRegiao: (r: Regiao) => void;
   onRecusar?: () => void;
@@ -47,7 +48,6 @@ interface ConsentimentoLocalProps {
 }
 
 export function ConsentimentoLocal({
-  variante = "cartao",
   beneficio = "notícias da sua cidade e vizinhança",
   onRegiao,
   onRecusar,
@@ -80,57 +80,6 @@ export function ConsentimentoLocal({
   function recusar() {
     marcarRecusaLocal();
     onRecusar?.();
-  }
-
-  if (variante === "faixa") {
-    return (
-      <div
-        className={cn(
-          "flex flex-col gap-3 rounded-[var(--raio-md)] border border-dashed border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] p-3",
-          className
-        )}
-      >
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--cor-primaria-suave)] text-[var(--cor-primaria)]">
-            <MapPin className="h-4 w-4" aria-hidden />
-          </span>
-          <p className="min-w-0 flex-1 text-sm text-[var(--cor-texto)]">
-            Quer ver {beneficio}? <span className="text-[var(--cor-texto-suave)]">Só usamos sua cidade — nada é rastreado.</span>
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            size="sm"
-            onClick={usarLocalizacao}
-            disabled={buscando}
-            className="min-h-[40px] gap-1.5 bg-[var(--cor-primaria)] text-[var(--cor-texto-invertido)]"
-          >
-            <Locate className="h-4 w-4" aria-hidden /> {buscando ? "Localizando…" : "Usar minha localização"}
-          </Button>
-          <Collapsible open={cepAberto} onOpenChange={setCepAberto}>
-            <CollapsibleTrigger asChild>
-              <Button size="sm" variant="outline" className="min-h-[40px] border-[var(--cor-borda)]">
-                Digitar CEP
-              </Button>
-            </CollapsibleTrigger>
-            <CollapsibleContent className="pt-2">
-              <BuscaCep compact onEndereco={aplicarCep} />
-            </CollapsibleContent>
-          </Collapsible>
-          <button
-            onClick={recusar}
-            className="min-h-[40px] px-2 text-xs font-medium text-[var(--cor-texto-suave)] underline underline-offset-4 hover:text-[var(--cor-texto)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cor-foco)]"
-          >
-            Agora não
-          </button>
-        </div>
-        {erro && (
-          <p role="alert" className="rounded-md border border-[var(--cor-erro)] bg-[var(--cor-erro-suave)] px-3 py-2 text-xs text-[var(--cor-erro)]">
-            {erro}
-          </p>
-        )}
-      </div>
-    );
   }
 
   return (

@@ -117,7 +117,8 @@ export default function RadarLocalSimples({ value, onChange }: Props) {
           </div>
         </div>
         <p id="radar-local-hint" className="text-xs text-[var(--cor-texto-suave)]">
-          Um toque — seu navegador pedirá permissão. Só cidade/estado. Apague quando quiser.
+          Para ver tendências e evolução da sua cidade: detecte (o navegador pede permissão antes) ou digite cidade/UF ou CEP.
+          Nada é detectado sozinho — só cidade/estado, sem rastreio. Apague quando quiser.
         </p>
       </div>
 

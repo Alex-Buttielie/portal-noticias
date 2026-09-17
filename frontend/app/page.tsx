@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
 import { SITE_DESCRIPTION, SITE_NAME } from "@/lib/site";
-import { obterFeed, obterMaisLidas, obterUrgentes, type FeedEntrada } from "@/lib/api";
+import { obterDestaquesDia, obterFeed, obterMaisLidas, obterUrgentes, type EntradaRanqueda, type FeedEntrada } from "@/lib/api";
+import { carregarHome } from "@/lib/recomendacao";
 import { HomeClient } from "@/components/HomeClient";
+import { DestaquesDia } from "@/components/DestaquesDia";
 
 export const metadata: Metadata = {
   title: SITE_NAME,
@@ -26,23 +28,36 @@ const MOCK: FeedEntrada[] = [
 
 async function getData() {
   try {
-    const [feed, urg, lidas] = await Promise.all([
-      obterFeed({ page_size: PAGE_SIZE_HOME }),
+    // FRENTE 3 — feed ranqueado pelo backend (curadoria/popularidade/
+    // personalização/tendência/recência + overrides, sem repetição).
+    const [home, urg, lidas, destaques] = await Promise.all([
+      carregarHome(10),
       obterUrgentes(8).catch(() => [] as FeedEntrada[]),
       obterMaisLidas(10).catch(() => [] as FeedEntrada[]),
+      obterDestaquesDia({ limite: 5 }).catch(() => [] as EntradaRanqueda[]),
     ]);
-    const lista = feed.results?.length ? feed.results : MOCK;
+    let lista = home.feed.length ? home.feed : MOCK;
+    if (!home.feed.length) {
+      const feed = await obterFeed({ page_size: PAGE_SIZE_HOME }).catch(() => null);
+      if (feed?.results?.length) lista = feed.results;
+    }
     return {
       feed: lista,
       urg: urg.length ? urg : lista.filter((x) => x.urgente),
       maisLidas: lidas.length ? lidas : [],
+      destaques,
     };
   } catch {
-    return { feed: MOCK, urg: MOCK.filter((x) => x.urgente), maisLidas: [] as FeedEntrada[] };
+    return { feed: MOCK, urg: MOCK.filter((x) => x.urgente), maisLidas: [] as FeedEntrada[], destaques: [] as EntradaRanqueda[] };
   }
 }
 
 export default async function Page() {
-  const { feed, urg, maisLidas } = await getData();
-  return <HomeClient feed={feed} urg={urg} maisLidas={maisLidas} />;
+  const { feed, urg, maisLidas, destaques } = await getData();
+  return (
+    <>
+      <DestaquesDia destaques={destaques} />
+      <HomeClient feed={feed} urg={urg} maisLidas={maisLidas} />
+    </>
+  );
 }
