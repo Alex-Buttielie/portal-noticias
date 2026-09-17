@@ -11,7 +11,8 @@ import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import { useAuth } from "@/lib/auth-context";
 import * as api from "@/lib/api";
-import { Clock, Filter, CheckCheck, XCircle, RefreshCw, AlertTriangle, Layers, Search, CheckSquare, Square } from "lucide-react";
+import { Clock, Filter, CheckCheck, XCircle, RefreshCw, AlertTriangle, Layers, Search, CheckSquare, Square, Zap, Sparkles } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 
 type Item = api.AdminFilaItem;
 const STATUS_OPS = ["pendente","aprovado","rejeitado","nao_aplicavel"] as const;
@@ -40,6 +41,9 @@ export default function Page(){
   const [sel,setSel]=useState<Set<number>>(new Set());
   const [acting,setActing]=useState<number|null>(null);
   const [bulk,setBulk]=useState(false);
+  const [aprovarTudoOpen,setAprovarTudoOpen]=useState(false);
+  const [aprovarTudoProg,setAprovarTudoProg]=useState<{done:number; total:number; fail:number} | null>(null);
+  const [aprovarTudoRunning,setAprovarTudoRunning]=useState(false);
   const [auto,setAuto]=useState(false);
 
   const cats = useMemo(()=> Array.from(new Set(itens.map(i=>i.categoria).filter(Boolean))).sort(),[itens]);
@@ -104,6 +108,29 @@ export default function Page(){
     await carregar(page,status);
   };
 
+  const executarAprovarTudo=async()=>{
+    const pendentesIds = filtrados.filter(i=>i.status_revisao==="pendente").map(i=>i.id);
+    let allIds=[...pendentesIds];
+    if(total>itens.length && status==="pendente"){
+      const pages=Math.ceil(total/PAGE_SIZE);
+      for(let pg=1; pg<=pages; pg++){
+        if(pg===page) continue;
+        try{ const r=await api.adminListarFila(tk,{status:"pendente",page:pg}); const batch=(r.results||[]).filter(x=>x.status_revisao==="pendente").map(x=>x.id); allIds.push(...batch); }catch{}
+      }
+    }
+    allIds=[...new Set(allIds)];
+    if(!allIds.length){ setOk("Nada pendente nos filtros atuais."); setAprovarTudoOpen(false); return; }
+    setAprovarTudoRunning(true); setErr(null); setAprovarTudoProg({done:0,total:allIds.length,fail:0});
+    let done=0; let fail=0;
+    for(const id of allIds){
+      try{ await api.adminDecidirFila(tk,id,"aprovar"); done++; }catch{ fail++; }
+      setAprovarTudoProg({done,total:allIds.length,fail});
+    }
+    setAprovarTudoRunning(false); setAprovarTudoOpen(false); setAprovarTudoProg(null); setSel(new Set());
+    setOk(`${done} aprovados${fail?` — ${fail} falhas`:""} (aprovar tudo${total>itens.length?` — ${allIds.length} itens em ${Math.ceil(total/PAGE_SIZE)} páginas`:""}).`);
+    await carregar(page,status);
+  };
+
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   return (
@@ -123,6 +150,8 @@ export default function Page(){
 
           <div className="flex flex-wrap gap-2">
             <Button onClick={()=>carregar(page,status)} disabled={loading} variant="outline" className="min-h-[36px]"><RefreshCw className={`mr-1 h-4 w-4 ${loading?"animate-spin":""}`} /> Atualizar</Button>
+            <Button onClick={()=>setAprovarTudoOpen(true)} disabled={!filtrados.some(i=>i.status_revisao==="pendente")||bulk||aprovarTudoRunning||!tk||loading} className="min-h-[36px] bg-emerald-600 text-white hover:bg-emerald-700 gap-1.5"><Sparkles className="h-4 w-4" /> Aprovar tudo <Badge variant="outline" className="ml-1 border-white/30 bg-white/15 text-white">{filtrados.filter(i=>i.status_revisao==="pendente").length}{total>itens.length?` de ${total}`:""} pendentes</Badge></Button>
+            <Button onClick={()=>{const ids=filtrados.filter(i=>i.status_revisao==="pendente").map(i=>i.id); if(!ids.length) return; setSel(new Set(ids)); window.scrollTo({top: document.body.scrollHeight/3, behavior:"smooth"});}} disabled={!filtrados.some(i=>i.status_revisao==="pendente")||bulk} variant="outline" className="min-h-[36px] gap-1"><Zap className="h-4 w-4" /> Selecionar todos pendentes</Button>
             <div className="flex items-center gap-2 rounded-md border border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] px-3 py-1 text-xs"><Switch checked={auto} onCheckedChange={setAuto} id="auto" /><Label htmlFor="auto" className="text-xs">Auto 30s</Label></div>
             {totalSel>0&&<Badge className="bg-[var(--cor-primaria)] text-[var(--cor-texto-invertido)]">{totalSel} selecionados</Badge>}
             {!tk&&<Badge variant="outline" className="border-[var(--cor-erro)] text-[var(--cor-erro)]">Login admin requerido</Badge>}
@@ -234,9 +263,32 @@ export default function Page(){
       <Card className="bento border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)]">
         <CardContent className="p-3 text-xs leading-relaxed text-[var(--cor-texto-suave)]">
           <p className="font-medium text-[var(--cor-texto)]">Como funciona esta tela</p>
-          <p>Fila = <code className="rounded bg-[var(--cor-fundo-card)] px-1">NewsItem</code> com <code className="rounded bg-[var(--cor-fundo-card)] px-1">status_revisao</code> pendente/aprovado/rejeitado. Urgente e cluster sempre exigem revisão (ver <code className="rounded bg-[var(--cor-fundo-card)] px-1">ConfigRobo</code>). Aprovar publica no feed; rejeitar arquiva. Seleção em lote processa sequencialmente com confirmação. Paginação real do backend (20/pág). Auto-refresh opcional a cada 30s.</p>
+          <p>Fila = <code className="rounded bg-[var(--cor-fundo-card)] px-1">NewsItem</code> com <code className="rounded bg-[var(--cor-fundo-card)] px-1">status_revisao</code> pendente/aprovado/rejeitado. Urgente e cluster sempre exigem revisão (ver <code className="rounded bg-[var(--cor-fundo-card)] px-1">ConfigRobo</code>). Aprovar publica no feed; rejeitar arquiva. <span className="font-medium text-emerald-700">Aprovar tudo</span> aprova em lote todos os pendentes dos filtros atuais (quando há paginação, pagina todas as páginas). Seleção em lote processa sequencialmente com confirmação. Paginação real do backend (20/pág). Auto-refresh opcional a cada 30s.</p>
         </CardContent>
       </Card>
+
+      <Dialog open={aprovarTudoOpen} onOpenChange={(o)=>{ if(aprovarTudoRunning) return; setAprovarTudoOpen(o); if(!o) setAprovarTudoProg(null); }}>
+        <DialogContent className="max-w-md bg-[var(--cor-fundo-card)]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><Sparkles className="h-5 w-5 text-emerald-600" /> Aprovar tudo</DialogTitle>
+            <DialogDescription className="text-[var(--cor-texto-suave)]">
+              {aprovarTudoRunning ? "Processando — não feche esta janela." : <>Isso vai <span className="font-semibold text-emerald-700">aprovar e publicar</span> todos os itens pendentes com os filtros atuais.</>}
+              {!aprovarTudoRunning && (()=>{ const n=filtrados.filter(i=>i.status_revisao==="pendente").length; return ` • ${n} na página atual${total>itens.length?` • ${total} no total (todas as páginas serão percorridas)`:""} • ${q?` busca "${q}"`:cat!=="todas"?` categoria ${cat}`:soUrgente||soCluster?"com filtros aplicados":"sem filtros extras"}.` })()}
+            </DialogDescription>
+          </DialogHeader>
+          {aprovarTudoProg && (
+            <div className="space-y-2 rounded-md border border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] p-3">
+              <div className="flex justify-between text-xs"><span className="text-[var(--cor-texto-suave)]">{aprovarTudoProg.done} / {aprovarTudoProg.total}</span><span className={aprovarTudoProg.fail?"text-[var(--cor-erro)]":"text-emerald-700"}>{aprovarTudoProg.fail?`${aprovarTudoProg.fail} falhas`:"ok"}</span></div>
+              <div className="h-2 overflow-hidden rounded-full bg-[var(--cor-borda)]"><div className="h-full bg-emerald-600 transition-all" style={{width:`${aprovarTudoProg.total?Math.round((aprovarTudoProg.done/aprovarTudoProg.total)*100):0}%`}} /></div>
+              <p className="text-xs text-[var(--cor-texto-suave)]">Aprovando sequencialmente via <code className="rounded bg-[var(--cor-fundo-card)] px-1">POST /api/admin/fila/{"{id}"}/decisao/</code> — aguarde.</p>
+            </div>
+          )}
+          <DialogFooter className="gap-2">
+            <Button variant="outline" disabled={aprovarTudoRunning} onClick={()=>setAprovarTudoOpen(false)}>Cancelar</Button>
+            <Button disabled={aprovarTudoRunning||!filtrados.some(i=>i.status_revisao==="pendente")} onClick={executarAprovarTudo} className="bg-emerald-600 text-white hover:bg-emerald-700 gap-1.5"><CheckCheck className="h-4 w-4" /> {aprovarTudoRunning?"Aprovando...":"Confirmar — aprovar tudo"}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
