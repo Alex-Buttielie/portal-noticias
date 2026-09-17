@@ -4,7 +4,7 @@ import Link from "next/link";
 import { Clock3, RefreshCw } from "lucide-react";
 import { obterFeed, type FeedEntrada } from "@/lib/api";
 import { ehNova, formatarHora, formatarLocalidade, timeAgo, useDebouncedValue } from "@/lib/editorial";
-import { imagemNoticia } from "@/lib/imagens";
+import { ImagemNoticia } from "@/components/ImagemNoticia";
 import { cn } from "@/lib/utils";
 
 interface UltimasNoticiasProps {
@@ -154,7 +154,7 @@ export const UltimasNoticias = memo(function UltimasNoticias({ inicial, limite, 
                     </time>
                     <span className="mt-0.5 text-[10px] text-[var(--cor-texto-suave)]">{timeAgo(n.timestamp)}</span>
                   </span>
-                  <img src={imagemNoticia(n)} alt="" loading="lazy" decoding="async" className="h-12 w-16 shrink-0 rounded-md border border-[var(--cor-borda)] object-cover" />
+                  <ImagemNoticia src={n.imagem_url} seed={`${n.categoria || "geral"}-${n.id}`} alt="" sizes="96px" className="h-12 w-16 shrink-0 rounded-md border border-[var(--cor-borda)] object-cover" />
                   <span className="min-w-0 flex-1">
                     <span className="flex flex-wrap items-center gap-1.5">
                       {nova && (

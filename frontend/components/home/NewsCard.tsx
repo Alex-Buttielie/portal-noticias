@@ -3,7 +3,7 @@ import { memo } from "react";
 import Link from "next/link";
 import { Bookmark, BookmarkCheck, MapPin } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { imagemNoticia } from "@/lib/imagens";
+import { ImagemNoticia } from "@/components/ImagemNoticia";
 import { cn } from "@/lib/utils";
 import type { FeedEntrada } from "@/lib/api";
 import {
@@ -98,11 +98,11 @@ export const NewsCard = memo(function NewsCard({ entrada, variante = "secundaria
         aria-label={entrada.titulo}
         className="block overflow-hidden bg-[var(--cor-fundo-elevado)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--cor-foco)]"
       >
-        <img
-          src={imagemNoticia(entrada)}
+        <ImagemNoticia
+          src={entrada.imagem_url}
+          seed={`${entrada.categoria || "geral"}-${entrada.id}`}
           alt={entrada.titulo}
-          loading={eager ? "eager" : "lazy"}
-          decoding="async"
+          eager={eager}
           sizes={variante === "destaque" ? "(max-width: 768px) 100vw, 60vw" : "(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"}
           className={cn(
             "w-full object-cover motion-safe:transition motion-safe:duration-300 group-hover:motion-safe:scale-[1.02]",

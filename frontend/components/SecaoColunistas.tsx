@@ -4,7 +4,7 @@ import Link from "next/link";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { SeloBadge } from "@/components/home/NewsCard";
-import { imagemNoticia } from "@/lib/imagens";
+import { ImagemNoticia } from "@/components/ImagemNoticia";
 import { formatarDataConteudo, carregarColunistas, iniciais, type Colunista } from "@/lib/colunistas";
 import { Feather, ArrowRight, BadgeCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -23,12 +23,24 @@ function AvatarColunista({ colunista, tamanho = "md" }: { colunista: Colunista; 
       : "h-12 w-12 text-sm";
   if (colunista.foto_url) {
     return (
-      <img
+      <ImagemNoticia
         src={colunista.foto_url}
+        seed={`colunista-${colunista.id}`}
         alt={`Foto de ${colunista.nome}`}
-        loading="lazy"
-        decoding="async"
+        sizes="48px"
         className={cn("shrink-0 rounded-full border border-[var(--cor-borda)] object-cover", cls)}
+        fallbackClassName={cn("shrink-0 rounded-full border border-[var(--cor-borda)]", cls)}
+        fallback={
+          <span
+            aria-hidden
+            className={cn(
+              "flex shrink-0 items-center justify-center rounded-full bg-[var(--cor-primaria-suave)] font-bold text-[var(--cor-primaria)]",
+              cls
+            )}
+          >
+            {iniciais(colunista.nome)}
+          </span>
+        }
       />
     );
   }
@@ -115,11 +127,9 @@ export function SecaoColunistas() {
                 aria-label={c.recente.titulo}
                 className="mx-4 block overflow-hidden rounded-[var(--raio-md)] bg-[var(--cor-fundo-elevado)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cor-foco)]"
               >
-                <img
-                  src={imagemNoticia({ categoria: c.recente.categoria || "geral", id: `col-${c.recente.id}` })}
+                <ImagemNoticia
+                  seed={`col-${c.recente.id}`}
                   alt=""
-                  loading="lazy"
-                  decoding="async"
                   className="aspect-[16/9] w-full object-cover motion-safe:transition motion-safe:duration-300 group-hover:motion-safe:scale-[1.02]"
                 />
               </Link>

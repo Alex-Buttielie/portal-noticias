@@ -9,6 +9,7 @@ import { Progress } from "@/components/ui/progress";
 import { AdsSlot } from "@/components/AdsSlot";
 import { AcoesNoticia } from "./[id]/acoes";
 import { Voltar } from "./[id]/voltar";
+import { ImagemNoticia } from "@/components/ImagemNoticia";
 import { temImagemReal } from "@/lib/imagens";
 import type { FeedDetalhe } from "@/lib/api";
 import { Clock3, MapPin, ListChecks, MessageSquare, Printer, ALargeSmall, ChevronRight } from "lucide-react";
@@ -120,7 +121,7 @@ export function LeituraPremium({
 
         <div className="group relative overflow-hidden rounded-[var(--raio-lg)] border border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] shadow-[var(--sombra-2)]">
           <div className="relative aspect-[16/9] overflow-hidden">
-            <img src={heroSrc} alt={d.titulo} loading="eager" className="h-full w-full object-cover" />
+            <ImagemNoticia src={heroSrc} seed={`${d.categoria || "geral"}-${d.id}`} alt={d.titulo} eager sizes="(max-width: 768px) 100vw, 768px" className="h-full w-full object-cover" />
             <div className="pointer-events-none absolute inset-0" style={{ background: "linear-gradient(180deg, transparent 55%, rgba(11,11,26,0.55) 100%)" }} aria-hidden />
             <div className="absolute bottom-3 left-3 right-3 flex flex-wrap items-center gap-2">
               <Badge className="bg-[var(--cor-fundo-card)]/90 capitalize text-[var(--cor-texto)] backdrop-blur">{d.categoria}</Badge>
@@ -231,8 +232,7 @@ export function LeituraPremium({
                 {relacionados.slice(0, 6).map((r) => (
                   <Link key={r.id} href={`/noticia/${r.id}`} className="group flex gap-3 rounded-[var(--raio-md)] border border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] p-2 transition hover:-translate-y-0.5 hover:shadow-[var(--sombra-1)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cor-foco)]">
                     <span className="block h-16 w-24 shrink-0 overflow-hidden rounded-md bg-[var(--cor-fundo-card)]">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={r.imagem_url || `https://picsum.photos/seed/${encodeURIComponent(`${r.categoria}-${r.id}`)}/400/225`} alt="" loading="lazy" className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.04]" />
+                      <ImagemNoticia src={r.imagem_url} seed={`${r.categoria}-${r.id}`} alt="" sizes="192px" className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.04]" />
                     </span>
                     <span className="min-w-0">
                       <span className="block text-[11px] font-medium capitalize text-[var(--cor-primaria)]">{r.categoria}</span>

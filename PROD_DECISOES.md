@@ -28,8 +28,10 @@
      Status: código pronto, aguardando chave Resend do Alex.
    - OAuth Google: settings prontos (`GOOGLE_OAUTH_CLIENT_ID/SECRET`), fluxo
      adiado. Status: aguardando credenciais do Alex.
-3. **AdSense** — publisher ID + `adsbygoogle.js` no layout + aprovação da conta
-   (slots hoje são placeholder). Status: pendente.
+3. **AdSense** — código pronto (`AdsScript` no layout + `AdsSlot` real quando
+   `NEXT_PUBLIC_ADSENSE_CLIENT_ID` + slots por formato configurados; sem isso,
+   placeholder sem chamada externa). Falta (Alex): publisher ID `ca-pub-...`,
+   4 slots numéricos, aprovação da conta e rebuild. Status: aguardando Alex.
 4. **Revisão jurídica da privacidade** — política atual é rascunho funcional.
    Status: pendente.
 5. **Ligar a flag premium** — `ConfiguracaoSistema.premium_ativo` nasce

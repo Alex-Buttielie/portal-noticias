@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { AdsSlot } from "@/components/AdsSlot";
-import { imagemNoticia } from "@/lib/imagens";
+import { ImagemNoticia } from "@/components/ImagemNoticia";
 import type { FeedEntrada } from "@/lib/api";
 import { carregarRegiao, salvarRegiao, limparRegiao, obterRegiaoPorGeolocation, formatarRegiao, cidadesVizinhasMock, type Regiao } from "@/lib/regiao";
 import { trackLocationPermission, trackLocationSelected } from "@/lib/analytics";
@@ -177,7 +177,7 @@ export function SecaoRegiao({ feed }: { feed: FeedEntrada[] }) {
             <Card className="group overflow-hidden border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] transition hover:shadow-[var(--sombra-2)]">
               <div className="grid md:grid-cols-[1.4fr_0.9fr]">
                 <Link href={`/noticia/${heroLocal.id}`} className="block aspect-[16/9] overflow-hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cor-foco)]">
-                  <img src={imagemNoticia(heroLocal)} alt={heroLocal.titulo} loading="lazy" className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.02]" />
+                  <ImagemNoticia src={heroLocal.imagem_url} seed={`${heroLocal.categoria || "geral"}-${heroLocal.id}`} alt={heroLocal.titulo} className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.02]" />
                 </Link>
                 <CardContent className="flex flex-col justify-center p-4">
                   <div className="flex flex-wrap items-center gap-2">
@@ -198,7 +198,7 @@ export function SecaoRegiao({ feed }: { feed: FeedEntrada[] }) {
             {resto.map((n) => (
               <Card key={`reg-${n.tipo}-${n.id}`} className="group overflow-hidden border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] hover:shadow-[var(--sombra-2)] hover:-translate-y-0.5 transition-all">
                 <Link href={`/noticia/${n.id}`} className="block aspect-[16/9] overflow-hidden bg-[var(--cor-fundo-elevado)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cor-foco)]">
-                  <img src={imagemNoticia(n)} alt={n.titulo} loading="lazy" className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.02]" />
+                  <ImagemNoticia src={n.imagem_url} seed={`${n.categoria || "geral"}-${n.id}`} alt={n.titulo} className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.02]" />
                 </Link>
                 <CardContent className="p-3">
                   <div className="flex items-center gap-2">

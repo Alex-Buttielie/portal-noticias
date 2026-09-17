@@ -6,6 +6,7 @@ import { SeloBadge } from "@/components/home/NewsCard";
 import { SITE_NAME } from "@/lib/site";
 import { obterPerfilAutor, type PerfilAutorPublico } from "@/lib/api";
 import { seloPublicacao, iniciais, formatarDataConteudo } from "@/lib/colunistas";
+import { ImagemNoticia } from "@/components/ImagemNoticia";
 import { BadgeCheck } from "lucide-react";
 
 // Perfil público do colunista (FRENTE 2): foto (ou iniciais), mini-bio,
@@ -77,10 +78,21 @@ export default async function Page({ params }: { params: { id: string } }) {
         <CardHeader className="pb-3">
           <div className="flex items-center gap-4">
             {perfil.foto_url ? (
-              <img
+              <ImagemNoticia
                 src={perfil.foto_url}
+                seed={`colunista-${perfil.id}`}
                 alt={`Foto de ${perfil.nome}`}
+                sizes="64px"
                 className="h-16 w-16 shrink-0 rounded-full border border-[var(--cor-borda)] object-cover"
+                fallbackClassName="h-16 w-16 shrink-0 rounded-full border border-[var(--cor-borda)]"
+                fallback={
+                  <span
+                    aria-hidden
+                    className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-[var(--cor-primaria-suave)] text-lg font-bold text-[var(--cor-primaria)]"
+                  >
+                    {iniciais(perfil.nome)}
+                  </span>
+                }
               />
             ) : (
               <span

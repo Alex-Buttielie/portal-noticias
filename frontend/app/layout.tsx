@@ -9,6 +9,7 @@ import { Rodape } from "@/components/Rodape";
 import { NavegacaoAdaptativa } from "@/components/dispositivos/NavegacaoAdaptativa";
 import { BannerConsentimentoCookies } from "@/components/BannerConsentimentoCookies";
 import { AnalyticsTracker } from "@/components/AnalyticsTracker";
+import { AdsScript } from "@/components/AdsScript";
 import { TutorialTour } from "@/components/TutorialTour";
 import { PularParaConteudo } from "@/components/PularParaConteudo";
 import { SITE_DESCRIPTION, SITE_NAME, SITE_URL } from "@/lib/site";
@@ -55,6 +56,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <head>
         <script dangerouslySetInnerHTML={{ __html: SCRIPT_TEMA_INICIAL }} />
         <JsonLd />
+        <AdsScript />
       </head>
       <body className={`${inter.variable} ${serif.variable} min-h-screen bg-[var(--cor-fundo)] font-sans text-[var(--cor-texto)] antialiased`}>
         <PularParaConteudo />

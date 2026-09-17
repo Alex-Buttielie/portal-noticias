@@ -13,7 +13,7 @@ import { UltimasNoticias } from "@/components/home/UltimasNoticias";
 import { EmAlta } from "@/components/home/EmAlta";
 import { ConteudoBombando } from "@/components/home/ConteudoBombando";
 import { PortfolioCategorias } from "@/components/home/PortfolioCategorias";
-import { imagemNoticia } from "@/lib/imagens";
+import { ImagemNoticia } from "@/components/ImagemNoticia";
 import { categoriasPorAfinidade, ordenarPorGosto } from "@/lib/personalizar";
 import { obterTodasLeituras } from "@/lib/intent";
 import { alternarSalvo, estaSalvo } from "@/lib/bookmarks";
@@ -218,11 +218,11 @@ export function HomeClient({
                 href={`/noticia/${u.id}`}
                 className="group flex w-64 shrink-0 snap-start gap-3 rounded-[var(--raio-md)] border border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] p-2 hover:shadow-[var(--sombra-2)] hover:-translate-y-1 transition-all duration-200 motion-safe:transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cor-foco)]"
               >
-                <img
-                  src={imagemNoticia(u)}
+                <ImagemNoticia
+                  src={u.imagem_url}
+                  seed={`${u.categoria || "geral"}-${u.id}`}
                   alt=""
-                  loading="lazy"
-                  decoding="async"
+                  sizes="96px"
                   className="h-16 w-20 shrink-0 rounded-md object-cover"
                 />
                 <div className="min-w-0">
