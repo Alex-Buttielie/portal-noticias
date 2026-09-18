@@ -152,6 +152,10 @@ class ItemBruto:
     categoria: str = ""
     imagem_url: str = ""
     timestamp_publicacao_fonte: Optional[datetime] = None
+    # Recorte regional da fonte (ex.: "GO" para o G1 Goiás): herdado pelo
+    # NewsItem quando o RSS não informa localidade própria. Vazio = nacional.
+    estado_fonte: str = ""
+    pais_fonte: str = ""
 
 
 class NewsSourceProvider(ABC):
@@ -179,10 +183,19 @@ class RSSNewsSourceProvider(NewsSourceProvider):
     `settings.CATALOGO_NOTICIAS_FONTES_RSS`, nunca hardcoded aqui.
     """
 
-    def __init__(self, nome_fonte: str, url_feed: str, timeout_segundos: int = 15):
+    def __init__(
+        self,
+        nome_fonte: str,
+        url_feed: str,
+        timeout_segundos: int = 15,
+        estado_fonte: str = "",
+        pais_fonte: str = "",
+    ):
         self.nome_fonte = nome_fonte
         self.url_feed = url_feed
         self.timeout_segundos = timeout_segundos
+        self.estado_fonte = (estado_fonte or "").strip().upper()
+        self.pais_fonte = (pais_fonte or "").strip()
 
     def buscar_itens(self) -> list[ItemBruto]:
         try:
@@ -251,6 +264,8 @@ class RSSNewsSourceProvider(NewsSourceProvider):
                     categoria=categoria.strip().lower(),
                     imagem_url=extrair_imagem_url(entrada),
                     timestamp_publicacao_fonte=timestamp_publicacao,
+                    estado_fonte=self.estado_fonte,
+                    pais_fonte=self.pais_fonte,
                 )
             )
         return itens

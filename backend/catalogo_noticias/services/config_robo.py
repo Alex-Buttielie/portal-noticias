@@ -37,12 +37,18 @@ def fontes_rss():
         from catalogo_noticias.models import FonteRobo
 
         if FonteRobo.objects.exists():
-            ativas = list(FonteRobo.objects.filter(ativo=True).values("nome", "url", "categoria_padrao"))
+            ativas = list(FonteRobo.objects.filter(ativo=True).values("nome", "url", "categoria_padrao", "estado_padrao"))
             if ativas:
-                return [{"nome": r["nome"], "url": r["url"]} for r in ativas]
+                return [
+                    {"nome": r["nome"], "url": r["url"], "uf": (r["estado_padrao"] or "").strip().upper()}
+                    for r in ativas
+                ]
             all_count = FonteRobo.objects.count()
             if all_count > 0:
                 return []
     except Exception:
         pass
-    return settings.CATALOGO_NOTICIAS_FONTES_RSS
+    return [
+        {**f, "uf": (f.get("uf") or "").strip().upper()}
+        for f in settings.CATALOGO_NOTICIAS_FONTES_RSS
+    ]

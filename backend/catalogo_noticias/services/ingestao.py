@@ -41,7 +41,12 @@ def construir_fontes_configuradas() -> list[NewsSourceProvider]:
 
     fontes = fontes_rss()
     return [
-        RSSNewsSourceProvider(nome_fonte=fonte["nome"], url_feed=fonte["url"])
+        RSSNewsSourceProvider(
+            nome_fonte=fonte["nome"],
+            url_feed=fonte["url"],
+            estado_fonte=fonte.get("uf", ""),
+            pais_fonte="Brasil" if fonte.get("uf") else "",
+        )
         for fonte in fontes
     ]
 
@@ -363,6 +368,10 @@ def _persistir_grupo(
             urgente=resultado.urgente,
             status_revisao=status_revisao,
             cluster=cluster,
+            # Recorte regional herdado da fonte (ex.: G1 Goiás → GO/Brasil)
+            # quando o RSS não informa localidade própria; nunca inventado.
+            estado=getattr(item_bruto, "estado_fonte", "") or "",
+            pais=getattr(item_bruto, "pais_fonte", "") or "",
         )
         itens_criados.append(news_item)
 
@@ -558,34 +567,47 @@ def executar_ingestao(
     erros_por_fonte: dict[str, str] = {}
     todos_itens_brutos: list[ItemBruto] = []
 
-    for fonte in fontes:
-        nome_fonte = getattr(fonte, "nome_fonte", fonte.__class__.__name__)
+    # Busca das fontes em paralelo (80+ fontes regionais): sequencial com
+    # timeout de 15s por fonte estouraria a janela do beat. Cada provider é
+    # independente e os erros já são isolados por fonte (criterio de aceite 1)
+    # — a ordem de `fontes` é preservada na coleta para determinismo.
+    def _buscar(fonte):
+        nome = getattr(fonte, "nome_fonte", fonte.__class__.__name__)
         try:
-            itens = fonte.buscar_itens()
+            return (nome, fonte.buscar_itens(), None)
         except FonteIndisponivelError as exc:
-            # Criterio de aceite 1: falha de UMA fonte nao pode propagar
-            # como excecao fatal da task inteira — registrada (log +
-            # RegistroExecucaoIngestao.erros_por_fonte) e seguimos para as
-            # proximas fontes.
-            logger.error("Fonte '%s' indisponivel nesta execucao: %s", nome_fonte, exc)
-            erros_por_fonte[nome_fonte] = str(exc)
-            itens_por_fonte[nome_fonte] = 0
-            continue
+            return (nome, [], str(exc))
         except Exception as exc:  # noqa: BLE001 — erro inesperado de UMA fonte nao pode derrubar as demais
-            logger.exception("Erro inesperado ao buscar itens da fonte '%s'", nome_fonte)
-            erros_por_fonte[nome_fonte] = f"Erro inesperado: {exc}"
-            itens_por_fonte[nome_fonte] = 0
-            continue
+            logger.exception("Erro inesperado ao buscar itens da fonte '%s'", nome)
+            return (nome, [], f"Erro inesperado: {exc}")
 
-        # Idempotencia da task periodica: nao reprocessa um item cuja URL ja
-        # foi ingerida em execucao anterior (evita violar a constraint de
-        # unicidade de url_fonte_original a cada novo ciclo do mesmo feed).
-        # Finding 5 (minor, performance): uma unica query por fonte
-        # (`_urls_ja_ingeridas`) em vez de um SELECT EXISTS por item bruto.
-        urls_ja_ingeridas = _urls_ja_ingeridas(itens)
-        itens_novos = [item for item in itens if item.url_fonte_original not in urls_ja_ingeridas]
-        itens_por_fonte[nome_fonte] = len(itens_novos)
-        todos_itens_brutos.extend(itens_novos)
+    try:
+        workers = int(getattr(settings, "CATALOGO_NOTICIAS_FETCH_WORKERS", 8))
+    except Exception:
+        workers = 8
+    workers = max(1, min(workers, 16))
+    from concurrent.futures import ThreadPoolExecutor
+
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        for nome_fonte, itens, erro in pool.map(_buscar, fontes):
+            if erro is not None:
+                # Criterio de aceite 1: falha de UMA fonte nao propaga como
+                # excecao fatal — registrada (log + RegistroExecucaoIngestao)
+                # e seguimos para as proximas fontes.
+                logger.error("Fonte '%s' indisponivel nesta execucao: %s", nome_fonte, erro)
+                erros_por_fonte[nome_fonte] = erro
+                itens_por_fonte[nome_fonte] = 0
+                continue
+
+            # Idempotencia da task periodica: nao reprocessa um item cuja URL ja
+            # foi ingerida em execucao anterior (evita violar a constraint de
+            # unicidade de url_fonte_original a cada novo ciclo do mesmo feed).
+            # Finding 5 (minor, performance): uma unica query por fonte
+            # (`_urls_ja_ingeridas`) em vez de um SELECT EXISTS por item bruto.
+            urls_ja_ingeridas = _urls_ja_ingeridas(itens)
+            itens_novos = [item for item in itens if item.url_fonte_original not in urls_ja_ingeridas]
+            itens_por_fonte[nome_fonte] = len(itens_novos)
+            todos_itens_brutos.extend(itens_novos)
 
     # Finding 3 (code-review-contract.md run 20260902-0727-ingestao-noticias,
     # major): alem dos itens NOVOS deste lote, tambem trazemos os `NewsItem`

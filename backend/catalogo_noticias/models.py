@@ -159,6 +159,11 @@ class FonteRobo(models.Model):
     url = models.URLField(max_length=1000, unique=True)
     ativo = models.BooleanField(default=True)
     categoria_padrao = models.CharField(max_length=100, blank=True)
+    estado_padrao = models.CharField(
+        max_length=2,
+        blank=True,
+        help_text="Sigla da UF coberta pela fonte (ex.: GO, SP). Alimenta 'Perto de Você'/Radar: itens ingeridos desta fonte herdam o estado quando o RSS não informa localidade. Vazio = nacional/sem recorte.",
+    )
     criado_em = models.DateTimeField(auto_now_add=True)
     atualizado_em = models.DateTimeField(auto_now=True)
 

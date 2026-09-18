@@ -1841,3 +1841,75 @@ class TestHomepageCadastradaComoFeed:
             return_value=self._resposta(_rss_bytes("T", "https://c/n1", "D")),
         ):
             assert len(provider.buscar_itens()) == 1
+
+
+# ===========================================================================
+# Fontes regionais (UF): o recorte da fonte (ex.: G1 Goiás → GO/Brasil)
+# propaga provider → ItemBruto → NewsItem; nacional fica vazio (nunca
+# inventado). Cobre `estado_padrao` (FonteRobo), `fontes_rss`, provider e
+# persistência.
+# ===========================================================================
+@pytest.mark.django_db
+class TestFonteRegionalUF:
+    def test_provider_carrega_estado_para_item_bruto(self):
+        from catalogo_noticias.providers.news_source import RSSNewsSourceProvider as _P
+
+        prov = _P(nome_fonte="G1 GO", url_feed="https://g1/go", estado_fonte="go", pais_fonte="Brasil")
+        resp = MagicMock()
+        resp.raise_for_status.side_effect = None
+        resp.content = _rss_bytes("Chuva em Goiânia", "https://g1/n-go", "Texto.")
+        with patch("catalogo_noticias.providers.news_source.requests.get", return_value=resp):
+            itens = prov.buscar_itens()
+        assert len(itens) == 1
+        assert itens[0].estado_fonte == "GO"
+        assert itens[0].pais_fonte == "Brasil"
+
+    def test_fonte_nacional_nao_inventa_localidade(self):
+        from catalogo_noticias.providers.news_source import RSSNewsSourceProvider as _P
+
+        prov = _P(nome_fonte="G1", url_feed="https://g1/feed")
+        resp = MagicMock()
+        resp.raise_for_status.side_effect = None
+        resp.content = _rss_bytes("T", "https://g1/n1", "D")
+        with patch("catalogo_noticias.providers.news_source.requests.get", return_value=resp):
+            itens = prov.buscar_itens()
+        assert itens[0].estado_fonte == "" and itens[0].pais_fonte == ""
+
+    def test_fontes_rss_traz_uf_do_banco(self):
+        from catalogo_noticias.models import FonteRobo
+        from catalogo_noticias.services.config_robo import fontes_rss
+
+        FonteRobo.objects.create(nome="G1 GO", url="https://g1.globo.com/rss/g1/go/goias/", ativo=True, estado_padrao="go")
+        fontes = fontes_rss()
+        go = [f for f in fontes if f["nome"] == "G1 GO"]
+        assert len(go) == 1 and go[0]["uf"] == "GO" and go[0]["url"].endswith("/go/goias/")
+
+    def test_persistencia_grava_estado_e_pais(self):
+        from catalogo_noticias.models import NewsItem
+        from catalogo_noticias.providers.news_source import ItemBruto
+        from catalogo_noticias.providers.summarization import ResultadoResumo
+        from catalogo_noticias.services.ingestao import _persistir_grupo
+
+        bruto = ItemBruto(
+            titulo="Chuva em Goiânia",
+            url_fonte_original="https://g1/n-go-uf",
+            nome_fonte="G1 GO",
+            conteudo_bruto="Texto.",
+            categoria="cidades",
+            estado_fonte="GO",
+            pais_fonte="Brasil",
+        )
+        res = ResultadoResumo(resumo="Resumo próprio sobre chuva.", categoria="cidades", urgente=False)
+        _, criados = _persistir_grupo([(bruto, res)])
+        item = NewsItem.objects.get(url_fonte_original="https://g1/n-go-uf")
+        assert item.estado == "GO" and item.pais == "Brasil"
+        assert len(criados) == 1
+
+    def test_serializer_estado_padrao(self):
+        from catalogo_noticias.robos_serializers import FonteRoboSerializer
+
+        s = FonteRoboSerializer()
+        assert s.validate_estado_padrao("go ") == "GO"
+        assert s.validate_estado_padrao("") == ""
+        with pytest.raises(Exception):
+            s.validate_estado_padrao("GOIAS")
