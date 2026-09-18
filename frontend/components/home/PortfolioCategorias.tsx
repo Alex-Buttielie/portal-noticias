@@ -65,7 +65,7 @@ export const PortfolioCategorias = memo(function PortfolioCategorias({
   };
 
   return (
-    <section aria-label="Portfólio por editorias" className="space-y-6">
+    <section aria-label="Portfólio por editorias" className="w-full max-w-full space-y-6 overflow-x-clip">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="flex items-center gap-2 text-lg font-bold text-[var(--cor-texto)]">
           <LayoutGrid className="h-5 w-5 text-[var(--cor-primaria)]" aria-hidden />
@@ -81,9 +81,9 @@ export const PortfolioCategorias = memo(function PortfolioCategorias({
         const lista = bloco.itens.slice(0, visiveis);
         const restantes = bloco.total - lista.length;
         return (
-          <div key={bloco.categoria} className="space-y-3 rounded-[var(--raio-lg)] border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] p-4 shadow-[var(--sombra-1)]">
-            <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <h3 className="text-base font-bold capitalize text-[var(--cor-texto)]">
+          <div key={bloco.categoria} className="w-full min-w-0 space-y-3 overflow-hidden rounded-[var(--raio-lg)] border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] p-4 shadow-[var(--sombra-1)] md:p-5">
+            <div className="flex min-w-0 flex-wrap items-baseline justify-between gap-2">
+              <h3 className="min-w-0 break-words text-base font-bold capitalize text-[var(--cor-texto)]">
                 {bloco.categoria}{" "}
                 <span className="ml-1 rounded-full bg-[var(--cor-fundo-elevado)] px-2 py-0.5 text-xs font-semibold text-[var(--cor-texto-suave)]">
                   {bloco.total}
@@ -91,7 +91,7 @@ export const PortfolioCategorias = memo(function PortfolioCategorias({
               </h3>
               <p className="text-xs text-[var(--cor-texto-suave)]">{bloco.motivo}</p>
             </div>
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {lista.map((entrada) => (
                 <NewsCard
                   key={`port-${bloco.categoria}-${entrada.tipo}-${entrada.id}`}

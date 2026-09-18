@@ -110,7 +110,7 @@ export const NewsCard = memo(function NewsCard({ entrada, variante = "secundaria
           )}
         />
       </Link>
-      <div className={cn("flex min-w-0 flex-1 flex-col gap-2", variante === "destaque" ? "p-5 md:p-6" : "p-4")}>
+      <div className={cn("flex w-full min-w-0 flex-1 flex-col gap-2", variante === "destaque" ? "p-5 md:p-6" : "p-4")}>
         <div className="flex flex-wrap items-center gap-2">
           {selo && <SeloBadge selo={selo} />}
           {entrada.urgente && selo !== "Urgente" && (
@@ -135,8 +135,8 @@ export const NewsCard = memo(function NewsCard({ entrada, variante = "secundaria
         <Link
           href={href}
           className={cn(
-            "text-balance font-bold leading-tight text-[var(--cor-texto)] hover:text-[var(--cor-primaria)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cor-foco)] motion-safe:transition-colors",
-            variante === "destaque" ? "text-2xl md:text-3xl line-clamp-3" : "text-[15px] line-clamp-2"
+            "break-words text-balance font-bold leading-tight text-[var(--cor-texto)] hover:text-[var(--cor-primaria)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cor-foco)] motion-safe:transition-colors",
+            variante === "destaque" ? "text-xl sm:text-2xl md:text-3xl line-clamp-3" : "text-[15px] line-clamp-2"
           )}
         >
           {entrada.titulo}
@@ -145,7 +145,7 @@ export const NewsCard = memo(function NewsCard({ entrada, variante = "secundaria
           <Link
             href={href}
             className={cn(
-              "leading-snug text-[var(--cor-texto-suave)] hover:text-[var(--cor-texto)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cor-foco)] motion-safe:transition-colors",
+              "break-words leading-snug text-[var(--cor-texto-suave)] hover:text-[var(--cor-texto)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cor-foco)] motion-safe:transition-colors",
               variante === "destaque" ? "text-sm line-clamp-3" : "text-sm line-clamp-2"
             )}
           >
