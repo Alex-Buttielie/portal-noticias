@@ -468,7 +468,19 @@ FRONTEND_BASE_URL = os.environ.get("FRONTEND_BASE_URL", "http://localhost:3000")
 # backend (localhost:8000) — chamadas fetch() do navegador exigem CORS
 # habilitado explicitamente. Só a origem do próprio frontend é permitida
 # (não CORS_ALLOW_ALL_ORIGINS=True, que seria excessivamente permissivo).
-CORS_ALLOWED_ORIGINS = [FRONTEND_BASE_URL]
+# Contingência por IP (sem DNS): origens extras via DJANGO_CORS_EXTRA_ORIGINS
+# (separadas por vírgula, ex.: "http://108.174.147.50:3103") — permite usar o
+# portal direto pelo IP enquanto o domínio não resolve. O canônico continua
+# sendo o domínio via Nginx (FRONTEND_BASE_URL).
+def _parse_extra_origins(raw: str) -> list:
+    """Origens extras de `DJANGO_CORS_EXTRA_ORIGINS` (vírgula): ignora vazios
+    e espaços. Função pura para ser testável sem recarregar o settings."""
+    return [origem.strip() for origem in (raw or "").split(",") if origem.strip()]
+
+
+CORS_ALLOWED_ORIGINS = [FRONTEND_BASE_URL] + _parse_extra_origins(
+    os.environ.get("DJANGO_CORS_EXTRA_ORIGINS", "")
+)
 CORS_ALLOW_CREDENTIALS = True
 
 # Expiração de tokens (segundos).
