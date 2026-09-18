@@ -84,7 +84,9 @@ jobs:
             cd "$APP_DIR/backend"
             # Binário + args separados: pm2 não resolve string única citada
             # (".../gunicorn config.wsgi:... --bind ...") como executável.
-            DJANGO_SETTINGS_MODULE=config.settings pm2 start "$APP_DIR/backend/.venv/bin/gunicorn" --name "portal-api-dev" -- config.wsgi:application --bind "0.0.0.0:$API_PORT" --workers 2
+            # --interpreter explícito: o binário gunicorn não tem extensão e
+            # o pm2 o executaria com node (SyntaxError) em vez de python.
+            DJANGO_SETTINGS_MODULE=config.settings pm2 start "$APP_DIR/backend/.venv/bin/gunicorn" --interpreter "$APP_DIR/backend/.venv/bin/python" --name "portal-api-dev" -- config.wsgi:application --bind "0.0.0.0:$API_PORT" --workers 2
             pm2 save
             echo "=== DEV deployed $WEB_PORT(web) $API_PORT(api) ==="
 

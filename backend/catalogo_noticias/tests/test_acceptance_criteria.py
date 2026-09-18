@@ -1787,3 +1787,57 @@ class TestFinding1MisattributionDeConteudoMesmoComAgrupamentoIndevido:
         assert news_item_sarampo.resumo_proprio == resultado_sarampo.resumo
         assert news_item_sarampo.resumo_proprio != item_existente.resumo_proprio
         assert item_existente.cluster_id == news_item_sarampo.cluster_id == cluster.id
+
+
+# ===========================================================================
+# Incidente 2026-09-18: fontes cadastradas com URL da homepage (HTML 200) em
+# vez do endpoint RSS zeravam a ingestão ("malformado"). O provider agora
+# detecta HTML pelo corpo e orienta a correção em Central > Robôs > Fontes.
+# ===========================================================================
+
+
+class TestHomepageCadastradaComoFeed:
+    def _resposta(self, corpo: bytes):
+        resposta = MagicMock()
+        resposta.raise_for_status.side_effect = None
+        resposta.content = corpo
+        return resposta
+
+    def test_homepage_html_gera_erro_acionavel(self):
+        provider = RSSNewsSourceProvider(nome_fonte="BBC", url_feed="https://www.bbc.com/portuguese")
+        html = b"<!DOCTYPE html><html lang=\"pt-br\"><head><title>BBC</title></head><body></body></html>"
+        with patch(
+            "catalogo_noticias.providers.news_source.requests.get",
+            return_value=self._resposta(html),
+        ):
+            with pytest.raises(FonteIndisponivelError, match="não é um feed RSS/Atom"):
+                provider.buscar_itens()
+
+    def test_html_com_whitespace_e_bom_tambem_detectado(self):
+        provider = RSSNewsSourceProvider(nome_fonte="X", url_feed="https://x/")
+        html = b"\xef\xbb\xbf  \n<HTML><BODY>oi</BODY></HTML>"
+        with patch(
+            "catalogo_noticias.providers.news_source.requests.get",
+            return_value=self._resposta(html),
+        ):
+            with pytest.raises(FonteIndisponivelError, match="Central > Robôs"):
+                provider.buscar_itens()
+
+    def test_rss_valido_continua_ingerindo(self):
+        provider = RSSNewsSourceProvider(nome_fonte="G1", url_feed="https://g1/feed")
+        with patch(
+            "catalogo_noticias.providers.news_source.requests.get",
+            return_value=self._resposta(_rss_bytes("Título real", "https://g1/n1", "Texto.")),
+        ):
+            itens = provider.buscar_itens()
+        assert len(itens) == 1 and itens[0].titulo == "Título real"
+
+    def test_rss_servido_como_text_html_continua_ingerindo(self):
+        # Correio Braziliense serve RSS com Content-Type text/html — o sniff
+        # é pelo corpo, nunca pelo header, então segue funcionando.
+        provider = RSSNewsSourceProvider(nome_fonte="Correios", url_feed="https://correio/feed")
+        with patch(
+            "catalogo_noticias.providers.news_source.requests.get",
+            return_value=self._resposta(_rss_bytes("T", "https://c/n1", "D")),
+        ):
+            assert len(provider.buscar_itens()) == 1

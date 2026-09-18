@@ -581,6 +581,12 @@ CATALOGO_NOTICIAS_FONTES_RSS = [
     {"nome": "UOL", "url": "https://rss.uol.com.br/feed/noticias.xml"},
     {"nome": "CNN Brasil", "url": "https://www.cnnbrasil.com.br/feed/"},
     {"nome": "Folha - Em Cima da Hora", "url": "https://feeds.folha.uol.com.br/emcimadahora/rss091.xml"},
+    # Incidente 2026-09-18: fontes no banco estavam com URL da homepage;
+    # endpoints abaixo verificados ao vivo (HTTP 200 + itens frescos).
+    {"nome": "Agência Brasil", "url": "https://agenciabrasil.ebc.com.br/rss/ultimasnoticias/feed.xml"},
+    {"nome": "BBC Brasil", "url": "https://feeds.bbci.co.uk/portuguese/rss.xml"},
+    {"nome": "Brasil 247", "url": "https://www.brasil247.com/feed"},
+    {"nome": "CartaCapital", "url": "https://www.cartacapital.com.br/feed/"},
 ]
 
 # Critério de alta relevância (aciona fila de revisão humana) —
