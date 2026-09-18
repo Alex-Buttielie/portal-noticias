@@ -1,0 +1,969 @@
+[
+ {
+  "nome": "Estadão",
+  "pagina": "https://www.estadao.com.br/",
+  "feed": "https://www.estadao.com.br/arc/outboundfeeds/feeds/rss/sections/geral/?body=%7B%22layout%22:%22google-news%22%7D",
+  "titulo_feed": "Estadão | As Últimas Notícias do Brasil e do Mundo",
+  "itens": 20,
+  "uf": null
+ },
+ {
+  "nome": "Veja",
+  "pagina": "https://veja.abril.com.br/",
+  "feed": null,
+  "erro": "homepage inacessível: SSLError",
+  "uf": null
+ },
+ {
+  "nome": "O Globo",
+  "pagina": "https://oglobo.globo.com/",
+  "feed": "https://oglobo.globo.com/rss/oglobo",
+  "titulo_feed": "oglobo",
+  "itens": 100,
+  "uf": null
+ },
+ {
+  "nome": "Metrópoles",
+  "pagina": "https://www.metropoles.com/",
+  "feed": "https://www.metropoles.com/feed",
+  "titulo_feed": "Metrópoles",
+  "itens": 20,
+  "uf": null
+ },
+ {
+  "nome": "IstoÉ",
+  "pagina": "https://istoe.com.br/",
+  "feed": "https://istoe.com.br/feed",
+  "titulo_feed": "ISTOÉ Independente",
+  "itens": 10,
+  "uf": null
+ },
+ {
+  "nome": "Poder360",
+  "pagina": "https://www.poder360.com.br/",
+  "feed": "https://www.poder360.com.br/feed/",
+  "titulo_feed": "Poder360",
+  "itens": 10,
+  "uf": null
+ },
+ {
+  "nome": "Terra",
+  "pagina": "https://www.terra.com.br/",
+  "feed": "https://www.terra.com.br/rss",
+  "titulo_feed": "Brasil",
+  "itens": 10,
+  "uf": null
+ },
+ {
+  "nome": "Correio Braziliense",
+  "pagina": "https://www.correiobraziliense.com.br/",
+  "feed": "https://www.correiobraziliense.com.br/feed",
+  "titulo_feed": "Correio Braziliense Todos os artigos",
+  "itens": 20,
+  "uf": null
+ },
+ {
+  "nome": "UOL Notícias",
+  "pagina": "https://noticias.uol.com.br/",
+  "feed": null,
+  "erro": "/feed: http-403 | /feed/: http-403 | /rss: http-403 | /rss.xml: http-403 | /feed.xml: http-403 | /rss/feed.xml: http-403",
+  "uf": null
+ },
+ {
+  "nome": "CNN Brasil",
+  "pagina": "https://www.cnnbrasil.com.br/",
+  "feed": null,
+  "erro": "/feed: rede: SSLError | /feed/: rede: SSLError | /rss: rede: ConnectionError | /rss.xml: http-404 | /feed.xml: rede: SSLError | /rss/feed.xml: rede: SSLError",
+  "uf": null
+ },
+ {
+  "nome": "Brasil 247",
+  "pagina": "https://www.brasil247.com/",
+  "feed": "https://www.brasil247.com/feed/",
+  "titulo_feed": "Brasil 247",
+  "itens": 10,
+  "uf": null
+ },
+ {
+  "nome": "CartaCapital",
+  "pagina": "https://www.cartacapital.com.br/",
+  "feed": null,
+  "erro": "homepage inacessível: SSLError",
+  "uf": null
+ },
+ {
+  "nome": "Agência Brasil",
+  "pagina": "https://agenciabrasil.ebc.com.br/",
+  "feed": "https://agenciabrasil.ebc.com.br/rss.xml",
+  "titulo_feed": "Agência Brasil",
+  "itens": 10,
+  "uf": null
+ },
+ {
+  "nome": "AC24horas",
+  "pagina": "https://ac24horas.com/",
+  "feed": "https://ac24horas.com/feed",
+  "titulo_feed": "ac24horas | Notícias do Acre",
+  "itens": 20,
+  "uf": "AC"
+ },
+ {
+  "nome": "Acre.com.br",
+  "pagina": "https://www.acre.com.br/",
+  "feed": "https://www.acre.com.br/feed/",
+  "titulo_feed": "Acre Notícias",
+  "itens": 8,
+  "uf": "AC"
+ },
+ {
+  "nome": "TNH1",
+  "pagina": "https://www.tnh1.com.br/",
+  "feed": "https://www.tnh1.com.br/feed/",
+  "titulo_feed": "TNH1",
+  "itens": 30,
+  "uf": "AL"
+ },
+ {
+  "nome": "Folha",
+  "pagina": "https://www.folha.uol.com.br/",
+  "feed": null,
+  "erro": "/feed: retornou HTML | /feed/: retornou HTML | /rss: retornou HTML | /rss.xml: http-404 | /feed.xml: http-404 | /rss/feed.xml: http-404",
+  "uf": null
+ },
+ {
+  "nome": "BBC Brasil",
+  "pagina": "https://www.bbc.com/portuguese",
+  "feed": "https://www.bbc.com/portuguese/feed",
+  "titulo_feed": "BBC Brasil",
+  "itens": 41,
+  "uf": null
+ },
+ {
+  "nome": "G1 AC",
+  "pagina": "https://g1.globo.com/ac/acre/",
+  "feed": "https://g1.globo.com/rss/g1/ac/acre/",
+  "titulo_feed": "g1 > Acre",
+  "itens": 100,
+  "uf": "AC"
+ },
+ {
+  "nome": "Tribuna Hoje",
+  "pagina": "https://tribunahoje.com/",
+  "feed": null,
+  "erro": "homepage inacessível: SSLError",
+  "uf": "AL"
+ },
+ {
+  "nome": "Diário do Amapá",
+  "pagina": "https://www.diariodoamapa.com.br/",
+  "feed": "https://www.diariodoamapa.com.br/feed",
+  "titulo_feed": "Diário do Amapá",
+  "itens": 10,
+  "uf": "AP"
+ },
+ {
+  "nome": "Exame",
+  "pagina": "https://www.exame.com/",
+  "feed": "https://www.exame.com/feed",
+  "titulo_feed": "(sem título)",
+  "itens": 25,
+  "uf": null
+ },
+ {
+  "nome": "Em Tempo",
+  "pagina": "https://emtempo.com.br/",
+  "feed": "https://emtempo.com.br/feed",
+  "titulo_feed": "Portal Em Tempo",
+  "itens": 10,
+  "uf": "AM"
+ },
+ {
+  "nome": "Jovem Pan",
+  "pagina": "https://jovempan.com.br/",
+  "feed": null,
+  "erro": "/wp-json/oembed/1.0/embed: rede: SSLError | /feed: rede: SSLError | /feed/: rede: SSLError | /rss: rede: SSLError | /rss.xml: rede: SSLError | /feed.xml: rede: SSLError",
+  "uf": null
+ },
+ {
+  "nome": "JDIA",
+  "pagina": "https://www.jdia.com.br/",
+  "feed": null,
+  "erro": "homepage inacessível: SSLError",
+  "uf": "AP"
+ },
+ {
+  "nome": "A Crítica",
+  "pagina": "https://www.acritica.com/",
+  "feed": null,
+  "erro": "homepage inacessível: SSLError",
+  "uf": "AM"
+ },
+ {
+  "nome": "A Tarde",
+  "pagina": "https://atarde.com.br/",
+  "feed": "https://atarde.com.br/rss",
+  "titulo_feed": "A TARDE",
+  "itens": 50,
+  "uf": "BA"
+ },
+ {
+  "nome": "G1 AP",
+  "pagina": "https://g1.globo.com/ap/amapa/",
+  "feed": "https://g1.globo.com/rss/g1/ap/amapa/",
+  "titulo_feed": "g1 > Amapá",
+  "itens": 100,
+  "uf": "AP"
+ },
+ {
+  "nome": "Diário do Amazonas",
+  "pagina": "https://www.diariodoamazonas.com.br/",
+  "feed": null,
+  "erro": "homepage inacessível: SSLError",
+  "uf": "AM"
+ },
+ {
+  "nome": "Correio 24h",
+  "pagina": "https://www.correio24horas.com.br/",
+  "feed": null,
+  "erro": "homepage inacessível: SSLError",
+  "uf": "BA"
+ },
+ {
+  "nome": "Bahia Notícias",
+  "pagina": "https://www.bahianoticias.com.br/",
+  "feed": null,
+  "erro": "homepage inacessível: SSLError",
+  "uf": "BA"
+ },
+ {
+  "nome": "G1 AM",
+  "pagina": "https://g1.globo.com/am/amazonas/",
+  "feed": "https://g1.globo.com/rss/g1/am/amazonas/",
+  "titulo_feed": "g1 > Amazonas",
+  "itens": 100,
+  "uf": "AM"
+ },
+ {
+  "nome": "R7",
+  "pagina": "https://www.r7.com/",
+  "feed": null,
+  "erro": "/feed: retornou HTML | /feed/: retornou HTML | /rss: http-404 | /rss.xml: http-404 | /feed.xml: http-404 | /rss/feed.xml: rede: SSLError",
+  "uf": null
+ },
+ {
+  "nome": "G1",
+  "pagina": "https://g1.globo.com/",
+  "feed": null,
+  "erro": "/feed: http-404 | /feed/: http-404 | /rss: http-404 | /rss.xml: http-404 | /feed.xml: rede: SSLError | /rss/feed.xml: rede: SSLError",
+  "uf": null
+ },
+ {
+  "nome": "O Povo",
+  "pagina": "https://www.opovo.com.br/",
+  "feed": null,
+  "erro": "homepage inacessível: SSLError",
+  "uf": "CE"
+ },
+ {
+  "nome": "Ceará Agora",
+  "pagina": "https://www.cearaagora.com.br/",
+  "feed": null,
+  "erro": "homepage inacessível: SSLError",
+  "uf": "CE"
+ },
+ {
+  "nome": "G1 BA",
+  "pagina": "https://g1.globo.com/ba/bahia/",
+  "feed": "https://g1.globo.com/rss/g1/ba/bahia/",
+  "titulo_feed": "g1 > Bahia",
+  "itens": 100,
+  "uf": "BA"
+ },
+ {
+  "nome": "ES360",
+  "pagina": "https://es360.com.br/",
+  "feed": null,
+  "erro": "homepage inacessível: ConnectionError",
+  "uf": "ES"
+ },
+ {
+  "nome": "G1 CE",
+  "pagina": "https://g1.globo.com/ce/ceara/",
+  "feed": "https://g1.globo.com/rss/g1/ce/ceara/",
+  "titulo_feed": "g1 > Ceará",
+  "itens": 100,
+  "uf": "CE"
+ },
+ {
+  "nome": "Jornal de Brasília",
+  "pagina": "https://jornaldebrasilia.com.br/",
+  "feed": "https://jornaldebrasilia.com.br/feed",
+  "titulo_feed": "Jornal de Brasília",
+  "itens": 20,
+  "uf": "DF"
+ },
+ {
+  "nome": "Diário do Nordeste",
+  "pagina": "https://diariodonordeste.verdesmares.com.br/",
+  "feed": "https://diariodonordeste.verdesmares.com.br/cmlink/feed-1.3009099",
+  "titulo_feed": "feed",
+  "itens": 20,
+  "uf": "CE"
+ },
+ {
+  "nome": "Mais Goiás",
+  "pagina": "https://www.maisgoias.com.br/",
+  "feed": "https://www.maisgoias.com.br/web-stories/feed/",
+  "titulo_feed": "Story | Mais Goiás",
+  "itens": 10,
+  "uf": "GO"
+ },
+ {
+  "nome": "IG",
+  "pagina": "https://www.ig.com.br/",
+  "feed": null,
+  "erro": "/feed: http-404 | /feed/: rede: SSLError | /rss: rede: SSLError | /rss.xml: rede: SSLError | /feed.xml: rede: SSLError | /rss/feed.xml: rede: SSLError",
+  "uf": null
+ },
+ {
+  "nome": "Folha Vitória",
+  "pagina": "https://www.folhavitoria.com.br/",
+  "feed": "https://www.folhavitoria.com.br/feed/",
+  "titulo_feed": "Folha Vitória",
+  "itens": 10,
+  "uf": "ES"
+ },
+ {
+  "nome": "O Popular",
+  "pagina": "https://opopular.com.br/",
+  "feed": null,
+  "erro": "homepage inacessível: SSLError",
+  "uf": "GO"
+ },
+ {
+  "nome": "DM",
+  "pagina": "https://www.dm.com.br/",
+  "feed": "https://www.dm.com.br/feed",
+  "titulo_feed": "Diário da Manhã – O Jornal do leitor Inteligente",
+  "itens": 2,
+  "uf": "GO"
+ },
+ {
+  "nome": "O Estado do MA",
+  "pagina": "https://oestadoma.com/",
+  "feed": null,
+  "erro": "homepage inacessível: SSLError",
+  "uf": "MA"
+ },
+ {
+  "nome": "G1 GO",
+  "pagina": "https://g1.globo.com/go/goias/",
+  "feed": "https://g1.globo.com/rss/g1/go/goias/",
+  "titulo_feed": "g1 > Goiás",
+  "itens": 100,
+  "uf": "GO"
+ },
+ {
+  "nome": "Diário de Cuiabá",
+  "pagina": "https://www.diariodecuiaba.com.br/",
+  "feed": "https://www.diariodecuiaba.com.br/rss.php",
+  "titulo_feed": "Diario de Cuiabá RSS",
+  "itens": 25,
+  "uf": "MT"
+ },
+ {
+  "nome": "Gazetaweb",
+  "pagina": "https://www.gazetaweb.com/",
+  "feed": null,
+  "erro": "/feed: rede: SSLError | /feed/: rede: SSLError | /rss: rede: ConnectionError | /rss.xml: rede: SSLError | /feed.xml: http-404 | /rss/feed.xml: http-404",
+  "uf": "AL"
+ },
+ {
+  "nome": "Empreender em Goiás",
+  "pagina": "https://www.empreenderemgoias.com.br/",
+  "feed": "https://www.empreenderemgoias.com.br/feed",
+  "titulo_feed": "Empreender em Goiás",
+  "itens": 10,
+  "uf": "GO"
+ },
+ {
+  "nome": "G1 MA",
+  "pagina": "https://g1.globo.com/ma/maranhao/",
+  "feed": "https://g1.globo.com/rss/g1/ma/maranhao/",
+  "titulo_feed": "g1 > Maranhão",
+  "itens": 100,
+  "uf": "MA"
+ },
+ {
+  "nome": "Campo Grande News",
+  "pagina": "https://www.campograndenews.com.br/",
+  "feed": "https://www.campograndenews.com.br/rss/rss.xml",
+  "titulo_feed": "Campo Grande News - Conteúdo de Verdade",
+  "itens": 20,
+  "uf": "MS"
+ },
+ {
+  "nome": "G1 MT",
+  "pagina": "https://g1.globo.com/mt/mato-grosso/",
+  "feed": "https://g1.globo.com/rss/g1/mt/mato-grosso/",
+  "titulo_feed": "g1 > Mato Grosso",
+  "itens": 100,
+  "uf": "MT"
+ },
+ {
+  "nome": "G1 AL",
+  "pagina": "https://g1.globo.com/al/alagoas/",
+  "feed": null,
+  "erro": "/al/alagoas/feed: rede: SSLError | /al/alagoas/feed/: rede: SSLError | /al/alagoas/rss: rede: SSLError | /al/alagoas/rss.xml: rede: SSLError | /al/alagoas/feed.xml: http-404 | /al/alagoas/rss/feed.xml: http-404",
+  "uf": "AL"
+ },
+ {
+  "nome": "G1 MS",
+  "pagina": "https://g1.globo.com/ms/mato-grosso-do-sul/",
+  "feed": null,
+  "erro": "homepage inacessível: SSLError",
+  "uf": "MS"
+ },
+ {
+  "nome": "Olhar Direto",
+  "pagina": "https://www.olhardireto.com.br/",
+  "feed": null,
+  "erro": "/feed: retornou HTML | /feed/: retornou HTML | /rss: retornou HTML | /rss.xml: retornou HTML | /feed.xml: retornou HTML | /rss/feed.xml: http-404",
+  "uf": "MT"
+ },
+ {
+  "nome": "O Imparcial",
+  "pagina": "https://oimparcial.com.br/",
+  "feed": "https://oimparcial.com.br/rss",
+  "titulo_feed": "O Imparcial",
+  "itens": 20,
+  "uf": "MA"
+ },
+ {
+  "nome": "Jornal Pequeno",
+  "pagina": "https://jornalpequeno.com.br/",
+  "feed": "https://jornalpequeno.com.br/rss",
+  "titulo_feed": "Jornal Pequeno",
+  "itens": 10,
+  "uf": "MA"
+ },
+ {
+  "nome": "Estado de Minas",
+  "pagina": "https://www.em.com.br/",
+  "feed": "https://www.em.com.br/feed",
+  "titulo_feed": "Estado de Minas Todos os artigos",
+  "itens": 20,
+  "uf": "MG"
+ },
+ {
+  "nome": "Correio do Estado",
+  "pagina": "https://correiodoestado.com.br/",
+  "feed": null,
+  "erro": "/feed: http-404 | /feed/: http-404 | /rss: http-404 | /rss.xml: http-404 | /feed.xml: http-404 | /rss/feed.xml: http-404",
+  "uf": "MS"
+ },
+ {
+  "nome": "Midiamax",
+  "pagina": "https://www.midiamax.com.br/",
+  "feed": null,
+  "erro": "/feed: http-403 | /feed/: http-403 | /rss: http-403 | /rss.xml: http-403 | /feed.xml: http-403 | /rss/feed.xml: http-403",
+  "uf": "MS"
+ },
+ {
+  "nome": "DOL",
+  "pagina": "https://dol.com.br/",
+  "feed": "https://dol.com.br/feed",
+  "titulo_feed": "DOL - Diário Online - Portal de NotÍcias",
+  "itens": 100,
+  "uf": "PA"
+ },
+ {
+  "nome": "G1 MG",
+  "pagina": "https://g1.globo.com/mg/minas-gerais/",
+  "feed": "https://g1.globo.com/rss/g1/mg/minas-gerais/",
+  "titulo_feed": "g1 > Minas Gerais",
+  "itens": 100,
+  "uf": "MG"
+ },
+ {
+  "nome": "O Liberal",
+  "pagina": "https://www.oliberal.com/",
+  "feed": null,
+  "erro": "homepage inacessível: SSLError",
+  "uf": "PA"
+ },
+ {
+  "nome": "Itatiaia",
+  "pagina": "https://itatiaia.com.br/",
+  "feed": null,
+  "erro": "homepage inacessível: SSLError",
+  "uf": "MG"
+ },
+ {
+  "nome": "Diário do Pará",
+  "pagina": "https://diariodopara.com.br/",
+  "feed": "https://diariodopara.com.br/feed/",
+  "titulo_feed": "Diário do Pará",
+  "itens": 10,
+  "uf": "PA"
+ },
+ {
+  "nome": "Jornal da Paraíba",
+  "pagina": "https://jornaldaparaiba.com.br/",
+  "feed": "https://jornaldaparaiba.com.br/rss",
+  "titulo_feed": "Jornal da Paraíba",
+  "itens": 50,
+  "uf": "PB"
+ },
+ {
+  "nome": "A Gazeta",
+  "pagina": "https://www.agazeta.com.br/",
+  "feed": null,
+  "erro": "/feed: http-404 | /feed/: http-404 | /rss: rede: ConnectionError | /rss.xml: rede: SSLError | /feed.xml: rede: SSLError | /rss/feed.xml: http-404",
+  "uf": "ES"
+ },
+ {
+  "nome": "G1 DF",
+  "pagina": "https://g1.globo.com/df/distrito-federal/",
+  "feed": "https://g1.globo.com/rss/g1/df/distrito-federal/",
+  "titulo_feed": "g1 > Distrito Federal",
+  "itens": 100,
+  "uf": "DF"
+ },
+ {
+  "nome": "G1 ES",
+  "pagina": "https://g1.globo.com/es/espirito-santo/",
+  "feed": "https://g1.globo.com/rss/g1/es/espirito-santo/",
+  "titulo_feed": "g1 > Espírito Santo",
+  "itens": 100,
+  "uf": "ES"
+ },
+ {
+  "nome": "A União",
+  "pagina": "https://auniao.pb.gov.br/",
+  "feed": "https://auniao.pb.gov.br/RSS",
+  "titulo_feed": "A União - Jornal, Editora e Gráfica",
+  "itens": 15,
+  "uf": "PB"
+ },
+ {
+  "nome": "Bem Paraná",
+  "pagina": "https://www.bemparana.com.br/",
+  "feed": "https://www.bemparana.com.br/feed/",
+  "titulo_feed": "Bem Paraná",
+  "itens": 14,
+  "uf": "PR"
+ },
+ {
+  "nome": "Banda B",
+  "pagina": "https://www.bandab.com.br/",
+  "feed": "https://www.bandab.com.br/feed/",
+  "titulo_feed": "Banda B",
+  "itens": 10,
+  "uf": "PR"
+ },
+ {
+  "nome": "G1 PB",
+  "pagina": "https://g1.globo.com/pb/paraiba/",
+  "feed": "https://g1.globo.com/rss/g1/pb/paraiba/",
+  "titulo_feed": "g1 > Paraíba",
+  "itens": 100,
+  "uf": "PB"
+ },
+ {
+  "nome": "WSCom",
+  "pagina": "https://www.wscom.com.br/",
+  "feed": "https://wscom.com.br/feed/",
+  "titulo_feed": "WSCOM – Quem sabe, faz conteúdo",
+  "itens": 10,
+  "uf": "PB"
+ },
+ {
+  "nome": "Hoje em Dia",
+  "pagina": "https://www.hojeemdia.com.br/",
+  "feed": null,
+  "erro": "/feed: http-404 | /feed/: http-404 | /rss: http-404 | /rss.xml: http-404 | /feed.xml: http-404 | /rss/feed.xml: http-404",
+  "uf": "MG"
+ },
+ {
+  "nome": "G1 PR",
+  "pagina": "https://g1.globo.com/pr/parana/",
+  "feed": "https://g1.globo.com/rss/g1/pr/parana/",
+  "titulo_feed": "g1 > Paraná",
+  "itens": 100,
+  "uf": "PR"
+ },
+ {
+  "nome": "Tribuna PR",
+  "pagina": "https://www.tribunapr.com.br/",
+  "feed": "https://www.tribunapr.com.br/feed/",
+  "titulo_feed": "Tribuna do Paraná",
+  "itens": 10,
+  "uf": "PR"
+ },
+ {
+  "nome": "Gazeta do Povo",
+  "pagina": "https://www.gazetadopovo.com.br/",
+  "feed": null,
+  "erro": "/feed: retornou HTML | /feed/: retornou HTML | /rss: retornou HTML | /rss.xml: http-404 | /feed.xml: retornou HTML | /rss/feed.xml: http-404",
+  "uf": "PR"
+ },
+ {
+  "nome": "Gazeta Digital",
+  "pagina": "https://www.gazetadigital.com.br/",
+  "feed": null,
+  "erro": "/feed: http-404 | /feed/: http-404 | /rss: http-404 | /rss.xml: http-404 | /feed.xml: http-404 | /rss/feed.xml: http-404",
+  "uf": "MT"
+ },
+ {
+  "nome": "JC",
+  "pagina": "https://jc.uol.com.br/",
+  "feed": "https://jc.uol.com.br/ultimas/rss.xml",
+  "titulo_feed": "Metro Quadrado por Lucas Moraes: Mercado Imobiliário em PE",
+  "itens": 30,
+  "uf": "PE"
+ },
+ {
+  "nome": "O Tempo",
+  "pagina": "https://www.otempo.com.br/",
+  "feed": null,
+  "erro": "/feed: http-404 | /feed/: http-404 | /rss: http-404 | /rss.xml: http-404 | /feed.xml: http-404 | /rss/feed.xml: http-404",
+  "uf": "MG"
+ },
+ {
+  "nome": "Extra",
+  "pagina": "https://extra.globo.com/",
+  "feed": null,
+  "erro": "homepage inacessível: SSLError",
+  "uf": "RJ"
+ },
+ {
+  "nome": "O Dia",
+  "pagina": "https://odia.ig.com.br/",
+  "feed": null,
+  "erro": "homepage inacessível: SSLError",
+  "uf": "RJ"
+ },
+ {
+  "nome": "Folha PE",
+  "pagina": "https://www.folhape.com.br/",
+  "feed": null,
+  "erro": "/feed: http-404 | /feed/: http-404 | /rss: http-404 | /rss.xml: http-404 | /feed.xml: http-404 | /rss/feed.xml: http-404",
+  "uf": "PE"
+ },
+ {
+  "nome": "G1 PA",
+  "pagina": "https://g1.globo.com/pa/para/",
+  "feed": "https://g1.globo.com/rss/g1/pa/para/",
+  "titulo_feed": "g1 > Pará",
+  "itens": 100,
+  "uf": "PA"
+ },
+ {
+  "nome": "G1 PI",
+  "pagina": "https://g1.globo.com/pi/piaui/",
+  "feed": "https://g1.globo.com/rss/g1/pi/piaui/",
+  "titulo_feed": "g1 > Piauí",
+  "itens": 100,
+  "uf": "PI"
+ },
+ {
+  "nome": "Cidade Verde",
+  "pagina": "https://cidadeverde.com/",
+  "feed": null,
+  "erro": "/feed: http-404 | /feed/: http-404 | /rss: rede: SSLError | /rss.xml: http-404 | /feed.xml: http-404 | /rss/feed.xml: http-404",
+  "uf": "PI"
+ },
+ {
+  "nome": "Agora RN",
+  "pagina": "https://agorarn.com.br/",
+  "feed": "https://agorarn.com.br/feed/",
+  "titulo_feed": "Agora RN",
+  "itens": 10,
+  "uf": "RN"
+ },
+ {
+  "nome": "Tribuna do Norte",
+  "pagina": "https://tribunadonorte.com.br/",
+  "feed": "https://tribunadonorte.com.br/feed/",
+  "titulo_feed": "Tribuna do Norte",
+  "itens": 5,
+  "uf": "RN"
+ },
+ {
+  "nome": "Diario de Pernambuco",
+  "pagina": "https://www.diariodepernambuco.com.br/",
+  "feed": null,
+  "erro": "/feed: http-403 | /feed/: rede: SSLError | /rss: http-403 | /rss.xml: http-403 | /feed.xml: http-403 | /rss/feed.xml: http-403",
+  "uf": "PE"
+ },
+ {
+  "nome": "LeiaJá",
+  "pagina": "https://www.leiaja.com/",
+  "feed": null,
+  "erro": "/feed: http-403 | /feed/: http-403 | /rss: http-403 | /rss.xml: http-403 | /feed.xml: http-403 | /rss/feed.xml: http-403",
+  "uf": "PE"
+ },
+ {
+  "nome": "G1 PE",
+  "pagina": "https://g1.globo.com/pe/pernambuco/",
+  "feed": "https://g1.globo.com/rss/g1/pe/pernambuco/",
+  "titulo_feed": "g1 > Pernambuco",
+  "itens": 100,
+  "uf": "PE"
+ },
+ {
+  "nome": "Jornal do Comércio",
+  "pagina": "https://www.jornaldocomercio.com/",
+  "feed": null,
+  "erro": "homepage inacessível: SSLError",
+  "uf": "RS"
+ },
+ {
+  "nome": "Matinal",
+  "pagina": "https://www.matinaljornalismo.com.br/",
+  "feed": null,
+  "erro": "homepage inacessível: SSLError",
+  "uf": "RS"
+ },
+ {
+  "nome": "G1 RO",
+  "pagina": "https://g1.globo.com/ro/rondonia/",
+  "feed": null,
+  "erro": "homepage inacessível: SSLError",
+  "uf": "RO"
+ },
+ {
+  "nome": "GP1",
+  "pagina": "https://www.gp1.com.br/",
+  "feed": null,
+  "erro": "/portalgp1: rede: SSLError | /feed: http-404 | /feed/: http-404 | /rss: http-404 | /rss.xml: http-404 | /feed.xml: http-404",
+  "uf": "PI"
+ },
+ {
+  "nome": "G1 RJ",
+  "pagina": "https://g1.globo.com/rj/rio-de-janeiro/",
+  "feed": "https://g1.globo.com/rss/g1/rj/rio-de-janeiro/",
+  "titulo_feed": "g1 > Rio de Janeiro",
+  "itens": 100,
+  "uf": "RJ"
+ },
+ {
+  "nome": "Novo Notícias",
+  "pagina": "https://www.novonoticias.com.br/",
+  "feed": "https://www.novonoticias.com.br/feed",
+  "titulo_feed": "NOVO Notícias",
+  "itens": 100,
+  "uf": "RN"
+ },
+ {
+  "nome": "Rondônia Agora",
+  "pagina": "https://www.rondoniagora.com/",
+  "feed": "https://www.rondoniagora.com/rss",
+  "titulo_feed": "Rondoniagora.com",
+  "itens": 15,
+  "uf": "RO"
+ },
+ {
+  "nome": "JB",
+  "pagina": "https://www.jb.com.br/",
+  "feed": null,
+  "erro": "/feed: http-403 | /feed/: http-403 | /rss: http-403 | /rss.xml: http-403 | /feed.xml: http-403 | /rss/feed.xml: rede: SSLError",
+  "uf": "RJ"
+ },
+ {
+  "nome": "Folha BV",
+  "pagina": "https://www.folhabv.com.br/",
+  "feed": "https://www.folhabv.com.br/feed/",
+  "titulo_feed": "Folha BV",
+  "itens": 10,
+  "uf": "RR"
+ },
+ {
+  "nome": "G1 RN",
+  "pagina": "https://g1.globo.com/rn/rio-grande-do-norte/",
+  "feed": "https://g1.globo.com/rss/g1/rn/rio-grande-do-norte/",
+  "titulo_feed": "g1 > Rio Grande do Norte",
+  "itens": 100,
+  "uf": "RN"
+ },
+ {
+  "nome": "Roraima em Tempo",
+  "pagina": "https://roraimaemtempo.com.br/",
+  "feed": "https://roraimaemtempo.com.br/feed/",
+  "titulo_feed": "Roraima em Tempo",
+  "itens": 12,
+  "uf": "RR"
+ },
+ {
+  "nome": "DC",
+  "pagina": "https://diariocatarinense.com.br/",
+  "feed": null,
+  "erro": "homepage inacessível: SSLError",
+  "uf": "SC"
+ },
+ {
+  "nome": "ND+",
+  "pagina": "https://ndmais.com.br/",
+  "feed": "https://ndmais.com.br/feed/",
+  "titulo_feed": "ND Mais",
+  "itens": 20,
+  "uf": "SC"
+ },
+ {
+  "nome": "Meio Norte",
+  "pagina": "https://www.meionorte.com/",
+  "feed": null,
+  "erro": "/feed: http-404 | /feed/: rede: SSLError | /rss: http-404 | /rss.xml: http-404 | /feed.xml: http-404 | /rss/feed.xml: http-404",
+  "uf": "PI"
+ },
+ {
+  "nome": "NSC Total",
+  "pagina": "https://www.nsctotal.com.br/",
+  "feed": "https://www.nsctotal.com.br/feed",
+  "titulo_feed": "NSC Total",
+  "itens": 20,
+  "uf": "SC"
+ },
+ {
+  "nome": "GauchaZH",
+  "pagina": "https://gauchazh.clicrbs.com.br/",
+  "feed": null,
+  "erro": "/feed: http-404 | /feed/: http-404 | /rss: http-404 | /rss.xml: http-404 | /feed.xml: http-404 | /rss/feed.xml: http-404",
+  "uf": "RS"
+ },
+ {
+  "nome": "Correio de Sergipe",
+  "pagina": "https://www.correiodosergipe.com.br/",
+  "feed": null,
+  "erro": "homepage inacessível: ConnectionError",
+  "uf": "SE"
+ },
+ {
+  "nome": "G1 RS",
+  "pagina": "https://g1.globo.com/rs/rio-grande-do-sul/",
+  "feed": "https://g1.globo.com/rss/g1/rs/rio-grande-do-sul/",
+  "titulo_feed": "g1 > Rio Grande do Sul",
+  "itens": 100,
+  "uf": "RS"
+ },
+ {
+  "nome": "Correio do Povo",
+  "pagina": "https://www.correiodopovo.com.br/",
+  "feed": null,
+  "erro": "/feed: http-404 | /feed/: http-404 | /rss: http-404 | /rss.xml: http-404 | /feed.xml: http-404 | /rss/feed.xml: http-404",
+  "uf": "RS"
+ },
+ {
+  "nome": "FaxAju",
+  "pagina": "https://www.faxaju.com.br/",
+  "feed": null,
+  "erro": "homepage inacessível: SSLError",
+  "uf": "SE"
+ },
+ {
+  "nome": "G1 TO",
+  "pagina": "https://g1.globo.com/to/tocantins/",
+  "feed": null,
+  "erro": "homepage inacessível: SSLError",
+  "uf": "TO"
+ },
+ {
+  "nome": "SCC10",
+  "pagina": "https://www.scc10.com.br/",
+  "feed": "https://www.scc10.com.br/feed",
+  "titulo_feed": "SCC10",
+  "itens": 10,
+  "uf": "SC"
+ },
+ {
+  "nome": "Jornal do Tocantins",
+  "pagina": "https://www.jornaldotocantins.com.br/",
+  "feed": null,
+  "erro": "homepage inacessível: ConnectionError",
+  "uf": "TO"
+ },
+ {
+  "nome": "Infonet",
+  "pagina": "https://infonet.com.br/",
+  "feed": "https://infonet.com.br/feed/",
+  "titulo_feed": "O que é notícia em Sergipe",
+  "itens": 10,
+  "uf": "SE"
+ },
+ {
+  "nome": "G1 RR",
+  "pagina": "https://g1.globo.com/rr/roraima/",
+  "feed": "https://g1.globo.com/rss/g1/rr/roraima/",
+  "titulo_feed": "g1 > Roraima",
+  "itens": 100,
+  "uf": "RR"
+ },
+ {
+  "nome": "Cleber Toledo",
+  "pagina": "https://clebertoledo.com.br/",
+  "feed": "https://clebertoledo.com.br/feed/",
+  "titulo_feed": "Cleber Toledo – Coluna do CT",
+  "itens": 10,
+  "uf": "TO"
+ },
+ {
+  "nome": "G1 SC",
+  "pagina": "https://g1.globo.com/sc/santa-catarina/",
+  "feed": "https://g1.globo.com/rss/g1/sc/santa-catarina/",
+  "titulo_feed": "g1 > Santa Catarina",
+  "itens": 100,
+  "uf": "SC"
+ },
+ {
+  "nome": "Diário do Grande ABC",
+  "pagina": "https://www.diariodograndeabc.com.br/",
+  "feed": null,
+  "erro": "/feed: http-525 | /feed/: http-525 | /rss: http-525 | /rss.xml: http-525 | /feed.xml: http-525 | /rss/feed.xml: http-525",
+  "uf": "SP"
+ },
+ {
+  "nome": "G1 SP",
+  "pagina": "https://g1.globo.com/sp/sao-paulo/",
+  "feed": "https://g1.globo.com/rss/g1/sp/sao-paulo/",
+  "titulo_feed": "g1 > São Paulo",
+  "itens": 100,
+  "uf": "SP"
+ },
+ {
+  "nome": "ABC do ABC",
+  "pagina": "https://www.abcdoabc.com.br/",
+  "feed": null,
+  "erro": "/feed: retornou HTML | /feed/: retornou HTML | /rss: rede: SSLError | /rss.xml: retornou HTML | /feed.xml: retornou HTML | /rss/feed.xml: retornou HTML",
+  "uf": "SP"
+ },
+ {
+  "nome": "Rondônia Ao Vivo",
+  "pagina": "https://www.rondoniaovivo.com/",
+  "feed": null,
+  "erro": "/feed: retornou HTML | /feed/: retornou HTML | /rss: retornou HTML | /rss.xml: http-404 | /feed.xml: http-404 | /rss/feed.xml: http-404",
+  "uf": "RO"
+ },
+ {
+  "nome": "G1 SE",
+  "pagina": "https://g1.globo.com/se/sergipe/",
+  "feed": "https://g1.globo.com/rss/g1/se/sergipe/",
+  "titulo_feed": "g1 > Sergipe",
+  "itens": 100,
+  "uf": "SE"
+ },
+ {
+  "nome": "Diário da Amazônia",
+  "pagina": "https://www.diariodaamazonia.com.br/",
+  "feed": null,
+  "erro": "/feed: http-404 | /feed/: http-404 | /rss: http-404 | /rss.xml: rede: SSLError | /feed.xml: http-404 | /rss/feed.xml: http-404",
+  "uf": "RO"
+ },
+ {
+  "nome": "AF Notícias",
+  "pagina": "https://afnoticias.com.br/",
+  "feed": null,
+  "erro": "/feed: http-404 | /feed/: http-404 | /rss: http-404 | /rss.xml: http-404 | /feed.xml: http-404 | /rss/feed.xml: http-404",
+  "uf": "TO"
+ }
+]

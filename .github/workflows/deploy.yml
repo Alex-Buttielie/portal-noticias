@@ -1,0 +1,206 @@
+name: Deploy portal (reutilizável)
+
+# Workflow ÚNICO que implanta UM ambiente (DEV/HOMOLOG/PROD) na VPS via
+# PM2 + Nginx. Os callers (deploy-dev/homolog/prod.yml) só definem trigger +
+# parâmetros — qualquer correção aqui vale para os 3 ambientes de uma vez
+# (anti-drift por construção; ver PROD_DECISOES.md "homogeneidade").
+#
+# Invariantes preservadas dos workflows antigos (não mudar sem motivo):
+# - guard: npm ci + tsc + pip install + manage.py check (sqlite/locmem);
+# - .env criado UMA vez (nunca sobrescrito) com SECRET aleatória;
+# - migrate + collectstatic a cada deploy; pm2 delete/start + save;
+# - frontend rebuild com NEXT_PUBLIC_* do ambiente;
+# - validate: DEV/HOMOLOG avisam (warn), PROD falha (exit 1).
+
+on:
+  workflow_call:
+    inputs:
+      env_label:
+        description: "Rótulo curto para logs (DEV, HOMOLOG ou PROD)"
+        required: true
+        type: string
+      environment_name:
+        description: "Environment do GitHub (development, homolog, production)"
+        required: true
+        type: string
+      app_dir:
+        description: "Diretório na VPS, ex.: /home/apps/portal-dev"
+        required: true
+        type: string
+      git_mode:
+        description: "branch | pr | tag"
+        required: true
+        type: string
+      git_ref:
+        description: "Branch (modo branch) ou tag (modo tag); ignorado no modo pr"
+        required: false
+        type: string
+        default: ""
+      pr_number:
+        description: "Número do PR (só modo pr)"
+        required: false
+        type: string
+        default: ""
+      pm_suffix:
+        description: "Sufixo dos processos pm2 (dev, homolog, prod)"
+        required: true
+        type: string
+      web_port:
+        required: true
+        type: string
+      api_port:
+        required: true
+        type: string
+      host:
+        description: "Domínio canônico do ambiente"
+        required: true
+        type: string
+      allowed_hosts_extra:
+        description: "Sufixo extra de hosts, ex.: ',www.portal-noticias.com.br' (só PROD)"
+        required: false
+        type: string
+        default: ""
+      db_name:
+        required: true
+        type: string
+      db_user:
+        required: true
+        type: string
+      strict_validate:
+        description: "true = falha se API/web não responderem (PROD); false = só avisa"
+        required: false
+        type: boolean
+        default: false
+      guard_ref:
+        description: "Ref para o checkout do guard (vazio = default do evento)"
+        required: false
+        type: string
+        default: ""
+    secrets:
+      VPS_HOST:
+        required: true
+      VPS_USER:
+        required: true
+      VPS_PASSWORD:
+        required: true
+      VPS_PORT:
+        required: true
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.guard_ref != '' && inputs.guard_ref || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: npm ci
+        working-directory: frontend
+      - run: npx tsc --noEmit
+        working-directory: frontend
+      - run: pip install -r requirements.txt
+        working-directory: backend
+        env:
+          DJANGO_DEBUG: "true"
+          DJANGO_DB_ENGINE: sqlite3
+          DJANGO_CACHE_BACKEND: locmem
+      - run: python manage.py check
+        working-directory: backend
+        env:
+          DJANGO_DEBUG: "true"
+          DJANGO_DB_ENGINE: sqlite3
+          DJANGO_CACHE_BACKEND: locmem
+
+  deploy:
+    needs: guard
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment_name }}
+    steps:
+      - name: Deploy to VPS (${{ inputs.env_label }})
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          password: ${{ secrets.VPS_PASSWORD }}
+          port: ${{ secrets.VPS_PORT }}
+          script: |
+            set -e
+            export NVM_DIR="$HOME/.nvm"; [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"; nvm use 20
+            APP_DIR="${{ inputs.app_dir }}"; WEB_PORT=${{ inputs.web_port }}; API_PORT=${{ inputs.api_port }}
+            HOST="${{ inputs.host }}"; DB_NAME="${{ inputs.db_name }}"; DB_USER="${{ inputs.db_user }}"
+            SUF="${{ inputs.pm_suffix }}"; LABEL="${{ inputs.env_label }}"
+            # Origens públicas via Nginx (mesma origem do navegador — ver
+            # infra/nginx/portal-{dev,homolog,prod}.conf): o frontend chama a
+            # API pelo path /api/ do próprio domínio, então não há
+            # mixed-content nem CORS — e o backend usa o mesmo host para CORS
+            # e links de e-mail. NUNCA usar http://IP:porta aqui: é bloqueado
+            # como mixed-content em página https e não está na allowlist de
+            # CORS (acesso por IP é contingência manual — ver DEPLOY.md).
+            API_ORIGIN="https://$HOST"; WEB_ORIGIN="https://$HOST"
+            echo "=== Deploy $LABEL portal-noticias ==="
+            mkdir -p /home/apps
+            [ -d "$APP_DIR/.git" ] || git clone -b "${{ inputs.git_ref }}" https://github.com/Alex-Buttielie/portal-noticias.git "$APP_DIR"
+            cd "$APP_DIR"
+            if [ "${{ inputs.git_mode }}" = "pr" ]; then
+              # Fetch direto do ref do PR: funciona tanto para PR do mesmo
+              # repo quanto de fork (origin/${head_ref} só existe no primeiro).
+              git fetch origin "+refs/pull/${{ inputs.pr_number }}/head:pr-head"; git reset --hard pr-head
+            elif [ "${{ inputs.git_mode }}" = "tag" ]; then
+              git fetch --all --tags --force; git reset --hard "origin/main"; git checkout "${{ inputs.git_ref }}"
+            else
+              git fetch origin; git reset --hard "origin/${{ inputs.git_ref }}"
+            fi
+            if [ ! -f backend/.env ]; then
+              SECRET=$(python3 -c "import secrets;print(secrets.token_urlsafe(50))")
+              printf 'DJANGO_SECRET_KEY=%s\nDJANGO_DEBUG=false\nDJANGO_ALLOWED_HOSTS=%s%s,108.174.147.50,localhost,127.0.0.1\nDJANGO_SECURE_SSL_REDIRECT=false\nDJANGO_SESSION_COOKIE_SECURE=false\nDJANGO_CSRF_COOKIE_SECURE=false\nDJANGO_DB_ENGINE=postgresql\nDJANGO_DB_NAME=%s\nDJANGO_DB_USER=%s\nDJANGO_DB_PASSWORD=troque-aqui\nDJANGO_DB_HOST=localhost\nDJANGO_DB_PORT=5432\nFRONTEND_BASE_URL=%s\n' "$SECRET" "$HOST" "${{ inputs.allowed_hosts_extra }}" "$DB_NAME" "$DB_USER" "$WEB_ORIGIN" > backend/.env
+              chmod 600 backend/.env
+            fi
+            cd "$APP_DIR/frontend"
+            npm ci
+            NEXT_PUBLIC_API_BASE_URL="$API_ORIGIN" NEXT_PUBLIC_SITE_URL="$WEB_ORIGIN" npm run build
+            cd "$APP_DIR/backend"
+            python3 -m venv .venv 2>/dev/null || true
+            . .venv/bin/activate
+            pip install -r requirements.txt
+            set -a; . ./.env; set +a
+            if [ "${DJANGO_DB_PASSWORD:-troque-aqui}" = "troque-aqui" ]; then echo "ERRO: preencha DJANGO_DB_PASSWORD em $APP_DIR/backend/.env (Postgres da VPS — ver CI-CD.md)"; exit 1; fi
+            python manage.py check
+            python manage.py migrate
+            python manage.py collectstatic --noinput
+            pm2 delete "portal-web-$SUF" 2>/dev/null || true
+            pm2 delete "portal-api-$SUF" 2>/dev/null || true
+            cd "$APP_DIR/frontend"
+            PORT=$WEB_PORT pm2 start npm --name "portal-web-$SUF" -- start
+            cd "$APP_DIR/backend"
+            # Binário + args separados: pm2 não resolve string única citada
+            # como executável. --interpreter explícito: o binário gunicorn não
+            # tem extensão e o pm2 o executaria com node (SyntaxError).
+            DJANGO_SETTINGS_MODULE=config.settings pm2 start "$APP_DIR/backend/.venv/bin/gunicorn" --interpreter "$APP_DIR/backend/.venv/bin/python" --name "portal-api-$SUF" -- config.wsgi:application --bind "0.0.0.0:$API_PORT" --workers 2
+            pm2 save
+            echo "=== $LABEL deployed $WEB_PORT(web) $API_PORT(api) ==="
+
+  validate:
+    needs: deploy
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment_name }}
+    steps:
+      - name: Validate ${{ inputs.env_label }}
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          password: ${{ secrets.VPS_PASSWORD }}
+          port: ${{ secrets.VPS_PORT }}
+          script: |
+            export NVM_DIR="$HOME/.nvm"; [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"; nvm use 20
+            sleep 5
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:${{ inputs.api_port }}/healthz || echo "000")
+            echo "${{ inputs.env_label }} api: $HTTP_CODE"
+            if [ "$HTTP_CODE" = "200" ]; then echo "${{ inputs.env_label }} api ok"; elif [ "${{ inputs.strict_validate }}" = "true" ]; then echo "${{ inputs.env_label }} FAIL"; pm2 logs "portal-api-${{ inputs.pm_suffix }}" --lines 30 --nostream 2>/dev/null || pm2 logs --lines 30 --nostream; exit 1; else echo "${{ inputs.env_label }} api warn $HTTP_CODE"; fi
+            if curl -sf -o /dev/null http://localhost:${{ inputs.web_port }}/; then echo "${{ inputs.env_label }} web ok"; elif [ "${{ inputs.strict_validate }}" = "true" ]; then echo "${{ inputs.env_label }} web FAIL"; exit 1; else echo "${{ inputs.env_label }} web warn"; fi
+            pm2 status | grep portal || pm2 status

@@ -468,7 +468,19 @@ FRONTEND_BASE_URL = os.environ.get("FRONTEND_BASE_URL", "http://localhost:3000")
 # backend (localhost:8000) — chamadas fetch() do navegador exigem CORS
 # habilitado explicitamente. Só a origem do próprio frontend é permitida
 # (não CORS_ALLOW_ALL_ORIGINS=True, que seria excessivamente permissivo).
-CORS_ALLOWED_ORIGINS = [FRONTEND_BASE_URL]
+# Contingência por IP (sem DNS): origens extras via DJANGO_CORS_EXTRA_ORIGINS
+# (separadas por vírgula, ex.: "http://108.174.147.50:3103") — permite usar o
+# portal direto pelo IP enquanto o domínio não resolve. O canônico continua
+# sendo o domínio via Nginx (FRONTEND_BASE_URL).
+def _parse_extra_origins(raw: str) -> list:
+    """Origens extras de `DJANGO_CORS_EXTRA_ORIGINS` (vírgula): ignora vazios
+    e espaços. Função pura para ser testável sem recarregar o settings."""
+    return [origem.strip() for origem in (raw or "").split(",") if origem.strip()]
+
+
+CORS_ALLOWED_ORIGINS = [FRONTEND_BASE_URL] + _parse_extra_origins(
+    os.environ.get("DJANGO_CORS_EXTRA_ORIGINS", "")
+)
 CORS_ALLOW_CREDENTIALS = True
 
 # Expiração de tokens (segundos).
@@ -560,15 +572,96 @@ CELERY_BEAT_SCHEDULE = {
 
 # Fontes-semente (RSS público) — configuração, não hardcoded na lógica de
 # negócio (`services/ingestao.py` lê daqui via
-# `construir_fontes_configuradas()`). URLs validadas manualmente em
-# 2026-09-02 pelo executor (ver implementation-history.md); nenhuma
-# substituição foi necessária — todas retornaram HTTP 200 (CNN Brasil via
-# redirect 302 -> 200, seguido automaticamente pelo cliente HTTP).
+# `construir_fontes_configuradas()`). Nacionais (uf None) + regionais (uf =
+# sigla). TODAS verificadas ao vivo em 2026-09-18 (HTTP 200 + entries com
+# pubDate < 48h) via `manage.py descobrir_feeds` — ver
+# `catalogo_noticias/fontes_candidatas.json` e `feeds_descobertos.json`.
+# Excluídas com motivo: Estadão (sem feed RSS público), R7 (sem endpoint
+# válido), Correio Braziliense (feed congelado em 2024), Mais Goiás
+# (web-stories desatualizado; /feed principal vazio), IG homepage (usar
+# Último Segundo).
 CATALOGO_NOTICIAS_FONTES_RSS = [
-    {"nome": "G1", "url": "https://g1.globo.com/rss/g1/"},
-    {"nome": "UOL", "url": "https://rss.uol.com.br/feed/noticias.xml"},
-    {"nome": "CNN Brasil", "url": "https://www.cnnbrasil.com.br/feed/"},
-    {"nome": "Folha - Em Cima da Hora", "url": "https://feeds.folha.uol.com.br/emcimadahora/rss091.xml"},
+    {"nome": "G1", "url": "https://g1.globo.com/rss/g1/", "uf": None},
+    {"nome": "UOL Notícias", "url": "https://rss.uol.com.br/feed/noticias.xml", "uf": None},
+    {"nome": "CNN Brasil", "url": "https://www.cnnbrasil.com.br/feed/", "uf": None},
+    {"nome": "Folha - Em Cima da Hora", "url": "https://feeds.folha.uol.com.br/emcimadahora/rss091.xml", "uf": None},
+    {"nome": "O Globo", "url": "https://oglobo.globo.com/rss/oglobo", "uf": None},
+    {"nome": "Metrópoles", "url": "https://www.metropoles.com/feed", "uf": None},
+    {"nome": "Terra", "url": "https://www.terra.com.br/rss", "uf": None},
+    {"nome": "Veja", "url": "https://veja.abril.com.br/feed/", "uf": None},
+    {"nome": "IstoÉ", "url": "https://istoe.com.br/feed", "uf": None},
+    {"nome": "Agência Brasil", "url": "https://agenciabrasil.ebc.com.br/rss/ultimasnoticias/feed.xml", "uf": None},
+    {"nome": "Jovem Pan", "url": "https://jovempan.com.br/feed", "uf": None},
+    {"nome": "Poder360", "url": "https://www.poder360.com.br/feed/", "uf": None},
+    {"nome": "Brasil 247", "url": "https://www.brasil247.com/feed", "uf": None},
+    {"nome": "IG", "url": "https://ultimosegundo.ig.com.br/rss", "uf": None},
+    {"nome": "Exame", "url": "https://www.exame.com/feed", "uf": None},
+    {"nome": "BBC Brasil", "url": "https://feeds.bbci.co.uk/portuguese/rss.xml", "uf": None},
+    {"nome": "CartaCapital", "url": "https://www.cartacapital.com.br/feed/", "uf": None},
+    {"nome": "G1 AC", "url": "https://g1.globo.com/rss/g1/ac/acre/", "uf": "AC"},
+    {"nome": "AC24horas", "url": "https://ac24horas.com/feed", "uf": "AC"},
+    {"nome": "Acre.com.br", "url": "https://www.acre.com.br/feed/", "uf": "AC"},
+    {"nome": "G1 AL", "url": "https://g1.globo.com/rss/g1/al/alagoas/", "uf": "AL"},
+    {"nome": "TNH1", "url": "https://www.tnh1.com.br/feed/", "uf": "AL"},
+    {"nome": "G1 AM", "url": "https://g1.globo.com/rss/g1/am/amazonas/", "uf": "AM"},
+    {"nome": "Em Tempo", "url": "https://emtempo.com.br/feed", "uf": "AM"},
+    {"nome": "G1 AP", "url": "https://g1.globo.com/rss/g1/ap/amapa/", "uf": "AP"},
+    {"nome": "Diário do Amapá", "url": "https://www.diariodoamapa.com.br/feed", "uf": "AP"},
+    {"nome": "G1 BA", "url": "https://g1.globo.com/rss/g1/ba/bahia/", "uf": "BA"},
+    {"nome": "A Tarde", "url": "https://atarde.com.br/rss", "uf": "BA"},
+    {"nome": "G1 CE", "url": "https://g1.globo.com/rss/g1/ce/ceara/", "uf": "CE"},
+    {"nome": "Diário do Nordeste", "url": "https://diariodonordeste.verdesmares.com.br/cmlink/feed-1.3009099", "uf": "CE"},
+    {"nome": "G1 DF", "url": "https://g1.globo.com/rss/g1/df/distrito-federal/", "uf": "DF"},
+    {"nome": "Jornal de Brasília", "url": "https://jornaldebrasilia.com.br/feed", "uf": "DF"},
+    {"nome": "G1 ES", "url": "https://g1.globo.com/rss/g1/es/espirito-santo/", "uf": "ES"},
+    {"nome": "Folha Vitória", "url": "https://www.folhavitoria.com.br/feed/", "uf": "ES"},
+    {"nome": "G1 GO", "url": "https://g1.globo.com/rss/g1/go/goias/", "uf": "GO"},
+    {"nome": "DM", "url": "https://www.dm.com.br/feed", "uf": "GO"},
+    {"nome": "Empreender em Goiás", "url": "https://www.empreenderemgoias.com.br/feed", "uf": "GO"},
+    {"nome": "G1 MA", "url": "https://g1.globo.com/rss/g1/ma/maranhao/", "uf": "MA"},
+    {"nome": "Jornal Pequeno", "url": "https://jornalpequeno.com.br/rss", "uf": "MA"},
+    {"nome": "O Imparcial", "url": "https://oimparcial.com.br/rss", "uf": "MA"},
+    {"nome": "G1 MG", "url": "https://g1.globo.com/rss/g1/mg/minas-gerais/", "uf": "MG"},
+    {"nome": "Estado de Minas", "url": "https://www.em.com.br/feed", "uf": "MG"},
+    {"nome": "G1 MS", "url": "https://g1.globo.com/rss/g1/ms/mato-grosso-do-sul/", "uf": "MS"},
+    {"nome": "Campo Grande News", "url": "https://www.campograndenews.com.br/rss/rss.xml", "uf": "MS"},
+    {"nome": "G1 MT", "url": "https://g1.globo.com/rss/g1/mt/mato-grosso/", "uf": "MT"},
+    {"nome": "Diário de Cuiabá", "url": "https://www.diariodecuiaba.com.br/rss.php", "uf": "MT"},
+    {"nome": "G1 PA", "url": "https://g1.globo.com/rss/g1/pa/para/", "uf": "PA"},
+    {"nome": "DOL", "url": "https://dol.com.br/feed", "uf": "PA"},
+    {"nome": "Diário do Pará", "url": "https://diariodopara.com.br/feed/", "uf": "PA"},
+    {"nome": "G1 PB", "url": "https://g1.globo.com/rss/g1/pb/paraiba/", "uf": "PB"},
+    {"nome": "A União", "url": "https://auniao.pb.gov.br/RSS", "uf": "PB"},
+    {"nome": "Jornal da Paraíba", "url": "https://jornaldaparaiba.com.br/rss", "uf": "PB"},
+    {"nome": "WSCom", "url": "https://wscom.com.br/feed/", "uf": "PB"},
+    {"nome": "G1 PE", "url": "https://g1.globo.com/rss/g1/pe/pernambuco/", "uf": "PE"},
+    {"nome": "JC", "url": "https://jc.uol.com.br/ultimas/rss.xml", "uf": "PE"},
+    {"nome": "G1 PI", "url": "https://g1.globo.com/rss/g1/pi/piaui/", "uf": "PI"},
+    {"nome": "G1 PR", "url": "https://g1.globo.com/rss/g1/pr/parana/", "uf": "PR"},
+    {"nome": "Banda B", "url": "https://www.bandab.com.br/feed/", "uf": "PR"},
+    {"nome": "Bem Paraná", "url": "https://www.bemparana.com.br/feed/", "uf": "PR"},
+    {"nome": "Tribuna PR", "url": "https://www.tribunapr.com.br/feed/", "uf": "PR"},
+    {"nome": "G1 RJ", "url": "https://g1.globo.com/rss/g1/rj/rio-de-janeiro/", "uf": "RJ"},
+    {"nome": "G1 RN", "url": "https://g1.globo.com/rss/g1/rn/rio-grande-do-norte/", "uf": "RN"},
+    {"nome": "Agora RN", "url": "https://agorarn.com.br/feed/", "uf": "RN"},
+    {"nome": "Novo Notícias", "url": "https://www.novonoticias.com.br/feed", "uf": "RN"},
+    {"nome": "Tribuna do Norte", "url": "https://tribunadonorte.com.br/feed/", "uf": "RN"},
+    {"nome": "G1 RO", "url": "https://g1.globo.com/rss/g1/ro/rondonia/", "uf": "RO"},
+    {"nome": "Rondônia Agora", "url": "https://www.rondoniagora.com/rss", "uf": "RO"},
+    {"nome": "G1 RR", "url": "https://g1.globo.com/rss/g1/rr/roraima/", "uf": "RR"},
+    {"nome": "Folha BV", "url": "https://www.folhabv.com.br/feed/", "uf": "RR"},
+    {"nome": "Roraima em Tempo", "url": "https://roraimaemtempo.com.br/feed/", "uf": "RR"},
+    {"nome": "G1 RS", "url": "https://g1.globo.com/rss/g1/rs/rio-grande-do-sul/", "uf": "RS"},
+    {"nome": "G1 SC", "url": "https://g1.globo.com/rss/g1/sc/santa-catarina/", "uf": "SC"},
+    {"nome": "ND+", "url": "https://ndmais.com.br/feed/", "uf": "SC"},
+    {"nome": "NSC Total", "url": "https://www.nsctotal.com.br/feed", "uf": "SC"},
+    {"nome": "SCC10", "url": "https://www.scc10.com.br/feed", "uf": "SC"},
+    {"nome": "G1 SP", "url": "https://g1.globo.com/rss/g1/sp/sao-paulo/", "uf": "SP"},
+    {"nome": "G1 SE", "url": "https://g1.globo.com/rss/g1/se/sergipe/", "uf": "SE"},
+    {"nome": "Infonet", "url": "https://infonet.com.br/feed/", "uf": "SE"},
+    {"nome": "FaxAju", "url": "https://www.faxaju.com.br/feed/", "uf": "SE"},
+    {"nome": "G1 TO", "url": "https://g1.globo.com/rss/g1/to/tocantins/", "uf": "TO"},
+    {"nome": "Cleber Toledo", "url": "https://clebertoledo.com.br/feed/", "uf": "TO"},
 ]
 
 # Critério de alta relevância (aciona fila de revisão humana) —

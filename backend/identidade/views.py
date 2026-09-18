@@ -22,6 +22,7 @@ from .serializers import (
     PreferenciasCookiesSerializer,
     RecuperarSenhaSerializer,
     RedefinirSenhaSerializer,
+    TrocarSenhaSerializer,
     UserSerializer,
     VerificarEmailSerializer,
 )
@@ -206,6 +207,32 @@ class RedefinirSenhaView(APIView):
         Token.objects.filter(user=user).delete()
 
         return Response({"detail": "Senha redefinida com sucesso."}, status=status.HTTP_200_OK)
+
+
+class TrocarSenhaView(APIView):
+    """POST /api/auth/trocar-senha/ — troca de senha logada (primeiro acesso
+    obrigatório e troca voluntária). Exige a senha atual, define a nova e
+    limpa `deve_trocar_senha`, liberando o uso normal da conta."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        serializer = TrocarSenhaSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        if not request.user.check_password(serializer.validated_data["senha_atual"]):
+            return Response(
+                {"detail": "Senha atual incorreta."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        request.user.set_password(serializer.validated_data["nova_senha"])
+        request.user.deve_trocar_senha = False
+        request.user.save(update_fields=["password", "deve_trocar_senha"])
+        Token.objects.filter(user=request.user).delete()
+        token = Token.objects.create(user=request.user)
+        return Response(
+            {"detail": "Senha atualizada com sucesso.", "token": token.key},
+            status=status.HTTP_200_OK,
+        )
 
 
 class GoogleLoginView(APIView):

@@ -378,7 +378,7 @@ export default function Page() {
           <div className="grid gap-3 md:grid-cols-4">
             <Kpi rotulo="VISITAS" valor={fmt(data.audiencia.visitas)} detalhe={`${fmt(data.audiencia.sessoes)} sessões`} delta={comp?.visitas?.delta_pct} />
             <Kpi rotulo="USUÁRIOS NOVOS" valor={fmt(data.audiencia.usuarios_novos)} detalhe={`${fmt(data.audiencia.usuarios_recorrentes)} recorrentes`} delta={comp?.usuarios_novos?.delta_pct} />
-            <Kpi rotulo="VIEWS EM NOTÍCIAS" valor={fmt(data.comportamento.cliques_noticia)} detalhe={`${fmt(data.audiencia.views_por_noticia)} views/notícia`} delta={comp?.cliques_noticia?.delta_pct} />
+            <Kpi rotulo="VIEWS EM NOTÍCIAS" valor={fmt(data.comportamento.views_noticia)} detalhe={`${fmt(data.audiencia.views_por_noticia)} views/notícia`} delta={comp?.views_noticia?.delta_pct} />
             <Kpi rotulo="TAXA DE RETORNO" valor={`${data.audiencia.taxa_retorno_pct.toLocaleString("pt-BR")}%`} detalhe="sessões em 2+ dias" />
             <Kpi rotulo="TEMPO MÉDIO DE LEITURA" valor={`${fmt(data.audiencia.tempo_medio_leitura_seg)}s`} detalhe={`${fmt(data.audiencia.leituras_com_tempo)} leituras medidas`} />
             <Kpi rotulo="BUSCAS" valor={fmt(data.comportamento.buscas_total)} detalhe={`${fmt(data.conteudo.buscas_sem_resultado)} sem resultado`} delta={comp?.buscas?.delta_pct} />

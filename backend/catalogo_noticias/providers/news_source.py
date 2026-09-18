@@ -33,6 +33,23 @@ class FonteIndisponivelError(Exception):
     """
 
 
+def parece_pagina_html(corpo: bytes) -> bool:
+    """Detecta homepage/página HTML cadastrada por engano no lugar do feed.
+
+    Contexto real (2026-09-18): fontes cadastradas em Central > Robôs com a
+    URL da homepage do portal (ex.: `https://www.bbc.com/portuguese`) em vez
+    do endpoint RSS — o fetch retorna HTML 200, o feedparser acusa
+    "malformado" e a ingestão zera para todas elas. O sniff é pelo corpo
+    (não pelo Content-Type: há feeds legítimos servidos como `text/html`,
+    ex.: Correio Braziliense), após BOM/whitespace.
+    """
+    try:
+        inicio = (corpo or b"").lstrip(b"\xef\xbb\xbf \t\r\n").lower()[:20]
+    except Exception:
+        return False
+    return inicio.startswith(b"<html") or inicio.startswith(b"<!doctype html")
+
+
 def extrair_imagem_url(entrada) -> str:
     for key in ("enclosures", "media_content", "media_thumbnail"):
         vals = getattr(entrada, key, None)
@@ -135,6 +152,10 @@ class ItemBruto:
     categoria: str = ""
     imagem_url: str = ""
     timestamp_publicacao_fonte: Optional[datetime] = None
+    # Recorte regional da fonte (ex.: "GO" para o G1 Goiás): herdado pelo
+    # NewsItem quando o RSS não informa localidade própria. Vazio = nacional.
+    estado_fonte: str = ""
+    pais_fonte: str = ""
 
 
 class NewsSourceProvider(ABC):
@@ -162,10 +183,19 @@ class RSSNewsSourceProvider(NewsSourceProvider):
     `settings.CATALOGO_NOTICIAS_FONTES_RSS`, nunca hardcoded aqui.
     """
 
-    def __init__(self, nome_fonte: str, url_feed: str, timeout_segundos: int = 15):
+    def __init__(
+        self,
+        nome_fonte: str,
+        url_feed: str,
+        timeout_segundos: int = 15,
+        estado_fonte: str = "",
+        pais_fonte: str = "",
+    ):
         self.nome_fonte = nome_fonte
         self.url_feed = url_feed
         self.timeout_segundos = timeout_segundos
+        self.estado_fonte = (estado_fonte or "").strip().upper()
+        self.pais_fonte = (pais_fonte or "").strip()
 
     def buscar_itens(self) -> list[ItemBruto]:
         try:
@@ -180,14 +210,22 @@ class RSSNewsSourceProvider(NewsSourceProvider):
                 f"Falha ao buscar o feed RSS de '{self.nome_fonte}' ({self.url_feed}): {exc}"
             ) from exc
 
-        feed = feedparser.parse(resposta.content)
+        corpo = resposta.content or b""
+        if parece_pagina_html(corpo):
+            raise FonteIndisponivelError(
+                f"URL cadastrada para '{self.nome_fonte}' ({self.url_feed}) não é um feed RSS/Atom "
+                f"(retornou página HTML). Cadastre o endpoint do feed RSS em Central > Robôs > Fontes "
+                f"— não a homepage do portal."
+            )
+        feed = feedparser.parse(corpo)
         if feed.bozo and not feed.entries:
             # `bozo=1` sinaliza XML malformado; se ainda assim vieram
             # entries, seguimos em frente (feedparser costuma extrair o que
             # da mesmo em feeds levemente invalidos) — so tratamos como
             # indisponivel quando NADA pode ser extraido.
             raise FonteIndisponivelError(
-                f"Feed RSS de '{self.nome_fonte}' ({self.url_feed}) malformado: {feed.bozo_exception}"
+                f"Feed RSS de '{self.nome_fonte}' ({self.url_feed}) malformado: {feed.bozo_exception} "
+                f"(se a URL for a homepage do portal, cadastre o endpoint do feed RSS em Central > Robôs > Fontes)"
             )
 
         itens: list[ItemBruto] = []
@@ -226,6 +264,8 @@ class RSSNewsSourceProvider(NewsSourceProvider):
                     categoria=categoria.strip().lower(),
                     imagem_url=extrair_imagem_url(entrada),
                     timestamp_publicacao_fonte=timestamp_publicacao,
+                    estado_fonte=self.estado_fonte,
+                    pais_fonte=self.pais_fonte,
                 )
             )
         return itens

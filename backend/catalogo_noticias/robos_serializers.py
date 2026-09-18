@@ -6,13 +6,19 @@ from .models import ConfiguracaoRobo, FonteRobo, RegistroExecucaoIngestao
 class FonteRoboSerializer(serializers.ModelSerializer):
     class Meta:
         model = FonteRobo
-        fields = ["id", "nome", "url", "ativo", "categoria_padrao", "criado_em", "atualizado_em"]
+        fields = ["id", "nome", "url", "ativo", "categoria_padrao", "estado_padrao", "criado_em", "atualizado_em"]
         read_only_fields = ["id", "criado_em", "atualizado_em"]
 
     def validate_url(self, value):
         v = (value or "").strip()
         if not v.startswith("http://") and not v.startswith("https://"):
             raise serializers.ValidationError("URL deve começar com http:// ou https://.")
+        return v
+
+    def validate_estado_padrao(self, value):
+        v = (value or "").strip().upper()
+        if v and (len(v) != 2 or not v.isalpha()):
+            raise serializers.ValidationError("Use a sigla da UF com 2 letras (ex.: GO) ou deixe vazio para nacional.")
         return v
 
 
