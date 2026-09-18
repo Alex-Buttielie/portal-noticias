@@ -7,7 +7,9 @@ import {
   agruparPorEstado,
   lerSinaisLocais,
   selecionarPortfolio,
+  sinaisNeutros,
 } from "@/lib/editorial";
+import { useHidratado } from "@/lib/hooks/use-hidratado";
 import { NewsCard } from "./NewsCard";
 
 interface PortfolioCategoriasProps {
@@ -37,10 +39,18 @@ export const PortfolioCategorias = memo(function PortfolioCategorias({
   onToggleSalvar,
 }: PortfolioCategoriasProps) {
   const [expandidos, setExpandidos] = useState<Record<string, number>>({});
+  // Sinais locais (localStorage) só após hidratar — senão a seleção diverge
+  // do SSR e quebra a hidratação. Ver `useHidratado`.
+  const hidratado = useHidratado();
 
   const blocos = useMemo(
-    () => selecionarPortfolio(feed, lerSinaisLocais(categoriaBuscada), maxCategorias),
-    [feed, categoriaBuscada, maxCategorias]
+    () =>
+      selecionarPortfolio(
+        feed,
+        hidratado ? lerSinaisLocais(categoriaBuscada) : sinaisNeutros(categoriaBuscada),
+        maxCategorias
+      ),
+    [feed, categoriaBuscada, maxCategorias, hidratado]
   );
   const estados = useMemo(() => agruparPorEstado(feed), [feed]);
 

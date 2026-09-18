@@ -56,6 +56,10 @@ export function HomeClient({
   const [salvos, setSalvos] = useState<Set<string>>(new Set());
   const [leiturasTick, setLeiturasTick] = useState(0);
   const [config, setConfig] = useState<HomeConfig>(HOME_CONFIG_PADRAO);
+  // Sinais do navegador (localStorage) só após a hidratação: a primeira
+  // renderização do cliente precisa ser idêntica à do servidor, senão o
+  // React acusa hydration mismatch (ex.: `src` da imagem do destaque).
+  const [hidratado, setHidratado] = useState(false);
 
   useEffect(() => {
     setConfig(obterHomeConfig());
@@ -71,14 +75,16 @@ export function HomeClient({
 
   const perfil = useMemo(() => ({ interesses: usuario?.interesses ?? [] }), [usuario]);
   const leituras = useMemo(() => {
+    if (!hidratado) return {};
     try {
       return obterTodasLeituras();
     } catch {
       return {};
     }
-  }, [leiturasTick]);
+  }, [hidratado, leiturasTick]);
 
   useEffect(() => {
+    setHidratado(true);
     setLeiturasTick((n) => n + 1);
   }, []);
 
