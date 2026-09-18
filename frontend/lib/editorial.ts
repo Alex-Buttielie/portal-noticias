@@ -198,6 +198,11 @@ export interface SinaisEngajamento {
   categoriaBuscada?: string | null;
 }
 
+/** Sinais neutros (vazios): primeira render idêntica ao SSR; ver `useHidratado`. */
+export function sinaisNeutros(categoriaBuscada?: string | null): SinaisEngajamento {
+  return { leiturasPorCategoria: {}, salvosPorCategoria: {}, categoriaBuscada: categoriaBuscada || null };
+}
+
 export function lerSinaisLocais(categoriaBuscada?: string | null): SinaisEngajamento {
   let leiturasPorCategoria: Record<string, number> = {};
   try {

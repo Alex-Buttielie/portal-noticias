@@ -7,8 +7,10 @@ import {
   explicarScoreEmAlta,
   lerSinaisLocais,
   ordenarEmAlta,
+  sinaisNeutros,
   timeAgo,
 } from "@/lib/editorial";
+import { useHidratado } from "@/lib/hooks/use-hidratado";
 import { cn } from "@/lib/utils";
 
 interface EmAltaProps {
@@ -24,7 +26,13 @@ interface EmAltaProps {
  * disponíveis e cada item explica seus componentes (title + linha auxiliar).
  */
 export const EmAlta = memo(function EmAlta({ feed, limite, categoriaBuscada }: EmAltaProps) {
-  const sinais = useMemo(() => lerSinaisLocais(categoriaBuscada), [categoriaBuscada, feed]);
+  // Sinais locais (localStorage) só após hidratar — senão o ranking diverge
+  // do SSR e quebra a hidratação. Ver `useHidratado`.
+  const hidratado = useHidratado();
+  const sinais = useMemo(
+    () => (hidratado ? lerSinaisLocais(categoriaBuscada) : sinaisNeutros(categoriaBuscada)),
+    [hidratado, categoriaBuscada, feed]
+  );
   const ranking = useMemo(() => ordenarEmAlta(feed, sinais).slice(0, limite), [feed, sinais, limite]);
 
   if (ranking.length === 0) {

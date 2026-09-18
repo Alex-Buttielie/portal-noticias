@@ -77,10 +77,14 @@ export function usePremiumAtivo(): {
   liberado: boolean;
   recarregar(): void;
 } {
-  const [ativo, setAtivo] = useState<boolean | null>(() => lerValorInicial());
+  // `null` inicial nos dois lados (servidor e primeira render do cliente):
+  // ler o localStorage aqui quebraria a hidratação (valor diverge do SSR).
+  // O valor real é carregado no efeito abaixo, pós-hidratação.
+  const [ativo, setAtivo] = useState<boolean | null>(null);
   const [tick, setTick] = useState(0);
 
   useEffect(() => {
+    setAtivo(lerValorInicial());
     let vivo = true;
     obterPremiumAtivo()
       .then((v) => {
