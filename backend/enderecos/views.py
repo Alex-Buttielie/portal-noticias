@@ -71,3 +71,26 @@ class MunicipiosView(APIView):
             return Response(services.listar_municipios(uf))
         except Exception as exc:  # noqa: BLE001 — mapeamento intencional p/ HTTP
             return _erro(exc)
+
+
+class ReversoView(APIView):
+    """GET /api/enderecos/reverso/?lat=-23.55&lon=-46.63 — público.
+
+    Geocodificação reversa para o botão "Compartilhar minha localização"
+    (Perto de Você + Radar). 404 = sem cidade identificada (frontend abre
+    o CEP manual); 400 = coordenadas inválidas; 502 = Nominatim fora.
+    """
+
+    permission_classes = [AllowAny]
+    throttle_classes = [EnderecosAnonThrottle]
+
+    def get(self, request):
+        try:
+            return Response(
+                services.reverter_coordenadas(
+                    request.query_params.get("lat", ""),
+                    request.query_params.get("lon", ""),
+                )
+            )
+        except Exception as exc:  # noqa: BLE001 — mapeamento intencional p/ HTTP
+            return _erro(exc)

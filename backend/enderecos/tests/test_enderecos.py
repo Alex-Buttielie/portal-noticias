@@ -106,6 +106,66 @@ def test_municipios_uf_invalida():
         services.listar_municipios("SPP")
 
 
+def _resp_reverso(address):
+    return _Resp({"address": address})
+
+
+def test_reverso_ok_e_cacheado(monkeypatch):
+    chamadas = []
+
+    def _fake(url, timeout, headers=None):
+        chamadas.append(url)
+        return _resp_reverso({
+            "city": "Goiânia", "state": "Goiás", "state_code": "GO",
+            "country": "Brasil", "postcode": "74000-000",
+            "suburb": "Centro", "road": "Av. Goiás",
+        })
+
+    monkeypatch.setattr(services.requests, "get", _fake)
+    r1 = services.reverter_coordenadas(-16.68, -49.25)
+    r2 = services.reverter_coordenadas(-16.6801, -49.2501)  # ~mesmo ponto, mesmo cache
+    assert r1["cidade"] == "Goiânia" and r1["estado"] == "GO" and r1["pais"] == "Brasil"
+    assert r1["bairro"] == "Centro" and r1["logradouro"] == "Av. Goiás"
+    assert r2 == r1
+    assert len(chamadas) == 1
+
+
+def test_reverso_coordenadas_invalidas():
+    with pytest.raises(services.EnderecoInvalidoError):
+        services.reverter_coordenadas("abc", -49.25)
+    with pytest.raises(services.EnderecoInvalidoError):
+        services.reverter_coordenadas(-100, -49.25)
+
+
+def test_reverso_sem_cidade_vira_404(monkeypatch):
+    monkeypatch.setattr(services.requests, "get", lambda *a, **k: _resp_reverso({}))
+    with pytest.raises(services.CepNaoEncontradoError):
+        services.reverter_coordenadas(0, 0)
+
+
+def test_reverso_upstream_fora_vira_502(monkeypatch):
+    def _boom(*a, **k):
+        raise requests.Timeout("x")
+
+    monkeypatch.setattr(services.requests, "get", _boom)
+    with pytest.raises(services.ServicoEnderecoIndisponivelError):
+        services.reverter_coordenadas(-16.68, -49.25)
+
+
+def test_view_reverso_mapeia_status(client, monkeypatch):
+    monkeypatch.setattr(
+        services, "reverter_coordenadas",
+        lambda lat, lon: {"cidade": "Goiânia", "estado": "GO", "pais": "Brasil"},
+    )
+    r = client.get("/api/enderecos/reverso/?lat=-16.68&lon=-49.25")
+    assert r.status_code == 200 and r.json()["estado"] == "GO"
+
+    monkeypatch.setattr(
+        services, "reverter_coordenadas",
+        lambda lat, lon: (_ for _ in ()).throw(services.EnderecoInvalidoError("x")),
+    )
+    assert client.get("/api/enderecos/reverso/?lat=abc&lon=x").status_code == 400
+
 def test_views_mapeiam_status(client, monkeypatch):
     # 400 — validação
     r = client.get("/api/enderecos/cep/123/")

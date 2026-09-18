@@ -36,36 +36,110 @@ export function formatarRegiao(r: Regiao): string {
   return r.pais || "Sua região";
 }
 
-export async function obterRegiaoPorGeolocation(): Promise<Regiao> {
-  if (!("geolocation" in navigator)) throw new Error("Geolocalização não disponível neste navegador.");
-  const pos: GeolocationPosition = await new Promise((res, rej) =>
-    navigator.geolocation.getCurrentPosition(res, rej, { enableHighAccuracy: false, timeout: 8000, maximumAge: 300000 })
-  );
-  const { latitude, longitude } = pos.coords;
-  let cidade = "";
-  let estado = "";
-  let pais = "Brasil";
-  let cep: string | undefined;
-  let bairro: string | undefined;
-  let logradouro: string | undefined;
+function apiBase(): string | null {
+  const b = (process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(/\/$/, "");
+  return b || null;
+}
+
+function obterPosicao(): Promise<GeolocationPosition> {
+  if (typeof navigator === "undefined" || !("geolocation" in navigator)) {
+    throw new Error("Geolocalização não disponível neste navegador. Digite seu CEP abaixo.");
+  }
+  return new Promise<GeolocationPosition>((res, rej) =>
+    navigator.geolocation.getCurrentPosition(res, rej, {
+      enableHighAccuracy: false,
+      timeout: 15000,
+      maximumAge: 600000,
+    })
+  ).catch((e: unknown) => {
+    // GeolocationPositionError é DOMException (não instanceof Error em
+    // vários browsers) — mapear pelo código para mensagem acionável.
+    const code = typeof e === "object" && e !== null ? (e as { code?: number }).code : undefined;
+    if (code === 1) {
+      throw new Error(
+        "Permissão negada. Libere o acesso à localização (ícone de cadeado na barra de endereço) ou digite seu CEP abaixo."
+      );
+    }
+    if (code === 2) {
+      throw new Error("Sinal de localização indisponível no momento. Tente de novo ou digite seu CEP abaixo.");
+    }
+    if (code === 3) {
+      throw new Error("Demorou demais para obter o sinal. Tente de novo em local aberto ou digite seu CEP abaixo.");
+    }
+    throw new Error("Não foi possível obter sua localização. Tente de novo ou digite seu CEP abaixo.");
+  });
+}
+
+type Reverso = {
+  cidade?: string;
+  estado?: string;
+  pais?: string;
+  cep?: string;
+  bairro?: string;
+  logradouro?: string;
+};
+
+async function reverterViaProxy(lat: number, lon: number): Promise<Reverso | null> {
+  const base = apiBase();
+  if (!base) return null;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 8000);
   try {
-    const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=10&addressdetails=1`, {
+    const r = await fetch(`${base}/api/enderecos/reverso/?lat=${lat}&lon=${lon}`, {
+      signal: ctrl.signal,
       headers: { Accept: "application/json" },
     });
-    if (r.ok) {
-      const j: unknown = await r.json();
-      const a = (j as { address?: Record<string, string> })?.address || {};
-      cidade = a.city || a.town || a.village || a.municipality || "";
-      estado = a.state_code || a.state || "";
-      if (estado.length > 2) estado = estado.slice(0, 2).toUpperCase();
-      pais = a.country || "Brasil";
-      cep = a.postcode;
-      bairro = a.suburb || a.neighbourhood || a.quarter;
-      logradouro = a.road || a.street;
-    }
-  } catch {}
+    if (!r.ok) return null; // 404/502/429 → fallback direto ao Nominatim
+    return (await r.json()) as Reverso;
+  } catch {
+    return null; // proxy fora/timeout → fallback direto
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function reverterDireto(lat: number, lon: number): Promise<Reverso | null> {
+  try {
+    const r = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=10&addressdetails=1`,
+      { headers: { Accept: "application/json" } }
+    );
+    if (!r.ok) return null;
+    const j: unknown = await r.json();
+    const a = (j as { address?: Record<string, string> })?.address || {};
+    return {
+      cidade: a.city || a.town || a.village || a.municipality || "",
+      estado: a.state_code || a.state || "",
+      pais: a.country || "Brasil",
+      cep: a.postcode,
+      bairro: a.suburb || a.neighbourhood || a.quarter,
+      logradouro: a.road || a.street,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function obterRegiaoPorGeolocation(): Promise<Regiao> {
+  const pos = await obterPosicao();
+  const { latitude, longitude } = pos.coords;
+  // Proxy do backend primeiro (User-Agent identificável + cache; o Nominatim
+  // bloqueia 403/429 o tráfego direto do navegador com frequência).
+  const rev = (await reverterViaProxy(latitude, longitude)) ?? (await reverterDireto(latitude, longitude));
+  let cidade = rev?.cidade || "";
+  let estado = rev?.estado || "";
+  if (estado.length > 2) estado = estado.slice(0, 2).toUpperCase();
   if (!cidade && !estado) throw new Error("Não foi possível identificar sua cidade. Digite seu CEP abaixo.");
-  return { cidade, estado: estado.toUpperCase(), pais, cep, bairro, logradouro, lat: latitude, lon: longitude };
+  return {
+    cidade,
+    estado: estado.toUpperCase(),
+    pais: rev?.pais || "Brasil",
+    cep: rev?.cep,
+    bairro: rev?.bairro,
+    logradouro: rev?.logradouro,
+    lat: latitude,
+    lon: longitude,
+  };
 }
 
 export function cidadesVizinhasMock(cidade: string, estado: string): string[] {
