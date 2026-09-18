@@ -20,6 +20,7 @@ import { alternarSalvo, estaSalvo } from "@/lib/bookmarks";
 import { useAuth } from "@/lib/auth-context";
 import { usePremiumAtivo } from "@/lib/premium";
 import { HOME_CONFIG_PADRAO, obterHomeConfig, type HomeConfig } from "@/lib/editorial";
+import { hrefSubcategoria, subcategoriasCompletas } from "@/lib/categorias";
 import type { FeedEntrada } from "@/lib/api";
 import { Flame, Mail, Info, Crown } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -339,6 +340,27 @@ export function HomeClient({
                   </button>
                 ))}
               </div>
+              {filtro && (
+                <div className="mt-3 rounded-[var(--raio-md)] border border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] p-3">
+                  <p className="mb-2 text-xs font-semibold tracking-widest text-[var(--cor-texto-suave)]">
+                    EM <span className="capitalize">{filtro}</span> • ASSUNTOS
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {subcategoriasCompletas(filtro, feedProp).map((s) => (
+                      <Link
+                        key={s.termo}
+                        href={hrefSubcategoria(s)}
+                        className="inline-flex items-center gap-1 rounded-full border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] px-2.5 py-1 text-xs text-[var(--cor-texto)] hover:border-[var(--cor-primaria)] hover:text-[var(--cor-primaria)]"
+                      >
+                        {s.nome}
+                        {"viva" in s && s.viva && (
+                          <span className="h-1.5 w-1.5 rounded-full bg-[var(--cor-sinal)] motion-safe:animate-pulse" aria-label="Em alta nas notícias" />
+                        )}
+                      </Link>
+                    ))}
+                  </div>
+                </div>
+              )}
               <Link href="/editorias" className="mt-2 inline-flex text-xs font-medium text-[var(--cor-primaria)] hover:underline">
                 Ver todas →
               </Link>

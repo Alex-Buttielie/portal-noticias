@@ -279,13 +279,13 @@
     min-width: 56px;
   }
 
-  /* Conteúdo nunca fica sob a tab bar nativa no mobile */
-  html[data-classe="mobile"] #conteudo-principal {
+  /* Conteúdo nunca fica sob a tab bar nativa (mobile + tablet retrato) */
+  html[data-nav="inferior"] #conteudo-principal {
     padding-bottom: calc(var(--altura-nav-nativa) + env(safe-area-inset-bottom) + 1rem);
   }
 
-  /* Tablet em paisagem com trilho lateral: desloca o conteúdo */
-  html[data-classe="tablet"][data-orientacao="landscape"] #conteudo-principal {
+  /* Trilho lateral do tablet: desloca o conteúdo */
+  html[data-nav="trilho"] #conteudo-principal {
     padding-left: calc(76px + 0.75rem);
   }
 }
@@ -307,11 +307,9 @@
     row-gap: 0.625rem;
   }
 
-  /* Desktop/TV: garante que trilho e tab bar nunca apareçam por CSS residual */
-  html[data-classe="desktop"] [data-nav-nativa],
-  html[data-classe="desktop"] [data-nav-trilho],
-  html[data-classe="tv"] [data-nav-nativa],
-  html[data-classe="tv"] [data-nav-trilho] {
+  /* Sem navegação adaptativa: garante que trilho e tab bar nunca apareçam */
+  html[data-nav="nenhuma"] [data-nav-nativa],
+  html[data-nav="nenhuma"] [data-nav-trilho] {
     display: none;
   }
 }

@@ -12,7 +12,7 @@ DialogOverlay.displayName = DialogPrimitive.Overlay.displayName
 const DialogContent = React.forwardRef<React.ElementRef<typeof DialogPrimitive.Content>, React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content>>(({ className, children, ...props }, ref) => (
   <DialogPortal>
     <DialogOverlay />
-    <DialogPrimitive.Content ref={ref} className={cn("fixed left-[50%] top-[50%] z-[var(--z-modal)] grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] p-6 shadow-[var(--sombra-3)] rounded-[var(--raio-lg)] data-[state=open]:animate-in data-[state=closed]:animate-out", className)} {...props}>
+    <DialogPrimitive.Content ref={ref} className={cn("fixed left-[50%] top-[50%] z-[var(--z-modal)] grid max-h-[85vh] w-full max-w-[calc(100vw-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 overflow-y-auto border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] p-6 shadow-[var(--sombra-3)] rounded-[var(--raio-lg)] data-[state=open]:animate-in data-[state=closed]:animate-out sm:max-w-lg", className)} {...props}>
       {children}
       <DialogPrimitive.Close className="absolute right-4 top-4 rounded-sm opacity-70 transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-[var(--cor-foco)]"><X className="h-4 w-4 text-[var(--cor-texto)]" /><span className="sr-only">Fechar</span></DialogPrimitive.Close>
     </DialogPrimitive.Content>

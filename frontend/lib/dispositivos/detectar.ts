@@ -52,6 +52,7 @@ export function perfilPorUserAgent(ua: string | null | undefined): PerfilDisposi
     entrada,
     orientacao: classe === "desktop" ? "landscape" : "portrait",
     largura: classe === "mobile" ? 390 : classe === "tablet" ? 768 : 1280,
+    altura: classe === "mobile" ? 844 : classe === "tablet" ? 1024 : 800,
     standalone: false,
     temSafeArea: classe !== "desktop" && (so === "ios" || so === "android"),
   };
@@ -87,9 +88,27 @@ function snapshotCliente(): PerfilDispositivo {
     entrada,
     orientacao,
     largura,
+    altura,
     standalone,
     temSafeArea: entrada !== "mouse" && (so === "ios" || so === "android"),
   };
+}
+
+/**
+ * Modo de navegação derivado do perfil — fonte única usada pelo
+ * `NavegacaoAdaptativa` e pelo `DeviceProvider` (atributo `data-nav`).
+ * - "nenhuma": desktop/TV (Header superior cobre).
+ * - "trilho": tablet de verdade em paisagem (menor dimensão >= 600px).
+ * - "inferior": todo o resto (mobile retrato/paisagem, tablet retrato,
+ *   celular em paisagem — nunca ficam sem navegação).
+ */
+export function modoNavegacao(perfil: PerfilDispositivo): "trilho" | "inferior" | "nenhuma" {
+  if (perfil.classe === "desktop" || perfil.classe === "tv") return "nenhuma";
+  const menorDimensao = Math.min(perfil.largura, perfil.altura);
+  if (perfil.classe === "tablet" && perfil.orientacao === "landscape" && menorDimensao >= 600) {
+    return "trilho";
+  }
+  return "inferior";
 }
 
 /**

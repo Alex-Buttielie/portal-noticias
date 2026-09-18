@@ -1,13 +1,16 @@
 "use client";
 
 // Navegação com aparência nativa por dispositivo.
-// - Mobile: bottom tab bar (iOS translúcida / Android Material 3 com pill).
-// - Tablet em paisagem: rail lateral compacto; em retrato: bottom bar.
+// - Mobile (retrato ou paisagem) e tablet em retrato: bottom tab bar
+//   (iOS translúcida / Android Material 3 com pill). Nunca some: a
+//   visibilidade é decidida pela classe de dispositivo, não por breakpoint.
+// - Tablet de verdade em paisagem (menor dimensão >= 600px): rail lateral.
 // - Desktop/TV: null (o Header superior cobre).
 // Reaproveita NAV_ITENS + regra de admin do BottomNav.
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { modoNavegacao } from "@/lib/dispositivos/detectar";
 import { useDispositivo } from "@/lib/dispositivos/DeviceProvider";
 import { useAuth } from "@/lib/auth-context";
 import { NAV_ITENS, NAV_ITEM_ADMIN, NAV_ITEM_CONTA } from "@/lib/nav-itens";
@@ -38,7 +41,7 @@ function BarraInferiorNativa() {
       data-nav-nativa
       data-so={so}
       className={cn(
-        "fixed inset-x-0 bottom-0 z-[var(--z-banner)] md:hidden",
+        "fixed inset-x-0 bottom-0 z-[var(--z-banner)]",
         // iOS: translúcida com blur; Android: superfície sólida Material
         ehIOS
           ? "border-t border-[var(--cor-borda)] bg-[var(--vidro)] backdrop-blur-xl [-webkit-backdrop-filter:blur(20px)]"
@@ -104,7 +107,7 @@ function TrilhoTablet() {
     <nav
       aria-label="Navegação principal"
       data-nav-trilho
-      className="fixed bottom-0 left-0 top-14 z-[var(--z-banner)] hidden w-[76px] flex-col items-stretch border-r border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] py-2 min-[640px]:max-lg:flex"
+      className="fixed bottom-0 left-0 z-[var(--z-banner)] flex w-[76px] flex-col items-stretch border-r border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] py-2"
       style={{ top: "var(--altura-cabecalho, 3.5rem)" }}
     >
       <ul className="flex flex-col gap-1 px-2">
@@ -136,9 +139,10 @@ function TrilhoTablet() {
 }
 
 export function NavegacaoAdaptativa() {
-  const { classe, orientacao } = useDispositivo();
-  if (classe === "desktop" || classe === "tv") return null;
-  if (classe === "tablet" && orientacao === "landscape") return <TrilhoTablet />;
+  const perfil = useDispositivo();
+  const modo = modoNavegacao(perfil);
+  if (modo === "nenhuma") return null;
+  if (modo === "trilho") return <TrilhoTablet />;
   return <BarraInferiorNativa />;
 }
 

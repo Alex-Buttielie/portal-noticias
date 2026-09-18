@@ -3,7 +3,8 @@
 // Provider + hook do perfil de dispositivo.
 // - Expõe `useDispositivo()` para qualquer componente cliente.
 // - Espelha o perfil em `data-*` no <html> para CSS adaptar sem JS:
-//   data-classe="mobile|tablet|desktop|tv", data-so, data-entrada, data-orientacao.
+//   data-classe="mobile|tablet|desktop|tv", data-so, data-entrada,
+//   data-orientacao, data-nav="trilho|inferior|nenhuma".
 // - SSR: usa `perfilInicial` (do servidor via UA) até hidratar.
 
 import {
@@ -14,7 +15,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { observarDispositivo } from "./detectar";
+import { modoNavegacao, observarDispositivo } from "./detectar";
 import { PERFIL_PADRAO_DESKTOP, type PerfilDispositivo } from "./tipos";
 
 const DispositivoContext = createContext<PerfilDispositivo>(PERFIL_PADRAO_DESKTOP);
@@ -40,6 +41,7 @@ export function DeviceProvider({
       el.setAttribute("data-so", perfil.so);
       el.setAttribute("data-entrada", perfil.entrada);
       el.setAttribute("data-orientacao", perfil.orientacao);
+      el.setAttribute("data-nav", modoNavegacao(perfil));
     } catch {
       /* DOM indisponível em testes */
     }
