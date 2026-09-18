@@ -188,6 +188,8 @@ export function HomeClient({
         onToggleSalvar={toggleSalvar}
       />
 
+      {!premiumGeral && <AdsSlot id="home-manchetes" formato="in-feed" />}
+
       {hasSignal && (
         <div className="flex items-center gap-2 rounded-full border border-[var(--cor-borda)] bg-[var(--cor-primaria-suave)] px-3 py-2 text-xs text-[var(--cor-texto)]">
           <Info className="h-3.5 w-3.5 shrink-0 text-[var(--cor-primaria)]" aria-hidden />
@@ -264,11 +266,19 @@ export function HomeClient({
         </div>
       </div>
 
+      {!premiumGeral && <AdsSlot id="home-ultimas" formato="in-feed" />}
+
       <ConteudoBombando feed={filtrado} limite={config.bombandoLimite} salvos={salvos} onToggleSalvar={toggleSalvar} />
+
+      <AdsSlot id="home-pos-bombando" formato="horizontal" />
 
       <SecaoRegiao feed={filtrado.length ? filtrado : feedProp} />
 
+      {!premiumGeral && <AdsSlot id="home-pos-regiao" formato="in-feed" />}
+
       <SecaoColunistas />
+
+      {!premiumGeral && <AdsSlot id="home-pos-colunistas" formato="in-feed" />}
 
       <AdsSlot id="home-topo" formato="horizontal" />
 
@@ -432,6 +442,8 @@ export function HomeClient({
           </Card>
 
           <AdsSlot id="home-sidebar" formato="retangulo" />
+
+          <AdsSlot id="home-sidebar-2" formato="retangulo" />
         </aside>
       </section>
       <AdsSlot id="home-footer" formato="horizontal" className="my-6" />
