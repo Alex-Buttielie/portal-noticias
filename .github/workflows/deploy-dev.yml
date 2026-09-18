@@ -1,105 +1,30 @@
 name: Deploy DEV
 
-# Mesma infra do deploy antigo (backup/remote-*-20260904): PM2 + Nginx na VPS,
-# /home/apps/portal-dev, portas 3101/5101, secrets VPS_HOST/USER/PASSWORD/PORT.
-# Muda só o software: frontend/ + backend/ (Django real) no lugar de apps/*.
+# Thin caller — toda a lógica vive em deploy.yml (reutilizável). Push em
+# develop implanta /home/apps/portal-dev (3101/5101).
 on:
   push:
     branches: [develop]
 
 jobs:
   deploy-dev:
-    runs-on: ubuntu-latest
-    environment: development
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - run: npm ci
-        working-directory: frontend
-      - run: npx tsc --noEmit
-        working-directory: frontend
-      - run: pip install -r requirements.txt
-        working-directory: backend
-        env:
-          DJANGO_DEBUG: "true"
-          DJANGO_DB_ENGINE: sqlite3
-          DJANGO_CACHE_BACKEND: locmem
-      - run: python manage.py check
-        working-directory: backend
-        env:
-          DJANGO_DEBUG: "true"
-          DJANGO_DB_ENGINE: sqlite3
-          DJANGO_CACHE_BACKEND: locmem
-
-      - name: Deploy to VPS (DEV)
-        uses: appleboy/ssh-action@v1.2.0
-        with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
-          password: ${{ secrets.VPS_PASSWORD }}
-          port: ${{ secrets.VPS_PORT }}
-          script: |
-            set -e
-            export NVM_DIR="$HOME/.nvm"; [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"; nvm use 20
-            APP_DIR="/home/apps/portal-dev"; BRANCH="develop"
-            API_PORT=5101; WEB_PORT=3101; HOST="dev.portal-noticias.com.br"
-            DB_NAME="brd_portal_dev"; DB_USER="portal_dev"
-            # Origens públicas via Nginx (mesma origem do navegador — ver
-            # infra/nginx/portal-noticias.conf): o frontend chama a API pelo
-            # path /api/ do próprio domínio, então não há mixed-content nem
-            # CORS — e o backend usa o mesmo host para CORS e links de e-mail.
-            # NUNCA usar http://IP:porta aqui: é bloqueado como mixed-content
-            # em página https e não está na allowlist de CORS.
-            API_ORIGIN="https://$HOST"; WEB_ORIGIN="https://$HOST"
-            echo "=== Deploy DEV portal-noticias ==="
-            mkdir -p /home/apps
-            [ -d "$APP_DIR/.git" ] || git clone -b "$BRANCH" https://github.com/Alex-Buttielie/portal-noticias.git "$APP_DIR"
-            cd "$APP_DIR"; git fetch origin; git reset --hard "origin/$BRANCH"
-            if [ ! -f backend/.env ]; then
-              SECRET=$(python3 -c "import secrets;print(secrets.token_urlsafe(50))")
-              printf 'DJANGO_SECRET_KEY=%s\nDJANGO_DEBUG=false\nDJANGO_ALLOWED_HOSTS=%s,108.174.147.50,localhost,127.0.0.1\nDJANGO_SECURE_SSL_REDIRECT=false\nDJANGO_SESSION_COOKIE_SECURE=false\nDJANGO_CSRF_COOKIE_SECURE=false\nDJANGO_DB_ENGINE=postgresql\nDJANGO_DB_NAME=%s\nDJANGO_DB_USER=%s\nDJANGO_DB_PASSWORD=troque-aqui\nDJANGO_DB_HOST=localhost\nDJANGO_DB_PORT=5432\nFRONTEND_BASE_URL=%s\n' "$SECRET" "$HOST" "$DB_NAME" "$DB_USER" "$WEB_ORIGIN" > backend/.env
-              chmod 600 backend/.env
-            fi
-            cd "$APP_DIR/frontend"
-            npm ci
-            NEXT_PUBLIC_API_BASE_URL="$API_ORIGIN" NEXT_PUBLIC_SITE_URL="$WEB_ORIGIN" npm run build
-            cd "$APP_DIR/backend"
-            python3 -m venv .venv 2>/dev/null || true
-            . .venv/bin/activate
-            pip install -r requirements.txt
-            set -a; . ./.env; set +a
-            if [ "${DJANGO_DB_PASSWORD:-troque-aqui}" = "troque-aqui" ]; then echo "ERRO: preencha DJANGO_DB_PASSWORD em $APP_DIR/backend/.env (Postgres da VPS — ver CI-CD.md)"; exit 1; fi
-            python manage.py check
-            python manage.py migrate
-            python manage.py collectstatic --noinput
-            pm2 delete portal-web-dev 2>/dev/null || true
-            pm2 delete portal-api-dev 2>/dev/null || true
-            cd "$APP_DIR/frontend"
-            PORT=$WEB_PORT pm2 start npm --name "portal-web-dev" -- start
-            cd "$APP_DIR/backend"
-            # Binário + args separados: pm2 não resolve string única citada
-            # (".../gunicorn config.wsgi:... --bind ...") como executável.
-            # --interpreter explícito: o binário gunicorn não tem extensão e
-            # o pm2 o executaria com node (SyntaxError) em vez de python.
-            DJANGO_SETTINGS_MODULE=config.settings pm2 start "$APP_DIR/backend/.venv/bin/gunicorn" --interpreter "$APP_DIR/backend/.venv/bin/python" --name "portal-api-dev" -- config.wsgi:application --bind "0.0.0.0:$API_PORT" --workers 2
-            pm2 save
-            echo "=== DEV deployed $WEB_PORT(web) $API_PORT(api) ==="
-
-      - name: Validate DEV
-        uses: appleboy/ssh-action@v1.2.0
-        with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
-          password: ${{ secrets.VPS_PASSWORD }}
-          port: ${{ secrets.VPS_PORT }}
-          script: |
-            export NVM_DIR="$HOME/.nvm"; [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"; nvm use 20
-            sleep 5
-            curl -sf -o /dev/null http://localhost:5101/healthz && echo "DEV api ok" || echo "DEV api check warn"
-            curl -sf -o /dev/null http://localhost:3101/ && echo "DEV web ok" || echo "DEV web check warn"
-            pm2 status | grep portal || pm2 status
+    uses: ./.github/workflows/deploy.yml
+    with:
+      env_label: DEV
+      environment_name: development
+      app_dir: /home/apps/portal-dev
+      git_mode: branch
+      git_ref: develop
+      guard_ref: ${{ github.sha }}
+      pm_suffix: dev
+      web_port: "3101"
+      api_port: "5101"
+      host: dev.portal-noticias.com.br
+      db_name: brd_portal_dev
+      db_user: portal_dev
+      strict_validate: false
+    secrets:
+      VPS_HOST: ${{ secrets.VPS_HOST }}
+      VPS_USER: ${{ secrets.VPS_USER }}
+      VPS_PASSWORD: ${{ secrets.VPS_PASSWORD }}
+      VPS_PORT: ${{ secrets.VPS_PORT }}
