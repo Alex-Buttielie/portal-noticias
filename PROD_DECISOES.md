@@ -39,6 +39,17 @@
    pagamento + planos estiverem prontos para cobrar de verdade.
    Status: pendente (decisão final do Alex).
 
+## Registro de conclusões (TRABALHO LOCAL — NÃO COMMITADO, NÃO PUBLICADO)
+
+- Microserviço `ingestao-service/` (FastAPI + Mongo, Swagger /docs): esqueleto,
+  pipeline (RSS/dedup/LLM/curadoria + regras N1–N4), API + painel `/painel`,
+  portal adaptado (`feed/microservice_client.py` com fallback local, sync de
+  fontes best-effort). Testes: 43 service + 41 feed-portal. `tsc 0`, build OK.
+  Ligar no portal: `MICROSERVICO_INGESTAO_URL` + `INGESTAO_API_TOKEN`.
+- Categorias com subcategorias fixas + vivas das notícias (`lib/categorias.ts`),
+  menu Editorias no Header (desktop/mobile), editorias e categoria com tópicos,
+  footer "Desenvolvido por ButtielieDev", ritmo de espaçamento normalizado.
+
 ## Registro de conclusões
 
 - 2026-09-17 — Leitura dentro do sistema entregue (`conteudo_completo` RSS +

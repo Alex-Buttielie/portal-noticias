@@ -8,6 +8,7 @@ import { SITE_NAME, SITE_URL } from "@/lib/site";
 import { obterFeed, type FeedEntrada } from "@/lib/api";
 import { ImagemNoticia } from "@/components/ImagemNoticia";
 import { AdsSlot } from "@/components/AdsSlot";
+import { hrefSubcategoria, subcategoriasCompletas } from "@/lib/categorias";
 import { CategoriaReporter } from "@/components/Reporters";
 import { breadcrumbListJsonLd } from "@/lib/schema";
 
@@ -24,18 +25,29 @@ export default async function Page({ params }: { params: { slug: string } }) {
   let itens: FeedEntrada[] = [];
   try { const r = await obterFeed({ categoria: slug }); itens = r.results?.length ? r.results : MOCK.map(x=>({...x,categoria:slug})); } catch { itens = MOCK.map(x=>({...x,categoria:slug})); }
   const jsonLd = breadcrumbListJsonLd([{ nome: "Início", url: SITE_URL }, { nome: slug, url: `${SITE_URL}/categoria/${encodeURIComponent(slug)}` }]);
+  const subs = subcategoriasCompletas(slug, itens);
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <CategoriaReporter categoria={slug} />
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
       <div className="flex items-center gap-2 text-xs text-[var(--cor-texto-suave)]"><Link href="/" className="hover:underline">Início</Link><span aria-hidden>›</span><Link href="/editorias" className="hover:underline">Editorias</Link><span aria-hidden>›</span><span className="capitalize text-[var(--cor-texto)]">{slug}</span></div>
-      <div className="rounded-[var(--raio-lg)] border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] p-4">
+      <div className="rounded-[var(--raio-lg)] border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] p-5 md:p-6">
         <div className="hud-line mb-3" aria-hidden />
-        <h1 className="text-2xl font-bold capitalize tracking-tight text-[var(--cor-texto)]">{slug}</h1>
-        <p className="text-sm text-[var(--cor-texto-suave)]">{itens.length} manchetes</p>
+        <h1 className="text-2xl font-bold capitalize tracking-tight text-[var(--cor-texto)] md:text-3xl">{slug}</h1>
+        <p className="mt-1 text-sm text-[var(--cor-texto-suave)]">{itens.length} manchetes</p>
+        {subs.length > 0 && (
+          <div className="mt-4 flex flex-wrap gap-1.5" aria-label={`Temas em ${slug}`}>
+            {subs.map((s)=>(
+              <Link key={s.termo} href={hrefSubcategoria(s)} className="inline-flex items-center gap-1 rounded-full border border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] px-3 py-1.5 text-xs font-medium text-[var(--cor-texto)] hover:border-[var(--cor-primaria)] hover:text-[var(--cor-primaria)]">
+                {s.nome}
+                {"viva" in s && s.viva && <span className="h-1.5 w-1.5 rounded-full bg-[var(--cor-sinal)] motion-safe:animate-pulse" aria-label="Em alta nas notícias" />}
+              </Link>
+            ))}
+          </div>
+        )}
       </div>
       <AdsSlot id="categoria-topo" formato="horizontal" />
-      <div className="grid gap-3 md:grid-cols-2">
+      <div className="grid gap-4 md:grid-cols-2">
         {itens.length ? itens.map((n,i)=>(
           <Fragment key={`${n.tipo}-${n.id}`}>
           <Card className="bento bento-hover overflow-hidden border-[var(--cor-borda)] bg-[var(--cor-fundo-card)]">

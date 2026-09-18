@@ -3,6 +3,8 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from feed import microservice_client
+
 from .models import ConfiguracaoRobo, FonteRobo, RegistroExecucaoIngestao
 from .robos_serializers import ConfiguracaoRoboSerializer, FonteRoboSerializer, RegistroExecucaoIngestaoSerializer
 from .services.ingestao import executar_ingestao
@@ -10,6 +12,19 @@ from .services.ingestao import executar_ingestao
 
 def _eh_admin(user):
     return getattr(user, "papel", None) == "admin"
+
+
+def _sincronizar_fontes_best_effort():
+    """Frente D — após qualquer mudança local em fontes/config, envia o
+    conjunto vigente de `FonteRobo` ao microserviço. Best-effort: nunca
+    quebra a operação local (serviço desligado ou indisponível = no-op)."""
+    if not microservice_client.servico_ativo():
+        return
+    try:
+        fontes = FonteRoboSerializer(FonteRobo.objects.all().order_by("nome"), many=True).data
+        microservice_client.sincronizar_fontes(fontes)
+    except Exception:
+        pass
 
 
 class FontesRoboView(APIView):
@@ -27,6 +42,7 @@ class FontesRoboView(APIView):
         s = FonteRoboSerializer(data=request.data)
         s.is_valid(raise_exception=True)
         s.save()
+        _sincronizar_fontes_best_effort()
         return Response(s.data, status=status.HTTP_201_CREATED)
 
 
@@ -48,6 +64,7 @@ class FonteRoboDetailView(APIView):
         s = FonteRoboSerializer(obj, data=request.data, partial=True)
         s.is_valid(raise_exception=True)
         s.save()
+        _sincronizar_fontes_best_effort()
         return Response(s.data)
 
     def delete(self, request, pk):
@@ -57,6 +74,7 @@ class FonteRoboDetailView(APIView):
         if not obj:
             return Response(status=status.HTTP_404_NOT_FOUND)
         obj.delete()
+        _sincronizar_fontes_best_effort()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -76,6 +94,7 @@ class ConfigRoboView(APIView):
         s = ConfiguracaoRoboSerializer(cfg, data=request.data, partial=True)
         s.is_valid(raise_exception=True)
         s.save()
+        _sincronizar_fontes_best_effort()
         return Response(s.data)
 
 

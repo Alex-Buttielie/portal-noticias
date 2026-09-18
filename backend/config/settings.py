@@ -748,6 +748,16 @@ CATALOGO_NOTICIAS_LLM_PRECO_USD_POR_1K_TOKENS = float(
 
 
 # ---------------------------------------------------------------------------
+# Frente D — microserviço de ingestão (feed/ + robôs). `MICROSERVICO_INGESTAO_URL`
+# vazia (default) = serviço DESLIGADO: o portal opera 100% local (Postgres +
+# pipeline em `catalogo_noticias/`), sem nenhuma chamada de rede — ver
+# `feed/microservice_client.py`. Para ligar, definir a base URL (ex.:
+# http://localhost:8001) + o token do header `X-API-Token`.
+MICROSERVICO_INGESTAO_URL = os.environ.get("MICROSERVICO_INGESTAO_URL", "").strip()
+INGESTAO_API_TOKEN = os.environ.get("INGESTAO_API_TOKEN", "")
+
+
+# ---------------------------------------------------------------------------
 # Observabilidade (ARCHITECTURE.md — nova arquitetura de infra, 2026-09-03).
 # ---------------------------------------------------------------------------
 
