@@ -19,7 +19,16 @@ class _Resp:
 
 
 @pytest.fixture(autouse=True)
-def _cache_limpo():
+def _cache_limpo(settings):
+    # CI roda sem Redis (IGNORE_EXCEPTIONS => cache vira no-op silencioso e
+    # os testes de cache falham). Isola um LocMemCache próprio, mesmo padrão
+    # de `config/tests/test_throttling.py::cache_locmem_isolado`.
+    settings.CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "test-enderecos-locmem",
+        }
+    }
     cache.clear()
     yield
     cache.clear()
