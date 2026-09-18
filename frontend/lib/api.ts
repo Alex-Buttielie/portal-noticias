@@ -1252,6 +1252,7 @@ export interface CentralInteligencia {
     urgentes_top: RankingNoticia[];
   };
   comportamento: {
+    views_noticia: number;
     cliques_noticia: number;
     shares: number;
     salvos: number;
