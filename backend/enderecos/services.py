@@ -152,3 +152,77 @@ def listar_municipios(uf: str) -> list:
     lista = [m.get("nome") for m in dados if isinstance(m, dict) and m.get("nome")]
     cache.set(chave, lista, timeout=int(getattr(settings, "ENDERECOS_CACHE_IBGE_SEGUNDOS", 604800)))
     return lista
+
+
+def _base_nominatim() -> str:
+    return getattr(settings, "ENDERECOS_NOMINATIM_BASE_URL", "https://nominatim.openstreetmap.org").rstrip("/")
+
+
+def reverter_coordenadas(lat: float, lon: float) -> dict:
+    """Geocodificação reversa (lat/lon → cidade/UF): usada pelo botão
+    "Compartilhar minha localização" (Perto de Você + Radar).
+
+    Por que um proxy em vez de chamar o Nominatim direto do navegador?
+    O Nominatim exige User-Agent identificável e limita por IP — no
+    navegador ele responde 403/429 com frequência (foi a causa do
+    "Não foi possível obter sua localização" em produção). Aqui o
+    User-Agent é identificável, a resposta é cacheada 7 dias (coordenadas
+    arredondadas a ~100m) e há rate-limit no servidor. O frontend mantém
+    fallback direto caso o backend esteja fora (ver `lib/regiao.ts`).
+    """
+    try:
+        la, lo = float(lat), float(lon)
+    except (TypeError, ValueError):
+        raise EnderecoInvalidoError("Coordenadas inválidas. Informe latitude e longitude numéricas.")
+    if not (-90 <= la <= 90) or not (-180 <= lo <= 180):
+        raise EnderecoInvalidoError("Coordenadas fora do intervalo válido.")
+    chave = f"enderecos:reverso:{round(la, 3)}:{round(lo, 3)}"
+    cached = cache.get(chave)
+    if cached is not None:
+        return cached
+    url = f"{_base_nominatim()}/reverse?format=json&lat={la}&lon={lo}&zoom=10&addressdetails=1"
+    try:
+        resposta = requests.get(
+            url,
+            timeout=_timeout(),
+            headers={"User-Agent": "BRDPortalNoticias/1.0 (+https://portal-noticias.com.br)", "Accept": "application/json"},
+        )
+    except requests.RequestException as exc:
+        logger.warning("enderecos reverso inalcançável: %s (%s)", url, exc)
+        raise ServicoEnderecoIndisponivelError(
+            "Não foi possível identificar sua cidade agora. Tente de novo ou digite seu CEP."
+        ) from exc
+    if resposta.status_code >= 400:
+        logger.warning("enderecos reverso HTTP %s", resposta.status_code)
+        raise ServicoEnderecoIndisponivelError(
+            "Não foi possível identificar sua cidade agora. Tente de novo ou digite seu CEP."
+        )
+    try:
+        dados = resposta.json()
+    except ValueError as exc:
+        raise ServicoEnderecoIndisponivelError(
+            "Não foi possível identificar sua cidade agora. Tente de novo ou digite seu CEP."
+        ) from exc
+    a = (dados or {}).get("address", {}) if isinstance(dados, dict) else {}
+    if not isinstance(a, dict):
+        a = {}
+    cidade = a.get("city") or a.get("town") or a.get("village") or a.get("municipality") or ""
+    estado = a.get("state_code") or a.get("state") or a.get("region") or ""
+    if len(estado) > 2:
+        estado = ""
+    resultado = {
+        "cidade": cidade,
+        "estado": (estado or "").upper(),
+        "pais": a.get("country") or "Brasil",
+        "cep": a.get("postcode"),
+        "bairro": a.get("suburb") or a.get("neighbourhood") or a.get("quarter"),
+        "logradouro": a.get("road"),
+        "lat": la,
+        "lon": lo,
+    }
+    if not cidade and not estado:
+        raise CepNaoEncontradoError(
+            "Não foi possível identificar sua cidade. Digite seu CEP abaixo."
+        )
+    cache.set(chave, resultado, timeout=int(getattr(settings, "ENDERECOS_CACHE_IBGE_SEGUNDOS", 604800)))
+    return resultado

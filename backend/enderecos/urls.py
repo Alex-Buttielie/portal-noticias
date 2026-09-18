@@ -9,4 +9,5 @@ urlpatterns = [
     path("busca/", views.BuscaEnderecoView.as_view(), name="busca"),
     path("estados/", views.EstadosView.as_view(), name="estados"),
     path("estados/<str:uf>/municipios/", views.MunicipiosView.as_view(), name="municipios"),
+    path("reverso/", views.ReversoView.as_view(), name="reverso"),
 ]
