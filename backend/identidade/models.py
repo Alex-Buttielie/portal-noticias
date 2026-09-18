@@ -75,6 +75,12 @@ class User(AbstractBaseUser, PermissionsMixin):
     is_staff = models.BooleanField(default=False)
     date_joined = models.DateTimeField(default=timezone.now)
 
+    # Troca obrigatória no primeiro login — usada para contas criadas por
+    # carga administrativa (senha inicial conhecida pela equipe) e para todo
+    # cadastro via `/api/auth/cadastro/`. Enquanto True, o frontend direciona
+    # para `/trocar-senha` logo após o login; o endpoint de troca limpa a flag.
+    deve_trocar_senha = models.BooleanField(default=False)
+
     objects = UserManager()
 
     USERNAME_FIELD = "email"

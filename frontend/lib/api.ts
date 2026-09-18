@@ -102,6 +102,7 @@ export interface Usuario {
   onboarding_pulado: boolean;
   consentimento_aceito_em: string | null;
   consentimento_versao_termos: string;
+  deve_trocar_senha: boolean;
   date_joined: string;
 }
 
@@ -156,6 +157,17 @@ export function redefinirSenha(
     method: "POST",
     body: JSON.stringify({ uid, token, nova_senha }),
   });
+}
+
+export function trocarSenha(
+  token: string,
+  dados: { senha_atual: string; nova_senha: string }
+): Promise<{ detail: string; token: string }> {
+  return request(
+    "/api/auth/trocar-senha/",
+    { method: "POST", body: JSON.stringify(dados) },
+    token
+  );
 }
 
 export interface OnboardingDados {

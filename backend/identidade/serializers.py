@@ -22,6 +22,7 @@ class UserSerializer(serializers.ModelSerializer):
             "onboarding_pulado",
             "consentimento_aceito_em",
             "consentimento_versao_termos",
+            "deve_trocar_senha",
             "date_joined",
         ]
         read_only_fields = fields
@@ -69,6 +70,7 @@ class CadastroSerializer(serializers.ModelSerializer):
             email_verificado=False,
             consentimento_aceito_em=timezone.now(),
             consentimento_versao_termos=settings.TERMOS_VERSAO_ATUAL,
+            deve_trocar_senha=True,
         )
         user.set_password(senha)
         user.save()
@@ -91,6 +93,15 @@ class RecuperarSenhaSerializer(serializers.Serializer):
 class RedefinirSenhaSerializer(serializers.Serializer):
     uid = serializers.CharField()
     token = serializers.CharField()
+    nova_senha = serializers.CharField(min_length=8)
+
+    def validate_nova_senha(self, value):
+        password_validation.validate_password(value)
+        return value
+
+
+class TrocarSenhaSerializer(serializers.Serializer):
+    senha_atual = serializers.CharField(trim_whitespace=False)
     nova_senha = serializers.CharField(min_length=8)
 
     def validate_nova_senha(self, value):

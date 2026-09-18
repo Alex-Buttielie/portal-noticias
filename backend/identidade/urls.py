@@ -12,6 +12,7 @@ urlpatterns = [
     path("auth/logout/", views.LogoutView.as_view(), name="logout"),
     path("auth/recuperar-senha/", views.RecuperarSenhaView.as_view(), name="recuperar-senha"),
     path("auth/redefinir-senha/", views.RedefinirSenhaView.as_view(), name="redefinir-senha"),
+    path("auth/trocar-senha/", views.TrocarSenhaView.as_view(), name="trocar-senha"),
     path("onboarding/", views.OnboardingView.as_view(), name="onboarding"),
     path("preferencias-cookies/", views.PreferenciasCookiesView.as_view(), name="preferencias-cookies"),
 ]

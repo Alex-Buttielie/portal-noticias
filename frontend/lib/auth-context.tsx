@@ -18,6 +18,7 @@ interface AuthContextValue {
   fazerLogin: (email: string, senha: string) => Promise<void>;
   fazerLogout: () => Promise<void>;
   atualizarUsuario: (usuario: api.Usuario) => void;
+  atualizarToken: (token: string) => void;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -111,9 +112,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const atualizarToken = useCallback((novoToken: string) => {
+    setToken(novoToken);
+    try {
+      window.localStorage.setItem(CHAVE_TOKEN, novoToken);
+    } catch {
+      // ignora
+    }
+  }, []);
+
   return (
     <AuthContext.Provider
-      value={{ token, usuario, carregando, fazerLogin, fazerLogout, atualizarUsuario }}
+      value={{ token, usuario, carregando, fazerLogin, fazerLogout, atualizarUsuario, atualizarToken }}
     >
       {children}
     </AuthContext.Provider>
