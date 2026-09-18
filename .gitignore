@@ -17,3 +17,17 @@ temp_tsc.log
 backend/ensure_local_admin.py
 .env.localhost
 docker-compose.localhost.yml
+
+# Bytecode e caches regeneráveis — nunca commitar (valeu para
+# ingestao-service/, que não tinha .gitignore próprio).
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+*.tsbuildinfo
+.next/
+out/
+dist/
+build/
+*.egg-info/
