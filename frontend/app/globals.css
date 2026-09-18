@@ -251,6 +251,69 @@
   }
 }
 
+/* Módulo de dispositivos: comportamento nativo por classe/SO/entrada.
+   O DeviceProvider espelha data-* no <html>; aqui o CSS reage sem JS. */
+@layer base {
+  :root {
+    --altura-cabecalho: 3.5rem;
+    --altura-nav-nativa: 3.5rem;
+  }
+
+  html {
+    -webkit-tap-highlight-color: transparent;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    overscroll-behavior-y: none;
+  }
+
+  /* Alvos de toque mínimos em dispositivos touch */
+  html[data-entrada="touch"] a,
+  html[data-entrada="touch"] button {
+    min-height: 24px;
+  }
+
+  html[data-entrada="touch"] [data-nav-nativa] a {
+    min-height: 56px;
+    min-width: 56px;
+  }
+
+  /* Conteúdo nunca fica sob a tab bar nativa (mobile + tablet retrato) */
+  html[data-nav="inferior"] #conteudo-principal {
+    padding-bottom: calc(var(--altura-nav-nativa) + env(safe-area-inset-bottom) + 1rem);
+  }
+
+  /* Trilho lateral do tablet: desloca o conteúdo */
+  html[data-nav="trilho"] #conteudo-principal {
+    padding-left: calc(76px + 0.75rem);
+  }
+}
+
+@layer utilities {
+  /* iOS: tab bar translúcida já vem do componente; reforça o blur legado */
+  html[data-so="ios"] [data-nav-nativa] {
+    -webkit-backdrop-filter: blur(20px);
+    backdrop-filter: blur(20px);
+  }
+
+  /* Android: indicador pill + ripple contido */
+  html[data-so="android"] [data-nav-nativa] a {
+    -webkit-tap-highlight-color: rgba(var(--cor-sombra), 0.12);
+  }
+
+  /* Grade adaptativa: respiro menor no mobile portrait denso */
+  html[data-classe="mobile"][data-orientacao="portrait"] [data-grade-adaptativa] {
+    row-gap: 0.625rem;
+  }
+
+  /* Sem navegação adaptativa: garante que trilho e tab bar nunca apareçam */
+  html[data-nav="nenhuma"] [data-nav-nativa],
+  html[data-nav="nenhuma"] [data-nav-trilho] {
+    display: none;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

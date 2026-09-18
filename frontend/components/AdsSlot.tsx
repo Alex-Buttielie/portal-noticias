@@ -1,4 +1,8 @@
+"use client";
+
+import { useEffect, useRef } from "react";
 import { cn } from "@/lib/utils";
+import { ADSENSE_CLIENT_ID } from "./AdsScript";
 
 type Formato = "horizontal" | "retangulo" | "vertical" | "in-feed";
 
@@ -8,6 +12,21 @@ const ALTURA: Record<Formato, string> = {
   vertical: "600px",
   "in-feed": "200px",
 };
+
+/** Slot numérico por formato (criado na conta AdSense). Sem slot, o bloco
+ *  segue como placeholder mesmo com publisher ID configurado. */
+const SLOT_POR_FORMATO: Record<Formato, string> = {
+  horizontal: process.env.NEXT_PUBLIC_ADSENSE_SLOT_HORIZONTAL || "",
+  retangulo: process.env.NEXT_PUBLIC_ADSENSE_SLOT_RETANGULO || "",
+  vertical: process.env.NEXT_PUBLIC_ADSENSE_SLOT_VERTICAL || "",
+  "in-feed": process.env.NEXT_PUBLIC_ADSENSE_SLOT_INFEED || "",
+};
+
+declare global {
+  interface Window {
+    adsbygoogle?: unknown[];
+  }
+}
 
 export function AdsSlot({
   id,
@@ -20,8 +39,40 @@ export function AdsSlot({
   className?: string;
   rotulo?: string;
 }) {
+  const ref = useRef<HTMLModElement>(null);
+  const slot = SLOT_POR_FORMATO[formato];
+
+  useEffect(() => {
+    if (!ADSENSE_CLIENT_ID || !slot || !ref.current) return;
+    try {
+      (window.adsbygoogle = window.adsbygoogle || []).push({});
+    } catch {
+      /* AdSense indisponível (adblock/offline) — mantém o espaço reservado */
+    }
+  }, [slot]);
+
+  if (ADSENSE_CLIENT_ID && slot) {
+    return (
+      <div
+        role="complementary"
+        aria-label={`Publicidade ${id}`}
+        className={cn("overflow-hidden", className)}
+        style={{ minHeight: ALTURA[formato] }}
+      >
+        <ins
+          ref={ref}
+          className="adsbygoogle"
+          style={{ display: "block" }}
+          data-ad-client={ADSENSE_CLIENT_ID}
+          data-ad-slot={slot}
+          data-ad-format="auto"
+          data-full-width-responsive="true"
+        />
+      </div>
+    );
+  }
+
   return (
-    // ponytail: AdsSlot placeholder div — trocar por <ins class='adsbygoogle' data-ad-client=...> quando tiver publisher ID + script adsbygoogle.js em layout.tsx.
     <div
       role="complementary"
       aria-label={`Publicidade ${id}`}

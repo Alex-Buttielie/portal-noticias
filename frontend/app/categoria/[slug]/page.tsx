@@ -6,8 +6,9 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SITE_NAME, SITE_URL } from "@/lib/site";
 import { obterFeed, type FeedEntrada } from "@/lib/api";
-import { imagemNoticia } from "@/lib/imagens";
+import { ImagemNoticia } from "@/components/ImagemNoticia";
 import { AdsSlot } from "@/components/AdsSlot";
+import { CategoriaReporter } from "@/components/Reporters";
 import { breadcrumbListJsonLd } from "@/lib/schema";
 
 export async function generateMetadata({ params }: { params: { slug: string } }): Promise<Metadata> {
@@ -25,6 +26,7 @@ export default async function Page({ params }: { params: { slug: string } }) {
   const jsonLd = breadcrumbListJsonLd([{ nome: "Início", url: SITE_URL }, { nome: slug, url: `${SITE_URL}/categoria/${encodeURIComponent(slug)}` }]);
   return (
     <div className="space-y-4">
+      <CategoriaReporter categoria={slug} />
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
       <div className="flex items-center gap-2 text-xs text-[var(--cor-texto-suave)]"><Link href="/" className="hover:underline">Início</Link><span aria-hidden>›</span><Link href="/editorias" className="hover:underline">Editorias</Link><span aria-hidden>›</span><span className="capitalize text-[var(--cor-texto)]">{slug}</span></div>
       <div className="rounded-[var(--raio-lg)] border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] p-4">
@@ -38,7 +40,7 @@ export default async function Page({ params }: { params: { slug: string } }) {
           <Fragment key={`${n.tipo}-${n.id}`}>
           <Card className="bento bento-hover overflow-hidden border-[var(--cor-borda)] bg-[var(--cor-fundo-card)]">
             <div className="aspect-[16/9] overflow-hidden bg-[var(--cor-fundo-elevado)]">
-              <img src={imagemNoticia(n)} alt={n.titulo} loading="lazy" className="h-full w-full object-cover" />
+              <ImagemNoticia src={n.imagem_url} seed={`${n.categoria || "geral"}-${n.id}`} alt={n.titulo} className="h-full w-full object-cover" />
             </div>
             <CardContent className="p-4"><div className="mb-2 flex gap-2"><Badge variant="outline" className="border-[var(--cor-borda)] capitalize">{n.categoria}</Badge>{n.urgente&&<Badge className="bg-[var(--cor-sinal)] text-[var(--cor-texto-invertido)]">urgente</Badge>}<span className="ml-auto text-xs text-[var(--cor-texto-suave)]">{timeAgo(n.timestamp)}</span></div><Link href={`/noticia/${n.id}`} className="line-clamp-2 font-bold text-[var(--cor-texto)] hover:text-[var(--cor-primaria)]">{n.titulo}</Link><p className="mt-1 line-clamp-2 text-sm text-[var(--cor-texto-suave)]">{n.resumo}</p></CardContent></Card>
           {(i+1)%6===0 && <AdsSlot id={`categoria-infeed-${Math.floor(i/6)}`} formato="in-feed" className="md:col-span-2" />}

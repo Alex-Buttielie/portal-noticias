@@ -73,7 +73,15 @@ export default function Page() {
     if (liberado) { setErro("Assinaturas pausadas — todos os recursos Premium estão liberados para você."); return; }
     if (!token) { setOpen(false); router.push("/login"); return; }
     setLoading(true); setErro(null);
-    try { await assinarPlano(token, sel.id); setOk(true); toast.success("Assinatura confirmada"); }
+    try {
+      const assinatura = await assinarPlano(token, sel.id);
+      if (assinatura.checkout_url) {
+        toast.success("Abrindo o checkout seguro…");
+        window.location.href = assinatura.checkout_url;
+        return;
+      }
+      setOk(true); toast.success("Assinatura confirmada");
+    }
     catch (e: unknown) { const m = e instanceof Error ? e.message : "Não foi possível assinar."; setErro(m); toast.error(m); }
     finally { setLoading(false); }
   }

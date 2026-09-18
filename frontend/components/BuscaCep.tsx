@@ -50,20 +50,44 @@ export default function BuscaCep({ onEndereco, valorInicial = "", compact = fals
 
   const cepTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const endTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cepAbort = useRef<AbortController | null>(null);
+  const endAbort = useRef<AbortController | null>(null);
 
   const doBuscarCep = useCallback(async (override?: string) => {
     const raw = override ?? cep;
     setErro(null); setResultado(null);
     const n = normalizaCep(raw);
     if (n.length !== 8) { setErro("CEP inválido. Informe 8 dígitos."); return; }
+    cepAbort.current?.abort();
+    const ctrl = new AbortController();
+    cepAbort.current = ctrl;
     setLoading(true);
-    try { const e = await buscarCep(n); setResultado(e); } catch (e: unknown) { setErro(e instanceof Error ? e.message : "Falha ao buscar CEP."); } finally { setLoading(false); }
+    try {
+      const e = await buscarCep(n, { signal: ctrl.signal });
+      if (!ctrl.signal.aborted) setResultado(e);
+    } catch (e: unknown) {
+      if (e instanceof DOMException && e.name === "AbortError") return;
+      setErro(e instanceof Error ? e.message : "Falha ao buscar CEP.");
+    } finally {
+      if (cepAbort.current === ctrl) setLoading(false);
+    }
   }, [cep]);
 
   const doBuscarEndereco = useCallback(async () => {
     setErro2(null); setResultados([]);
+    endAbort.current?.abort();
+    const ctrl = new AbortController();
+    endAbort.current = ctrl;
     setLoading2(true);
-    try { const lista = await buscarCepPorEndereco(uf, cidade, logradouro); setResultados(lista); } catch (e: unknown) { setErro2(e instanceof Error ? e.message : "Falha ao buscar endereço."); } finally { setLoading2(false); }
+    try {
+      const lista = await buscarCepPorEndereco(uf, cidade, logradouro, { signal: ctrl.signal });
+      if (!ctrl.signal.aborted) setResultados(lista);
+    } catch (e: unknown) {
+      if (e instanceof DOMException && e.name === "AbortError") return;
+      setErro2(e instanceof Error ? e.message : "Falha ao buscar endereço.");
+    } finally {
+      if (endAbort.current === ctrl) setLoading2(false);
+    }
   }, [uf, cidade, logradouro]);
 
   useEffect(() => {

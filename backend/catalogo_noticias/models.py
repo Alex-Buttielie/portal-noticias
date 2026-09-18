@@ -78,6 +78,18 @@ class NewsItem(models.Model):
 
     categoria = models.CharField(max_length=100, blank=True)
 
+    # FRENTE 3 (algoritmos+busca): autoria e tags para busca por
+    # autor/colunista/tags. Best-effort do pipeline de ingestão (extraídos
+    # do RSS quando disponíveis); nunca bloqueiam criação, nunca inventados.
+    autor = models.CharField(
+        max_length=200, blank=True,
+        help_text="Autor/colunista creditado na fonte — vazio quando não informado.",
+    )
+    tags = models.JSONField(
+        default=list, blank=True,
+        help_text="Ex.: ['eleições', 'senado']. Lista de strings, minúsculas.",
+    )
+
     # Localidade (run 20260902-radar-tendencias-localizacao, BRD §11) —
     # campos livres, preenchidos best-effort pelo pipeline de ingestão
     # (inferência textual/fonte) quando disponível; nunca bloqueiam a

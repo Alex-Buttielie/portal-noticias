@@ -70,3 +70,30 @@ class LocalidadesSalvasView(APIView):
             cidade=request.data.get("cidade", ""),
         )
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class ParaVoceRegionalView(APIView):
+    """FRENTE 3 — Radar com a mesma lógica da Home + localização autorizada
+    (explícita na query ou salva pelo usuário) + tendências regionais."""
+
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        from feed.serializers import SecaoHomeSerializer
+
+        try:
+            limite = min(10, max(1, int(request.query_params.get("limite", 6))))
+        except (TypeError, ValueError):
+            limite = 6
+        dados = services.para_voce_regional(
+            user=request.user,
+            pais=request.query_params.get("pais"),
+            estado=request.query_params.get("estado"),
+            cidade=request.query_params.get("cidade"),
+            limite=limite,
+        )
+        dados["secoes"] = {
+            nome: SecaoHomeSerializer(lista, many=True).data
+            for nome, lista in dados["secoes"].items()
+        }
+        return Response(dados)

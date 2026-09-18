@@ -10,4 +10,5 @@ urlpatterns = [
     path("cancelar/", views.CancelarView.as_view(), name="cancelar"),
     path("minha/", views.MinhaAssinaturaView.as_view(), name="minha"),
     path("historico-pagamentos/", views.HistoricoPagamentosView.as_view(), name="historico-pagamentos"),
+    path("webhook/mercadopago/", views.WebhookMercadoPagoView.as_view(), name="webhook-mercadopago"),
 ]

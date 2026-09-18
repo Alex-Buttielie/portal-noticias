@@ -20,6 +20,7 @@ urlpatterns = [
     path("api/comunidade/", include("comunidade.urls")),
     path("api/moderacao/", include("moderacao.urls")),
     path("api/radar/", include("radar.urls")),
+    path("api/enderecos/", include("enderecos.urls")),
     path("api/newsletter/", include("newsletter.urls")),
     path("api/landing/", include("landing.urls")),
     path("api/b2b/", include("b2b.urls")),

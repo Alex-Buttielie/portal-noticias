@@ -16,4 +16,10 @@ urlpatterns = [
     path("moderacao/denuncias/", views.DenunciaListView.as_view(), name="admin-denuncias-list"),
     path("moderacao/denuncias/<int:denuncia_id>/acao/", views.DenunciaAcaoView.as_view(), name="admin-denuncias-acao"),
     path("sistema/", views.SistemaConfigView.as_view(), name="admin-sistema"),
+    # FRENTE 6 — Central de Inteligência: controles editoriais (overrides que
+    # o algoritmo de recomendação/feed respeita).
+    path("editoriais/", views.DestaqueEditorialListCreateView.as_view(), name="admin-editoriais-list"),
+    path("editoriais/<int:destaque_id>/", views.DestaqueEditorialDetailView.as_view(), name="admin-editoriais-detail"),
+    path("regras/", views.RegraCuradoriaListCreateView.as_view(), name="admin-regras-list"),
+    path("regras/<int:regra_id>/", views.RegraCuradoriaDetailView.as_view(), name="admin-regras-detail"),
 ]

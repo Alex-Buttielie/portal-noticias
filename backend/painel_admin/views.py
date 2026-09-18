@@ -17,11 +17,13 @@ from painel_admin.serializers import (
     AssinaturaAdminSerializer,
     DenunciaAdminSerializer,
     DenunciaAcaoSerializer,
+    DestaqueEditorialAdminSerializer,
     FeatureLimitAdminSerializer,
     FeatureLimitUpdateSerializer,
     FilaDecisaoSerializer,
     PlanAdminSerializer,
     PlanCreateSerializer,
+    RegraCuradoriaAdminSerializer,
     UsuarioAdminSerializer,
     UsuarioUpdateSerializer,
 )
@@ -359,3 +361,280 @@ class SistemaConfigView(APIView):
             alterado_por=request.user,
         )
         return Response({"premium_ativo": cfg.premium_ativo, "atualizado_em": cfg.atualizado_em})
+
+
+# ---------------------------------------------------------------------------
+# FRENTE 6 — Central de Inteligência: controles editoriais.
+#
+# `DestaqueEditorial` (feed/models.py, FRENTE 3: manchete/destaque/bloqueio
+# por entrada) é respeitado por `feed/recomendacao.py` (manchetes,
+# destaques_do_dia, bloqueios em todas as seções); `RegraCuradoria`
+# (painel_admin) é aplicada no feed geral via
+# `painel_admin.services_regras.aplicar_regras_curadoria`.
+# ---------------------------------------------------------------------------
+
+
+def _modelo_destaque():
+    """Modelo `DestaqueEditorial` (FRENTE 3) ou None se ainda não mergeado."""
+    try:
+        from feed.models import DestaqueEditorial
+
+        return DestaqueEditorial
+    except Exception:
+        return None
+
+
+def _sem_feed():
+    return Response(
+        {"detail": "Overrides por entrada indisponíveis: modelos editoriais do feed ainda não presentes."},
+        status=status.HTTP_501_NOT_IMPLEMENTED,
+    )
+
+
+def _titulo_entrada(entry_tipo, entry_id):
+    try:
+        if entry_tipo == "cluster":
+            from catalogo_noticias.models import NewsCluster
+
+            obj = NewsCluster.objects.filter(pk=entry_id).first()
+            return obj.titulo_acontecimento if obj else ""
+        from catalogo_noticias.models import NewsItem
+
+        obj = NewsItem.objects.filter(pk=entry_id).first()
+        return obj.titulo if obj else ""
+    except Exception:
+        return ""
+
+
+def _serializar_destaque(ov):
+    return {
+        "id": ov.id,
+        "tipo": ov.tipo,
+        "entry_tipo": ov.entry_tipo,
+        "entry_id": ov.cluster_id if ov.entry_tipo == "cluster" else ov.item_id,
+        "titulo": _titulo_entrada(ov.entry_tipo, ov.cluster_id if ov.entry_tipo == "cluster" else ov.item_id),
+        "posicao": ov.posicao,
+        "ativo": ov.ativo,
+        "inicio": ov.inicio,
+        "fim": ov.fim,
+        "motivo": ov.motivo,
+        "vigente": ov.vigente(),
+        "criado_em": ov.criado_em,
+    }
+
+
+class DestaqueEditorialListCreateView(APIView):
+    permission_classes = [IsAuthenticated, IsAdmin404]
+
+    def get(self, request):
+        DestaqueEditorial = _modelo_destaque()
+        if DestaqueEditorial is None:
+            return _sem_feed()
+
+        qs = DestaqueEditorial.objects.all().order_by("posicao", "-criado_em")
+        tipo = request.query_params.get("tipo")
+        if tipo in ("destaque", "manchete", "bloqueio"):
+            qs = qs.filter(tipo=tipo)
+        return Response([_serializar_destaque(ov) for ov in qs[:200]])
+
+    def post(self, request):
+        DestaqueEditorial = _modelo_destaque()
+        if DestaqueEditorial is None:
+            return _sem_feed()
+
+        ser = DestaqueEditorialAdminSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        d = ser.validated_data
+        entry_tipo, entry_id = d["entry_tipo"], d["entry_id"]
+        if _titulo_entrada(entry_tipo, entry_id) == "" and not (
+            entry_tipo == "cluster"
+        ):
+            # Item inexistente: ainda permite criar bloqueio preventivo? Não —
+            # override órfão confunde a Central; exige alvo real.
+            from catalogo_noticias.models import NewsItem
+
+            if not NewsItem.objects.filter(pk=entry_id).exists():
+                return Response(
+                    {"detail": "Notícia inexistente para este override."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        if entry_tipo == "cluster":
+            from catalogo_noticias.models import NewsCluster
+
+            if not NewsCluster.objects.filter(pk=entry_id).exists():
+                return Response(
+                    {"detail": "Acontecimento inexistente para este override."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        kwargs = {
+            "tipo": d["tipo"],
+            "entry_tipo": entry_tipo,
+            "posicao": d.get("posicao", 0),
+            "ativo": d.get("ativo", True),
+            "inicio": d.get("inicio"),
+            "fim": d.get("fim"),
+            "motivo": d.get("motivo", ""),
+        }
+        if entry_tipo == "cluster":
+            kwargs["cluster_id"] = entry_id
+            kwargs["item"] = None
+        else:
+            kwargs["item_id"] = entry_id
+            kwargs["cluster"] = None
+        ov = DestaqueEditorial.objects.create(**kwargs)
+        auditar(
+            acao="destaque_create", alvo_tipo="DestaqueEditorial", alvo_id=ov.id,
+            detalhe={"tipo": ov.tipo, "entry": f"{entry_tipo}:{entry_id}"},
+            alterado_por=request.user,
+        )
+        return Response(_serializar_destaque(ov), status=status.HTTP_201_CREATED)
+
+
+class DestaqueEditorialDetailView(APIView):
+    permission_classes = [IsAuthenticated, IsAdmin404]
+
+    def _objeto(self, destaque_id):
+        DestaqueEditorial = _modelo_destaque()
+        if DestaqueEditorial is None:
+            return None
+
+        try:
+            return DestaqueEditorial.objects.get(pk=destaque_id)
+        except DestaqueEditorial.DoesNotExist:
+            return None
+
+    def patch(self, request, destaque_id):
+        if _modelo_destaque() is None:
+            return _sem_feed()
+        ov = self._objeto(destaque_id)
+        if ov is None:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        ser = DestaqueEditorialAdminSerializer(data=request.data, partial=True)
+        ser.is_valid(raise_exception=True)
+        for campo in ("tipo", "posicao", "ativo", "inicio", "fim", "motivo"):
+            if campo in ser.validated_data:
+                setattr(ov, campo, ser.validated_data[campo])
+        ov.save()
+        auditar(
+            acao="destaque_update", alvo_tipo="DestaqueEditorial", alvo_id=ov.id,
+            detalhe={"novo": ser.validated_data}, alterado_por=request.user,
+        )
+        return Response(_serializar_destaque(ov))
+
+    def delete(self, request, destaque_id):
+        if _modelo_destaque() is None:
+            return _sem_feed()
+        ov = self._objeto(destaque_id)
+        if ov is None:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        ov.delete()
+        auditar(
+            acao="destaque_delete", alvo_tipo="DestaqueEditorial", alvo_id=destaque_id,
+            detalhe={}, alterado_por=request.user,
+        )
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+def _serializar_regra(regra):
+    return {
+        "id": regra.id,
+        "tipo": regra.tipo,
+        "entry_tipo": regra.entry_tipo,
+        "entry_id": regra.entry_id,
+        "alvo": regra.alvo,
+        "ordem": regra.ordem,
+        "ativo": regra.ativo,
+        "inicio": regra.inicio,
+        "fim": regra.fim,
+        "motivo": regra.motivo,
+        "vigente": regra.vigente(),
+        "criado_em": regra.criado_em,
+    }
+
+
+class RegraCuradoriaListCreateView(APIView):
+    permission_classes = [IsAuthenticated, IsAdmin404]
+
+    def get(self, request):
+        from painel_admin.models import RegraCuradoria
+
+        qs = RegraCuradoria.objects.all().order_by("ordem", "-criado_em")
+        tipo = request.query_params.get("tipo")
+        if tipo:
+            qs = qs.filter(tipo=tipo)
+        return Response([_serializar_regra(r) for r in qs[:200]])
+
+    def post(self, request):
+        from painel_admin.models import RegraCuradoria
+
+        ser = RegraCuradoriaAdminSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        d = ser.validated_data
+        if d["tipo"] in RegraCuradoria.TIPOS_ENTRADA and not (d.get("entry_tipo") and d.get("entry_id")):
+            return Response(
+                {"detail": "Este tipo de regra exige entry_tipo + entry_id."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if d["tipo"] in ("boost_categoria", "bloqueio_categoria", "colunista_destaque",
+                         "ordem_categorias") and not (d.get("alvo") or "").strip():
+            return Response(
+                {"detail": "Este tipo de regra exige alvo (categoria/autor/lista)."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        regra = RegraCuradoria.objects.create(
+            tipo=d["tipo"],
+            entry_tipo=d.get("entry_tipo") or "",
+            entry_id=d.get("entry_id"),
+            alvo=(d.get("alvo") or "")[:300],
+            ordem=d.get("ordem", 0),
+            ativo=d.get("ativo", True),
+            inicio=d.get("inicio"),
+            fim=d.get("fim"),
+            motivo=d.get("motivo", ""),
+            criado_por=request.user,
+        )
+        auditar(
+            acao="regra_create", alvo_tipo="RegraCuradoria", alvo_id=regra.id,
+            detalhe={"tipo": regra.tipo, "alvo": regra.alvo}, alterado_por=request.user,
+        )
+        return Response(_serializar_regra(regra), status=status.HTTP_201_CREATED)
+
+
+class RegraCuradoriaDetailView(APIView):
+    permission_classes = [IsAuthenticated, IsAdmin404]
+
+    def _objeto(self, regra_id):
+        from painel_admin.models import RegraCuradoria
+
+        try:
+            return RegraCuradoria.objects.get(pk=regra_id)
+        except RegraCuradoria.DoesNotExist:
+            return None
+
+    def patch(self, request, regra_id):
+        regra = self._objeto(regra_id)
+        if regra is None:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        ser = RegraCuradoriaAdminSerializer(data=request.data, partial=True)
+        ser.is_valid(raise_exception=True)
+        for campo in ("tipo", "entry_tipo", "entry_id", "alvo", "ordem", "ativo", "inicio", "fim", "motivo"):
+            if campo in ser.validated_data:
+                setattr(regra, campo, ser.validated_data[campo])
+        regra.save()
+        auditar(
+            acao="regra_update", alvo_tipo="RegraCuradoria", alvo_id=regra.id,
+            detalhe={"novo": {k: str(v) for k, v in ser.validated_data.items()}},
+            alterado_por=request.user,
+        )
+        return Response(_serializar_regra(regra))
+
+    def delete(self, request, regra_id):
+        regra = self._objeto(regra_id)
+        if regra is None:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        regra.delete()
+        auditar(
+            acao="regra_delete", alvo_tipo="RegraCuradoria", alvo_id=regra_id,
+            detalhe={}, alterado_por=request.user,
+        )
+        return Response(status=status.HTTP_204_NO_CONTENT)

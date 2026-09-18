@@ -79,12 +79,26 @@ def construir_feed_entries(itens: list[NewsItem]) -> list[dict]:
                 "numero_fontes": numero_fontes,
                 "timestamp": timestamp_item,
                 "imagem_url": getattr(item, "imagem_url", "") or "",
+                # Localidade e fonte do item representante — nunca inventadas,
+                # vazias quando o pipeline não inferiu (frontend só exibe se existirem).
+                "pais": getattr(item, "pais", "") or "",
+                "estado": getattr(item, "estado", "") or "",
+                "cidade": getattr(item, "cidade", "") or "",
+                "nome_fonte": getattr(item, "nome_fonte", "") or "",
+                # FRENTE 3 — autor/colunista creditado no RSS (best-effort).
+                "autor": getattr(item, "autor", "") or "",
             }
-        elif item.urgente and not entradas[chave]["urgente"]:
-            # Qualquer item urgente dentro do subconjunto filtrado do mesmo
-            # cluster marca a entrada inteira como urgente, mesmo que não
-            # seja o item escolhido como representante (título/resumo).
-            entradas[chave]["urgente"] = True
+        else:
+            if item.urgente and not entradas[chave]["urgente"]:
+                # Qualquer item urgente dentro do subconjunto filtrado do mesmo
+                # cluster marca a entrada inteira como urgente, mesmo que não
+                # seja o item escolhido como representante (título/resumo).
+                entradas[chave]["urgente"] = True
+            # Completa localidade/fonte vazias do representante com outro item
+            # do mesmo cluster (best-effort, sem inventar dado).
+            for campo in ("pais", "estado", "cidade", "nome_fonte", "imagem_url", "autor"):
+                if not entradas[chave].get(campo) and getattr(item, campo, ""):
+                    entradas[chave][campo] = getattr(item, campo) or ""
 
     return sorted(entradas.values(), key=lambda entrada: entrada["timestamp"], reverse=True)
 
@@ -158,6 +172,9 @@ def detalhe_cluster(cluster_id: int) -> dict | None:
         "categoria": cluster.categoria_dominante or representante.categoria,
         "urgente": any(item.urgente for item in itens),
         "timestamp": _timestamp_ordenacao(representante),
+        "pais": getattr(representante, "pais", "") or "",
+        "estado": getattr(representante, "estado", "") or "",
+        "cidade": getattr(representante, "cidade", "") or "",
         "fontes": [
             {
                 "nome_fonte": item.nome_fonte,
@@ -188,6 +205,9 @@ def detalhe_item(item_id: int) -> dict | None:
         "categoria": item.categoria,
         "urgente": item.urgente,
         "timestamp": _timestamp_ordenacao(item),
+        "pais": getattr(item, "pais", "") or "",
+        "estado": getattr(item, "estado", "") or "",
+        "cidade": getattr(item, "cidade", "") or "",
         "fontes": [
             {
                 "nome_fonte": item.nome_fonte,

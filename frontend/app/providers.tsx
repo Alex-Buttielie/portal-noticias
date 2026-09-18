@@ -7,14 +7,24 @@ import { TooltipProvider } from "@radix-ui/react-tooltip";
 import { obterQueryClient } from "@/lib/query-client";
 import { AuthProvider } from "@/lib/auth-context";
 import { ToastProvider } from "@/components/ToastProvider";
+import { DeviceProvider } from "@/lib/dispositivos/DeviceProvider";
+import type { PerfilDispositivo } from "@/lib/dispositivos/tipos";
 
-export function Providers({ children }: { children: ReactNode }) {
+export function Providers({
+  children,
+  perfilInicial,
+}: {
+  children: ReactNode;
+  perfilInicial?: PerfilDispositivo;
+}) {
   return (
     <ThemeProvider attribute="data-theme" enableSystem={false} defaultTheme="light">
       <QueryClientProvider client={obterQueryClient()}>
         <TooltipProvider>
           <ToastProvider>
-            <AuthProvider>{children}</AuthProvider>
+            <DeviceProvider perfilInicial={perfilInicial}>
+              <AuthProvider>{children}</AuthProvider>
+            </DeviceProvider>
           </ToastProvider>
         </TooltipProvider>
       </QueryClientProvider>

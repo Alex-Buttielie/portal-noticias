@@ -9,12 +9,13 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { AdsSlot } from "@/components/AdsSlot";
-import { imagemNoticia } from "@/lib/imagens";
+import { ImagemNoticia } from "@/components/ImagemNoticia";
 import type { FeedEntrada } from "@/lib/api";
 import { carregarRegiao, salvarRegiao, limparRegiao, obterRegiaoPorGeolocation, formatarRegiao, cidadesVizinhasMock, type Regiao } from "@/lib/regiao";
+import { trackLocationPermission, trackLocationSelected } from "@/lib/analytics";
 import BuscaCep from "@/components/BuscaCep";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { MapPin, Locate, Navigation, Clock3, Filter, ArrowUpDown, Search, X, Sparkles, Crown } from "lucide-react";
+import { ConsentimentoLocal, lerRecusaLocal, limparRecusaLocal } from "@/components/ConsentimentoLocal";
+import { MapPin, Locate, Navigation, Clock3, Filter, ArrowUpDown, Search, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 type Orden = "recente" | "relevancia" | "urgente";
@@ -47,7 +48,7 @@ export function SecaoRegiao({ feed }: { feed: FeedEntrada[] }) {
   const [buscando, setBuscando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
-  const [cepOpen, setCepOpen] = useState(false);
+  const [recusado, setRecusado] = useState(false);
   const [escopo, setEscopo] = useState<"tudo" | "cidade" | "estado" | "vizinhas">("tudo");
   const [orden, setOrden] = useState<Orden>("recente");
   const [buscaLocal, setBuscaLocal] = useState("");
@@ -55,6 +56,7 @@ export function SecaoRegiao({ feed }: { feed: FeedEntrada[] }) {
 
   useEffect(() => {
     setRegiao(carregarRegiao());
+    setRecusado(lerRecusaLocal());
   }, []);
 
   const vizinhas = useMemo(() => (regiao ? cidadesVizinhasMock(regiao.cidade, regiao.estado) : []), [regiao]);
@@ -67,9 +69,12 @@ export function SecaoRegiao({ feed }: { feed: FeedEntrada[] }) {
       salvarRegiao(r);
       setRegiao(r);
       setOpen(false);
+      trackLocationPermission(true);
+      trackLocationSelected({ pais: r.pais, estado: r.estado, cidade: r.cidade });
     } catch (e: unknown) {
       setErro(e instanceof Error ? e.message : "Não foi possível obter sua localização.");
       setOpen(true);
+      trackLocationPermission(false);
     } finally {
       setBuscando(false);
     }
@@ -81,6 +86,7 @@ export function SecaoRegiao({ feed }: { feed: FeedEntrada[] }) {
     setRegiao(r);
     setOpen(false);
     setErro(null);
+    trackLocationSelected({ pais: r.pais, estado: r.estado, cidade: r.cidade, regiao: `CEP ${e.cep}` });
   }, []);
 
   const categorias = useMemo(() => Array.from(new Set(feed.map((f) => f.categoria).filter(Boolean))).sort(), [feed]);
@@ -103,39 +109,25 @@ export function SecaoRegiao({ feed }: { feed: FeedEntrada[] }) {
   const resto = itensRegiao.slice(1, 7);
 
   if (!regiao) {
+    if (recusado) {
+      return (
+        <section className="flex flex-wrap items-center gap-2 rounded-[var(--raio-lg)] border border-dashed border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] px-4 py-3">
+          <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--cor-fundo-elevado)] text-[var(--cor-texto-suave)]"><MapPin className="h-4 w-4" aria-hidden /></span>
+          <p className="min-w-0 flex-1 text-sm text-[var(--cor-texto-suave)]"><span className="font-semibold text-[var(--cor-texto)]">Perto de você</span> — ative para ver notícias da sua cidade.</p>
+          <Button size="sm" variant="outline" onClick={() => { limparRecusaLocal(); setRecusado(false); }} className="min-h-[40px] border-[var(--cor-borda)]">Ativar</Button>
+        </section>
+      );
+    }
     return (
-      <section className="rounded-[var(--raio-lg)] border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] p-4 md:p-6 shadow-[var(--sombra-1)]">
-        <div className="flex flex-col items-center gap-3 py-4 text-center md:py-6">
-          <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-[var(--cor-primaria-suave)] text-[var(--cor-primaria)]"><MapPin className="h-5 w-5" /></span>
-          <h2 className="text-xl font-bold tracking-tight text-[var(--cor-texto)]">Perto de você</h2>
-          <p className="max-w-[36ch] text-sm leading-relaxed text-[var(--cor-texto-suave)]">Veja notícias da sua cidade e vizinhança.</p>
-          <Button onClick={pedirLocalizacao} disabled={buscando} size="lg" className="mt-2 min-h-[52px] gap-2 bg-[var(--cor-primaria)] px-8 text-base font-semibold text-[var(--cor-texto-invertido)] shadow-[var(--sombra-1)]"><Locate className="h-5 w-5" /> {buscando ? "Localizando…" : "Compartilhar minha localização"}</Button>
-          <p className="text-xs text-[var(--cor-texto-suave)]">Um toque — seu navegador pedirá permissão</p>
-          {erro && <p role="alert" className="w-full max-w-md rounded-md border border-[var(--cor-erro)] bg-[var(--cor-erro-suave)] px-3 py-2 text-sm text-[var(--cor-erro)]">{erro}</p>}
-          <Collapsible open={cepOpen} onOpenChange={setCepOpen} className="w-full max-w-md">
-            <CollapsibleTrigger asChild>
-              <button className="text-xs text-[var(--cor-texto-suave)] underline underline-offset-4 hover:text-[var(--cor-texto)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cor-foco)]">Prefiro digitar CEP</button>
-            </CollapsibleTrigger>
-            <CollapsibleContent className="pt-3 text-left"><BuscaCep compact onEndereco={aplicarCep} /></CollapsibleContent>
-          </Collapsible>
-          <p className="flex items-center gap-1 text-xs text-[var(--cor-texto-suave)]"><Sparkles className="h-3 w-3" /> Só cidade/estado. Apague quando quiser.</p>
-        </div>
-        <Dialog open={open} onOpenChange={setOpen}>
-          <DialogContent className="border-[var(--cor-borda)] bg-[var(--cor-fundo-card)]">
-            <DialogHeader><DialogTitle className="flex items-center gap-2"><MapPin className="h-5 w-5 text-[var(--cor-primaria)]" /> Escolha sua região</DialogTitle><DialogDescription>Compartilhe sua localização ou use o CEP.</DialogDescription></DialogHeader>
-            <div className="space-y-3">
-              <Button onClick={pedirLocalizacao} disabled={buscando} className="w-full gap-1.5 bg-[var(--cor-primaria)] text-[var(--cor-texto-invertido)]"><Locate className="h-4 w-4" /> {buscando ? "Localizando…" : "Usar minha localização"}</Button>
-              <div className="flex items-center gap-2 text-xs text-[var(--cor-texto-suave)]"><span className="h-px flex-1 bg-[var(--cor-borda)]" /> ou <span className="h-px flex-1 bg-[var(--cor-borda)]" /></div>
-              <BuscaCep onEndereco={aplicarCep} />
-              {erro && <p role="alert" className="rounded-md border border-[var(--cor-erro)] bg-[var(--cor-erro-suave)] px-3 py-2 text-sm text-[var(--cor-erro)]">{erro}</p>}
-            </div>
-            <DialogFooter><Button variant="outline" onClick={() => setOpen(false)}>Fechar</Button></DialogFooter>
-          </DialogContent>
-        </Dialog>
+      <section aria-label="Perto de você" className="rounded-[var(--raio-lg)] border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] p-4 shadow-[var(--sombra-1)] md:p-6">
+        <ConsentimentoLocal
+          beneficio="notícias da sua cidade e vizinhança"
+          onRegiao={(r) => { setRegiao(r); setRecusado(false); }}
+          onRecusar={() => setRecusado(true)}
+        />
       </section>
     );
   }
-
   return (
     <section className="space-y-4 rounded-[var(--raio-lg)] border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] p-4 md:p-5 shadow-[var(--sombra-1)]">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -185,7 +177,7 @@ export function SecaoRegiao({ feed }: { feed: FeedEntrada[] }) {
             <Card className="group overflow-hidden border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] transition hover:shadow-[var(--sombra-2)]">
               <div className="grid md:grid-cols-[1.4fr_0.9fr]">
                 <Link href={`/noticia/${heroLocal.id}`} className="block aspect-[16/9] overflow-hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cor-foco)]">
-                  <img src={imagemNoticia(heroLocal)} alt={heroLocal.titulo} loading="lazy" className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.02]" />
+                  <ImagemNoticia src={heroLocal.imagem_url} seed={`${heroLocal.categoria || "geral"}-${heroLocal.id}`} alt={heroLocal.titulo} className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.02]" />
                 </Link>
                 <CardContent className="flex flex-col justify-center p-4">
                   <div className="flex flex-wrap items-center gap-2">
@@ -206,7 +198,7 @@ export function SecaoRegiao({ feed }: { feed: FeedEntrada[] }) {
             {resto.map((n) => (
               <Card key={`reg-${n.tipo}-${n.id}`} className="group overflow-hidden border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] hover:shadow-[var(--sombra-2)] hover:-translate-y-0.5 transition-all">
                 <Link href={`/noticia/${n.id}`} className="block aspect-[16/9] overflow-hidden bg-[var(--cor-fundo-elevado)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cor-foco)]">
-                  <img src={imagemNoticia(n)} alt={n.titulo} loading="lazy" className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.02]" />
+                  <ImagemNoticia src={n.imagem_url} seed={`${n.categoria || "geral"}-${n.id}`} alt={n.titulo} className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.02]" />
                 </Link>
                 <CardContent className="p-3">
                   <div className="flex items-center gap-2">

@@ -30,17 +30,25 @@ export default function EnderecoAutocomplete({ value, onChange, onEndereco, plac
   const [resultado, setResultado] = useState<EnderecoViaCep | null>(null);
   const [sugErro, setSugErro] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const abort = useRef<AbortController | null>(null);
 
   const doBuscarCep = useCallback(async (raw: string) => {
     const n = normalizaCep(raw);
     if (n.length !== 8) { setErro("Digite 8 dígitos do CEP para preencher automático."); setResultado(null); return; }
+    abort.current?.abort();
+    const ctrl = new AbortController();
+    abort.current = ctrl;
     setLoading(true); setErro(null); setResultado(null); setSugErro(null);
     try {
-      const e = await buscarCep(n);
+      const e = await buscarCep(n, { signal: ctrl.signal });
+      if (ctrl.signal.aborted) return;
       setResultado(e);
       onEndereco?.(e);
-    } catch (e: unknown) { setErro(e instanceof Error ? e.message : "Falha ao buscar CEP."); }
-    finally { setLoading(false); }
+    } catch (e: unknown) {
+      if (e instanceof DOMException && (e as DOMException).name === "AbortError") return;
+      setErro(e instanceof Error ? e.message : "Falha ao buscar CEP.");
+    }
+    finally { if (abort.current === ctrl) setLoading(false); }
   }, [onEndereco]);
 
   const doBuscarManual = useCallback(async () => {

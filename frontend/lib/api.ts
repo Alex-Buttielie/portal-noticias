@@ -226,6 +226,18 @@ export interface FeedEntrada {
   numero_fontes: number;
   timestamp: string;
   imagem_url?: string;
+  // Localidade best-effort do backend (NewsItem.pais/estado/cidade) — vazia
+  // quando o pipeline não inferiu. O frontend só exibe quando existir,
+  // nunca inventa.
+  pais?: string;
+  estado?: string;
+  cidade?: string;
+  // Fonte representante (rastreabilidade BRD seção 18) — exibida como
+  // "Fonte: X"; nunca inventar autor/colunista.
+  nome_fonte?: string;
+  // FRENTE 3 — autor/colunista creditado no RSS (best-effort). Preferido a
+  // nome_fonte na linha de autoria; nunca inventado.
+  autor?: string;
 }
 
 export interface FeedResposta {
@@ -240,11 +252,13 @@ export function obterFeed(params: {
   categoria?: string;
   busca?: string;
   page?: number;
+  page_size?: number;
 }): Promise<FeedResposta> {
   const query = new URLSearchParams();
   if (params.categoria) query.set("categoria", params.categoria);
   if (params.busca) query.set("busca", params.busca);
   if (params.page) query.set("page", String(params.page));
+  if (params.page_size) query.set("page_size", String(params.page_size));
   const qs = query.toString();
   return request(`/api/feed/${qs ? `?${qs}` : ""}`, { method: "GET" });
 }
@@ -278,6 +292,9 @@ export interface FeedDetalhe {
   categoria: string;
   urgente: boolean;
   timestamp: string;
+  pais?: string;
+  estado?: string;
+  cidade?: string;
   fontes: FonteDetalhe[];
   exibir_publicidade: boolean;
 }
@@ -288,6 +305,148 @@ export function obterDetalheCluster(id: number | string): Promise<FeedDetalhe> {
 
 export function obterDetalheItem(id: number | string): Promise<FeedDetalhe> {
   return request(`/api/feed/item/${id}/`, { method: "GET" });
+}
+
+// ---------------------------------------------------------------------------
+// feed/ — FRENTE 3 (algoritmos + busca + agrupamento). Transporte puro: todo
+// score/ranking/seção vem pronto do backend (feed/recomendacao.py,
+// feed/busca.py); aqui só tipos + chamadas.
+// ---------------------------------------------------------------------------
+
+export interface EntradaRanqueda extends FeedEntrada {
+  score?: number;
+  motivo?: string;
+  override?: string | null;
+}
+
+export type NomeSecaoHome = "manchetes" | "curadoria" | "para_voce" | "populares" | "tendencia" | "recentes";
+
+export type SecoesHome = Record<NomeSecaoHome, EntradaRanqueda[]>;
+
+export interface HomeSecoesResposta extends SecoesHome {
+  exibir_publicidade: boolean;
+}
+
+export function obterHomeSecoes(params: {
+  limite?: number;
+  pais?: string;
+  estado?: string;
+  cidade?: string;
+} = {}): Promise<HomeSecoesResposta> {
+  const query = new URLSearchParams();
+  if (params.limite) query.set("limite", String(params.limite));
+  if (params.pais) query.set("pais", params.pais);
+  if (params.estado) query.set("estado", params.estado);
+  if (params.cidade) query.set("cidade", params.cidade);
+  const qs = query.toString();
+  return request(`/api/feed/home/${qs ? `?${qs}` : ""}`, { method: "GET" });
+}
+
+export function obterDestaquesDia(params: {
+  limite?: number;
+  pais?: string;
+  estado?: string;
+  cidade?: string;
+} = {}): Promise<EntradaRanqueda[]> {
+  const query = new URLSearchParams();
+  if (params.limite) query.set("limite", String(params.limite));
+  if (params.pais) query.set("pais", params.pais);
+  if (params.estado) query.set("estado", params.estado);
+  if (params.cidade) query.set("cidade", params.cidade);
+  const qs = query.toString();
+  return request(`/api/feed/destaques/${qs ? `?${qs}` : ""}`, { method: "GET" });
+}
+
+export interface ResultadoBusca extends EntradaRanqueda {
+  relevancia?: number;
+  trecho?: string;
+}
+
+export interface BuscaResposta {
+  query: string;
+  count: number;
+  total_candidatos: number;
+  results: ResultadoBusca[];
+  sugestao?: string;
+}
+
+export function buscarNoticias(params: {
+  q: string;
+  categoria?: string;
+  autor?: string;
+  pais?: string;
+  estado?: string;
+  cidade?: string;
+  data_de?: string;
+  data_ate?: string;
+  limite?: number;
+}): Promise<BuscaResposta> {
+  const query = new URLSearchParams();
+  query.set("q", params.q);
+  if (params.categoria) query.set("categoria", params.categoria);
+  if (params.autor) query.set("autor", params.autor);
+  if (params.pais) query.set("pais", params.pais);
+  if (params.estado) query.set("estado", params.estado);
+  if (params.cidade) query.set("cidade", params.cidade);
+  if (params.data_de) query.set("data_de", params.data_de);
+  if (params.data_ate) query.set("data_ate", params.data_ate);
+  if (params.limite) query.set("limite", String(params.limite));
+  return request(`/api/feed/busca/?${query.toString()}`, { method: "GET" });
+}
+
+export function autocompleteBusca(q: string): Promise<{ query: string; sugestoes: string[] }> {
+  return request(`/api/feed/busca/autocomplete/?q=${encodeURIComponent(q)}`, { method: "GET" });
+}
+
+export function termosPopularesBusca(): Promise<{ termos: { termo: string; total: number }[] }> {
+  return request("/api/feed/busca/populares/", { method: "GET" });
+}
+
+export function historicoBusca(): Promise<{ historico: string[] }> {
+  return request("/api/feed/busca/historico/", { method: "GET" });
+}
+
+export interface AtualizacaoCobertura {
+  nome_fonte: string;
+  url_fonte_original: string;
+  titulo: string;
+  timestamp: string;
+}
+
+export interface CoberturaCompleta extends FeedDetalhe {
+  total_atualizacoes: number;
+  numero_fontes: number;
+  atualizacoes: AtualizacaoCobertura[];
+  relacionadas: ResultadoBusca[];
+}
+
+export function obterCobertura(tipo: "cluster" | "item", id: number | string): Promise<CoberturaCompleta> {
+  return request(`/api/feed/cobertura/${tipo}/${id}/`, { method: "GET" });
+}
+
+export function registrarInteracaoFeed(dados: {
+  tipo: "view" | "click" | "read" | "save" | "unsave" | "share" | "search_click";
+  entry_tipo: "cluster" | "item";
+  entry_id: number;
+  tempo_leitura_seg?: number;
+  query?: string;
+}): Promise<{ detail: string }> {
+  return request("/api/feed/interacoes/", { method: "POST", body: JSON.stringify(dados) });
+}
+
+export function obterRadarParaVoce(params: {
+  pais?: string;
+  estado?: string;
+  cidade?: string;
+  limite?: number;
+} = {}): Promise<{ aviso_metodologia: string; localidade: { pais: string | null; estado: string | null; cidade: string | null }; secoes: SecoesHome }> {
+  const query = new URLSearchParams();
+  if (params.pais) query.set("pais", params.pais);
+  if (params.estado) query.set("estado", params.estado);
+  if (params.cidade) query.set("cidade", params.cidade);
+  if (params.limite) query.set("limite", String(params.limite));
+  const qs = query.toString();
+  return request(`/api/radar/para-voce/${qs ? `?${qs}` : ""}`, { method: "GET" });
 }
 
 // ---------------------------------------------------------------------------
@@ -321,6 +480,7 @@ export interface Assinatura {
   vencimento: string | null;
   renovacao_automatica: boolean;
   grace_period_termina_em: string | null;
+  checkout_url?: string;
 }
 
 export interface Pagamento {
@@ -473,6 +633,8 @@ export interface Publicacao {
   news_cluster: number | null;
   news_item: number | null;
   destaque: boolean;
+  /** FRENTE 4 (Comunidade viva): nº de comentários visíveis (backend anotado; mock local pode omitir). */
+  numero_comentarios?: number;
   criado_em: string;
   publicado_em: string | null;
 }
@@ -494,12 +656,25 @@ export interface PerfilAutorPublico {
   credenciado: boolean;
   numero_seguidores: number;
   publicacoes: Publicacao[];
+  foto_url?: string | null;
+  mini_bio?: string;
 }
 
-export function obterPublicacoes(params: { destaque?: boolean; autor?: number } = {}): Promise<Publicacao[]> {
+export function obterPublicacoes(params: {
+  destaque?: boolean;
+  autor?: number;
+  categoria?: string;
+  tipo?: string;
+  busca?: string;
+  ordenar?: "recentes" | "discutidos" | "destaques";
+} = {}): Promise<Publicacao[]> {
   const query = new URLSearchParams();
   if (params.destaque) query.set("destaque", "1");
   if (params.autor) query.set("autor", String(params.autor));
+  if (params.categoria) query.set("categoria", params.categoria);
+  if (params.tipo) query.set("tipo", params.tipo);
+  if (params.busca) query.set("busca", params.busca);
+  if (params.ordenar) query.set("ordenar", params.ordenar);
   const qs = query.toString();
   return request(`/api/comunidade/publicacoes/${qs ? `?${qs}` : ""}`, { method: "GET" });
 }
@@ -617,6 +792,11 @@ export interface AssuntoEmAlta {
   numero_fontes: number;
   cluster_id: number | null;
   item_id: number | null;
+  // FRENTE 3 — crescimento 24h, buscas relacionadas e score (mesma lógica
+  // da Home). Opcionais para compatibilidade com payloads antigos/cache.
+  crescimento_24h?: number;
+  buscas_relacionadas?: number;
+  score?: number;
 }
 
 export interface RadarTendencias {
@@ -997,4 +1177,171 @@ export function atualizarConfigSistemaAdmin(
     { method: "PATCH", body: JSON.stringify(dados) },
     token
   );
+}
+
+// ---------------------------------------------------------------------------
+// FRENTE 6 — Central de Inteligência (métricas comportamentais + overrides).
+// Só admin. Tipos espelham `metricas/services_inteligencia.py` e
+// `painel_admin` (DestaqueEditorial / RegraCuradoria).
+// ---------------------------------------------------------------------------
+
+export type PeriodoInteligencia = "hoje" | "ontem" | "7d" | "30d" | "90d" | "custom";
+
+export interface RotuloTotal {
+  label: string;
+  total: number;
+}
+
+export interface RankingNoticia {
+  tipo: string;
+  id: number;
+  titulo: string;
+  categoria: string;
+  total: number;
+}
+
+export interface InsightEditorial {
+  tipo: string;
+  titulo: string;
+  detalhe: string;
+  base: Record<string, unknown>;
+}
+
+export interface CentralInteligencia {
+  periodo: { chave: string; inicio: string; fim: string; dias: number };
+  audiencia: {
+    visitas: number;
+    sessoes: number;
+    usuarios_novos: number;
+    sessoes_recorrentes: number;
+    usuarios_recorrentes: number;
+    taxa_retorno_pct: number;
+    views_por_noticia: number;
+    noticias_distintas_com_view: number;
+    tempo_medio_leitura_seg: number;
+    leituras_com_tempo: number;
+    tempo_medio_pagina_seg: number;
+    top_entradas: RotuloTotal[];
+    top_saidas: RotuloTotal[];
+  };
+  trafego: { origens: RotuloTotal[]; dispositivos: RotuloTotal[] };
+  conteudo: {
+    mais_acessadas: RankingNoticia[];
+    mais_clicadas: RankingNoticia[];
+    mais_pesquisadas: { termo: string; total: number }[];
+    buscas_sem_resultado: number;
+    mais_compartilhadas: RankingNoticia[];
+    mais_salvas: RankingNoticia[];
+    maior_tempo_medio: { tipo: string; id: number; titulo: string; categoria: string; media_seg: number; leituras: number }[];
+    categorias_top: RotuloTotal[];
+    autores_top: RotuloTotal[];
+    autores_sem_dados: boolean;
+    colunistas_top: RotuloTotal[];
+    urgentes_top: RankingNoticia[];
+  };
+  comportamento: {
+    cliques_noticia: number;
+    shares: number;
+    salvos: number;
+    scroll_medio_pct: number;
+    buscas_total: number;
+    termos_top: { termo: string; total: number }[];
+    top_paths: RotuloTotal[];
+    home: { views: number; cliques: number; por_secao: RotuloTotal[] };
+    radar_views: number;
+    comunidade: { views: number; interacoes: number };
+    categorias_navegadas: RotuloTotal[];
+    autores_vistos: RotuloTotal[];
+  };
+  localizacao: {
+    nota: string;
+    paises: RotuloTotal[];
+    estados: RotuloTotal[];
+    cidades: RotuloTotal[];
+    regioes: RotuloTotal[];
+    localidades_salvas_total: number;
+  };
+  series: Record<string, { dia: string; total: number }[]>;
+  comparativo: Record<string, { atual: number; anterior: number; delta_pct: number | null } & Record<string, unknown>>;
+  inteligencia: { sem_dados: boolean; mensagem?: string; total?: number; itens?: InsightEditorial[] };
+}
+
+export function obterCentralInteligencia(
+  token: string,
+  params: { periodo?: PeriodoInteligencia; inicio?: string; fim?: string } = {}
+): Promise<CentralInteligencia> {
+  const q = new URLSearchParams();
+  if (params.periodo) q.set("periodo", params.periodo);
+  if (params.inicio) q.set("inicio", params.inicio);
+  if (params.fim) q.set("fim", params.fim);
+  const qs = q.toString();
+  return request(`/api/metricas/inteligencia/${qs ? `?${qs}` : ""}`, { method: "GET" }, token);
+}
+
+export interface DestaqueEditorial {
+  id: number;
+  tipo: "destaque" | "manchete" | "bloqueio";
+  entry_tipo: "item" | "cluster";
+  entry_id: number;
+  titulo: string;
+  posicao: number;
+  ativo: boolean;
+  inicio: string | null;
+  fim: string | null;
+  motivo: string;
+  vigente?: boolean;
+  criado_em?: string;
+}
+
+export interface RegraCuradoria {
+  id: number;
+  tipo: string;
+  entry_tipo: string;
+  entry_id: number | null;
+  alvo: string;
+  ordem: number;
+  ativo: boolean;
+  inicio: string | null;
+  fim: string | null;
+  motivo: string;
+  vigente?: boolean;
+  criado_em?: string;
+}
+
+export function adminListarDestaques(token: string, tipo?: string): Promise<DestaqueEditorial[]> {
+  return request(`/api/admin/editoriais/${tipo ? `?tipo=${tipo}` : ""}`, { method: "GET" }, token);
+}
+
+export function adminCriarDestaque(
+  token: string,
+  dados: { tipo: string; entry_tipo: string; entry_id: number; posicao?: number; motivo?: string }
+): Promise<DestaqueEditorial> {
+  return request("/api/admin/editoriais/", { method: "POST", body: JSON.stringify(dados) }, token);
+}
+
+export function adminAtualizarDestaque(token: string, id: number, dados: Record<string, unknown>): Promise<DestaqueEditorial> {
+  return request(`/api/admin/editoriais/${id}/`, { method: "PATCH", body: JSON.stringify(dados) }, token);
+}
+
+export function adminExcluirDestaque(token: string, id: number): Promise<void> {
+  return request(`/api/admin/editoriais/${id}/`, { method: "DELETE" }, token);
+}
+
+export function adminListarRegras(token: string, tipo?: string): Promise<RegraCuradoria[]> {
+  return request(`/api/admin/regras/${tipo ? `?tipo=${tipo}` : ""}`, { method: "GET" }, token);
+}
+
+export function adminCriarRegra(
+  token: string,
+  dados: { tipo: string; entry_tipo?: string; entry_id?: number; alvo?: string; ordem?: number; motivo?: string }
+): Promise<RegraCuradoria> {
+  return request("/api/admin/regras/", { method: "POST", body: JSON.stringify(dados) }, token);
+}
+
+export function adminAtualizarRegra(token: string, id: number, dados: Record<string, unknown>): Promise<RegraCuradoria> {
+  return request(`/api/admin/regras/${id}/`, { method: "PATCH", body: JSON.stringify(dados) }, token);
+}
+
+export function adminExcluirRegra(token: string, id: number): Promise<void> {
+  return request(`/api/admin/regras/${id}/`, { method: "DELETE" }, token);
 }
