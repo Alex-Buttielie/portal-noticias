@@ -150,8 +150,7 @@ async function reverterDireto(lat: number, lon: number): Promise<Reverso | null>
   }
 }
 
-export async function obterRegiaoPorGeolocation(): Promise<Regiao> {
-  // Fluxo natural, sem gate: o navegador sempre tem a chance de perguntar.
+export async function obterRegiaoPorGeolocation(): Promise<Regiao> {  // Fluxo natural, sem gate: o navegador sempre tem a chance de perguntar.
   const pos = await obterPosicao();
   const { latitude, longitude } = pos.coords;
   // Proxy do backend primeiro (User-Agent identificável + cache; o Nominatim
@@ -171,6 +170,69 @@ export async function obterRegiaoPorGeolocation(): Promise<Regiao> {
     lat: latitude,
     lon: longitude,
   };
+}
+
+/**
+ * Região aproximada pela conexão (IP) — sem GPS, sem permissão do navegador.
+ * Usada como fallback automático quando o GPS falha/bloqueia: o SISTEMA
+ * pergunta ao usuário (diálogo próprio) se aceita a região detectada, então
+ * o fluxo sempre continua mesmo sem o prompt nativo.
+ */
+export async function obterRegiaoPorIP(): Promise<Regiao> {
+  const base = apiBase();
+  if (base) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 8000);
+    try {
+      const r = await fetch(`${base}/api/enderecos/por-ip/`, {
+        signal: ctrl.signal,
+        headers: { Accept: "application/json" },
+      });
+      if (r.ok) {
+        const j = (await r.json()) as Reverso & { fonte?: string };
+        if (j?.cidade || j?.estado) {
+          return {
+            cidade: j.cidade || "",
+            estado: (j.estado || "").toUpperCase(),
+            pais: j.pais || "Brasil",
+            cep: j.cep || undefined,
+          };
+        }
+      }
+    } catch {
+      /* cai para o fallback direto */
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 6000);
+    try {
+      const r = await fetch("https://ipapi.co/json/", { signal: ctrl.signal });
+      if (r.ok) {
+        const j = (await r.json()) as {
+          city?: string;
+          region_code?: string;
+          country_name?: string;
+          postal?: string;
+        };
+        if (j?.city || j?.region_code) {
+          return {
+            cidade: j.city || "",
+            estado: (j.region_code || "").toUpperCase(),
+            pais: j.country_name || "Brasil",
+            cep: j.postal || undefined,
+          };
+        }
+      }
+    } finally {
+      clearTimeout(timer);
+    }
+  } catch {
+    /* sem detecção */
+  }
+  throw new Error("Não foi possível detectar sua região pela conexão. Digite seu CEP abaixo.");
 }
 
 export function cidadesVizinhasMock(cidade: string, estado: string): string[] {

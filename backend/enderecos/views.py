@@ -94,3 +94,23 @@ class ReversoView(APIView):
             )
         except Exception as exc:  # noqa: BLE001 — mapeamento intencional p/ HTTP
             return _erro(exc)
+
+
+class PorIpView(APIView):
+    """GET /api/enderecos/por-ip/ — público.
+
+    Detecta cidade/UF aproximada pelo IP da conexão (X-Real-IP do Nginx,
+    fallback REMOTE_ADDR). Fallback automático quando o navegador bloqueia
+    o GPS: o frontend PERGUNTA ao usuário (diálogo próprio) se aceita a
+    região — 404 = não detectou (cai para o CEP manual).
+    """
+
+    permission_classes = [AllowAny]
+    throttle_classes = [EnderecosAnonThrottle]
+
+    def get(self, request):
+        try:
+            ip = request.META.get("HTTP_X_REAL_IP", "") or request.META.get("REMOTE_ADDR", "")
+            return Response(services.localizar_por_ip(ip))
+        except Exception as exc:  # noqa: BLE001 — mapeamento intencional p/ HTTP
+            return _erro(exc)

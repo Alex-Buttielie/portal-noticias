@@ -11,7 +11,7 @@ export const metadata = { title: "Configurações — Admin" };
 
 const ENVS = [
   { variavel: "NEXT_PUBLIC_SITE_URL", valor: SITE_URL, padrao: "http://localhost:3000", onde: "frontend/.env — NEXT_PUBLIC_SITE_URL", nota: "Usado em canonical / OG / sitemap" },
-  { variavel: "NEXT_PUBLIC_API_BASE_URL", valor: API_BASE_URL, padrao: "http://localhost:8000", onde: "frontend/.env — NEXT_PUBLIC_API_BASE_URL", nota: "Base da API consumida pelo frontend" },
+  { variavel: "NEXT_PUBLIC_API_BASE_URL", valor: API_BASE_URL || "(mesma origem — /api via Nginx)", padrao: "http://localhost:8000", onde: "frontend/.env — NEXT_PUBLIC_API_BASE_URL", nota: "SSR/dev: URL absoluta · navegador em produção: mesma origem" },
   { variavel: "FRONTEND_BASE_URL", valor: SITE_URL, padrao: "http://localhost:3000", onde: "servidor — FRONTEND_BASE_URL", nota: "Links de e-mail (verificação / reset) e CORS" },
   { variavel: "DJANGO_EMAIL_BACKEND", valor: "django.core.mail.backends.console.EmailBackend", padrao: "console", onde: "servidor — DJANGO_EMAIL_BACKEND", nota: "Dev: console · Prod: provedor transacional" },
   { variavel: "TERMOS_VERSAO_ATUAL", valor: "1.0", padrao: "1.0", onde: "servidor — TERMOS_VERSAO_ATUAL", nota: "Versão vigente aceita no cadastro (LGPD)" },

@@ -166,6 +166,41 @@ def test_view_reverso_mapeia_status(client, monkeypatch):
     )
     assert client.get("/api/enderecos/reverso/?lat=abc&lon=x").status_code == 400
 
+
+def _resp_ip(city="Goiânia", region="GO", country="Brasil", status="success"):
+    return _Resp({"status": status, "city": city, "region": region, "country": country, "zip": "74000-000"})
+
+
+def test_por_ip_ok_e_cacheado(monkeypatch):
+    chamadas = []
+
+    def _fake(url, timeout):
+        chamadas.append(url)
+        return _resp_ip()
+
+    monkeypatch.setattr(services.requests, "get", _fake)
+    r1 = services.localizar_por_ip("189.1.2.3")
+    r2 = services.localizar_por_ip("189.1.2.3")
+    assert r1["cidade"] == "Goiânia" and r1["estado"] == "GO"
+    assert r2 == r1 and len(chamadas) == 1
+
+
+def test_por_ip_localhost_e_falha_viram_404(monkeypatch):
+    with pytest.raises(services.CepNaoEncontradoError):
+        services.localizar_por_ip("127.0.0.1")
+    monkeypatch.setattr(services.requests, "get", lambda *a, **k: _Resp({"status": "fail"}))
+    with pytest.raises(services.CepNaoEncontradoError):
+        services.localizar_por_ip("189.1.2.3")
+
+
+def test_view_por_ip_ok(client, monkeypatch):
+    monkeypatch.setattr(
+        services, "localizar_por_ip",
+        lambda ip: {"cidade": "Goiânia", "estado": "GO", "pais": "Brasil", "fonte": "ip"},
+    )
+    r = client.get("/api/enderecos/por-ip/", HTTP_X_REAL_IP="189.1.2.3")
+    assert r.status_code == 200 and r.json()["cidade"] == "Goiânia"
+
 def test_views_mapeiam_status(client, monkeypatch):
     # 400 — validação
     r = client.get("/api/enderecos/cep/123/")

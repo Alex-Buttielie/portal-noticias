@@ -226,3 +226,68 @@ def reverter_coordenadas(lat: float, lon: float) -> dict:
         )
     cache.set(chave, resultado, timeout=int(getattr(settings, "ENDERECOS_CACHE_IBGE_SEGUNDOS", 604800)))
     return resultado
+
+
+def _base_ipapi() -> str:
+    # Tier gratuito: HTTP (não HTTPS). Chamada só server-side, nunca do
+    # navegador (evita mixed-content). 45 req/min por IP — o cache abaixo
+    # (24h por IP) + throttle do endpoint mantêm o uso folgado.
+    return getattr(settings, "ENDERECOS_IPAPI_BASE_URL", "http://ip-api.com").rstrip("/")
+
+
+def localizar_por_ip(ip: str) -> dict:
+    """Cidade/UF aproximada pela conexão (sem GPS, sem permissão).
+
+    Fallback automático quando o navegador bloqueia a geolocalização: o
+    frontend pergunta ao USUÁRIO (diálogo próprio) se aceita a região
+    detectada — o sistema sempre pergunta, mesmo sem prompt nativo.
+    Retorna {cidade, estado, pais} ou levanta CepNaoEncontradoError (vira
+    404: frontend cai para o CEP manual).
+    """
+    ip_limpo = (ip or "").strip()
+    if not ip_limpo or ip_limpo in ("127.0.0.1", "::1"):
+        raise CepNaoEncontradoError(
+            "Não foi possível detectar sua região pela conexão. Digite seu CEP abaixo."
+        )
+    chave = f"enderecos:ip:{ip_limpo}"
+    cached = cache.get(chave)
+    if cached is not None:
+        return cached
+    url = f"{_base_ipapi()}/json/{ip_limpo}?fields=status,city,region,regionName,country,countryCode,zip,query"
+    try:
+        resposta = requests.get(url, timeout=_timeout())
+    except requests.RequestException as exc:
+        logger.warning("enderecos ip-api inalcançável (%s)", exc)
+        raise ServicoEnderecoIndisponivelError(
+            "Não foi possível detectar sua região agora. Digite seu CEP abaixo."
+        ) from exc
+    if resposta.status_code >= 400:
+        raise ServicoEnderecoIndisponivelError(
+            "Não foi possível detectar sua região agora. Digite seu CEP abaixo."
+        )
+    try:
+        dados = resposta.json()
+    except ValueError as exc:
+        raise ServicoEnderecoIndisponivelError(
+            "Não foi possível detectar sua região agora. Digite seu CEP abaixo."
+        ) from exc
+    if not isinstance(dados, dict) or dados.get("status") != "success":
+        raise CepNaoEncontradoError(
+            "Não foi possível detectar sua região pela conexão. Digite seu CEP abaixo."
+        )
+    cidade = (dados.get("city") or "").strip()
+    estado = (dados.get("region") or "").strip().upper()
+    pais_nome = (dados.get("country") or "").strip()
+    if not cidade and not estado:
+        raise CepNaoEncontradoError(
+            "Não foi possível detectar sua região pela conexão. Digite seu CEP abaixo."
+        )
+    resultado = {
+        "cidade": cidade,
+        "estado": estado if len(estado) == 2 else "",
+        "pais": pais_nome or "Brasil",
+        "cep": (dados.get("zip") or "").strip() or None,
+        "fonte": "ip",
+    }
+    cache.set(chave, resultado, timeout=int(getattr(settings, "ENDERECOS_CACHE_CEP_SEGUNDOS", 86400)))
+    return resultado

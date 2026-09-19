@@ -3,7 +3,8 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import BuscaCep from "@/components/BuscaCep";
-import { obterRegiaoPorGeolocation, type Regiao } from "@/lib/regiao";
+import { obterRegiaoPorGeolocation, obterRegiaoPorIP, type Regiao } from "@/lib/regiao";
+import { PerguntaUsarLocal } from "@/components/PerguntaUsarLocal";
 import { Locate, MapPin, ShieldCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -56,20 +57,40 @@ export function ConsentimentoLocal({
   const [buscando, setBuscando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const [cepAberto, setCepAberto] = useState(false);
+  const [regiaoIp, setRegiaoIp] = useState<Regiao | null>(null);
+  const [perguntaIp, setPerguntaIp] = useState(false);
 
   async function usarLocalizacao() {
     setBuscando(true);
     setErro(null);
+    let erroGps = "Não foi possível obter sua localização.";
     try {
       const r = await obterRegiaoPorGeolocation();
       limparRecusaLocal();
       onRegiao(r);
+      return;
     } catch (e: unknown) {
-      setErro(e instanceof Error ? e.message : "Não foi possível obter sua localização.");
+      if (e instanceof Error && e.message) erroGps = e.message;
+    }
+    // GPS falhou/bloqueado → o SISTEMA pergunta: detecta pela conexão (IP)
+    // e confirma com o usuário. O fluxo sempre continua.
+    try {
+      const r = await obterRegiaoPorIP();
+      setRegiaoIp(r);
+      setPerguntaIp(true);
+    } catch {
+      setErro(erroGps);
       setCepAberto(true);
     } finally {
       setBuscando(false);
     }
+  }
+
+  function usarRegiaoIp() {
+    if (!regiaoIp) return;
+    setPerguntaIp(false);
+    limparRecusaLocal();
+    onRegiao(regiaoIp);
   }
 
   function aplicarCep(e: { cep: string; logradouro: string; bairro: string; localidade: string; uf: string }) {
@@ -137,6 +158,16 @@ export function ConsentimentoLocal({
       <p className="flex items-center gap-1.5 text-xs text-[var(--cor-texto-suave)]">
         <ShieldCheck className="h-3.5 w-3.5" aria-hidden /> Local salvo só neste aparelho. Apague quando quiser.
       </p>
+      <PerguntaUsarLocal
+        regiao={regiaoIp}
+        aberto={perguntaIp}
+        onUsar={usarRegiaoIp}
+        onDigitarCep={() => {
+          setPerguntaIp(false);
+          setBuscando(false);
+          setCepAberto(true);
+        }}
+      />
     </div>
   );
 }
