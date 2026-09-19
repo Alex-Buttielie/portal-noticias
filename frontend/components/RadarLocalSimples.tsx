@@ -123,7 +123,19 @@ export default function RadarLocalSimples({ value, onChange }: Props) {
       </div>
 
       <div aria-live="polite" aria-atomic="true">
-        {erro && <p role="alert" className="rounded-md border border-[var(--cor-erro)] bg-[var(--cor-erro-suave)] px-3 py-2 text-sm text-[var(--cor-erro)]">{erro}</p>}
+        {erro && (
+          <div role="alert" className="rounded-md border border-[var(--cor-erro)] bg-[var(--cor-erro-suave)] px-3 py-2 text-sm text-[var(--cor-erro)]">
+            <p>{erro}</p>
+            <button
+              type="button"
+              onClick={detectar}
+              disabled={buscando}
+              className="mt-1.5 inline-flex min-h-[36px] items-center gap-1 font-medium underline underline-offset-4 hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cor-foco)]"
+            >
+              {buscando ? "Tentando…" : "Tentar novamente"}
+            </button>
+          </div>
+        )}
       </div>
 
       {value && (
