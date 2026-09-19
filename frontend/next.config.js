@@ -8,17 +8,9 @@ const nextConfig = {
   // (ver frontend/Dockerfile) ÔÇö importante numa VPS com CPU/disco
   // compartilhados entre v├írios servi├ºos.
   output: "standalone",
-  // Proxy mesma-origem `/api/*` -> API Django local. O destino é lido em
-  // RUNTIME (env do `next start`, nunca bakeado no build): o navegador chama
-  // `/api/...` na mesma origem e o Next repassa a `127.0.0.1:<API_PORT>`.
-  // Funciona via domínio, IP ou localhost sem rebuild (incidente 2026-09-19:
-  // acesso direto por IP:porta não passa pelo Nginx, então o proxy precisa
-  // morar no próprio Next). `/api/*` é livre: o app não tem route handlers
-  // próprios nesse namespace. Default = Django local (`runserver :8000`).
-  async rewrites() {
-    const apiInterna = (process.env.API_INTERNAL_URL || "http://127.0.0.1:8000").replace(/\/$/, "");
-    return [{ source: "/api/:path*", destination: `${apiInterna}/api/:path*` }];
-  },
+  // (Sem `rewrites` para /api: o Next congela rewrites no build em
+  // routes-manifest.json. O proxy mesma-origem vive em
+  // `app/api/[...path]/route.ts`, que lê API_INTERNAL_URL por request.)
 };
 
 module.exports = nextConfig;
