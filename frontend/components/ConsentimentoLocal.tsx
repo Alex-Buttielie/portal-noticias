@@ -102,9 +102,19 @@ export function ConsentimentoLocal({
       </Button>
       <p className="text-xs text-[var(--cor-texto-suave)]">Seu navegador vai pedir permissão — você pode dizer não.</p>
       {erro && (
-        <p role="alert" className="w-full max-w-md rounded-md border border-[var(--cor-erro)] bg-[var(--cor-erro-suave)] px-3 py-2 text-sm text-[var(--cor-erro)]">
-          {erro}
-        </p>
+        <div role="alert" className="w-full max-w-md rounded-md border border-[var(--cor-erro)] bg-[var(--cor-erro-suave)] px-3 py-2 text-sm text-[var(--cor-erro)]">
+          <p>{erro}</p>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={usarLocalizacao}
+            disabled={buscando}
+            className="mt-2 min-h-[40px] border-[var(--cor-erro)] bg-transparent text-[var(--cor-erro)] hover:bg-[var(--cor-erro)] hover:text-white"
+          >
+            {buscando ? "Tentando…" : "Tentar novamente"}
+          </Button>
+        </div>
       )}
       <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1">
         <Collapsible open={cepAberto} onOpenChange={setCepAberto} className="w-full max-w-md">

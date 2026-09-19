@@ -41,6 +41,27 @@ function apiBase(): string | null {
   return b || null;
 }
 
+export type EstadoPermissaoGeo = "granted" | "prompt" | "denied" | "desconhecido";
+
+/** Consulta a Permissions API sem pedir nada ao usuário. */
+export async function estadoPermissaoLocalizacao(): Promise<EstadoPermissaoGeo> {
+  try {
+    type Perms = { query(o: { name: string }): Promise<{ state: string }> };
+    const perms = (navigator as Navigator & { permissions?: Perms }).permissions;
+    if (!perms?.query) return "desconhecido";
+    const st = await perms.query({ name: "geolocation" });
+    if (st.state === "granted" || st.state === "prompt" || st.state === "denied") return st.state;
+    return "desconhecido";
+  } catch {
+    return "desconhecido";
+  }
+}
+
+export const MENSAGEM_PERMISSAO_BLOQUEADA =
+  "O acesso à localização está bloqueado neste navegador — por isso ele nem chega a perguntar. " +
+  "Toque no cadeado ao lado do endereço, libere a Localização e toque em Tentar novamente. " +
+  "Ou digite seu CEP abaixo.";
+
 function obterPosicao(): Promise<GeolocationPosition> {
   if (typeof navigator === "undefined" || !("geolocation" in navigator)) {
     throw new Error("Geolocalização não disponível neste navegador. Digite seu CEP abaixo.");
@@ -121,6 +142,11 @@ async function reverterDireto(lat: number, lon: number): Promise<Reverso | null>
 }
 
 export async function obterRegiaoPorGeolocation(): Promise<Regiao> {
+  // Se já está bloqueado, o navegador nega na hora sem mostrar o prompt —
+  // nem adianta chamar: orienta o desbloqueio de uma vez.
+  if ((await estadoPermissaoLocalizacao()) === "denied") {
+    throw new Error(MENSAGEM_PERMISSAO_BLOQUEADA);
+  }
   const pos = await obterPosicao();
   const { latitude, longitude } = pos.coords;
   // Proxy do backend primeiro (User-Agent identificável + cache; o Nominatim
