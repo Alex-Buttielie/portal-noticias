@@ -576,10 +576,22 @@ CELERY_BEAT_SCHEDULE = {
 # sigla). TODAS verificadas ao vivo em 2026-09-18 (HTTP 200 + entries com
 # pubDate < 48h) via `manage.py descobrir_feeds` — ver
 # `catalogo_noticias/fontes_candidatas.json` e `feeds_descobertos.json`.
-# Excluídas com motivo: Estadão (sem feed RSS público), R7 (sem endpoint
-# válido), Correio Braziliense (feed congelado em 2024), Mais Goiás
+# Excluídas com motivo (rodada 1): Estadão (sem feed RSS público), R7 (sem
+# endpoint válido), Correio Braziliense (feed congelado em 2024), Mais Goiás
 # (web-stories desatualizado; /feed principal vazio), IG homepage (usar
 # Último Segundo).
+# Excluídas com motivo (rodada 2, 2026-09-19 — lista do Alex, `descobrir_feeds`
+# + checagem de frescura <48h; O Liberal usa o feed geral "OLiberal.com",
+# O Estado do MA usa o feed do grupo Imirante): Correio 24h (feed congelado),
+# Matinal (/rss vazio), Mais Goiás (reconfirmado desatualizado); sem RSS
+# público (404/HTML em todos os padrões): Tribuna Hoje, A Crítica, Gazeta
+# Digital, O Povo, O Popular, Hoje em Dia, O Tempo, FolhaPE, GaúchaZH,
+# Correio do Povo, Itatiaia, Jornal do Comércio, Jornal do Tocantins,
+# Diário da Amazônia, Meio Norte, AF Notícias, Rondônia Ovivo, Olhar Direto,
+# ABC do ABC, Gazeta do Povo; anti-bot (403): MidiaMax, LeiaJá, JB;
+# inacessíveis (SSL/timeout/525): JDia, Diário do Amazonas, Diário
+# Catarinense, Correio de Sergipe, Diário do Grande ABC, Diario de
+# Pernambuco, ES360.
 CATALOGO_NOTICIAS_FONTES_RSS = [
     {"nome": "G1", "url": "https://g1.globo.com/rss/g1/", "uf": None},
     {"nome": "UOL Notícias", "url": "https://rss.uol.com.br/feed/noticias.xml", "uf": None},
@@ -603,24 +615,29 @@ CATALOGO_NOTICIAS_FONTES_RSS = [
     {"nome": "Acre.com.br", "url": "https://www.acre.com.br/feed/", "uf": "AC"},
     {"nome": "G1 AL", "url": "https://g1.globo.com/rss/g1/al/alagoas/", "uf": "AL"},
     {"nome": "TNH1", "url": "https://www.tnh1.com.br/feed/", "uf": "AL"},
+    {"nome": "Gazetaweb", "url": "https://www.gazetaweb.com/feed", "uf": "AL"},
     {"nome": "G1 AM", "url": "https://g1.globo.com/rss/g1/am/amazonas/", "uf": "AM"},
     {"nome": "Em Tempo", "url": "https://emtempo.com.br/feed", "uf": "AM"},
     {"nome": "G1 AP", "url": "https://g1.globo.com/rss/g1/ap/amapa/", "uf": "AP"},
     {"nome": "Diário do Amapá", "url": "https://www.diariodoamapa.com.br/feed", "uf": "AP"},
     {"nome": "G1 BA", "url": "https://g1.globo.com/rss/g1/ba/bahia/", "uf": "BA"},
     {"nome": "A Tarde", "url": "https://atarde.com.br/rss", "uf": "BA"},
+    {"nome": "Bahia Notícias", "url": "https://www.bahianoticias.com.br/principal/rss.xml", "uf": "BA"},
     {"nome": "G1 CE", "url": "https://g1.globo.com/rss/g1/ce/ceara/", "uf": "CE"},
     {"nome": "Diário do Nordeste", "url": "https://diariodonordeste.verdesmares.com.br/cmlink/feed-1.3009099", "uf": "CE"},
+    {"nome": "Ceará Agora", "url": "https://cearaagora.com.br/feed/", "uf": "CE"},
     {"nome": "G1 DF", "url": "https://g1.globo.com/rss/g1/df/distrito-federal/", "uf": "DF"},
     {"nome": "Jornal de Brasília", "url": "https://jornaldebrasilia.com.br/feed", "uf": "DF"},
     {"nome": "G1 ES", "url": "https://g1.globo.com/rss/g1/es/espirito-santo/", "uf": "ES"},
     {"nome": "Folha Vitória", "url": "https://www.folhavitoria.com.br/feed/", "uf": "ES"},
+    {"nome": "A Gazeta", "url": "https://www.agazeta.com.br/rss", "uf": "ES"},
     {"nome": "G1 GO", "url": "https://g1.globo.com/rss/g1/go/goias/", "uf": "GO"},
     {"nome": "DM", "url": "https://www.dm.com.br/feed", "uf": "GO"},
     {"nome": "Empreender em Goiás", "url": "https://www.empreenderemgoias.com.br/feed", "uf": "GO"},
     {"nome": "G1 MA", "url": "https://g1.globo.com/rss/g1/ma/maranhao/", "uf": "MA"},
     {"nome": "Jornal Pequeno", "url": "https://jornalpequeno.com.br/rss", "uf": "MA"},
     {"nome": "O Imparcial", "url": "https://oimparcial.com.br/rss", "uf": "MA"},
+    {"nome": "O Estado do MA", "url": "https://imirante.com/rss", "uf": "MA"},
     {"nome": "G1 MG", "url": "https://g1.globo.com/rss/g1/mg/minas-gerais/", "uf": "MG"},
     {"nome": "Estado de Minas", "url": "https://www.em.com.br/feed", "uf": "MG"},
     {"nome": "G1 MS", "url": "https://g1.globo.com/rss/g1/ms/mato-grosso-do-sul/", "uf": "MS"},
@@ -630,6 +647,7 @@ CATALOGO_NOTICIAS_FONTES_RSS = [
     {"nome": "G1 PA", "url": "https://g1.globo.com/rss/g1/pa/para/", "uf": "PA"},
     {"nome": "DOL", "url": "https://dol.com.br/feed", "uf": "PA"},
     {"nome": "Diário do Pará", "url": "https://diariodopara.com.br/feed/", "uf": "PA"},
+    {"nome": "O Liberal", "url": "https://www.oliberal.com/cmlink/oliberal-com-1.169551", "uf": "PA"},
     {"nome": "G1 PB", "url": "https://g1.globo.com/rss/g1/pb/paraiba/", "uf": "PB"},
     {"nome": "A União", "url": "https://auniao.pb.gov.br/RSS", "uf": "PB"},
     {"nome": "Jornal da Paraíba", "url": "https://jornaldaparaiba.com.br/rss", "uf": "PB"},
@@ -637,11 +655,15 @@ CATALOGO_NOTICIAS_FONTES_RSS = [
     {"nome": "G1 PE", "url": "https://g1.globo.com/rss/g1/pe/pernambuco/", "uf": "PE"},
     {"nome": "JC", "url": "https://jc.uol.com.br/ultimas/rss.xml", "uf": "PE"},
     {"nome": "G1 PI", "url": "https://g1.globo.com/rss/g1/pi/piaui/", "uf": "PI"},
+    {"nome": "GP1", "url": "https://feeds.feedburner.com/portalgp1", "uf": "PI"},
+    {"nome": "Cidade Verde", "url": "https://cidadeverde.com/rss", "uf": "PI"},
     {"nome": "G1 PR", "url": "https://g1.globo.com/rss/g1/pr/parana/", "uf": "PR"},
     {"nome": "Banda B", "url": "https://www.bandab.com.br/feed/", "uf": "PR"},
     {"nome": "Bem Paraná", "url": "https://www.bemparana.com.br/feed/", "uf": "PR"},
     {"nome": "Tribuna PR", "url": "https://www.tribunapr.com.br/feed/", "uf": "PR"},
     {"nome": "G1 RJ", "url": "https://g1.globo.com/rss/g1/rj/rio-de-janeiro/", "uf": "RJ"},
+    {"nome": "Extra", "url": "https://extra.globo.com/rss/extra", "uf": "RJ"},
+    {"nome": "O Dia", "url": "https://odia.ig.com.br/_conteudo/ultimas-noticias/rss.xml", "uf": "RJ"},
     {"nome": "G1 RN", "url": "https://g1.globo.com/rss/g1/rn/rio-grande-do-norte/", "uf": "RN"},
     {"nome": "Agora RN", "url": "https://agorarn.com.br/feed/", "uf": "RN"},
     {"nome": "Novo Notícias", "url": "https://www.novonoticias.com.br/feed", "uf": "RN"},

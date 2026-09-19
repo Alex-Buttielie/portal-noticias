@@ -1879,10 +1879,11 @@ class TestFonteRegionalUF:
         from catalogo_noticias.models import FonteRobo
         from catalogo_noticias.services.config_robo import fontes_rss
 
-        FonteRobo.objects.create(nome="G1 GO", url="https://g1.globo.com/rss/g1/go/goias/", ativo=True, estado_padrao="go")
+        # Nome próprio de teste: o seed 0008 já ocupa "G1 GO".
+        FonteRobo.objects.create(nome="G1 GO Teste", url="https://exemplo-teste-go.com/rss", ativo=True, estado_padrao="go")
         fontes = fontes_rss()
-        go = [f for f in fontes if f["nome"] == "G1 GO"]
-        assert len(go) == 1 and go[0]["uf"] == "GO" and go[0]["url"].endswith("/go/goias/")
+        go = [f for f in fontes if f["nome"] == "G1 GO Teste"]
+        assert len(go) == 1 and go[0]["uf"] == "GO" and go[0]["url"].endswith("/rss")
 
     def test_persistencia_grava_estado_e_pais(self):
         from catalogo_noticias.models import NewsItem

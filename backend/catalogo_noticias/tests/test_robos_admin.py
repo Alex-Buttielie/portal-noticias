@@ -25,6 +25,8 @@ class TestRobosFontes:
         assert resposta.status_code == 403
 
     def test_fontes_lista_vazia_admin(self):
+        # O seed 0008 popula a tabela: limpa para cobrir o cenário vazio.
+        FonteRobo.objects.all().delete()
         admin = _admin()
         client = APIClient()
         client.force_authenticate(user=admin)
@@ -36,11 +38,12 @@ class TestRobosFontes:
         admin = _admin()
         client = APIClient()
         client.force_authenticate(user=admin)
-        dados = {"nome": "G1", "url": "https://g1.globo.com/rss/g1/", "ativo": True, "categoria_padrao": ""}
+        # Nome/URL únicos: o seed 0008 já ocupa "G1".
+        dados = {"nome": "Fonte Teste Criar", "url": "https://exemplo-teste-criar.com/rss", "ativo": True, "categoria_padrao": ""}
         resposta = client.post("/api/admin/robos/fontes/", dados, format="json")
         assert resposta.status_code == 201
-        assert resposta.data["nome"] == "G1"
-        assert FonteRobo.objects.filter(nome="G1").exists()
+        assert resposta.data["nome"] == "Fonte Teste Criar"
+        assert FonteRobo.objects.filter(nome="Fonte Teste Criar").exists()
 
     def test_fontes_atualizar_admin(self):
         admin = _admin()
