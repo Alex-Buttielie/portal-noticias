@@ -7,8 +7,16 @@
  * arquivos antes de escrever este cliente, não adivinhados.
  */
 
+// Navegador em produção usa a MESMA ORIGEM (`/api/...`): o Nginx de cada
+// ambiente (`infra/nginx/portal-{dev,homolog,prod}.conf`) já roteia `/api/`
+// para a API local — assim o bundle funciona via domínio, IP ou localhost
+// sem precisar rebakear a URL a cada deploy (incidente 2026-09-18/19:
+// "Não foi possível conectar ao servidor" com domínio ainda sem DNS).
+// Servidor (SSR) e `next dev` mantêm a URL absoluta de antes.
 export const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+  typeof window !== "undefined" && process.env.NODE_ENV === "production"
+    ? ""
+    : process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
 export class ApiError extends Error {
   status: number;

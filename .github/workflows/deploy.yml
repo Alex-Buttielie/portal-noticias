@@ -175,7 +175,10 @@ jobs:
             pm2 delete "portal-web-$SUF" 2>/dev/null || true
             pm2 delete "portal-api-$SUF" 2>/dev/null || true
             cd "$APP_DIR/frontend"
-            PORT=$WEB_PORT pm2 start npm --name "portal-web-$SUF" -- start
+            # API_INTERNAL_URL (runtime, não bake): alimenta o rewrite /api/*
+            # do next.config.js — proxy mesma-origem para acesso direto por
+            # IP:porta (sem passar pelo Nginx).
+            API_INTERNAL_URL="http://127.0.0.1:$API_PORT" PORT=$WEB_PORT pm2 start npm --name "portal-web-$SUF" -- start
             cd "$APP_DIR/backend"
             # Binário + args separados: pm2 não resolve string única citada
             # como executável. --interpreter explícito: o binário gunicorn não

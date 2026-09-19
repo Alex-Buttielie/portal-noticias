@@ -11,11 +11,11 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { AdsSlot } from "@/components/AdsSlot";
 import { ImagemNoticia } from "@/components/ImagemNoticia";
 import type { FeedEntrada } from "@/lib/api";
-import { carregarRegiao, salvarRegiao, limparRegiao, obterRegiaoPorGeolocation, formatarRegiao, cidadesVizinhasMock, type Regiao } from "@/lib/regiao";
+import { carregarRegiao, salvarRegiao, limparRegiao, formatarRegiao, cidadesVizinhasMock, type Regiao } from "@/lib/regiao";
+import { CompartilharLocalizacao } from "@/components/CompartilharLocalizacao";
 import { trackLocationPermission, trackLocationSelected } from "@/lib/analytics";
-import BuscaCep from "@/components/BuscaCep";
 import { ConsentimentoLocal, lerRecusaLocal, limparRecusaLocal } from "@/components/ConsentimentoLocal";
-import { MapPin, Locate, Navigation, Clock3, Filter, ArrowUpDown, Search, X } from "lucide-react";
+import { MapPin, Navigation, Clock3, Filter, ArrowUpDown, Search, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 type Orden = "recente" | "relevancia" | "urgente";
@@ -45,8 +45,6 @@ function matchRegiao(noticia: FeedEntrada, regiao: Regiao, escopo: "tudo" | "cid
 
 export function SecaoRegiao({ feed }: { feed: FeedEntrada[] }) {
   const [regiao, setRegiao] = useState<Regiao | null>(null);
-  const [buscando, setBuscando] = useState(false);
-  const [erro, setErro] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const [recusado, setRecusado] = useState(false);
   const [escopo, setEscopo] = useState<"tudo" | "cidade" | "estado" | "vizinhas">("tudo");
@@ -61,32 +59,12 @@ export function SecaoRegiao({ feed }: { feed: FeedEntrada[] }) {
 
   const vizinhas = useMemo(() => (regiao ? cidadesVizinhasMock(regiao.cidade, regiao.estado) : []), [regiao]);
 
-  const pedirLocalizacao = useCallback(async () => {
-    setBuscando(true);
-    setErro(null);
-    try {
-      const r = await obterRegiaoPorGeolocation();
-      salvarRegiao(r);
-      setRegiao(r);
-      setOpen(false);
-      trackLocationPermission(true);
-      trackLocationSelected({ pais: r.pais, estado: r.estado, cidade: r.cidade });
-    } catch (e: unknown) {
-      setErro(e instanceof Error ? e.message : "Não foi possível obter sua localização.");
-      setOpen(true);
-      trackLocationPermission(false);
-    } finally {
-      setBuscando(false);
-    }
-  }, []);
-
-  const aplicarCep = useCallback((e: { cep: string; logradouro: string; bairro: string; localidade: string; uf: string }) => {
-    const r: Regiao = { cidade: e.localidade, estado: e.uf, pais: "Brasil", cep: e.cep, bairro: e.bairro, logradouro: e.logradouro };
+  const aoAlterarRegiao = useCallback((r: Regiao) => {
     salvarRegiao(r);
     setRegiao(r);
     setOpen(false);
-    setErro(null);
-    trackLocationSelected({ pais: r.pais, estado: r.estado, cidade: r.cidade, regiao: `CEP ${e.cep}` });
+    trackLocationPermission(true);
+    trackLocationSelected({ pais: r.pais, estado: r.estado, cidade: r.cidade });
   }, []);
 
   const categorias = useMemo(() => Array.from(new Set(feed.map((f) => f.categoria).filter(Boolean))).sort(), [feed]);
@@ -225,12 +203,15 @@ export function SecaoRegiao({ feed }: { feed: FeedEntrada[] }) {
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] max-w-lg">
           <DialogHeader><DialogTitle className="flex items-center gap-2"><MapPin className="h-5 w-5 text-[var(--cor-primaria)]" /> Alterar região</DialogTitle><DialogDescription>Use sua localização ou busque por CEP/endereço.</DialogDescription></DialogHeader>
-          <div className="space-y-3">
-            <Button onClick={pedirLocalizacao} disabled={buscando} className="w-full bg-[var(--cor-primaria)] text-[var(--cor-texto-invertido)] gap-1.5"><Locate className="h-4 w-4" /> {buscando ? "Localizando…" : "Usar minha localização"}</Button>
-            <div className="flex items-center gap-2 text-xs text-[var(--cor-texto-suave)]"><span className="h-px flex-1 bg-[var(--cor-borda)]" /> ou <span className="h-px flex-1 bg-[var(--cor-borda)]" /></div>
-            <BuscaCep onEndereco={aplicarCep} />
-            {erro && <p role="alert" className="rounded-md border border-[var(--cor-erro)] bg-[var(--cor-erro-suave)] px-3 py-2 text-sm text-[var(--cor-erro)]">{erro}</p>}
-          </div>
+          <CompartilharLocalizacao
+            onRegiao={(r) => {
+              salvarRegiao(r);
+              setRegiao(r);
+              setOpen(false);
+              trackLocationPermission(true);
+              trackLocationSelected({ pais: r.pais, estado: r.estado, cidade: r.cidade });
+            }}
+          />
           <DialogFooter><Button variant="outline" onClick={() => setOpen(false)}>Fechar</Button></DialogFooter>
         </DialogContent>
       </Dialog>
