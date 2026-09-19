@@ -58,9 +58,13 @@ export async function estadoPermissaoLocalizacao(): Promise<EstadoPermissaoGeo> 
 }
 
 export const MENSAGEM_PERMISSAO_BLOQUEADA =
-  "O acesso à localização está bloqueado neste navegador — por isso ele nem chega a perguntar. " +
+  "O acesso à localização está bloqueado para este site — por isso o navegador nem chega a perguntar. " +
   "Toque no cadeado ao lado do endereço, libere a Localização e toque em Tentar novamente. " +
   "Ou digite seu CEP abaixo.";
+
+export const MENSAGEM_NEGADA_AGORA =
+  "Você optou por não compartilhar agora — sem problema. Toque em Tentar novamente que o navegador " +
+  "pergunta de novo, ou digite seu CEP abaixo.";
 
 function obterPosicao(): Promise<GeolocationPosition> {
   if (typeof navigator === "undefined" || !("geolocation" in navigator)) {
@@ -72,14 +76,19 @@ function obterPosicao(): Promise<GeolocationPosition> {
       timeout: 15000,
       maximumAge: 600000,
     })
-  ).catch((e: unknown) => {
+  ).catch(async (e: unknown) => {
     // GeolocationPositionError é DOMException (não instanceof Error em
     // vários browsers) — mapear pelo código para mensagem acionável.
+    // IMPORTANTE: nunca bloqueamos a chamada antes da hora. O fluxo natural
+    // é sempre: clique → getCurrentPosition → o NAVEGADOR pergunta (Allow/
+    // Bloquear). Só depois da resposta adaptamos a mensagem — inclusive
+    // distinguindo "negou agora" (tenta de novo que ele pergunta) de
+    // "bloqueado persistente" (aí sim, cadeado).
     const code = typeof e === "object" && e !== null ? (e as { code?: number }).code : undefined;
     if (code === 1) {
-      throw new Error(
-        "Permissão negada. Libere o acesso à localização (ícone de cadeado na barra de endereço) ou digite seu CEP abaixo."
-      );
+      const estado = await estadoPermissaoLocalizacao();
+      if (estado === "denied") throw new Error(MENSAGEM_PERMISSAO_BLOQUEADA);
+      throw new Error(MENSAGEM_NEGADA_AGORA);
     }
     if (code === 2) {
       throw new Error("Sinal de localização indisponível no momento. Tente de novo ou digite seu CEP abaixo.");
@@ -142,11 +151,7 @@ async function reverterDireto(lat: number, lon: number): Promise<Reverso | null>
 }
 
 export async function obterRegiaoPorGeolocation(): Promise<Regiao> {
-  // Se já está bloqueado, o navegador nega na hora sem mostrar o prompt —
-  // nem adianta chamar: orienta o desbloqueio de uma vez.
-  if ((await estadoPermissaoLocalizacao()) === "denied") {
-    throw new Error(MENSAGEM_PERMISSAO_BLOQUEADA);
-  }
+  // Fluxo natural, sem gate: o navegador sempre tem a chance de perguntar.
   const pos = await obterPosicao();
   const { latitude, longitude } = pos.coords;
   // Proxy do backend primeiro (User-Agent identificável + cache; o Nominatim
