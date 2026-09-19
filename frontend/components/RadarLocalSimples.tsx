@@ -3,15 +3,15 @@ import { useEffect, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { MapPin, Locate, X } from "lucide-react";
+import { MapPin } from "lucide-react";
 import BuscaCep from "@/components/BuscaCep";
 import { buscarCep, normalizaCep } from "@/lib/cep";
 import {
   carregarRegiao, salvarRegiao, limparRegiao,
-  obterRegiaoPorGeolocation, formatarRegiao, type Regiao,
+  type Regiao,
 } from "@/lib/regiao";
+import { CompartilharLocalizacao, ChipRegiao } from "@/components/CompartilharLocalizacao";
 
 type Props = {
   value: Regiao | null;
@@ -23,10 +23,10 @@ type Props = {
  *  só cidade/estado, apaga quando quiser. */
 export default function RadarLocalSimples({ value, onChange }: Props) {
   const [texto, setTexto] = useState("");
-  const [buscando, setBuscando] = useState(false);
   const [resolvendo, setResolvendo] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const [cepOpen, setCepOpen] = useState(false);
+  const [mostrarCompartilhar, setMostrarCompartilhar] = useState(false);
 
   useEffect(() => {
     const salva = carregarRegiao();
@@ -37,18 +37,12 @@ export default function RadarLocalSimples({ value, onChange }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function detectar() {
-    setBuscando(true); setErro(null);
-    try {
-      const r = await obterRegiaoPorGeolocation();
-      salvarRegiao(r); onChange(r);
-      setTexto(r.cidade && r.estado ? `${r.cidade}, ${r.estado}` : r.cidade || r.estado || "");
-    } catch (e: unknown) {
-      setErro(e instanceof Error ? e.message : "Não foi possível obter sua localização.");
-      setCepOpen(true);
-    } finally {
-      setBuscando(false);
-    }
+  function aoDetectar(r: Regiao) {
+    salvarRegiao(r);
+    onChange(r);
+    setTexto(r.cidade && r.estado ? `${r.cidade}, ${r.estado}` : r.cidade || r.estado || "");
+    setErro(null);
+    setMostrarCompartilhar(false);
   }
 
   async function aplicarTexto() {
@@ -111,8 +105,8 @@ export default function RadarLocalSimples({ value, onChange }: Props) {
             <Button type="button" onClick={aplicarTexto} disabled={resolvendo} className="min-h-[44px] flex-1 bg-[var(--cor-primaria)] text-[var(--cor-texto-invertido)] sm:flex-none">
               {resolvendo ? "Buscando…" : "Aplicar"}
             </Button>
-            <Button type="button" variant="outline" onClick={detectar} disabled={buscando} className="min-h-[44px] flex-1 border-[var(--cor-borda)] sm:flex-none">
-              <Locate className="mr-1.5 h-4 w-4" />{buscando ? "Localizando…" : "Detectar"}
+            <Button type="button" variant="outline" onClick={() => setMostrarCompartilhar((v) => !v)} aria-expanded={mostrarCompartilhar} className="min-h-[44px] flex-1 border-[var(--cor-borda)] sm:flex-none">
+              <MapPin className="mr-1.5 h-4 w-4" />Detectar
             </Button>
           </div>
         </div>
@@ -122,29 +116,25 @@ export default function RadarLocalSimples({ value, onChange }: Props) {
         </p>
       </div>
 
+      {mostrarCompartilhar && (
+        <div className="rounded-[var(--raio-md)] border border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] px-3 py-1">
+          <CompartilharLocalizacao compacto ocultarCep mostrarRecusa={false} onRegiao={aoDetectar} />
+        </div>
+      )}
+
       <div aria-live="polite" aria-atomic="true">
         {erro && (
-          <div role="alert" className="rounded-md border border-[var(--cor-erro)] bg-[var(--cor-erro-suave)] px-3 py-2 text-sm text-[var(--cor-erro)]">
-            <p>{erro}</p>
-            <button
-              type="button"
-              onClick={detectar}
-              disabled={buscando}
-              className="mt-1.5 inline-flex min-h-[36px] items-center gap-1 font-medium underline underline-offset-4 hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cor-foco)]"
-            >
-              {buscando ? "Tentando…" : "Tentar novamente"}
-            </button>
-          </div>
+          <p role="alert" className="rounded-md border border-[var(--cor-erro)] bg-[var(--cor-erro-suave)] px-3 py-2 text-sm text-[var(--cor-erro)]">
+            {erro}
+          </p>
         )}
       </div>
 
       {value && (
-        <p className="flex flex-wrap items-center gap-2 text-sm text-[var(--cor-texto)]">
-          <Badge variant="outline" className="border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)]">{formatarRegiao(value)}</Badge>
-          <button type="button" onClick={limpar} className="inline-flex min-h-[36px] items-center gap-1 text-xs text-[var(--cor-texto-suave)] underline underline-offset-4 hover:text-[var(--cor-texto)]">
-            <X className="h-3 w-3" />Limpar
-          </button>
-        </p>
+        <ChipRegiao
+          regiao={value}
+          onLimpar={limpar}
+        />
       )}
 
       <Collapsible open={cepOpen} onOpenChange={setCepOpen}>

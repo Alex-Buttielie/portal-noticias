@@ -36,6 +36,24 @@ export function formatarRegiao(r: Regiao): string {
   return r.pais || "Sua região";
 }
 
+/** Mapeia o retorno do BuscaCep para Regiao (usado nos 3 fluxos). */
+export function regiaoDeEndereco(e: {
+  cep: string;
+  logradouro: string;
+  bairro: string;
+  localidade: string;
+  uf: string;
+}): Regiao {
+  return {
+    cidade: e.localidade,
+    estado: e.uf,
+    pais: "Brasil",
+    cep: e.cep,
+    bairro: e.bairro,
+    logradouro: e.logradouro,
+  };
+}
+
 function apiBase(): string | null {
   const b = (process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(/\/$/, "");
   return b || null;
