@@ -309,6 +309,11 @@ Os endpoints públicos de escrita mais expostos a abuso automatizado (`POST /api
 - **Taxa configurável:** `DEFAULT_THROTTLE_RATES["escrita_publica"]` em `backend/config/settings.py`, lida da variável de ambiente `THROTTLE_ESCRITA_PUBLICA_RATE` (padrão `20/min`) — ajustável sem alterar código.
 - **Depende de um cache funcional para valer de verdade:** o throttle guarda a contagem de requisições no mesmo cache Redis usado pelo resto da aplicação. Se o Redis cair, a aplicação continua no ar (degradação graciosa deliberada), mas o rate limiting para de funcionar até o Redis voltar — nesse cenário, a falha de conexão agora gera um log de nível `ERROR` (logger `django_redis.cache`, via `DJANGO_REDIS_LOG_IGNORED_EXCEPTIONS = True` em `settings.py`) em vez de ser engolida em silêncio, então essa degradação fica visível nos logs da aplicação.
 
+## Observabilidade (Sentry opcional)
+
+- **Backend:** `sentry-sdk==2.19.2` já instalado; só inicializa se `SENTRY_DSN` estiver definida (`backend/config/settings.py` + `backend/.env.example`). Sem DSN custo zero.
+- **Frontend:** `frontend/sentry.client.config.ts` e `frontend/sentry.server.config.ts` usam `require("@sentry/nextjs")` dinâmico dentro de `if (dsn)` — build não quebra sem o pacote. Para ativar: `npm i @sentry/nextjs` + `NEXT_PUBLIC_SENTRY_DSN` (ou `SENTRY_DSN` no server) no `.env.local`/Environment. `@sentry/nextjs` é **opcional**, não dependência obrigatória de `frontend/package.json`.
+
 ## Design system
 
 Os componentes de interface do projeto usam **Tailwind CSS 3.4.17 + shadcn/ui v4 (Radix)** sobre os tokens CSS existentes (`frontend/app/globals.css` com `@tailwind` + `@layer base`; `frontend/tailwind.config.ts` espelhando `--cor-*`/`--espaco-*`/`--raio-*`/`--sombra-*`/`--z-*`; `frontend/lib/utils.ts` helper `cn`), consistente com o padrão já usado em `ThemeToggle.tsx`/`CartaoEsqueleto.tsx` — antes desta run (20260915-2142) eram CSS puro sem Tailwind.

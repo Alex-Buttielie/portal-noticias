@@ -64,6 +64,8 @@ pytest-cov==7.1.0
 # inicialização local (init-local.ps1).
 python-dotenv==1.0.1
 
+python-json-logger==2.0.7  # opcional: JSON logs quando DJANGO_LOG_JSON=true
+
 # NOTA: django-cors-headers foi adicionada a este arquivo sem poder rodar
 # `pip install`/`pip freeze` nesta sessão (ferramentas de execução
 # indisponíveis) — a versão acima é uma referência razoável, não confirmada.

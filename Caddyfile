@@ -4,6 +4,13 @@
 # rodando nos outros containers. DOMAIN_API/DOMAIN_FRONTEND vêm de
 # .env.production (ver .env.production.example).
 #
+# NOTA DE DRIFT: a VPS ativa (2026-09) usa Nginx + PM2 (ver CI-CD.md e
+# infra/nginx/portal-{dev,homolog,prod}.conf), NÃO este Caddyfile.
+# Este arquivo é a variante Docker alternativa — idêntica em comportamento
+# de proxy/TLS, mantida para uso local (`docker-compose.yml`) ou migração
+# futura. Não aplicar este Caddyfile na VPS sem antes alinhar com o deploy
+# ativo.
+#
 # Se estiver atrás do Cloudflare (proxy laranja ativado): configure o modo
 # SSL/TLS do Cloudflare como "Full (strict)" para que a ponta
 # Cloudflare->VPS também seja criptografada com o certificado que o Caddy

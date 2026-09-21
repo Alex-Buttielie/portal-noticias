@@ -68,7 +68,8 @@ async function request<T>(
   let resposta: Response;
   try {
     resposta = await fetch(`${API_BASE_URL}${path}`, { ...options, headers });
-  } catch {
+  } catch (err) {
+    console.error("[api] fetch falhou", err);
     throw new ApiError(
       0,
       null,

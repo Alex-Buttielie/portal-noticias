@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # Backup diário do Postgres + mídia de usuário (ARCHITECTURE.md — nova
-# arquitetura de infra, 2026-09-03). Roda NO HOST da VPS (via crontab, ver
-# infra/DEPLOY.md), não dentro de um container — assim consegue chamar
+# arquitetura de infra, 2026-09-03). Roda NO HOST da VPS (via crontab):
+#   crontab -e
+#   0 3 * * * /home/apps/portal-prod/infra/backup/pg_backup.sh >> /var/log/pg_backup.log 2>&1
+# (variante Docker/Caddy: /home/deploy/brd_portal_noticias/...). Ver infra/DEPLOY.md.
+# Não roda dentro de um container — assim consegue chamar
 # `docker compose exec` e sobrevive a qualquer problema nos próprios
 # containers da aplicação.
 #

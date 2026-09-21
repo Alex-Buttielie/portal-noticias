@@ -68,7 +68,9 @@ sobrevivem ao `git reset`. PM2 é reiniciado, nunca apagado sem recriação.
 | Deploy HOMOLOG | `deploy-homolog.yml` | PR para main (SSH `VPS_PASSWORD`, PM2 3102/5102) |
 | Deploy PROD | `deploy-prod.yml` | tag `v*` + Release (SSH `VPS_PASSWORD`, PM2 3103/5103) |
 
-Secrets exigidos (os mesmos de antes): `VPS_HOST`, `VPS_USER`, `VPS_PASSWORD`, `VPS_PORT`.
+Secrets exigidos (os mesmos de antes): `VPS_HOST`, `VPS_USER`, `VPS_PASSWORD`, `VPS_PORT` — vinculados a cada **GitHub Environment** (`development`/`homolog`/`production`) em Settings → Environments. Cada job roda com `environment: ${{ inputs.environment_name }}` (ver `.github/workflows/deploy.yml`), então só enxerga os secrets daquele Environment, com proteção de branch/tag.
+
+> **Rotação:** se qualquer secret (`VPS_PASSWORD`, `VPS_USER`, host/porta) for exposto em chat, log ou commit, rotacione imediatamente na VPS (`sudo passwd <usuario>` / troca de porta em `/etc/ssh/sshd_config` + `systemctl reload sshd`) e em Settings → Environments, antes do próximo deploy.
 
 ### Banco de dados (Postgres na VPS — único pré-requisito novo)
 
