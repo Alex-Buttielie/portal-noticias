@@ -33,8 +33,9 @@ export class ApiError extends Error {
 function extrairMensagemDeErro(corpo: unknown, status: number): string {
   if (corpo && typeof corpo === "object") {
     const objeto = corpo as Record<string, unknown>;
-    if (typeof objeto.detail === "string") {
-      return objeto.detail;
+    if (typeof objeto.detail === "string" && objeto.detail.trim().length > 0) {
+      const extra = typeof objeto.request_id === "string" && objeto.request_id ? ` (id: ${String(objeto.request_id).slice(0, 8)})` : "";
+      return objeto.detail + extra;
     }
     // DRF costuma devolver erros de validação como {campo: ["mensagem"]}
     const primeiraChave = Object.keys(objeto)[0];
@@ -44,6 +45,9 @@ function extrairMensagemDeErro(corpo: unknown, status: number): string {
         return valor[0];
       }
     }
+  }
+  if (status === 504 || status === 502) {
+    return "Tempo esgotado ao executar a ingestão — o servidor ainda pode estar processando. Aguarde e recarregue o Histórico.";
   }
   return `Erro inesperado (status ${status}).`;
 }
