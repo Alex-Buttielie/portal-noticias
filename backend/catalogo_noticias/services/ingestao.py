@@ -572,7 +572,7 @@ def executar_ingestao(
     # independente e os erros já são isolados por fonte (criterio de aceite 1)
     # — a ordem de `fontes` é preservada na coleta para determinismo.
     def _buscar(fonte):
-        nome = getattr(fonte, "nome_fonte", fonte.__class__.__name__)
+        nome = getattr(fonte, "nome_fonte", None) or getattr(fonte, "nome", None) or fonte.__class__.__name__
         try:
             return (nome, fonte.buscar_itens(), None)
         except FonteIndisponivelError as exc:
