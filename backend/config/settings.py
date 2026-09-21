@@ -901,19 +901,25 @@ except ImportError:
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
+    "filters": {
+        "request_id": {
+            "()": "config.middleware.RequestIdLogFilter",
+        },
+    },
     "formatters": {
         "verbose": {
-            "format": "%(asctime)s %(levelname)s %(name)s [%(module)s] %(message)s",
+            "format": "%(asctime)s %(levelname)s %(name)s [%(module)s] [%(request_id)s] %(message)s",
         },
         "json": {
             "()": "pythonjsonlogger.jsonlogger.JsonFormatter",
-            "format": "%(asctime)s %(levelname)s %(name)s %(module)s %(message)s",
+            "format": "%(asctime)s %(levelname)s %(name)s %(module)s %(request_id)s %(message)s",
         },
     },
     "handlers": {
         "console": {
             "class": "logging.StreamHandler",
             "formatter": _LOG_FORMATTER,
+            "filters": ["request_id"],
         },
     },
     "root": {
@@ -938,11 +944,12 @@ LOGGING = {
 SENTRY_DSN = os.environ.get("SENTRY_DSN", "")
 if SENTRY_DSN:
     import sentry_sdk
+    from sentry_sdk.integrations.celery import CeleryIntegration
     from sentry_sdk.integrations.django import DjangoIntegration
 
     sentry_sdk.init(
         dsn=SENTRY_DSN,
-        integrations=[DjangoIntegration()],
+        integrations=[DjangoIntegration(), CeleryIntegration()],
         traces_sample_rate=float(os.environ.get("SENTRY_TRACES_SAMPLE_RATE", 0.1)),
         environment=os.environ.get("SENTRY_ENVIRONMENT", "production" if not DEBUG else "development"),
         send_default_pii=False,
