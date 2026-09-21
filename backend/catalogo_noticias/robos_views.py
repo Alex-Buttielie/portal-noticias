@@ -114,8 +114,27 @@ class ExecutarRoboView(APIView):
     def post(self, request):
         if not _eh_admin(request.user):
             return Response(status=status.HTTP_403_FORBIDDEN)
+        import logging
+        import traceback
+
+        _log = logging.getLogger(__name__)
+        rid = getattr(request, "request_id", "-")
+        _log.info("[%s] POST /api/admin/robos/executar iniciado", rid)
         try:
             registro = executar_ingestao()
         except Exception as exc:
-            return Response({"detail": str(exc)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            tb = traceback.format_exc()
+            detalhe = str(exc).strip() or f"{exc.__class__.__name__} sem mensagem — veja logs do servidor (request_id={rid})"
+            _log.exception("[%s] Falha em executar_ingestao: %s\n%s", rid, detalhe, tb)
+            return Response(
+                {"detail": detalhe, "request_id": rid},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+        _log.info(
+            "[%s] POST /api/admin/robos/executar ok registro=%s itens=%s grupos=%s",
+            rid,
+            registro.id,
+            registro.total_itens_ingeridos,
+            registro.total_grupos_formados,
+        )
         return Response(RegistroExecucaoIngestaoSerializer(registro).data, status=status.HTTP_201_CREATED)

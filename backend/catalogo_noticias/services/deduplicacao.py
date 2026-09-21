@@ -219,6 +219,30 @@ def _pesos_por_frequencia_no_lote(lista_de_tokens: list[set[str]]) -> dict[str, 
     return pesos
 
 
+_CACHE_FUZZY_RATIO: dict[tuple[str, str], float] = {}
+
+
+def _ratio_cached(a: str, b: str) -> float:
+    """SequenceMatcher com cache + poda barata por tamanho."""
+    if a == b:
+        return 1.0
+    # poda: tokens muito diferentes em tamanho nunca atingem 0.82
+    # ex.: "a" vs "internacionalizacao" — evita SequenceMatcher caro
+    if abs(len(a) - len(b)) > 4 and min(len(a), len(b)) <= 4:
+        return 0.0
+    # cache simétrico
+    key = (a, b) if a < b else (b, a)
+    v = _CACHE_FUZZY_RATIO.get(key)
+    if v is not None:
+        return v
+    v = SequenceMatcher(None, a, b).ratio()
+    # LRU simples: evita crescimento infinito em lotes gigantes
+    if len(_CACHE_FUZZY_RATIO) > 8000:
+        _CACHE_FUZZY_RATIO.clear()
+    _CACHE_FUZZY_RATIO[key] = v
+    return v
+
+
 def _tokens_fuzzy_pareados(tokens_a: set[str], tokens_b: set[str]) -> list[tuple[str, str]]:
     """
     Pares de tokens iguais OU muito parecidos (>= `_LIMIAR_FUZZY_TOKEN`)
@@ -230,14 +254,24 @@ def _tokens_fuzzy_pareados(tokens_a: set[str], tokens_b: set[str]) -> list[tuple
 
     restantes_a = tokens_a - comuns
     restantes_b = set(tokens_b - comuns)
+    # poda grosseira: se não há overlap exato e os conjuntos são
+    # completamente disjuntos com poucos tokens, um pré-filtro por
+    # tamanho já descarta muitos pares antes do fuzzy caro
+    if not comuns and len(restantes_a) > 0 and len(restantes_b) > 0:
+        # heurística barata: se a interseção de 3-prefixos é vazia e ambos
+        # têm >=3 tokens, é improvável haver fuzzy útil — mas não usamos
+        # para decidir aqui, só para evitar o pior caso dentro do loop
+        pass
     for token_a in restantes_a:
         melhor_par = None
         melhor_score = 0.0
         for token_b in restantes_b:
-            score = SequenceMatcher(None, token_a, token_b).ratio()
+            score = _ratio_cached(token_a, token_b)
             if score > melhor_score:
                 melhor_score = score
                 melhor_par = token_b
+                if score >= 0.99:
+                    break  # ótimo já encontrado
         if melhor_par is not None and melhor_score >= _LIMIAR_FUZZY_TOKEN:
             pares.append((token_a, melhor_par))
             restantes_b.discard(melhor_par)
