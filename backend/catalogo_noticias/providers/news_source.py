@@ -164,6 +164,27 @@ class NewsSourceProvider(ABC):
     integracao futura, etc.) deve implementar (ARCHITECTURE.md secao 6).
     """
 
+    def __getattr__(self, name: str):  # type: ignore[no-redef]
+        """Alias de compatibilidade: providers podem usar ``nome`` ou
+        ``nome_fonte`` — aceita ambos sem quebrar (``FakeProvider`` do
+        report usava ``nome`` e quebrava com ``has no attribute 'nome'``).
+
+        Deixa ``getattr(obj, 'nome_fonte', default)`` funcionar com fallback
+        para ``default`` quando NENHUM dos dois existe (re-levanta
+        AttributeError para o ``getattr`` capturar).
+        """
+        if name == "nome":
+            try:
+                return object.__getattribute__(self, "nome_fonte")
+            except AttributeError:
+                raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'") from None
+        if name == "nome_fonte":
+            try:
+                return object.__getattribute__(self, "nome")
+            except AttributeError:
+                raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'") from None
+        raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
+
     @abstractmethod
     def buscar_itens(self) -> list[ItemBruto]:
         """

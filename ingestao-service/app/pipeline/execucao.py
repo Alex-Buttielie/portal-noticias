@@ -192,7 +192,10 @@ def executar_ingestao(fontes: list[dict], cfg: dict | Any, db: Any) -> dict:
     for fonte in fontes or []:
         if isinstance(fonte, dict) and fonte.get("ativo") is False:
             continue
-        nome = str((fonte.get("nome") if isinstance(fonte, dict) else getattr(fonte, "nome", "fonte")) or "fonte")
+        nome = str(
+            (fonte.get("nome") or fonte.get("nome_fonte") if isinstance(fonte, dict) else getattr(fonte, "nome", None) or getattr(fonte, "nome_fonte", None) or "fonte")
+            or "fonte"
+        )
         try:
             itens = _buscar_com_backoff(fonte)
         except Exception as exc:  # noqa: BLE001 — registrado, segue p/ proximas fontes
