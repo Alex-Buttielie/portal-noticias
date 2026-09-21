@@ -7,10 +7,14 @@ import { NextRequest, NextResponse } from "next/server";
 // Nginx, então o proxy mora no próprio Next). Default = Django local.
 export const dynamic = "force-dynamic";
 
-function destino(req: NextRequest, partes: string[]): string {
+function destino(req: NextRequest): string {
   const base = (process.env.API_INTERNAL_URL || "http://127.0.0.1:8000").replace(/\/$/, "");
   const url = new URL(req.url);
-  return `${base}/api/${(partes || []).join("/")}${url.search}`;
+  // Preserva exatamente a barra final e query da URL original — usando
+  // pathname evita o bug de perder trailing slash ao remontar via params.
+  // Ex: /api/feed/ -> /api/feed/ , /api/feed -> /api/feed (Django 301 se faltar)
+  const apiPath = url.pathname.slice(4); // remove "/api" mantendo "/" e resto
+  return `${base}/api${apiPath}${url.search}`;
 }
 
 async function repassar(
@@ -27,8 +31,9 @@ async function repassar(
     if (req.method !== "GET" && req.method !== "HEAD") {
       init.body = await req.arrayBuffer();
     }
-    resp = await fetch(destino(req, ctx.params.path || []), init);
-  } catch {
+    resp = await fetch(destino(req), init);
+  } catch (e) {
+    console.error("[api-proxy] fetch falhou", e);
     return NextResponse.json(
       { detail: "Não foi possível conectar ao servidor. Verifique sua conexão e tente novamente." },
       { status: 502 },

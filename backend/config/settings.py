@@ -136,6 +136,10 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    # Observabilidade P0 item 10 — propaga X-Request-ID (uuid4 se não vier)
+    # para correlação nginx ↔ Django ↔ logs/Sentry. Deve vir cedo, logo
+    # após SecurityMiddleware, antes de qualquer middleware que logue.
+    "config.middleware.RequestIdMiddleware",
     # Serve os arquivos estáticos (principalmente o CSS/JS do admin do
     # Django — painel administrativo pesado exigido pelo BRD seção 6/17)
     # diretamente do processo Gunicorn, comprimidos e com hash no nome do
@@ -881,6 +885,19 @@ INGESTAO_API_TOKEN = os.environ.get("INGESTAO_API_TOKEN", "")
 # qualquer coletor de log (ex.: `docker logs` + logrotate na VPS) esperam
 # stdout/stderr, não um arquivo de log local dentro do container (que some
 # quando o container é recriado a cada deploy).
+# DJANGO_LOG_JSON=true ativa saída JSON (requer python-json-logger); fallback
+# silencioso para verbose se a lib não estiver instalada.
+_USE_JSON_LOG = env_bool("DJANGO_LOG_JSON", False)
+try:
+    if _USE_JSON_LOG:
+        import pythonjsonlogger.jsonlogger  # noqa: F401
+
+        _LOG_FORMATTER = "json"
+    else:
+        _LOG_FORMATTER = "verbose"
+except ImportError:
+    _LOG_FORMATTER = "verbose"
+
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
@@ -888,11 +905,15 @@ LOGGING = {
         "verbose": {
             "format": "%(asctime)s %(levelname)s %(name)s [%(module)s] %(message)s",
         },
+        "json": {
+            "()": "pythonjsonlogger.jsonlogger.JsonFormatter",
+            "format": "%(asctime)s %(levelname)s %(name)s %(module)s %(message)s",
+        },
     },
     "handlers": {
         "console": {
             "class": "logging.StreamHandler",
-            "formatter": "verbose",
+            "formatter": _LOG_FORMATTER,
         },
     },
     "root": {

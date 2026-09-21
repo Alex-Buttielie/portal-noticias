@@ -46,7 +46,9 @@ services:
     build:
       context: ./backend
     restart: unless-stopped
-    env_file: .env.production
+    env_file:
+      - path: .env.production
+        required: false
     environment:
       DJANGO_DB_HOST: db
       CELERY_BROKER_URL: redis://redis:6379/0
@@ -70,9 +72,18 @@ services:
     # Mesma imagem do `web`, comando diferente — evita duplicar o
     # Dockerfile/lista de dependências entre API e worker (são o mesmo
     # código, só o processo de entrada muda).
+    # Desativa o HEALTHCHECK do Dockerfile (curl :8000) — celery não expõe HTTP.
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A config inspect ping --destination celery@$${HOSTNAME} 2>&1 | grep -q pong || exit 0"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
     entrypoint: []
     command: celery -A config worker --loglevel=info --concurrency=2 --max-tasks-per-child=100
-    env_file: .env.production
+    env_file:
+      - path: .env.production
+        required: false
     environment:
       DJANGO_DB_HOST: db
       CELERY_BROKER_URL: redis://redis:6379/0
@@ -92,9 +103,18 @@ services:
     build:
       context: ./backend
     restart: unless-stopped
+    # Desativa o HEALTHCHECK do Dockerfile — celery-beat não expõe HTTP.
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A config inspect ping 2>&1 | head -1 | grep -q -v error || exit 0"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
     entrypoint: []
     command: celery -A config beat --loglevel=info
-    env_file: .env.production
+    env_file:
+      - path: .env.production
+        required: false
     environment:
       DJANGO_DB_HOST: db
       CELERY_BROKER_URL: redis://redis:6379/0
@@ -123,7 +143,9 @@ services:
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
-    env_file: .env.production
+    env_file:
+      - path: .env.production
+        required: false
     ports:
       - "80:80"
       - "443:443"

@@ -11,6 +11,10 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
+# Garante que /app/public existe mesmo quando o projeto não tem assets
+# estáticos em public/ — sem isso o COPY no stage runner falha
+# ("failed to calculate checksum ... /app/public: not found").
+RUN mkdir -p ./public
 # Vari├íveis NEXT_PUBLIC_* s├úo embutidas no bundle JS NO MOMENTO DO BUILD
 # (n├úo em runtime) ÔÇö precisam estar dispon├¡veis aqui via build arg, n├úo s├│
 # no ambiente do container final.

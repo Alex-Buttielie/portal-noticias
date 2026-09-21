@@ -7,6 +7,10 @@
 > esteira). O deploy de produção sai da tag `v*` via
 > `.github/workflows/deploy-prod.yml`.
 >
+> **Nota de drift Docker vs PM2:** VPS roda PM2 (não Docker Compose);
+> healthcheck Docker é só para localhost (`docker-compose.yml` / `docker-compose.localhost.yml`).
+> Não usar `docker compose --env-file .env.production` na VPS.
+>
 > Guia de provisionamento da VPS HostGator (root/SSH) para a nova arquitetura
 > de infra (`docker-compose.yml` + `Caddyfile` na raiz do projeto). Faça uma
 > vez por VPS; deploys seguintes usam só a seção "Deploy de uma nova versão".
@@ -106,7 +110,10 @@ docker compose --env-file .env.production exec web python manage.py createsuperu
 ```bash
 crontab -e
 # Backup às 3h da manhã, horário de menor tráfego.
+# Variante Docker/Caddy (este arquivo):
 0 3 * * * /home/deploy/brd_portal_noticias/infra/backup/pg_backup.sh >> /var/log/pg_backup.log 2>&1
+# Variante PM2 (VPS ativa, ver CI-CD.md):
+# 0 3 * * * /home/apps/portal-prod/infra/backup/pg_backup.sh >> /var/log/pg_backup.log 2>&1
 ```
 
 Depois, siga `infra/backup/RESTORE.md` **pelo menos uma vez** para
