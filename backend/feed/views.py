@@ -333,6 +333,7 @@ class BuscaView(APIView):
             user=request.user,
             session_key=request.session.session_key or "",
             filtros={k: v for k, v in filtros.items() if v},
+            request_id=getattr(request, "request_id", None),
         )
         resposta: dict = {
             "query": q,

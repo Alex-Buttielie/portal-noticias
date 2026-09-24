@@ -8,6 +8,9 @@ class FonteRoboAdmin(admin.ModelAdmin):
     list_display = ["nome", "url", "ativo", "categoria_padrao", "atualizado_em"]
     list_filter = ["ativo"]
     search_fields = ["nome", "url"]
+    # O validator pertence ao download anterior; operators podem trocar a
+    # URL, mas não editar manualmente o resultado de uma requisição HTTP.
+    readonly_fields = ["etag", "last_modified", "ultima_revalidacao_completa"]
 
 
 @admin.register(ConfiguracaoRobo)

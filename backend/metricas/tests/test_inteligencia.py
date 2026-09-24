@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.test import override_settings
 from rest_framework.test import APIClient
 
 from catalogo_noticias.models import NewsItem
@@ -79,6 +80,7 @@ def test_evento_news_view_roteado_para_feed_sem_duplicar():
 
 
 @precisa_feed
+@override_settings(CELERY_TASK_ALWAYS_EAGER=True, CELERY_TASK_EAGER_PROPAGATES=True)
 def test_evento_search_roteado_para_eventobusca():
     r = APIClient().post(
         "/api/metricas/eventos/",

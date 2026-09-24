@@ -20,7 +20,13 @@ def _executar_e_logar(periodo):
     return envio.id
 
 
-@shared_task(name="newsletter.tasks.enviar_newsletters")
+# Envios de newsletter têm efeito externo e não são idempotentes por
+# execução; ack imediato é explícito para não reentregar um e-mail.
+@shared_task(
+    name="newsletter.tasks.enviar_newsletters",
+    acks_late=False,
+    reject_on_worker_lost=False,
+)
 def enviar_newsletters_task():
     """
     Mantida sem argumento (envia para TODAS as inscrições ativas,
@@ -32,11 +38,19 @@ def enviar_newsletters_task():
     return _executar_e_logar(periodo=None)
 
 
-@shared_task(name="newsletter.tasks.enviar_newsletters_manha")
+@shared_task(
+    name="newsletter.tasks.enviar_newsletters_manha",
+    acks_late=False,
+    reject_on_worker_lost=False,
+)
 def enviar_newsletters_manha_task():
     return _executar_e_logar(periodo=InscricaoNewsletter.PERIODO_MANHA)
 
 
-@shared_task(name="newsletter.tasks.enviar_newsletters_noite")
+@shared_task(
+    name="newsletter.tasks.enviar_newsletters_noite",
+    acks_late=False,
+    reject_on_worker_lost=False,
+)
 def enviar_newsletters_noite_task():
     return _executar_e_logar(periodo=InscricaoNewsletter.PERIODO_NOITE)

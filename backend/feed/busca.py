@@ -12,15 +12,20 @@
 from __future__ import annotations
 
 import difflib
+import logging
 import re
+import uuid
 from datetime import datetime
 
+from django.conf import settings
+from django.core.cache import cache
 from django.db.models import Count, Q
 from django.utils import timezone
 
 from catalogo_noticias.models import NewsItem
 
 from .models import EventoBusca
+from .tasks import registrar_evento_busca
 
 MAX_CANDIDATOS = 300
 
@@ -209,33 +214,147 @@ def _relevancia(item: NewsItem, q_norm: str, toks: list[str]) -> tuple[float, li
 # Autocomplete / sugestões / populares / histórico / correção
 # ---------------------------------------------------------------------------
 
+logger = logging.getLogger(__name__)
+_AUTOCOMPLETE_CACHE_PREFIX = "feed:autocomplete:v2"
+_AUTOCOMPLETE_VOCABULARIO_LIMITE = 500
+_AUTOCOMPLETE_POPULARES_LIMITE = 200
+
+
+def _ttl_autocomplete() -> int:
+    try:
+        return max(1, int(getattr(settings, "FEED_AUTOCOMPLETE_CACHE_TTL_SEGUNDOS", 300)))
+    except (TypeError, ValueError):
+        return 300
+
+
+def invalidar_cache_autocomplete() -> None:
+    """Invalida os snapshots reconstruíveis após uma escrita de catálogo.
+
+    A ingestão chama esta função depois de um insert real. Não é uma
+    transação distribuída: se o cache estiver indisponível, a leitura
+    reconstrói o snapshot normalmente no próximo acesso.
+    """
+    for sufixo in ("categorias", "titulos", "populares"):
+        try:
+            cache.delete(f"{_AUTOCOMPLETE_CACHE_PREFIX}:{sufixo}")
+        except Exception:
+            logger.warning(
+                "Falha ao invalidar cache de autocomplete (%s)",
+                sufixo,
+                exc_info=True,
+            )
+
+
+def _cache_get(chave: str):
+    """Cache é otimização: uma falha de backend não quebra a busca."""
+    try:
+        return cache.get(chave)
+    except Exception:
+        logger.warning("Falha ao ler cache de autocomplete", exc_info=True)
+        return None
+
+
+def _cache_set(chave: str, valor) -> None:
+    try:
+        cache.set(chave, valor, timeout=_ttl_autocomplete())
+    except Exception:
+        logger.warning("Falha ao gravar cache de autocomplete", exc_info=True)
+
+
+def _autocomplete_categorias() -> list[str]:
+    """Obtém categorias com TTL, sem query por tecla."""
+
+    chave = f"{_AUTOCOMPLETE_CACHE_PREFIX}:categorias"
+    em_cache = _cache_get(chave)
+    if em_cache is not None:
+        return em_cache
+
+    categorias = [
+        (valor or "").strip().lower()
+        for valor in NewsItem.objects.exclude(categoria="")
+        .values_list("categoria", flat=True)
+        .distinct()[:_AUTOCOMPLETE_VOCABULARIO_LIMITE]
+    ]
+    categorias = list(dict.fromkeys(c for c in categorias if c))
+    _cache_set(chave, categorias)
+    return categorias
+
+
+def _autocomplete_vocabulario() -> dict[str, list[str]]:
+    """Obtém categorias e títulos do catálogo com TTL, sem query por tecla.
+
+    A lista é limitada aos 500 itens mais recentes para manter o payload do
+    cache pequeno; suggestions fora desse recorte não eram exibidas pelo
+    limite original de títulos de qualquer forma.
+    """
+
+    categorias = _autocomplete_categorias()
+    chave = f"{_AUTOCOMPLETE_CACHE_PREFIX}:titulos"
+    em_cache = _cache_get(chave)
+    if em_cache is not None:
+        return {"categorias": categorias, "titulos": em_cache}
+
+    titulos = [
+        (valor or "").strip()
+        for valor in NewsItem.objects.filter(
+            status_revisao__in=[NewsItem.STATUS_NAO_APLICAVEL, NewsItem.STATUS_APROVADO]
+        )
+        .order_by("-timestamp_ingestao")
+        .values_list("titulo", flat=True)[:_AUTOCOMPLETE_VOCABULARIO_LIMITE]
+    ]
+    titulos = list(dict.fromkeys(t for t in titulos if t))
+    _cache_set(chave, titulos)
+    return {"categorias": categorias, "titulos": titulos}
+
+
+def _autocomplete_populares() -> list[dict]:
+    """Snapshot agregado dos termos reais, também cacheado por TTL."""
+
+    chave = f"{_AUTOCOMPLETE_CACHE_PREFIX}:populares"
+    em_cache = _cache_get(chave)
+    if em_cache is not None:
+        return em_cache
+
+    populares = list(
+        EventoBusca.objects.exclude(query_normalizada="")
+        .values("query_normalizada")
+        .annotate(total=Count("id"))
+        .order_by("-total")[:_AUTOCOMPLETE_POPULARES_LIMITE]
+    )
+    _cache_set(chave, populares)
+    return populares
+
+
 def autocomplete(prefixo: str, limite: int = 8) -> list[str]:
     """Sugestões a partir de buscas reais + categorias/tags/autores do
-    catálogo. Ordena: termo popular primeiro, depois alfabético."""
+    catálogo. Ordena: termo popular primeiro, depois alfabético.
+
+    O vocabulário e a lista de termos populares são snapshots com TTL; o
+    filtro por prefixo acontece em Python, portanto uma tecla nova não faz
+    ``DISTINCT`` sobre a tabela inteira.
+    """
     pref = normalizar_query(prefixo)
     if len(pref) < 2:
         return []
+    try:
+        limite = max(1, min(int(limite), 50))
+    except (TypeError, ValueError):
+        limite = 8
     sugestoes: dict[str, int] = {}
 
-    populares = (
-        EventoBusca.objects.filter(query_normalizada__startswith=pref)
-        .values("query_normalizada")
-        .annotate(total=Count("id"))
-        .order_by("-total")[:limite]
-    )
-    for r in populares:
-        sugestoes[r["query_normalizada"]] = sugestoes.get(r["query_normalizada"], 0) + r["total"] * 10
+    for r in _autocomplete_populares():
+        termo = (r.get("query_normalizada") or "").strip()
+        if termo.startswith(pref):
+            sugestoes[termo] = sugestoes.get(termo, 0) + int(r.get("total") or 0) * 10
 
-    for cat in NewsItem.objects.exclude(categoria="").values_list("categoria", flat=True).distinct()[:200]:
+    vocabulario = _autocomplete_vocabulario()
+    for cat in vocabulario.get("categorias", []):
         c = (cat or "").strip().lower()
         if c.startswith(pref):
             sugestoes[c] = sugestoes.get(c, 0) + 5
-    for titulo in NewsItem.objects.filter(
-        titulo__istartswith=pref,
-        status_revisao__in=[NewsItem.STATUS_NAO_APLICAVEL, NewsItem.STATUS_APROVADO],
-    ).values_list("titulo", flat=True)[:limite]:
+    for titulo in vocabulario.get("titulos", []):
         t = (titulo or "").strip()
-        if t:
+        if t and t.lower().startswith(pref):
             sugestoes[t.lower()] = sugestoes.get(t.lower(), 0) + 3
 
     ordenadas = sorted(sugestoes.items(), key=lambda kv: (-kv[1], kv[0]))
@@ -273,8 +392,9 @@ def sugestao_correcao(q: str) -> str | None:
     if not q_norm:
         return None
     vocab = [t["termo"] for t in termos_populares()]
-    vocab += [(c or "").strip().lower() for c in
-              NewsItem.objects.exclude(categoria="").values_list("categoria", flat=True).distinct()[:100]]
+    # Reutiliza o mesmo snapshot TTL do autocomplete; não faz uma segunda
+    # varredura DISTINCT da tabela quando a busca corrigível termina.
+    vocab += [(c or "").strip().lower() for c in _autocomplete_categorias()[:100]]
     vocab = [v for v in dict.fromkeys(vocab) if v and v != q_norm]
     matches = difflib.get_close_matches(q_norm, vocab, n=1, cutoff=0.75)
     return matches[0] if matches else None
@@ -284,18 +404,53 @@ def sugestao_correcao(q: str) -> str | None:
 # Registro de eventos (métricas + recomendação)
 # ---------------------------------------------------------------------------
 
-def registrar_busca(q: str, resultados: int, user=None, session_key: str = "", filtros: dict | None = None) -> None:
+def registrar_busca(
+    q: str,
+    resultados: int,
+    user=None,
+    session_key: str = "",
+    filtros: dict | None = None,
+    request_id: str | None = None,
+) -> None:
+    """Enfileira a métrica sem escrever no banco durante a leitura.
+
+    O request id é obtido do ContextVar do middleware quando não é fornecido
+    pelo chamador. O usuário é enviado apenas como id, pois o broker usa
+    JSON e não serializa objetos Django.
+    """
+    if request_id is None:
+        try:
+            from config.middleware import get_current_request_id
+
+            request_id = get_current_request_id()
+        except Exception:
+            request_id = None
+    request_id = str(request_id or "").strip()
+    if not request_id or request_id == "-":
+        # O valor padrão do ContextVar é ``-`` fora do middleware. Não use
+        # esse sentinel como chave: chamadas diretas colidiriam entre si.
+        request_id = str(uuid.uuid4())
+    request_id = request_id[:64]
+    user_id = None
+    if getattr(user, "is_authenticated", False):
+        user_id = getattr(user, "pk", None)
     try:
-        EventoBusca.objects.create(
+        registrar_evento_busca.delay(
             query=(q or "")[:300],
-            query_normalizada=normalizar_query(q)[:300],
-            user=user if getattr(user, "is_authenticated", False) else None,
+            resultados=max(0, int(resultados or 0)),
+            user_id=user_id,
             session_key=(session_key or "")[:64],
-            resultados=resultados,
             filtros=filtros or {},
+            request_id=request_id,
         )
     except Exception:
-        pass
+        # Não fazer fallback para EventoBusca.objects.create: isso
+        # reintroduziria exatamente a escrita síncrona que esta task remove.
+        logger.warning(
+            "Não foi possível enfileirar EventoBusca (request_id=%s)",
+            request_id or "-",
+            exc_info=True,
+        )
 
 
 def registrar_clique_resultado(

@@ -14,7 +14,7 @@ from difflib import SequenceMatcher
 from typing import Optional
 
 from django.conf import settings
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from ..models import NewsCluster, NewsItem, RegistroExecucaoIngestao
@@ -31,21 +31,29 @@ from ..providers.summarization import (
     SummarizationProviderError,
 )
 from . import orcamento
+from .config_robo import cache_por_execucao
 from .deduplicacao import agrupar_itens_brutos
 
 logger = logging.getLogger(__name__)
 
 
 def construir_fontes_configuradas() -> list[NewsSourceProvider]:
+    from ..models import FonteRobo
     from .config_robo import fontes_rss
 
     fontes = fontes_rss()
+    ids = [fonte.get("id") for fonte in fontes if fonte.get("id") is not None]
+    registros = FonteRobo.objects.in_bulk(ids) if ids else {}
     return [
         RSSNewsSourceProvider(
             nome_fonte=fonte["nome"],
             url_feed=fonte["url"],
             estado_fonte=fonte.get("uf", ""),
             pais_fonte="Brasil" if fonte.get("uf") else "",
+            etag=fonte.get("etag", ""),
+            last_modified=fonte.get("last_modified", ""),
+            fonte_robo=registros.get(fonte.get("id")),
+            ultima_revalidacao_completa=fonte.get("ultima_revalidacao_completa"),
         )
         for fonte in fontes
     ]
@@ -65,6 +73,69 @@ def _urls_ja_ingeridas(itens: list[ItemBruto]) -> set[str]:
         NewsItem.objects.filter(url_fonte_original__in=urls).values_list(
             "url_fonte_original", flat=True
         )
+    )
+
+
+def _deduplicar_itens_por_url(itens: list[ItemBruto]) -> list[ItemBruto]:
+    """Mantém a primeira ocorrência de cada URL do lote.
+
+    A query de URLs já ingeridas é apenas uma otimização: duas URLs iguais
+    no mesmo feed, ou a mesma URL retornada por duas fontes, ainda podem
+    passar por ela. Deduplicar antes do agrupamento evita que o LLM seja
+    chamado duas vezes para o mesmo item e deixa a constraint única do banco
+    como defesa final para uma corrida entre execuções.
+    """
+    vistos: set[str] = set()
+    unicos: list[ItemBruto] = []
+    for item in itens:
+        chave = item.url_fonte_original
+        if chave in vistos:
+            continue
+        vistos.add(chave)
+        unicos.append(item)
+    return unicos
+
+
+def _estimar_custo_chamada(
+    provider: SummarizationProvider, quantidade_itens: int
+) -> float:
+    """Obtém a reserva opcional de custo antes de uma chamada ao LLM.
+
+    Provedores de teste/fallback que não possessam esse método têm custo
+    externo zero. O provider HTTP real expõe a estimativa conservadora
+    baseada no teto de tokens de saída e no preço configurado.
+    """
+    estimador = getattr(provider, "estimar_custo_em_lote", None)
+    if not callable(estimador):
+        return 0.0
+    try:
+        return max(0.0, float(estimador(quantidade_itens)))
+    except (TypeError, ValueError, AttributeError):
+        logger.warning(
+            "Não foi possível estimar custo da chamada de sumarização; "
+            "a chamada seguirá sem reserva numérica.",
+            exc_info=True,
+        )
+        return 0.0
+
+
+def _atualizar_metricas_execucao(
+    registro: RegistroExecucaoIngestao,
+    *,
+    chamadas: int,
+    tokens: int,
+    custo: float,
+) -> None:
+    """Persiste o acumulado antes/depois de cada chamada ao provider."""
+    registro.chamadas_summarization_provider = chamadas
+    registro.tokens_utilizados_summarization = tokens or None
+    registro.custo_estimado_summarization_usd = custo
+    registro.save(
+        update_fields=[
+            "chamadas_summarization_provider",
+            "tokens_utilizados_summarization",
+            "custo_estimado_summarization_usd",
+        ]
     )
 
 
@@ -308,6 +379,90 @@ def _eh_alta_relevancia(categoria: str, numero_fontes_distintas: int) -> bool:
 # se aceita esse residual ou pede uma revisao de produto do proprio AC-7.
 
 
+def _persistir_news_items_em_lote(itens: list[NewsItem]) -> list[NewsItem]:
+    """Valida e persiste NewsItems em lote.
+
+    ``bulk_create`` não chama ``save()``/signals, mas o modelo não possui
+    signals registrados no projeto e toda a decisão de status já foi feita
+    antes desta chamada. ``clean()`` é chamado explicitamente para preservar
+    a validação de URL/fonte; a check constraint e a unique do banco são as
+    camadas finais. ``full_clean`` foi avaliado, mas rejeita URLs históricas
+    aceitas pelo pipeline (por exemplo, hosts sem sufixo público); manter
+    ``clean()`` preserva o contrato de ingestão e deixa a validação sintática
+    de URL como residual. A lista é deduplicada por URL antes do insert e
+    ``ignore_conflicts`` trata a corrida entre duas execuções que passaram
+    pelo SELECT inicial.
+    """
+    if not itens:
+        return []
+
+    vistos: set[str] = set()
+    itens_unicos: list[NewsItem] = []
+    for item in itens:
+        if item.url_fonte_original in vistos:
+            continue
+        vistos.add(item.url_fonte_original)
+        item.clean()
+        itens_unicos.append(item)
+
+    try:
+        # No caminho normal mantemos o INSERT único e os PKs preenchidos.
+        # A captura fica num savepoint para que um conflito de corrida possa
+        # ser tratado sem deixar a transação externa quebrada.
+        with transaction.atomic():
+            NewsItem.objects.bulk_create(itens_unicos, batch_size=500)
+    except IntegrityError:
+        # Outra execução pode ter inserido a mesma URL entre o SELECT
+        # inicial e este INSERT. Requery + INSERT IGNORE é a segunda camada
+        # atômica; URLs já existentes são apenas descartadas.
+        urls = [item.url_fonte_original for item in itens_unicos]
+        existentes = set(
+            NewsItem.objects.filter(url_fonte_original__in=urls).values_list(
+                "url_fonte_original", flat=True
+            )
+        )
+        restantes = [
+            item for item in itens_unicos if item.url_fonte_original not in existentes
+        ]
+        if restantes:
+            with transaction.atomic():
+                NewsItem.objects.bulk_create(
+                    restantes,
+                    batch_size=500,
+                    ignore_conflicts=True,
+                )
+
+    # `ignore_conflicts` não preenche PKs em todos os backends. Se um objeto
+    # perdeu a corrida, religamos apenas os PKs já persistidos; isso mantém
+    # o retorno da função utilizável sem mascarar outras constraints.
+    if any(item.pk is None for item in itens_unicos):
+        persisted = {
+            url: pk
+            for url, pk in NewsItem.objects.filter(
+                url_fonte_original__in=[item.url_fonte_original for item in itens_unicos]
+            ).values_list("url_fonte_original", "pk")
+        }
+        for item in itens_unicos:
+            if item.pk is None and item.url_fonte_original in persisted:
+                item.pk = persisted[item.url_fonte_original]
+
+    # O autocomplete é uma otimização reconstruível; uma escrita real deve
+    # torná-lo consistente sem esperar o TTL de 300 s.
+    if itens_unicos:
+        try:
+            from feed.busca import invalidar_cache_autocomplete
+
+            invalidar_cache_autocomplete()
+        except Exception:
+            # A invalidação é best-effort; a ingestão e a fonte de verdade
+            # não podem depender do backend de cache.
+            logger.warning(
+                "Falha ao invalidar cache de autocomplete após ingestão",
+                exc_info=True,
+            )
+    return itens_unicos
+
+
 @transaction.atomic
 def _persistir_grupo(
     resultados_por_item: list[tuple[ItemBruto, ResultadoResumo]],
@@ -358,7 +513,7 @@ def _persistir_grupo(
         )
         status_revisao = NewsItem.STATUS_PENDENTE if alta_relevancia else NewsItem.STATUS_NAO_APLICAVEL
 
-        news_item = NewsItem.objects.create(
+        news_item = NewsItem(
             titulo=item_bruto.titulo,
             resumo_proprio=resultado.resumo,
             conteudo_bruto=item_bruto.conteudo_bruto,
@@ -378,6 +533,7 @@ def _persistir_grupo(
         )
         itens_criados.append(news_item)
 
+    itens_criados = _persistir_news_items_em_lote(itens_criados)
     return cluster, itens_criados
 
 
@@ -500,7 +656,7 @@ def _persistir_grupo_mesclado(
             if (sem_resumo_confiavel or resumo_suspeito_de_copia)
             else NewsItem.STATUS_NAO_APLICAVEL
         )
-        news_item = NewsItem.objects.create(
+        news_item = NewsItem(
             titulo=item_bruto.titulo,
             resumo_proprio=resultado.resumo,
             conteudo_bruto=item_bruto.conteudo_bruto,
@@ -515,6 +671,8 @@ def _persistir_grupo_mesclado(
             cluster=cluster,
         )
         itens_criados.append(news_item)
+
+    itens_criados = _persistir_news_items_em_lote(itens_criados)
 
     # Reavalia o cluster INTEIRO (itens antigos + novos) contra o criterio de
     # alta relevancia agora que cresceu — sem isso, um cluster que so cruza o
@@ -544,7 +702,8 @@ def _persistir_grupo_mesclado(
             atualizados,
         )
         for news_item in itens_criados:
-            news_item.refresh_from_db(fields=["status_revisao"])
+            if news_item.pk:
+                news_item.refresh_from_db(fields=["status_revisao"])
 
     return cluster, itens_criados
 
@@ -559,6 +718,7 @@ def _resultado_fallback_erro(grupo: list[ItemBruto]) -> ResultadoResumo:
     return ResultadoResumo(resumo="", categoria=grupo[0].categoria, urgente=False)
 
 
+@cache_por_execucao()
 def executar_ingestao(
     fontes: Optional[list[NewsSourceProvider]] = None,
     summarization_provider: Optional[SummarizationProvider] = None,
@@ -576,6 +736,7 @@ def executar_ingestao(
     itens_por_fonte: dict[str, int] = {}
     erros_por_fonte: dict[str, str] = {}
     todos_itens_brutos: list[ItemBruto] = []
+    fontes_para_confirmar: list[NewsSourceProvider] = []
 
     # Busca das fontes em paralelo (80+ fontes regionais): sequencial com
     # timeout de 15s por fonte estouraria a janela do beat. Cada provider é
@@ -584,12 +745,12 @@ def executar_ingestao(
     def _buscar(fonte):
         nome = getattr(fonte, "nome_fonte", None) or getattr(fonte, "nome", None) or fonte.__class__.__name__
         try:
-            return (nome, fonte.buscar_itens(), None)
+            return (fonte, nome, fonte.buscar_itens(), None)
         except FonteIndisponivelError as exc:
-            return (nome, [], str(exc))
+            return (fonte, nome, [], str(exc))
         except Exception as exc:  # noqa: BLE001 — erro inesperado de UMA fonte nao pode derrubar as demais
             logger.exception("Erro inesperado ao buscar itens da fonte '%s'", nome)
-            return (nome, [], f"Erro inesperado: {exc}")
+            return (fonte, nome, [], f"Erro inesperado: {exc}")
 
     try:
         workers = int(getattr(settings, "CATALOGO_NOTICIAS_FETCH_WORKERS", 8))
@@ -598,8 +759,9 @@ def executar_ingestao(
     workers = max(1, min(workers, 16))
     from concurrent.futures import ThreadPoolExecutor
 
+    urls_vistas_no_lote: set[str] = set()
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        for nome_fonte, itens, erro in pool.map(_buscar, fontes):
+        for fonte, nome_fonte, itens, erro in pool.map(_buscar, fontes):
             if erro is not None:
                 # Criterio de aceite 1: falha de UMA fonte nao propaga como
                 # excecao fatal — registrada (log + RegistroExecucaoIngestao)
@@ -607,15 +769,38 @@ def executar_ingestao(
                 logger.error("Fonte '%s' indisponivel nesta execucao: %s", nome_fonte, erro)
                 erros_por_fonte[nome_fonte] = erro
                 itens_por_fonte[nome_fonte] = 0
+                invalidar = getattr(fonte, "invalidar_validadores_apos_erro", None)
+                if callable(invalidar):
+                    try:
+                        invalidar()
+                    except Exception:
+                        logger.warning(
+                            "Falha ao invalidar validators após erro da fonte '%s'",
+                            nome_fonte,
+                            exc_info=True,
+                        )
                 continue
+
+            # O provider só confirma os validators depois de todo o pipeline
+            # persistir os itens; se a execução cair antes, a próxima rodada
+            # baixa o XML novamente em vez de perder o lote por um 304.
+            fontes_para_confirmar.append(fonte)
 
             # Idempotencia da task periodica: nao reprocessa um item cuja URL ja
             # foi ingerida em execucao anterior (evita violar a constraint de
             # unicidade de url_fonte_original a cada novo ciclo do mesmo feed).
             # Finding 5 (minor, performance): uma unica query por fonte
             # (`_urls_ja_ingeridas`) em vez de um SELECT EXISTS por item bruto.
-            urls_ja_ingeridas = _urls_ja_ingeridas(itens)
-            itens_novos = [item for item in itens if item.url_fonte_original not in urls_ja_ingeridas]
+            itens_unicos_da_fonte = _deduplicar_itens_por_url(itens)
+            urls_ja_ingeridas = _urls_ja_ingeridas(itens_unicos_da_fonte)
+            itens_novos = []
+            for item in itens_unicos_da_fonte:
+                if item.url_fonte_original in urls_ja_ingeridas:
+                    continue
+                if item.url_fonte_original in urls_vistas_no_lote:
+                    continue
+                urls_vistas_no_lote.add(item.url_fonte_original)
+                itens_novos.append(item)
             itens_por_fonte[nome_fonte] = len(itens_novos)
             todos_itens_brutos.extend(itens_novos)
 
@@ -685,35 +870,49 @@ def executar_ingestao(
         grupos_processados.append((itens_novos_do_grupo, news_items_existentes_do_grupo))
         todos_itens_novos.extend(itens_novos_do_grupo)
 
+    # O registro passa a existir antes de qualquer chamada ao provider. Isso
+    # transforma a última linha em uma reserva durável de custo: se o worker
+    # cair depois da resposta do LLM e antes de `_persistir_grupo`, a reserva
+    # continua no cálculo do teto/painel em vez de desaparecer com o processo.
+    registro = RegistroExecucaoIngestao.objects.create(
+        itens_por_fonte=dict(itens_por_fonte),
+        erros_por_fonte=dict(erros_por_fonte),
+        total_itens_ingeridos=sum(itens_por_fonte.values()),
+        total_grupos_formados=total_grupos,
+        total_duplicatas_agrupadas=max(sum(itens_por_fonte.values()) - total_grupos, 0),
+    )
     resultado_por_url: dict[str, ResultadoResumo] = {}
     from .config_robo import cfg_valor as _cv3
     tamanho_lote = max(1, int(_cv3("CATALOGO_NOTICIAS_LLM_TAMANHO_LOTE", "llm_tamanho_lote", int)))
     # Enforcement do teto diario de gasto (implementation-contract.md, run
-    # 20260903-1211-teto-gasto-diario-llm, criterios de aceite 1-3): uma vez
-    # que o gasto acumulado (execucoes anteriores do dia, via
-    # `orcamento.gasto_llm_hoje_usd()`, + `custo_total` ja acumulado NESTA
-    # execucao) cruza o teto, `teto_ja_excedido_nesta_execucao` fica `True`
-    # pelo resto do loop — os lotes restantes NUNCA mais chamam o provedor
-    # (mesmo tratamento de `_resultado_fallback_erro` ja usado para falha de
-    # rede/parsing, sem incrementar `chamadas_summarization`: nenhuma
-    # chamada HTTP foi feita).
+    # 20260903-1211-teto-gasto-diario-llm, criterios de aceite 1-3): o registro
+    # desta execução já é persistido, portanto `gasto_llm_hoje_usd()` inclui
+    # as reservas das chamadas anteriores. Uma nova reserva é feita somente
+    # depois de decidir que ainda há orçamento; se a worker cair, a reserva
+    # permanece e conta na próxima tentativa.
     teto_ja_excedido_nesta_execucao = False
     for inicio in range(0, len(todos_itens_novos), tamanho_lote):
         lote = todos_itens_novos[inicio : inicio + tamanho_lote]
+        custo_reservado_lote = 0.0
 
         if not teto_ja_excedido_nesta_execucao:
-            gasto_acumulado_usd = orcamento.gasto_llm_hoje_usd() + custo_total
-            teto_ja_excedido_nesta_execucao = orcamento.teto_excedido(gasto_acumulado_usd)
-            if teto_ja_excedido_nesta_execucao:
-                itens_restantes = len(todos_itens_novos) - inicio
+            gasto_atual = orcamento.gasto_llm_hoje_usd()
+            custo_reservado_lote = _estimar_custo_chamada(
+                summarization_provider, len(lote)
+            )
+            if orcamento.teto_excedido(
+                gasto_atual
+            ) or (
+                custo_reservado_lote > 0
+                and orcamento.teto_excedido(gasto_atual + custo_reservado_lote)
+            ):
+                teto_ja_excedido_nesta_execucao = True
                 logger.warning(
-                    "Teto diario de gasto do SummarizationProvider (%.4f USD) atingido/excedido "
-                    "(gasto acumulado do dia: %.4f USD) — pulando o restante desta execucao "
-                    "(%d item(ns) restante(s), a partir deste lote) sem chamar o provedor; "
-                    "itens vao para revisao humana (status_revisao=pendente).",
-                    orcamento.teto_diario_usd(),
-                    gasto_acumulado_usd,
-                    itens_restantes,
+                    "Teto diario de gasto do SummarizationProvider seria atingido "
+                    "pela reserva desta chamada (%.4f USD; gasto atual %.4f USD) "
+                    "— pulando o restante para revisao humana.",
+                    custo_reservado_lote,
+                    gasto_atual,
                 )
 
         if teto_ja_excedido_nesta_execucao:
@@ -725,6 +924,20 @@ def executar_ingestao(
             for item_bruto, resultado_item in zip(lote, resultados_lote):
                 resultado_por_url[item_bruto.url_fonte_original] = resultado_item
             continue
+
+        # A reserva é gravada ANTES da chamada externa. Se o worker cair
+        # depois da resposta, o custo anterior não desaparece e o orçamento
+        # seguinte o inclui.
+        chamadas_summarization += 1
+        custo_total += custo_reservado_lote
+        if custo_reservado_lote > 0:
+            algum_custo_conhecido = True
+        _atualizar_metricas_execucao(
+            registro,
+            chamadas=chamadas_summarization,
+            tokens=tokens_utilizados_total,
+            custo=custo_total if algum_custo_conhecido else 0.0,
+        )
 
         try:
             resultados_lote = summarization_provider.resumir_e_classificar_em_lote(lote)
@@ -746,15 +959,36 @@ def executar_ingestao(
                 len(lote),
                 exc,
             )
+            # A reserva permanece: a chamada foi tentada e pode ter gerado
+            # cobrança mesmo sem resposta utilizável.
             resultados_lote = [_resultado_fallback_erro([item]) for item in lote]
 
-        chamadas_summarization += 1
-        for item_bruto, resultado_item in zip(lote, resultados_lote):
+        custo_real_lote = 0.0
+        custos_conhecidos: list[float] = []
+        for resultado_item in resultados_lote:
             if resultado_item.tokens_utilizados:
                 tokens_utilizados_total += resultado_item.tokens_utilizados
             if resultado_item.custo_estimado_usd is not None:
-                custo_total += resultado_item.custo_estimado_usd
-                algum_custo_conhecido = True
+                custos_conhecidos.append(resultado_item.custo_estimado_usd)
+        custo_real_conhecido = bool(custos_conhecidos) and len(
+            custos_conhecidos
+        ) == len(resultados_lote)
+        custo_real_lote = sum(custos_conhecidos)
+
+        if custo_real_conhecido:
+            # Se o provider devolve uso, substitui a estimativa conservativa
+            # pela medição. Sem uso conhecido, mantemos a reserva para não
+            # subnotificar uma cobrança cujo response não voltou.
+            custo_total += custo_real_lote - custo_reservado_lote
+            algum_custo_conhecido = True
+
+        _atualizar_metricas_execucao(
+            registro,
+            chamadas=chamadas_summarization,
+            tokens=tokens_utilizados_total,
+            custo=custo_total if algum_custo_conhecido else 0.0,
+        )
+        for item_bruto, resultado_item in zip(lote, resultados_lote):
             resultado_por_url[item_bruto.url_fonte_original] = resultado_item
 
     for itens_novos_do_grupo, news_items_existentes_do_grupo in grupos_processados:
@@ -770,16 +1004,43 @@ def executar_ingestao(
 
     total_itens = sum(itens_por_fonte.values())
 
-    registro = RegistroExecucaoIngestao.objects.create(
-        itens_por_fonte=itens_por_fonte,
-        erros_por_fonte=erros_por_fonte,
-        total_itens_ingeridos=total_itens,
-        total_grupos_formados=total_grupos,
-        total_duplicatas_agrupadas=max(total_itens - total_grupos, 0),
-        chamadas_summarization_provider=chamadas_summarization,
-        tokens_utilizados_summarization=tokens_utilizados_total or None,
-        custo_estimado_summarization_usd=custo_total if algum_custo_conhecido else None,
+    registro.itens_por_fonte = dict(itens_por_fonte)
+    registro.erros_por_fonte = dict(erros_por_fonte)
+    registro.total_itens_ingeridos = total_itens
+    registro.total_grupos_formados = total_grupos
+    registro.total_duplicatas_agrupadas = max(total_itens - total_grupos, 0)
+    registro.chamadas_summarization_provider = chamadas_summarization
+    registro.tokens_utilizados_summarization = tokens_utilizados_total or None
+    registro.custo_estimado_summarization_usd = (
+        custo_total if algum_custo_conhecido else None
     )
+    registro.save(
+        update_fields=[
+            "itens_por_fonte",
+            "erros_por_fonte",
+            "total_itens_ingeridos",
+            "total_grupos_formados",
+            "total_duplicatas_agrupadas",
+            "chamadas_summarization_provider",
+            "tokens_utilizados_summarization",
+            "custo_estimado_summarization_usd",
+        ]
+    )
+
+    # Só agora, depois de todos os NewsItems e do RegistroExecucao estarem
+    # confirmados, o cache HTTP pode avançar. Uma queda antes deste ponto
+    # deixa os validators antigos e força nova leitura, sem perda de itens.
+    for fonte in fontes_para_confirmar:
+        confirmar = getattr(fonte, "confirmar_validadores", None)
+        if callable(confirmar):
+            try:
+                confirmar()
+            except Exception:
+                logger.warning(
+                    "Falha ao confirmar validators HTTP da fonte %s",
+                    getattr(fonte, "nome_fonte", getattr(fonte, "nome", "desconhecida")),
+                    exc_info=True,
+                )
 
     logger.info(
         "Ingestao concluida: %d itens novos, %d grupos, %d chamadas ao SummarizationProvider, "

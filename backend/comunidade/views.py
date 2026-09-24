@@ -3,6 +3,7 @@ from django.core.exceptions import ValidationError
 from django.db.models import Count, Q
 from django.http import Http404
 from rest_framework import status
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -15,6 +16,43 @@ from .models import Comentario, Publicacao, Seguidor
 from .serializers import ComentarioSerializer, PublicacaoSerializer
 
 User = get_user_model()
+
+
+class CommunityPagination(PageNumberPagination):
+    """Paginação das listagens públicas de comunidade.
+
+    Mantém o mesmo contrato de parâmetros e limites de ``FeedPagination``.
+    O modo legado sem ``page``/``page_size`` é aplicado no helper abaixo:
+    ele preserva a lista completa para os consumidores atuais, enquanto a
+    paginação explícita limita o materializamento a uma página.
+    """
+
+    page_size = 20
+    page_size_query_param = "page_size"
+    max_page_size = 100
+
+
+def _paginar_comunidade(request, view, queryset, serializer_class):
+    """Mantém o contrato legado e oferece paginação quando solicitada.
+
+    A opção (a) da remediação foi escolhida deliberadamente: sem ``page`` ou
+    ``page_size`` a resposta continua sendo a lista completa que os clientes
+    atuais renderizam. Só uma paginação explícita ativa o envelope DRF e o
+    limite de 20/100. Assim a otimização nova não pode perder itens em
+    silêncio; consumidores que precisem de orçamento limitado devem enviar
+    os parâmetros e tratar ``results``/``next``.
+    """
+
+    paginacao_explicita = (
+        "page" in request.query_params or "page_size" in request.query_params
+    )
+    if not paginacao_explicita:
+        return Response(serializer_class(queryset, many=True).data)
+
+    paginador = CommunityPagination()
+    pagina = paginador.paginate_queryset(queryset, request, view=view)
+    dados = serializer_class(pagina, many=True).data
+    return paginador.get_paginated_response(dados)
 
 
 class PublicacoesListCreateView(APIView):
@@ -35,7 +73,11 @@ class PublicacoesListCreateView(APIView):
         # servidor — categoria (grupo/editoria), tipo (opiniao/analise),
         # busca textual simples e ordenação (recentes|discutidos|destaques).
         # Tudo opcional e retrocompatível (destaque/autor continuam).
-        qs = Publicacao.objects.filter(status=Publicacao.STATUS_PUBLICADO, oculto=False)
+        # `autor_nome` é serializado a partir do related manager; sem o
+        # select_related, cada linha da página causaria uma query extra.
+        qs = Publicacao.objects.filter(
+            status=Publicacao.STATUS_PUBLICADO, oculto=False
+        ).select_related("autor")
         if request.query_params.get("destaque"):
             qs = qs.filter(destaque=True)
         autor_id = request.query_params.get("autor")
@@ -58,7 +100,7 @@ class PublicacoesListCreateView(APIView):
             qs = qs.order_by("-destaque", "-criado_em")
         else:  # "recentes" ou padrão
             qs = qs.order_by("-criado_em")
-        return Response(PublicacaoSerializer(qs, many=True).data)
+        return _paginar_comunidade(request, self, qs, PublicacaoSerializer)
 
     def post(self, request):
         if not request.user.is_authenticated:
@@ -162,7 +204,7 @@ class ComentariosListCreateView(APIView):
             qs = qs.filter(publicacao_id=publicacao_id)
         if news_item_id:
             qs = qs.filter(news_item_id=news_item_id)
-        return Response(ComentarioSerializer(qs, many=True).data)
+        return _paginar_comunidade(request, self, qs, ComentarioSerializer)
 
     def post(self, request):
         if not request.user.is_authenticated:

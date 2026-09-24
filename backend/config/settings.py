@@ -403,9 +403,9 @@ ENDERECOS_CACHE_IBGE_SEGUNDOS = int(os.environ.get("ENDERECOS_CACHE_IBGE_SEGUNDO
 # `LocMemCache` implícito, que não é compartilhado entre os processos
 # Gunicorn nem sobrevive a um restart/deploy). Usado por `feed/` para
 # cachear listagens públicas (alto volume de leitura, o padrão de tráfego
-# dominante deste produto) e invalidado explicitamente no evento
-# `plano.preco_alterado` (ARCHITECTURE.md seção 5) — ver `gating`/`assinatura`
-# services. Em desenvolvimento local sem Redis disponível, cai para
+# dominante deste produto). A invalidação atual é por TTL de 45 s
+# (FEED_CACHE_TTL_SEGUNDOS); o evento `plano.preco_alterado` não invalida
+# as listagens do feed. Em desenvolvimento local sem Redis disponível, cai para
 # LocMemCache (mesma lógica de conveniência de bootstrap do DJANGO_DB_ENGINE
 # acima) via DJANGO_CACHE_BACKEND=locmem.
 _CACHE_BACKEND = os.environ.get("DJANGO_CACHE_BACKEND", "redis")
@@ -513,10 +513,31 @@ CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TIMEZONE = TIME_ZONE
 CELERY_TASK_TRACK_STARTED = True
 
+# P2-4 (run 20260923-1600-p2-backend-perf): prefetch e recycling são
+# ajustes do worker. `acks_late` e `reject_on_worker_lost` NÃO são globais:
+# são declarados somente nas tasks idempotentes (ingestão e evento de
+# busca), para não reentregar efeitos externos de newsletters, alertas ou
+# vencimentos depois de uma queda do worker.
+CELERY_WORKER_PREFETCH_MULTIPLIER = 1
+CELERY_WORKER_MAX_TASKS_PER_CHILD = int(os.environ.get("CELERY_WORKER_MAX_TASKS_PER_CHILD", "100"))
+
+# TTL curto para o vocabulário de autocomplete. O cache é reconstruível a
+# partir de NewsItem/EventoBusca; a ingestão invalida as chaves de catálogo
+# após uma escrita e o TTL cobre eventos/erros de cache como fallback.
+FEED_AUTOCOMPLETE_CACHE_TTL_SEGUNDOS = int(
+    os.environ.get("FEED_AUTOCOMPLETE_CACHE_TTL_SEGUNDOS", "300")
+)
+
 # Intervalo (minutos) do job periódico de ingestão de notícias — configurável
 # sem alteração de código/deploy do worker.
 CATALOGO_NOTICIAS_INTERVALO_INGESTAO_MINUTOS = int(
     os.environ.get("CATALOGO_NOTICIAS_INTERVALO_INGESTAO_MINUTOS", 15)
+)
+# Reconciliação de segurança contra 304 falso/perda local. Validators são
+# otimização; após este TTL a próxima leitura de cada FonteRobo é feita sem
+# If-None-Match/If-Modified-Since. Zero (ou menor) força revalidação sempre.
+CATALOGO_NOTICIAS_REVALIDACAO_COMPLETA_HORAS = float(
+    os.environ.get("CATALOGO_NOTICIAS_REVALIDACAO_COMPLETA_HORAS", 6)
 )
 # Provedor de pagamento plugável (ARCHITECTURE.md seção 6,
 # `PaymentGatewayProvider`): "manual" é o placeholder sem rede; provedores

@@ -1,0 +1,93 @@
+{
+  "run_id": "20260923-1600-p2-backend-perf",
+  "task_title": "P2 backend performance: community, search, cache, Celery e ingestão",
+  "status": "closed",
+  "current_phase": "done",
+  "iteration_count": 1,
+  "max_iterations": 3,
+  "requested_by": "Alex (humano)",
+  "source_spec": null,
+  "phases": {
+    "planning": {
+      "status": "done",
+      "agent": "executor",
+      "execution_mode": "self_executed_fallback",
+      "started_at": "2026-09-23T16:00:00-03:00",
+      "finished_at": "2026-09-23T16:05:00-03:00",
+      "notes": "Task-plan e implementation-contract preenchidos e conferidos contra contract-checklist.md; escopo P2-2/P2-3/P2-4 e revisão obrigatória por migration registrados."
+    },
+    "implementation": {
+      "status": "done",
+      "agent": "executor",
+      "execution_mode": "delegated",
+      "started_at": "2026-09-23T16:05:00-03:00",
+      "finished_at": "2026-09-24T00:45:00-03:00",
+      "notes": "P2-2, P2-3a/b/c e P2-4 implementados; validators ETag confirmados só após persistência segura; três migrations de schema criadas (catalogo_noticias 0012/0013 e feed 0003); sem commit e sem tocar frontend/infra/workflows."
+    },
+    "testing": {
+      "status": "done",
+      "agent": "tester",
+      "execution_mode": "delegated",
+      "started_at": "2026-09-24T00:45:00-03:00",
+      "finished_at": "2026-09-24T00:50:00-03:00",
+      "notes": "VEREDITO: passed. Evidência final da execução e re-revisão: 462 passed, cobertura 88.34% (gate 80% OK); testes P2 direcionados, ETag/304, bulk_create, snapshot de cfg, cache, Celery por task e idempotência exercitados. SQLite/migrations check passaram; PostgreSQL real depende de CI."
+    },
+    "review": {
+      "status": "done",
+      "agent": "reviewer",
+      "execution_mode": "delegated",
+      "started_at": "2026-09-24T09:15:00-03:00",
+      "finished_at": "2026-09-24T09:30:00-03:00",
+      "notes": "Primeira passada changes_requested (6 major, 2 minor, 1 nit); re-revisão approve_with_comments após confirmação independente dos 6/6 majors resolvidos."
+    },
+    "remediation": {
+      "status": "done",
+      "agent": "remediator",
+      "execution_mode": "delegated",
+      "started_at": "2026-09-24T09:30:00-03:00",
+      "finished_at": "2026-09-24T10:15:00-03:00",
+      "notes": "8/9 findings tratados; Finding 7 (minor) aceito com benchmark e justificativa de compatibilidade. Reentrega, validator, custo LLM e concorrência foram revalidados."
+    },
+    "documentation": {
+      "status": "done",
+      "agent": "documenter",
+      "execution_mode": "delegated",
+      "started_at": "2026-09-24T10:15:00-03:00",
+      "finished_at": "2026-09-24T10:30:00-03:00",
+      "notes": "README.md e ARCHITECTURE.md ajustados para ETag/If-Modified-Since, revalidação, paginação de comunidade, EventoBusca assíncrono e Celery por task. backend/.env.example verificado: defaults e motivos já estavam documentados. documentation-update.md criado sem alteração de código."
+    },
+    "closing": {
+      "status": "done",
+      "agent": "historian",
+      "execution_mode": "delegated",
+      "started_at": "2026-09-24T10:30:00-03:00",
+      "finished_at": "2026-09-24T10:30:00-03:00",
+      "notes": "report.md criado com objetivo, entregas, testes, revisão, documentação e follow-ups; uma linha append-only adicionada ao HISTORY.md; run validado com json.load e fechado."
+    }
+  },
+  "artifacts": {
+    "task_plan": "task-plan.md",
+    "implementation_contract": "implementation-contract.md",
+    "implementation_history": "implementation-history.md",
+    "code_review_contract": "code-review-contract.md",
+    "documentation_update": "documentation-update.md",
+    "report": "report.md"
+  },
+  "blocked_reason": null,
+  "follow_ups": [
+    "Minor 8 parcial: aprovação/rejeição de item no admin não invalida imediatamente o cache do autocomplete; o TTL de 300s e o limite de 500 títulos recentes deixam consistência eventual/residual de cobertura.",
+    "Nit 9 parcial: X-Request-ID externo longo pode colidir após truncamento para 64 caracteres; UUIDs gerados no caminho normal não são afetados.",
+    "Major 5 residual: sem staging durável, uma reentrega pode chamar o LLM novamente; a reserva de custo é contabilizada, mas a chamada pode se repetir.",
+    "Minor 7 residual: formato e limites completos de URL não são validados no banco; clean() e constraints de rastreabilidade permanecem por compatibilidade.",
+    "Validar as migrations 0012, 0013 e feed.0003 em PostgreSQL real no CI; o sandbox recusou localhost:5432."
+  ],
+  "created_at": "2026-09-23T16:00:00-03:00",
+  "updated_at": "2026-09-24T10:30:00-03:00",
+  "findings": {
+    "blocker": 0,
+    "major": 0,
+    "minor": 2,
+    "nit": 1,
+    "resolved": 8
+  }
+}

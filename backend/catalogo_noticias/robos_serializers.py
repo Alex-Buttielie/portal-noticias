@@ -21,6 +21,15 @@ class FonteRoboSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Use a sigla da UF com 2 letras (ex.: GO) ou deixe vazio para nacional.")
         return v
 
+    def update(self, instance, validated_data):
+        # Um ETag/Last-Modified pertence ao URL anterior; não deve ser
+        # reaplicado quando um administrador troca a fonte.
+        if validated_data.get("url") and validated_data["url"] != instance.url:
+            validated_data["etag"] = ""
+            validated_data["last_modified"] = ""
+            validated_data["ultima_revalidacao_completa"] = None
+        return super().update(instance, validated_data)
+
 
 class ConfiguracaoRoboSerializer(serializers.ModelSerializer):
     class Meta:

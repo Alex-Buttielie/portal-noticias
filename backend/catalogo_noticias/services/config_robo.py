@@ -1,14 +1,57 @@
+"""Leitura da configuração do robô com snapshot por execução de ingestão.
+
+O pipeline chama ``cfg_valor`` em vários pontos (limites, dedup, resumo e
+orçamento). Fazer uma consulta a ``ConfiguracaoRobo`` em cada chamada era
+desnecessário dentro da mesma rodada: o contexto abaixo captura uma única
+linha no início e libera o snapshot ao terminar, inclusive em caso de
+exceção. Fora de uma execução, o comportamento continua sendo o anterior
+(uma consulta por chamada), para que endpoints administrativos não fiquem
+com configuração obsoleta.
+"""
+
+from contextlib import contextmanager
+from contextvars import ContextVar
+
 from django.conf import settings
 
 
-def _get_cfg():
+_SEM_CACHE = object()
+_cfg_execucao: ContextVar[object] = ContextVar(
+    "configuracao_robo_execucao", default=_SEM_CACHE
+)
+
+
+def _consultar_cfg():
     try:
         from catalogo_noticias.models import ConfiguracaoRobo
 
-        cfg = ConfiguracaoRobo.objects.filter(pk=1).first()
-        return cfg
+        return ConfiguracaoRobo.objects.filter(pk=1).first()
     except Exception:
+        # Uma falha de banco/tabela não deve impedir o fallback para settings
+        # (mesmo comportamento de cfg_valor antes do snapshot).
         return None
+
+
+def _get_cfg():
+    if _cfg_execucao.get() is not _SEM_CACHE:
+        return _cfg_execucao.get()
+    return _consultar_cfg()
+
+
+@contextmanager
+def cache_por_execucao():
+    """Captura uma configuração para a duração de uma execução.
+
+    O ContextVar isola execuções concorrentes (inclusive a thread da
+    execução manual), e o token é restaurado para suportar aninhamento e
+    evitar vazamento de configuração para a próxima tarefa/request.
+    """
+
+    token = _cfg_execucao.set(_consultar_cfg())
+    try:
+        yield
+    finally:
+        _cfg_execucao.reset(token)
 
 
 def cfg_valor(campo_settings, campo_modelo, cast=None):
@@ -37,10 +80,31 @@ def fontes_rss():
         from catalogo_noticias.models import FonteRobo
 
         if FonteRobo.objects.exists():
-            ativas = list(FonteRobo.objects.filter(ativo=True).values("nome", "url", "categoria_padrao", "estado_padrao"))
+            ativas = list(
+                FonteRobo.objects.filter(ativo=True).values(
+                    "id",
+                    "nome",
+                    "url",
+                    "categoria_padrao",
+                    "estado_padrao",
+                    "etag",
+                    "last_modified",
+                    "ultima_revalidacao_completa",
+                )
+            )
             if ativas:
                 return [
-                    {"nome": r["nome"], "url": r["url"], "uf": (r["estado_padrao"] or "").strip().upper()}
+                    {
+                        "id": r["id"],
+                        "nome": r["nome"],
+                        "url": r["url"],
+                        "uf": (r["estado_padrao"] or "").strip().upper(),
+                        "etag": r.get("etag") or "",
+                        "last_modified": r.get("last_modified") or "",
+                        "ultima_revalidacao_completa": r.get(
+                            "ultima_revalidacao_completa"
+                        ),
+                    }
                     for r in ativas
                 ]
             all_count = FonteRobo.objects.count()
