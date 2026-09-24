@@ -136,7 +136,8 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
-    # Observabilidade P0 item 10 — propaga X-Request-ID (uuid4 se não vier)
+    # Observabilidade P0 item 10 — propaga X-Request-ID (uuid4 se não vier
+    # ou se o header for inválido/excessivo)
     # para correlação nginx ↔ Django ↔ logs/Sentry. Deve vir cedo, logo
     # após SecurityMiddleware, antes de qualquer middleware que logue.
     "config.middleware.RequestIdMiddleware",

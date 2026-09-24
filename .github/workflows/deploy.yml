@@ -475,6 +475,10 @@ jobs:
             DEPLOYED_SHA_FILE="$APP_DIR/.deployed-sha"
             API_OK=0
             WEB_OK=0
+            API_CURL_RC=1
+            WEB_CURL_RC=1
+            API_HTTP_CODE=000
+            WEB_HTTP_CODE=000
             write_deployed_sha() {
               local sha="$1"
               local marker_tmp="$DEPLOYED_SHA_FILE.tmp.$$"
@@ -487,38 +491,61 @@ jobs:
                 return 1
               fi
             }
+            probe_http() {
+              local url="$1"
+              local resolve_target="${2:-}"
+              if [ -n "$resolve_target" ]; then
+                curl -sS -o /dev/null -w "%{http_code}" --resolve "$resolve_target" "$url"
+              else
+                curl -sS -o /dev/null -w "%{http_code}" "$url"
+              fi
+            }
             sleep 5
             # O probe é local. Antes do TLS ele fala direto com o Gunicorn;
             # depois ele percorre o vhost HTTPS real, sem depender do DNS
             # externo nem enviar um header de proxy diretamente ao Gunicorn.
+            # curl fica dentro de `if` para capturar o rc sem desligar `set -e`;
+            # HTTP 200 com transferência incompleta (rc != 0) continua falhando.
             if [ "$TLS_ENABLED" = "true" ]; then
-              HTTP_CODE="$(curl -s -o /dev/null -w "%{http_code}" \
-                --resolve "$HOST:443:127.0.0.1" "https://$HOST/healthz" 2>/dev/null || true)"
-              [ -n "$HTTP_CODE" ] || HTTP_CODE=000
+              if API_HTTP_CODE="$(probe_http "https://$HOST/healthz" "$HOST:443:127.0.0.1")"; then
+                API_CURL_RC=0
+              else
+                API_CURL_RC=$?
+              fi
             else
-              HTTP_CODE="$(curl -s -o /dev/null -w "%{http_code}" \
-                "http://127.0.0.1:$API_PORT/healthz" 2>/dev/null || true)"
-              [ -n "$HTTP_CODE" ] || HTTP_CODE=000
+              if API_HTTP_CODE="$(probe_http "http://127.0.0.1:$API_PORT/healthz")"; then
+                API_CURL_RC=0
+              else
+                API_CURL_RC=$?
+              fi
             fi
-            echo "${{ inputs.env_label }} api: $HTTP_CODE"
-            if [ "$HTTP_CODE" = "200" ]; then
+            [ -n "$API_HTTP_CODE" ] || API_HTTP_CODE=000
+            echo "${{ inputs.env_label }} api: curl_rc=$API_CURL_RC http_code=$API_HTTP_CODE"
+            if [ "$API_CURL_RC" -eq 0 ] && [ "$API_HTTP_CODE" = "200" ]; then
               API_OK=1
               echo "${{ inputs.env_label }} api ok"
             elif [ "$STRICT" = "true" ]; then
-              echo "${{ inputs.env_label }} FAIL"
+              echo "${{ inputs.env_label }} api FAIL curl_rc=$API_CURL_RC http_code=$API_HTTP_CODE"
               pm2 logs "portal-api-${{ inputs.pm_suffix }}" --lines 30 --nostream 2>/dev/null || pm2 logs --lines 30 --nostream
               exit 1
             else
-              echo "${{ inputs.env_label }} api warn $HTTP_CODE"
+              echo "${{ inputs.env_label }} api warn curl_rc=$API_CURL_RC http_code=$API_HTTP_CODE"
             fi
-            if curl -sf -o /dev/null "http://127.0.0.1:$WEB_PORT/"; then
+            if WEB_HTTP_CODE="$(probe_http "http://127.0.0.1:$WEB_PORT/")"; then
+              WEB_CURL_RC=0
+            else
+              WEB_CURL_RC=$?
+            fi
+            [ -n "$WEB_HTTP_CODE" ] || WEB_HTTP_CODE=000
+            echo "${{ inputs.env_label }} web: curl_rc=$WEB_CURL_RC http_code=$WEB_HTTP_CODE"
+            if [ "$WEB_CURL_RC" -eq 0 ] && [ "$WEB_HTTP_CODE" = "200" ]; then
               WEB_OK=1
               echo "${{ inputs.env_label }} web ok"
             elif [ "$STRICT" = "true" ]; then
-              echo "${{ inputs.env_label }} web FAIL"
+              echo "${{ inputs.env_label }} web FAIL curl_rc=$WEB_CURL_RC http_code=$WEB_HTTP_CODE"
               exit 1
             else
-              echo "${{ inputs.env_label }} web warn"
+              echo "${{ inputs.env_label }} web warn curl_rc=$WEB_CURL_RC http_code=$WEB_HTTP_CODE"
             fi
 
             # `.deployed-sha` é a fronteira de recuperação. Um probe verde
@@ -544,6 +571,6 @@ jobs:
                 fi
               fi
             else
-              echo "Marker anterior preservado: pelo menos um probe não retornou 200; não promova um deploy parcial."
+              echo "Marker anterior preservado: pelo menos um probe não retornou rc=0 e HTTP 200; não promova um deploy parcial."
             fi
             pm2 status | grep portal || pm2 status

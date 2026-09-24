@@ -1,4 +1,5 @@
 from django.contrib import admin
+from django.db import transaction
 
 from .models import ConfiguracaoRobo, FonteRobo, NewsCluster, NewsItem, RegistroExecucaoIngestao
 
@@ -79,13 +80,46 @@ class NewsItemAdmin(admin.ModelAdmin):
     readonly_fields = ["timestamp_ingestao"]
     actions = ["marcar_como_aprovado", "marcar_como_rejeitado"]
 
+    def save_model(self, request, obj, form, change):
+        # A tela de mudança também permite editar status_revisao diretamente;
+        # cubra esse caminho, não apenas as actions em lote.
+        anterior = None
+        if change and obj.pk:
+            anterior = NewsItem.objects.filter(pk=obj.pk).values_list(
+                "status_revisao", flat=True
+            ).first()
+        super().save_model(request, obj, form, change)
+        if anterior != obj.status_revisao:
+            from feed.busca import invalidar_cache_autocomplete
+
+            # changeform_view executa o POST em transaction.atomic. Só invalide
+            # depois do commit para que uma leitura concorrente não recoloque
+            # no cache o snapshot do estado anterior.
+            transaction.on_commit(invalidar_cache_autocomplete)
+
     @admin.action(description="Marcar selecionados como aprovado")
     def marcar_como_aprovado(self, request, queryset):
-        queryset.update(status_revisao=NewsItem.STATUS_APROVADO)
+        atualizados = queryset.exclude(
+            status_revisao=NewsItem.STATUS_APROVADO
+        ).update(status_revisao=NewsItem.STATUS_APROVADO)
+        from feed.busca import invalidar_cache_autocomplete
+
+        # No Django 5.2, response_action executa em autocommit. on_commit
+        # continua sendo a API correta: em autocommit roda após o update; se
+        # uma versão futura ou um caller envolver a action em atomic, adia a
+        # invalidação até o commit.
+        if atualizados:
+            transaction.on_commit(invalidar_cache_autocomplete)
 
     @admin.action(description="Marcar selecionados como rejeitado")
     def marcar_como_rejeitado(self, request, queryset):
-        queryset.update(status_revisao=NewsItem.STATUS_REJEITADO)
+        atualizados = queryset.exclude(
+            status_revisao=NewsItem.STATUS_REJEITADO
+        ).update(status_revisao=NewsItem.STATUS_REJEITADO)
+        from feed.busca import invalidar_cache_autocomplete
+
+        if atualizados:
+            transaction.on_commit(invalidar_cache_autocomplete)
 
 
 @admin.register(RegistroExecucaoIngestao)

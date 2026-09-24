@@ -24,6 +24,11 @@ próprio run; a execução é duplicada de propósito, mas a lógica (pytest, ch
 resultado verde. Em PROD, a tag não precisa ser um trigger de `push` do CI:
 o `verify` chamado pelo deploy cobre a tag e verifica seu SHA.
 
+> Este documento descreve a configuração versionada e o contrato esperado da
+> esteira. Uma execução no GitHub Actions ou na VPS só deve ser declarada
+> concluída depois de observada no run correspondente e na própria VPS; validação
+> local de YAML, shell ou containers não é evidência de um deploy remoto.
+
 ### Ambientes na VPS (inalterados)
 
 | Ambiente | Ref git | Dir VPS | PM2 web/api | Portas |
@@ -58,8 +63,12 @@ Nginx (configuração canônica em `infra/nginx/portal-{dev,homolog,prod}.conf` 
   banco) e **preservado** nos deploys seguintes (`git reset` não apaga arquivos
   ignorados). PostgreSQL e Redis são serviços nativos da VPS.
 - Validação: `localhost:51xx/healthz` (API) + `localhost:31xx/` (web).
-  PROD falha o workflow se a API ou a web não responderem; DEV/HOMOLOG
-  reportam `warn` como no deploy anterior.
+  Um probe só é saudável quando o `curl` termina com rc `0` **e** o código HTTP
+  é exatamente `200`; 3xx, 4xx, 5xx, conexão sem resposta (`000`) e resposta
+  200 com transferência incompleta falham. `.deployed-sha` só é promovido quando
+  API e web passam nos dois critérios e as demais barreiras (resultado do job e
+  SHA verificado) também passam. Em DEV/HOMOLOG o alerta pode ser não
+  bloqueante, mas o marker anterior é preservado quando qualquer probe falha.
 
 ### Fluxo Git Flow
 
@@ -87,9 +96,12 @@ não devem ser descritos como alta disponibilidade.
   `/home/apps/portal-<ambiente>/.deployed-sha`. Se o arquivo ainda não existir,
   usa o `HEAD` apenas quando já existe um processo PM2 daquele ambiente.
 - O marker antigo **não é promovido para o SHA novo durante o restart**. Só o
-  job `validate`, depois dos probes API e web, grava o novo SHA com arquivo
-  temporário + `mv` atômico. Uma falha de SSH, PM2, health check ou escrita do
-  marker deixa o SHA anterior como destino de recuperação.
+  job `validate` grava o novo SHA quando API e web retornam simultaneamente
+  `curl rc=0` e HTTP exatamente `200`, o job de deploy terminou com sucesso e
+  o checkout corresponde ao SHA verificado. 3xx, 4xx, 5xx, erro de conexão
+  (`000`) ou erro do `curl` preservam o marker anterior, mesmo que a resposta
+  tenha começado com status 200. A gravação continua atômica por arquivo
+  temporário + `mv`.
 - O arquivo é deliberadamente fora do conteúdo versionado e não contém
   segredo. Não usar `git clean -fdx` no checkout sem copiá-lo/arquivá-lo.
 
@@ -153,6 +165,8 @@ NODE_OPTIONS=--max-old-space-size=1536 \
 cd ../backend
 python3 -m venv .venv
 . .venv/bin/activate
+# O lock é somente runtime; ferramentas de teste ficam em requirements-dev.txt
+# e são instaladas pelo job de verificação, nunca na VPS de produção.
 pip install -r requirements-lock.txt
 set -a; . ./.env; set +a
 python manage.py check
@@ -178,8 +192,21 @@ else
 fi
 pm2 save
 pm2 status
-curl -fsS http://127.0.0.1:5103/healthz
-curl -fsS http://127.0.0.1:3103/
+probe_http_200() {
+  local url="$1"
+  local codigo rc
+  if codigo="$(curl -sS -o /dev/null -w '%{http_code}' "$url")"; then
+    rc=0
+  else
+    rc=$?
+  fi
+  if [ "$rc" -ne 0 ] || [ "$codigo" != "200" ]; then
+    echo "ERRO: smoke falhou para $url (curl_rc=$rc http_code=$codigo)" >&2
+    return 1
+  fi
+}
+probe_http_200 http://127.0.0.1:5103/healthz
+probe_http_200 http://127.0.0.1:3103/
 # Só promova o marker depois dos dois probes verdes.
 SHA_TMP=".deployed-sha.tmp.$$"
 (umask 077; printf '%s\n' "$PREVIOUS_SHA" > "$SHA_TMP")
@@ -211,11 +238,22 @@ não há promessa de zero downtime.
 
 | Workflow | Arquivo | Trigger / gate |
 |----------|--------|----------------|
-| CI | `.github/workflows/ci.yml` | push/PR em develop e main, ou `workflow_call` pelo deploy (`manage.py check`, pytest cov≥80, `tsc`, `next build`) |
+| CI | `.github/workflows/ci.yml` | push/PR em develop e main, ou `workflow_call` pelo deploy; Python 3.12 com runtime+dev, `manage.py check`, pytest cov≥80; Node 20 com check de datas em UTC/Tokyo antes de `tsc`/`next build` |
 | Deploy DEV | `deploy-dev.yml` | push em develop; `verify` (`ci.yml`) → SSH/PM2 3101/5101 |
 | Deploy HOMOLOG | `deploy-homolog.yml` | PR para main; `verify` do head do PR → SSH/PM2 3102/5102 |
 | Deploy PROD | `deploy-prod.yml` | tag `v*` + Release; `verify` do SHA da tag → SSH/PM2 3103/5103 |
 | Rollback manual | `rollback.yml` | `workflow_dispatch`; `confirm` + SHA completo → mesmo `verify`/PM2/smoke, sem release |
+
+### Dependências Python nos caminhos de execução
+
+- `backend/requirements.txt` é o manifesto de runtime da aplicação e é o único
+  arquivo de requirements copiado/instalado pela imagem Docker.
+- `backend/requirements-lock.txt` é o lock de runtime, com pins transitivos; é
+  instalado pelo runtime PM2 e pelo job de CI.
+- `backend/requirements-dev.txt` é exclusivo de desenvolvimento/testes. Ele
+  inclui `requirements.txt` e pode ser instalado no ambiente local e no runner
+  do CI, mas não deve entrar na imagem ou no runtime PM2. O
+  `backend/.dockerignore` mantém esse manifesto fora do contexto Docker.
 
 Secrets exigidos (os mesmos de antes): `VPS_HOST`, `VPS_USER`, `VPS_PASSWORD`, `VPS_PORT` — vinculados a cada **GitHub Environment** (`development`/`homolog`/`production`) em Settings → Environments. O job `verify` não recebe secrets; o job de provisionamento roda com `environment: ${{ inputs.environment_name }}` (ver `.github/workflows/deploy.yml`), então só enxerga os secrets daquele Environment, com proteção de branch/tag. A configuração de regras de proteção/approvals do Environment continua sendo uma decisão humana no GitHub; o gate de CI já está no repositório.
 

@@ -2,12 +2,16 @@
 #   (cd backend && .venv/bin/python -m pip freeze > /tmp/requirements-lock.txt)
 # e, depois, este cabeçalho foi preservado acima do freeze.
 #
+# Este é o lock de RUNTIME: é consumido pelo runtime PM2 e pelo job de CI;
+# o Dockerfile instala requirements.txt. Dependências de teste foram removidas
+# deliberadamente para que a imagem de produção nunca receba ferramentas de
+# teste. O CI instala este lock e depois `requirements-dev.txt` (que inclui o
+# runtime e as ferramentas
+# de teste). Regenerar após qualquer mudança intencional em requirements.txt e
+# validar com `pip check`, `manage.py check` e a suíte de testes.
+#
 # Ambiente usado na regeneração: Python 3.14.4. O CI instala este lock em
 # Python 3.12; o job de CI valida a compatibilidade dessa versão.
-# O lock ainda inclui dependências de desenvolvimento porque a separação
-# runtime/dev é um follow-up desta run. Regenerar após qualquer mudança
-# intencional em requirements.txt e validar com `pip check`, `manage.py check`
-# e pytest.
 amqp==5.4.0
 asgiref==3.12.1
 billiard==4.3.0
@@ -19,7 +23,6 @@ click==8.5.0
 click-didyoumean==0.3.1
 click-plugins==1.1.1.2
 click-repl==0.4.0
-coverage==7.16.1
 cryptography==50.0.1
 Django==5.2.17
 django-allauth==65.19.2
@@ -30,19 +33,13 @@ exceptiongroup==1.3.1
 feedparser==6.0.11
 gunicorn==23.0.0
 idna==3.20
-iniconfig==2.3.0
 kombu==5.6.2
 oauthlib==3.3.1
 packaging==26.3
-pluggy==1.6.0
 prompt_toolkit==3.0.53
 psycopg2-binary==2.9.12
 pycparser==3.0
-Pygments==2.21.0
 PyJWT==2.14.0
-pytest==9.1.1
-pytest-cov==7.1.0
-pytest-django==4.14.0
 python-dateutil==2.9.0.post0
 python-dotenv==1.0.1
 python-json-logger==2.0.7

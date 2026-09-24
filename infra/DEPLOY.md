@@ -728,16 +728,16 @@ públicos; qualquer novo upload privado deve ficar fora desse subtree. As
 fotos de perfil atuais também ficam fora do alias até a separação de storage
 ser feita; não as copie para `public/` apenas para restaurar a imagem.
 
-> **AVISO DE SEGURANÇA — variante Docker/Caddy:** o `Caddyfile:41-44` ainda
-> entrega todo `/media/*` diretamente pelo `file_server`, sem autenticação.
-> Como `media/credenciamento/` compartilha essa árvore, essa topologia
-> alternativa pode expor documentos de credenciamento. **Não use a variante
-> Caddy com credenciamento antes de aplicar a mesma separação de storage do
-> Nginx:** sirva no edge somente `/media/public/*`; mantenha
-> `/media/credenciamento/*` fora do `file_server` e continue acessível apenas
-> pela `DocumentoView` autenticada. O aviso não se aplica à topologia VPS ativa
-> (Nginx + PM2), mas a configuração Caddy precisa da mesma correção antes de
-> qualquer uso com esse módulo.
+> **Contrato de segurança — variante Docker/Caddy:** a configuração versionada
+> é fail-closed. `/media/credenciamento` e seus descendentes retornam 404;
+> somente `/media/public/*` é servido, a partir de `/srv/media/public`; e
+> qualquer outro caminho sob `/media*` é fechado, sem fallback para toda a
+> árvore `/srv/media`. Os documentos privados continuam disponíveis somente
+> pela `DocumentoView` autenticada. Depois de qualquer alteração, valide a
+> configuração com os domínios renderizados e repita os probes HTTP privado,
+> público e desconhecido antes de usar a variante com credenciamento. Essa
+> validação local não constitui evidência de que a variante foi implantada na
+> VPS; a topologia ativa continua sendo Nginx + PM2.
 
 ### Timeout Gunicorn/Nginx
 

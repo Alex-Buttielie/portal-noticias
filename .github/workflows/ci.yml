@@ -62,8 +62,12 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: backend/requirements-lock.txt
+          cache-dependency-path: |
+            backend/requirements-lock.txt
+            backend/requirements-dev.txt
+      # O lock é runtime; as ferramentas de teste são instaladas só no runner.
       - run: pip install -r requirements-lock.txt
+      - run: pip install -r requirements-dev.txt
       - run: python manage.py check
       - run: python -m pytest -q --cov=. --cov-report=term-missing --cov-fail-under=80
 
@@ -84,6 +88,10 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
+      - name: Verificar datas civis e instantes em TZ UTC/Tokyo
+        run: |
+          TZ=UTC node scripts/verificar-datas-tz.mjs
+          TZ=Asia/Tokyo node scripts/verificar-datas-tz.mjs
       - run: npx tsc --noEmit
       - run: npm run build
         env:

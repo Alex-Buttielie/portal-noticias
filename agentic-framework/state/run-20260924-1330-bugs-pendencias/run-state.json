@@ -1,0 +1,91 @@
+{
+  "run_id": "20260924-1330-bugs-pendencias",
+  "task_title": "Fechar oito bugs e pendências técnicos das runs anteriores",
+  "status": "closed",
+  "current_phase": "done",
+  "iteration_count": 3,
+  "max_iterations": 3,
+  "requested_by": "humano (Alex), via sessão orquestradora",
+  "source_spec": "ANALISE_CUSTO_PERFORMANCE.md e follow-ups das runs 20260923-1600, 20260924-1000 e 20260924-1200",
+  "phases": {
+    "planning": {
+      "status": "done",
+      "agent": "orchestrator",
+      "execution_mode": "delegated",
+      "started_at": "2026-09-24T13:20:00-03:00",
+      "finished_at": "2026-09-24T13:30:49-03:00",
+      "notes": "Oito itens já priorizados pelo solicitante e pelo executor delegado; contrato materializado antes do teste independente. Revisão obrigatória por segurança, API/moderação, deploy e volume."
+    },
+    "implementation": {
+      "status": "done",
+      "agent": "executor",
+      "execution_mode": "delegated",
+      "started_at": "2026-09-24T13:00:00-03:00",
+      "finished_at": "2026-09-24T13:28:00-03:00",
+      "notes": "Subagente executor alterou 17 arquivos e criou três. Relatou 8/8 corrigidos, 465 testes passando, 87,90% de cobertura, build 59/59 e workflows válidos. O run-state concorrente da run TLS foi preservado fora do escopo."
+    },
+    "testing": {
+      "status": "done",
+      "agent": "tester",
+      "execution_mode": "delegated",
+      "started_at": "2026-09-24T14:25:00-03:00",
+      "finished_at": "2026-09-24T14:30:00-03:00",
+      "notes": "RETESTE FINAL: passed. Dois nits confirmados por testes no-op/misto; 490 testes PostgreSQL 16, cobertura 88,75%, 4 testes focais, datas 4/4, tsc/build 59/59 e workflows/actionlint verdes. Nenhuma regressão residual."
+    },
+    "review": {
+      "status": "done",
+      "agent": "reviewer",
+      "execution_mode": "delegated",
+      "started_at": "2026-09-24T14:30:00-03:00",
+      "finished_at": "2026-09-24T14:35:00-03:00",
+      "notes": "Re-revisão final da iteração 3: approve. Contagem 0 blocker, 0 major, 0 minor, 0 nit; os 8 findings acumulados foram confirmados resolvidos e não houve regressão."
+    },
+    "remediation": {
+      "status": "done",
+      "agent": "remediator",
+      "execution_mode": "delegated",
+      "started_at": "2026-09-24T14:20:00-03:00",
+      "finished_at": "2026-09-24T14:25:00-03:00",
+      "notes": "Iteração 2: 2 nits finais corrigidos; comentário transacional alinhado ao Django 5.2 e actions invalidam apenas quando status efetivamente muda. Relatou 490 testes PostgreSQL, cobertura 88,74% e build/actionlint verdes."
+    },
+    "documentation": {
+      "status": "done",
+      "agent": "documenter",
+      "execution_mode": "delegated",
+      "started_at": "2026-09-24T14:35:00-03:00",
+      "finished_at": "2026-09-24T14:40:00-03:00",
+      "notes": "README, CI-CD e infra/DEPLOY.md atualizados com o comportamento final; documentation-update.md criado. Markdown, bash snippets, busca de contradições e git diff --check passaram; GitHub Actions/VPS/PowerShell são limitações declaradas."
+    },
+    "closing": {
+      "status": "done",
+      "agent": "historian",
+      "execution_mode": "delegated",
+      "started_at": "2026-09-24T15:23:54-03:00",
+      "finished_at": "2026-09-24T15:25:46-03:00",
+      "notes": "Síntese cronológica acrescentada ao implementation-history.md, report.md criado com métricas e limitações, uma linha append-only acrescentada ao HISTORY.md e run-state finalizado como closed/done após validação."
+    }
+  },
+  "findings": {
+    "blocker": 0,
+    "major": 0,
+    "minor": 0,
+    "nit": 0,
+    "resolved": 8
+  },
+  "artifacts": {
+    "task_plan": "task-plan.md",
+    "implementation_contract": "implementation-contract.md",
+    "implementation_history": "implementation-history.md",
+    "code_review_contract": "code-review-contract.md",
+    "documentation_update": "documentation-update.md",
+    "report": "report.md"
+  },
+  "blocked_reason": null,
+  "follow_ups": [
+    "Executar o lote de arquivamento do ingestao-service em run separada, conforme decisão explícita do solicitante.",
+    "Migrar os 22 sites de useEffect para cache de cliente em run separada, conforme decisão explícita do solicitante.",
+    "Mover o build do frontend para o runner e validar DEV/HOMOLOG/PROD em run separada, conforme decisão explícita do solicitante."
+  ],
+  "created_at": "2026-09-24T13:20:00-03:00",
+  "updated_at": "2026-09-24T15:25:46-03:00"
+}

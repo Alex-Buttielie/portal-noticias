@@ -32,10 +32,14 @@ públicas e usa cache curto de rotas GET públicas. `/static/` e somente
 `/media/credenciamento/` **não** têm alias público e continuam disponíveis
 somente pela `DocumentoView` autenticada. A ativação dos includes de
 cache/rate na VPS segue a ordem include global no `http {}` → snippets/site →
-`nginx -t` → reload → restart da API no PM2. A topologia Docker/Caddy é
-alternativa: antes de habilitar credenciamento, ela precisa da mesma
-separação de storage aplicada ao Nginx (veja o aviso de segurança em
-`infra/DEPLOY.md`).
+`nginx -t` → reload → restart da API no PM2.
+
+A topologia Docker/Caddy é alternativa, mas seu edge também é fail-closed:
+`/media/credenciamento` e seus descendentes retornam 404, somente
+`/media/public/*` é servido a partir de `/srv/media/public` e qualquer outro
+caminho sob `/media*` é fechado. Assim, a configuração versionada do Caddy não
+oferece um fallback para toda a árvore de mídia; consulte `infra/DEPLOY.md`
+antes de alterar essa política.
 
 **TLS:** os confs Nginx já suportam HTTPS via Certbot, mas a ativação exige
 seguir o runbook em `infra/DEPLOY.md`; produção hoje continua em HTTP até o
@@ -51,7 +55,7 @@ Cria o venv do backend, instala as dependências (Python e Node), gera `backend/
 
 ## Como rodar o backend
 
-Requer Python 3.13. O projeto usa Django + Django REST Framework e, por padrão, PostgreSQL.
+Requer Python 3.12. O projeto usa Django + Django REST Framework e, por padrão, PostgreSQL.
 
 1. Crie e ative um ambiente virtual dentro de `backend/`:
 
@@ -62,13 +66,19 @@ Requer Python 3.13. O projeto usa Django + Django REST Framework e, por padrão,
    # source .venv/bin/activate   # Linux/Mac
    ```
 
-2. Instale as dependências:
+2. Instale as dependências de runtime:
 
    ```
    pip install -r requirements.txt
    ```
 
-   Para reproduzir exatamente o ambiente já validado (incluindo dependências transitivas fixadas), use `pip install -r requirements-lock.txt` em vez disso.
+   `requirements.txt` contém as dependências diretas da aplicação;
+   `requirements-lock.txt` fixa o mesmo conjunto de runtime e é o arquivo
+   usado pelo deploy PM2. `requirements-dev.txt` é exclusivamente para
+   desenvolvimento/testes, inclui `requirements.txt` e é usado pelo CI e pelo
+   bootstrap local. Não instale o manifesto dev em produção: a imagem Docker
+   usa apenas `requirements.txt` e exclui `requirements-dev.txt` pelo
+   `.dockerignore`.
 
 3. Copie `backend/.env.example` para `backend/.env` e ajuste os valores (não commite segredos reais):
 
@@ -89,9 +99,10 @@ Requer Python 3.13. O projeto usa Django + Django REST Framework e, por padrão,
 
    A API fica disponível em `http://localhost:8000/api/`. Há também um painel administrativo Django em `http://localhost:8000/admin/` (crie um superusuário com `python manage.py createsuperuser` para acessá-lo).
 
-5. Para rodar os testes automatizados:
+5. Para rodar os testes automatizados, instale as ferramentas de desenvolvimento e execute:
 
    ```
+   pip install -r requirements-dev.txt
    pytest
    ```
 
@@ -255,11 +266,13 @@ O gasto acumulado do dia (e se o teto já foi atingido) pode ser consultado sem 
 
 A busca pública responde sem inserir `EventoBusca` no request: `registrar_busca` despacha `feed.tasks.registrar_evento_busca` com payload JSON primitivo, preservando consulta, resultados, filtros, usuário, sessão e `request_id`. O `EventoBusca` é persistido no worker; quando há `request_id`, a task é idempotente para não duplicar a métrica em uma reentrega. A falha de enfileiramento é apenas registrada (métrica best-effort), sem criar uma escrita síncrona no caminho de leitura.
 
+Todo request HTTP tem o `X-Request-ID` normalizado antes de entrar nas views. Um valor aceito é imprimível, não vazio depois da remoção apenas de espaços ASCII nas pontas, diferente de `-` e tem no máximo 64 caracteres; ele é preservado sem truncamento. Valor ausente, vazio, sentinel, excessivo ou não imprimível recebe um UUID4. O mesmo valor normalizado aparece no header de resposta, no request/log e em `EventoBusca.request_id`, mantendo a correlação de ponta a ponta.
+
 O rate limiting continua aplicado somente às escritas públicas anônimas e usa o cache Redis; essa seção não limita os GETs de leitura. Assim, a resposta de busca não espera por broker nem por uma escrita de métrica, enquanto a proteção contra abuso permanece no mesmo ponto documentado abaixo.
 
 ## Como rodar o frontend
 
-Requer Node.js 18+. O projeto usa Next.js 14 (App Router) + TypeScript + **Tailwind CSS 3.4.17** + **shadcn/ui v4 (Radix)** — 5 skills 100% em runtime real via `.claude/skills/frontend-portal/SKILL.md` (run `20260916-1430-frontend-rebuild-5skills`: rebuild A/B/C/D1/D2, 47 arquivos `components/ui/*`). Tokens CSS `--cor-*`/`--espaco-*`/`--raio-*`/`--sombra-*`/`--z-*` mapeados em `frontend/tailwind.config.ts` (`theme.extend.colors: var(--cor-*)`, `darkMode: '[data-theme="dark"]'` casando o anti-flash de `layout.tsx`); helper `cn` (`clsx`+`tailwind-merge`) em `frontend/lib/utils.ts`; `frontend/app/globals.css` com `@tailwind base/components/utilities` + `@layer base`; `components.json` (`new-york`, `cssVariables`, aliases) + `tailwindcss-animate`/`class-variance-authority`/`lucide-react`/`@radix-ui/*`.
+Requer Node.js 18 ou 20. O projeto usa Next.js 14 (App Router) + TypeScript + **Tailwind CSS 3.4.17** + **shadcn/ui v4 (Radix)** — 5 skills 100% em runtime real via `.claude/skills/frontend-portal/SKILL.md`. Tokens CSS `--cor-*`/`--espaco-*`/`--raio-*`/`--sombra-*`/`--z-*` mapeados em `frontend/tailwind.config.ts` (`theme.extend.colors: var(--cor-*)`, `darkMode: '[data-theme="dark"]'` casando o anti-flash de `layout.tsx`); helper `cn` (`clsx`+`tailwind-merge`) em `frontend/lib/utils.ts`; `frontend/app/globals.css` com `@tailwind base/components/utilities` + `@layer base`; `components.json` (`new-york`, `cssVariables`, aliases) + `tailwindcss-animate`/`class-variance-authority`/`lucide-react`/`@radix-ui/*`.
 
 1. Instale as dependências:
 
@@ -356,13 +369,16 @@ Os endpoints públicos de escrita mais expostos a abuso automatizado (`POST /api
 
 ## Design system
 
-Os componentes de interface do projeto usam **Tailwind CSS 3.4.17 + shadcn/ui v4 (Radix)** sobre os tokens CSS existentes (`frontend/app/globals.css` com `@tailwind` + `@layer base`; `frontend/tailwind.config.ts` espelhando `--cor-*`/`--espaco-*`/`--raio-*`/`--sombra-*`/`--z-*`; `frontend/lib/utils.ts` helper `cn`), consistente com o padrão já usado em `ThemeToggle.tsx`/`CartaoEsqueleto.tsx` — antes desta run (20260915-2142) eram CSS puro sem Tailwind.
+Os componentes de interface do projeto usam **Tailwind CSS 3.4.17 + shadcn/ui v4 (Radix)** sobre os tokens CSS existentes (`frontend/app/globals.css` com `@tailwind` + `@layer base`; `frontend/tailwind.config.ts` espelhando `--cor-*`/`--espaco-*`/`--raio-*`/`--sombra-*`/`--z-*`; `frontend/lib/utils.ts` helper `cn`), consistente com o padrão já usado em `ThemeToggle.tsx`/`CartaoEsqueleto.tsx`; em versões anteriores, esses componentes eram CSS puro sem Tailwind.
 
 ### Datas e horas (`frontend/lib/datas.ts`)
 
 Datas e horas devem ser formatadas pelo helper central, com locale `pt-BR` e fuso fixo `America/Sao_Paulo`;
 isso evita hydration mismatch entre SSR e navegador. Novos componentes devem reutilizar os formatadores do helper, em vez de chamar `toLocale*` diretamente.
-O check manual `frontend/scripts/verificar-datas-tz.mjs` imprime uma saída comparável em diferentes `TZ` (executado com Node 24 e `--experimental-strip-types`).
+
+Uma string no formato civil estrito `YYYY-MM-DD` representa componentes do calendário, não um instante UTC: `2026-09-23` produz `23/09/2026` independentemente do `TZ` do processo. Entradas com hora/fuso continuam sendo instantes e são convertidas para `America/Sao_Paulo`; por exemplo, `2026-09-23T21:30:00Z` produz data `23/09/2026` e hora `18:30`.
+
+`frontend/scripts/verificar-datas-tz.mjs` é um gate assertivo compatível com Node 18 e 20, sem flags experimentais. O workflow `ci.yml` está configurado para executá-lo em Node 20 com `TZ=UTC` e `TZ=Asia/Tokyo` antes de `tsc` e do build; a compatibilidade com Node 18 foi validada separadamente nas quatro combinações de versão/fuso.
 
 ### Tokens (`frontend/app/globals.css`)
 
@@ -378,7 +394,7 @@ Todo valor visual reutilizável (cor, espaçamento, tipografia, raio de borda, s
 | Z-index | `--z-cabecalho`, `--z-painel-flutuante`, `--z-modal`, `--z-toast`, `--z-cookies`, nomeados por papel, não por número | `--z-*` |
 | Dimensão de componente | `--deslocamento-flutuante`, `--largura-max-modal`, `--tamanho-botao-icone`, etc. — medidas fixas específicas de um componente que não fazem parte da escala incremental de espaçamento | (nomes descritivos) |
 
-**Regra a seguir sempre que criar ou alterar um componente:** nenhuma cor ou valor de espaçamento/tamanho deve ser um literal solto no CSS (ex.: `padding: 6px`, `background: rgba(0,0,0,0.5)`) — ou já existe um token para o valor, ou (se a escala genuinamente não tiver esse degrau) crie um token novo em `globals.css`, documentado com um comentário de uso, e referencie-o com `var(--...)`. Essa regra existe porque uma verificação desta run encontrou justamente esse tipo de valor hardcoded nos componentes novos listados abaixo — a correção ficou registrada em `agentic-framework/state/run-20260903-1134-seo-lgpd-design-system/implementation-history.md` (Iteração 3) como referência de como estender a escala sem quebrar o visual já implementado.
+**Regra a seguir sempre que criar ou alterar um componente:** nenhuma cor ou valor de espaçamento/tamanho deve ser um literal solto no CSS (ex.: `padding: 6px`, `background: rgba(0,0,0,0.5)`) — use um token existente ou, se a escala genuinamente não tiver esse degrau, crie um token novo em `globals.css`, documente o uso e referencie-o com `var(--...)`. Essa regra evita repetir o hardcode encontrado em componentes anteriores e mantém a escala visual consistente.
 
 ### Componentes reutilizáveis (`frontend/components/`)
 

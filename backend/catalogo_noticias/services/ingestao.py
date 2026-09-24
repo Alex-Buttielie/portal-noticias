@@ -447,12 +447,14 @@ def _persistir_news_items_em_lote(itens: list[NewsItem]) -> list[NewsItem]:
                 item.pk = persisted[item.url_fonte_original]
 
     # O autocomplete é uma otimização reconstruível; uma escrita real deve
-    # torná-lo consistente sem esperar o TTL de 300 s.
+    # torná-lo consistente sem esperar o TTL de 300 s. Esta função é chamada
+    # por _persistir_grupo/_persistir_grupo_mesclado, ambos decorators
+    # @transaction.atomic; agendar evita a janela de repopulação pré-commit.
     if itens_unicos:
         try:
             from feed.busca import invalidar_cache_autocomplete
 
-            invalidar_cache_autocomplete()
+            transaction.on_commit(invalidar_cache_autocomplete)
         except Exception:
             # A invalidação é best-effort; a ingestão e a fonte de verdade
             # não podem depender do backend de cache.

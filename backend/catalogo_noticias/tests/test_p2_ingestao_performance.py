@@ -9,7 +9,7 @@ import pytest
 import requests
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
-from django.db import connection
+from django.db import connection, transaction
 from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
@@ -614,6 +614,7 @@ def test_custo_llm_e_reservado_antes_da_chamada_e_sobrevive_a_queda():
     assert registro.chamadas_summarization_provider == 1
 
 
+@pytest.mark.django_db(transaction=True)
 def test_ingestao_invalida_cache_de_autocomplete():
     cache_locmem = {
         "default": {
@@ -637,4 +638,55 @@ def test_ingestao_invalida_cache_de_autocomplete():
             ]
         )
         assert cache.get("feed:autocomplete:v2:titulos") is None
+        cache.clear()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_rollback_da_ingestao_nao_invalida_cache_de_autocomplete():
+    cache_locmem = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "p2-ingestao-autocomplete-rollback",
+        }
+    }
+    chaves = [
+        "feed:autocomplete:v2:categorias",
+        "feed:autocomplete:v2:titulos",
+        "feed:autocomplete:v2:populares",
+    ]
+    with override_settings(CACHES=cache_locmem):
+        cache.clear()
+        for chave in chaves:
+            cache.set(chave, ["snapshot-antigo"], 300)
+
+        from feed.busca import invalidar_cache_autocomplete
+
+        with patch(
+            "feed.busca.invalidar_cache_autocomplete",
+            wraps=invalidar_cache_autocomplete,
+        ) as invalidar:
+            with pytest.raises(RuntimeError, match="rollback de ingestao"):
+                with transaction.atomic():
+                    _persistir_grupo(
+                        [
+                            (
+                                ItemBruto(
+                                    titulo="Titulo que deve sofrer rollback",
+                                    url_fonte_original="https://p2.test/cache-rollback",
+                                    nome_fonte="Fonte Rollback",
+                                ),
+                                ResultadoResumo(resumo="Resumo", categoria="cidades"),
+                            )
+                        ]
+                    )
+                    invalidar.assert_not_called()
+                    assert all(cache.get(chave) == ["snapshot-antigo"] for chave in chaves)
+                    raise RuntimeError("rollback de ingestao")
+
+            invalidar.assert_not_called()
+
+        assert all(cache.get(chave) == ["snapshot-antigo"] for chave in chaves)
+        assert not NewsItem.objects.filter(
+            url_fonte_original="https://p2.test/cache-rollback"
+        ).exists()
         cache.clear()

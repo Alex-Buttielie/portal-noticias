@@ -11,8 +11,67 @@ export const LOCALE_EDITORIAL = "pt-BR";
 
 export type DataFormatavel = string | number | Date | null | undefined;
 
+type DataCivil = {
+  ano: number;
+  mes: number;
+  dia: number;
+};
+
+const DATA_CIVIL_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+/**
+ * Extrai uma data civil ISO sem timezone. O valor é uma informação de
+ * calendário, não um instante UTC; por isso não pode passar por
+ * `new Date("YYYY-MM-DD")`, que usa a especificação ECMAScript e interpreta
+ * a string como UTC.
+ */
+function extrairDataCivil(valor: DataFormatavel): DataCivil | null {
+  if (typeof valor !== "string") return null;
+  const partes = DATA_CIVIL_RE.exec(valor.trim());
+  if (!partes) return null;
+
+  const ano = Number(partes[1]);
+  const mes = Number(partes[2]);
+  const dia = Number(partes[3]);
+  // Valida o calendário sem depender da normalização de Date (por exemplo,
+  // 31/02 poderia virar 02/03).
+  const referencia = new Date(0);
+  referencia.setUTCHours(0, 0, 0, 0);
+  referencia.setUTCFullYear(ano, mes - 1, dia);
+  if (
+    referencia.getUTCFullYear() !== ano ||
+    referencia.getUTCMonth() !== mes - 1 ||
+    referencia.getUTCDate() !== dia
+  ) {
+    return null;
+  }
+  return { ano, mes, dia };
+}
+
+/**
+ * Cria um instante neutro apenas para o Intl formatar os componentes de
+ * uma data civil. A entrada continua sendo a data civil original; não há
+ * conversão do input para UTC. O uso de UTC na referência evita que o fuso da
+ * máquina (UTC, Tokyo etc.) desvie a data ao renderizá-la.
+ */
+function referenciaParaDataCivil(dataCivil: DataCivil): Date {
+  const referencia = new Date(0);
+  referencia.setUTCHours(0, 0, 0, 0);
+  referencia.setUTCFullYear(dataCivil.ano, dataCivil.mes - 1, dataCivil.dia);
+  return referencia;
+}
+
+function pareceDataCivil(valor: DataFormatavel): boolean {
+  return typeof valor === "string" && DATA_CIVIL_RE.test(valor.trim());
+}
+
 function paraData(valor: DataFormatavel): Date | null {
   if (valor === null || valor === undefined || valor === "") return null;
+  const dataCivil = extrairDataCivil(valor);
+  if (dataCivil) return referenciaParaDataCivil(dataCivil);
+  // Uma data ISO no formato de calendário, mas inválida, não deve virar uma
+  // data normalizada pelo Date (por exemplo, 2026-02-30 -> 02/03).
+  if (pareceDataCivil(valor)) return null;
   const data = valor instanceof Date ? valor : new Date(valor);
   return Number.isNaN(data.getTime()) ? null : data;
 }
@@ -23,11 +82,28 @@ function formatarData(
 ): string {
   const data = paraData(valor);
   if (!data) return "";
+  const dataCivil = extrairDataCivil(valor);
   try {
-    return new Intl.DateTimeFormat(LOCALE_EDITORIAL, {
+    const formatador = new Intl.DateTimeFormat(LOCALE_EDITORIAL, {
       ...opcoes,
-      timeZone: FUSO_EDITORIAL,
-    }).format(data);
+      // Para uma data civil, `data` já é uma referência de calendário em UTC;
+      // para um instante normal, o fuso editorial continua obrigatório.
+      timeZone: dataCivil ? "UTC" : FUSO_EDITORIAL,
+    });
+
+    if (dataCivil && dataCivil.ano <= 99) {
+      // O ICU dos runtimes Node 18/20 apresenta 0000–0099 sem padding
+      // ("1" para 0001, "96" para 0096). Reconstruímos somente a parte year
+      // dos formatadores que a pedem; dia, mês, hora e o TZ UTC da referência
+      // civil continuam exatamente os produzidos pelo Intl.
+      const anoCivil = String(dataCivil.ano).padStart(4, "0");
+      return formatador
+        .formatToParts(data)
+        .map((part) => (part.type === "year" ? anoCivil : part.value))
+        .join("");
+    }
+
+    return formatador.format(data);
   } catch {
     return "";
   }
