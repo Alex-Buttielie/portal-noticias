@@ -15,6 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Slider } from "@/components/ui/slider";
 import { useAuth } from "@/lib/auth-context";
 import * as api from "@/lib/api";
+import { formatarDataHoraCompleta, formatarHoraComSegundos } from "@/lib/datas";
 import { Bot, Play, Settings, History, AlertTriangle, CheckCircle2, XCircle, Activity, Clock, DollarSign, Database, Search, Trash2, Pencil, Plus, RefreshCw, ExternalLink, Power, Timer, Layers, Cpu, SlidersHorizontal, Shield } from "lucide-react";
 
 type Fonte = api.FonteRobo;
@@ -189,19 +190,19 @@ export default function Page() {
   };
   const executar = async () => {
     setConfirmExec(false); setExecLoading(true); setErr(null); setOk(null);
-    setExecLog((p) => [...p, `[${new Date().toLocaleTimeString("pt-BR")}] Disparando ingestão...`]);
+    setExecLog((p) => [...p, `[${formatarHoraComSegundos(new Date())}] Disparando ingestão...`]);
     try {
       // O endpoint responde 202 imediatamente e roda a ingestão em
       // background (robos_views.py): o resultado aparece na lista de
       // execuções ao recarregar — não vem mais no corpo da resposta.
       const r = await api.robosExecutar(tk);
       const detalhe = (r as { detail?: string })?.detail ?? "Ingestão iniciada em background.";
-      setExecLog((p) => [...p, `[${new Date().toLocaleTimeString("pt-BR")}] ${detalhe} Acompanhe na lista de execuções abaixo.`]);
+      setExecLog((p) => [...p, `[${formatarHoraComSegundos(new Date())}] ${detalhe} Acompanhe na lista de execuções abaixo.`]);
       setOk(`${detalhe} Recarregue a lista de execuções em alguns minutos para ver o resultado.`);
       setTimeout(() => { carregarExecs(); }, 5000);
     } catch (e: unknown) {
       const m = e instanceof Error ? e.message : "Falha ao executar robôs.";
-      setErr(m); setExecLog((p) => [...p, `[${new Date().toLocaleTimeString("pt-BR")}] ERRO: ${m}`]);
+      setErr(m); setExecLog((p) => [...p, `[${formatarHoraComSegundos(new Date())}] ERRO: ${m}`]);
     } finally { setExecLoading(false); }
   };
 
@@ -240,7 +241,7 @@ export default function Page() {
           </div>
           <div className="rounded-md border border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] p-3">
             <p className="flex items-center gap-1 text-xs tracking-widest text-[var(--cor-texto-suave)]"><Clock className="h-3 w-3" />ÚLTIMA EXECUÇÃO</p>
-            <p className="mt-1 text-sm font-medium text-[var(--cor-texto)]">{execs[0] ? new Date(execs[0].executado_em).toLocaleString("pt-BR") : "Nenhuma ainda"}</p>
+            <p className="mt-1 text-sm font-medium text-[var(--cor-texto)]">{execs[0] ? formatarDataHoraCompleta(execs[0].executado_em) : "Nenhuma ainda"}</p>
             <p className="text-xs text-[var(--cor-texto-suave)]">{execs[0] ? rel(execs[0].executado_em) : "—"} · {execs[0] ? `${execs[0].total_itens_ingeridos} itens` : ""}</p>
           </div>
           <div className="rounded-md border border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] p-3">
@@ -322,7 +323,7 @@ export default function Page() {
                             {hasErr && <Badge variant="outline" className="border-[var(--cor-erro)] text-[var(--cor-erro)] gap-1"><AlertTriangle className="h-3 w-3" />erro recente</Badge>}
                           </div>
                           <a href={f.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 truncate text-xs text-[var(--cor-texto-suave)] hover:text-[var(--cor-primaria)]">{f.url}<ExternalLink className="h-3 w-3 shrink-0" /></a>
-                          <p className="text-xs text-[var(--cor-texto-suave)]">Atualizado: {new Date(f.atualizado_em).toLocaleString("pt-BR")}</p>
+                          <p className="text-xs text-[var(--cor-texto-suave)]">Atualizado: {formatarDataHoraCompleta(f.atualizado_em)}</p>
                           {hasErr && <p className="truncate text-xs text-[var(--cor-erro)]">{healthPorFonte[f.nome] || healthPorFonte[f.url]}</p>}
                         </div>
                         <div className="flex flex-wrap gap-1">
@@ -360,7 +361,7 @@ export default function Page() {
               <div className="flex flex-wrap gap-2">
                 <Button size="sm" variant="outline" onClick={carregarCfg} disabled={loadingC} className="border-[var(--cor-borda)]"><RefreshCw className="mr-1 h-3 w-3" />{loadingC ? "Carregando..." : "Recarregar"}</Button>
                 <Button size="sm" onClick={salvarCfg} disabled={savingC || !cfg || !dirty || !!cfgInvalido} className="bg-[var(--cor-primaria)] text-[var(--cor-texto-invertido)]">{savingC ? "Salvando..." : dirty ? "Salvar configuração" : "Sem alterações"}</Button>
-                {cfg && <Badge variant="outline" className="border-[var(--cor-borda)]">Atualizado: {new Date(cfg.atualizado_em).toLocaleString("pt-BR")}</Badge>}
+                {cfg && <Badge variant="outline" className="border-[var(--cor-borda)]">Atualizado: {formatarDataHoraCompleta(cfg.atualizado_em)}</Badge>}
                 {dirty && <Badge className="bg-[var(--cor-aviso)] text-[var(--cor-texto)]">alterações pendentes</Badge>}
               </div>
               {cfgInvalido && cfgInvalido !== "carregando" && <p className="rounded-md border border-[var(--cor-erro)] bg-[var(--cor-erro-suave)] px-3 py-2 text-sm text-[var(--cor-erro)]">{cfgInvalido}</p>}
@@ -438,7 +439,7 @@ export default function Page() {
                       return <div key={ex.id} className={`rounded-md border p-3 ${hasErr ? "border-[var(--cor-aviso)] bg-[var(--cor-fundo-elevado)]" : "border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)]"}`}>
                         <div className="flex flex-wrap items-center gap-2">
                           <Badge variant="outline" className="border-[var(--cor-borda)]">#{ex.id}</Badge>
-                          <span className="text-xs text-[var(--cor-texto-suave)] flex items-center gap-1"><Clock className="h-3 w-3" />{new Date(ex.executado_em).toLocaleString("pt-BR")} · {rel(ex.executado_em)}</span>
+                          <span className="text-xs text-[var(--cor-texto-suave)] flex items-center gap-1"><Clock className="h-3 w-3" />{formatarDataHoraCompleta(ex.executado_em)} · {rel(ex.executado_em)}</span>
                           <Badge className="bg-[var(--cor-primaria)] text-[var(--cor-texto-invertido)]">{ex.total_itens_ingeridos} itens</Badge>
                           <Badge variant="outline" className="border-[var(--cor-borda)]">{ex.total_grupos_formados} grupos</Badge>
                           <Badge variant="outline" className="border-[var(--cor-borda)]">{ex.total_duplicatas_agrupadas} dup</Badge>

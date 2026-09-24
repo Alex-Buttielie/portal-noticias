@@ -4,12 +4,12 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { SITE_NAME } from "@/lib/site";
 import { obterFeed, type FeedEntrada } from "@/lib/api";
+import { formatarDataHoraCompacta } from "@/lib/datas";
 import { AdsSlot } from "@/components/AdsSlot";
 import { ImagemNoticia } from "@/components/ImagemNoticia";
 export const metadata: Metadata = { title: `Arquivo — ${SITE_NAME}`, description: `Arquivo de notícias do ${SITE_NAME}.` };
 export const revalidate = 60;
 const MOCK: FeedEntrada[] = Array.from({ length: 12 }, (_, i) => ({ tipo: i % 3 === 0 ? "cluster" : "item", id: 300 + i, titulo: `Arquivo #${300 + i} — manchete demonstrativa`, resumo: "Conteúdo de exemplo para demonstração.", categoria: ["política", "economia", "tecnologia", "cidades"][i % 4], urgente: i === 0, numero_fontes: 2 + (i % 3), timestamp: new Date(Date.now() - i * 3600000 * 6).toISOString() }));
-function fmt(iso: string){ return new Intl.DateTimeFormat("pt-BR",{dateStyle:"short",timeStyle:"short"}).format(new Date(iso)); }
 export default async function Page({ searchParams }: { searchParams: { page?: string } }) {
   const page = Math.max(1, Number(searchParams.page) || 1);
   let itens: FeedEntrada[] = [];
@@ -23,7 +23,7 @@ export default async function Page({ searchParams }: { searchParams: { page?: st
             <span className="hidden aspect-[16/9] h-14 w-24 shrink-0 overflow-hidden rounded-md border border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] md:block" aria-hidden>
               <ImagemNoticia src={n.imagem_url} seed={`${n.categoria || "geral"}-${n.id}`} alt="" sizes="192px" className="h-full w-full object-cover" />
             </span>
-            <div className="min-w-0 flex-1"><div className="flex items-center gap-2"><Badge variant="outline" className="border-[var(--cor-borda)] capitalize text-xs">{n.categoria}</Badge>{n.urgente&&<Badge className="bg-[var(--cor-sinal)] text-[var(--cor-texto-invertido)] text-xs">urgente</Badge>}<span className="ml-auto text-xs text-[var(--cor-texto-suave)]">{fmt(n.timestamp)}</span></div><p className="mt-1 line-clamp-2 font-semibold text-[var(--cor-texto)]">{n.titulo}</p><p className="line-clamp-1 text-sm text-[var(--cor-texto-suave)]">{n.resumo}</p></div>
+            <div className="min-w-0 flex-1"><div className="flex items-center gap-2"><Badge variant="outline" className="border-[var(--cor-borda)] capitalize text-xs">{n.categoria}</Badge>{n.urgente&&<Badge className="bg-[var(--cor-sinal)] text-[var(--cor-texto-invertido)] text-xs">urgente</Badge>}<span className="ml-auto text-xs text-[var(--cor-texto-suave)]">{formatarDataHoraCompacta(n.timestamp)}</span></div><p className="mt-1 line-clamp-2 font-semibold text-[var(--cor-texto)]">{n.titulo}</p><p className="line-clamp-1 text-sm text-[var(--cor-texto-suave)]">{n.resumo}</p></div>
           </Link>
         ))}
       </div>

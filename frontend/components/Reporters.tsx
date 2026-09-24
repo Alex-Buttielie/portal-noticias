@@ -1,7 +1,8 @@
 /**
  * FRENTE 6 — Reporters explícitos (montados nas páginas server-side):
- * - `NoticiaReporter`: news_view + tempo de leitura (via heartbeat de 5s
- *   com a aba visível) + scroll máximo, enviados ao sair (`pagehide`);
+ * - `NoticiaReporter`: fonte única de `news_view`, com evento inicial +
+ *   tempo de leitura (heartbeat de 5s com a aba visível) + scroll máximo,
+ *   enviados ao sair (`pagehide`);
  * - `BuscarReporter`: search com termo + nº de resultados (dado real do
  *   servidor — nunca 0 inventado: sem contagem, não envia `resultados`).
  */
@@ -23,6 +24,8 @@ export function NoticiaReporter({
   const lido = useRef(0);
   const scrollMax = useRef(0);
   useEffect(() => {
+    // Fonte única de news_view: o tracker global não deriva este evento da
+    // URL, para não contar a mesma leitura duas vezes.
     track({ tipo: "news_view", entry_tipo: entryTipo, entry_id: entryId, categoria });
     const tick = window.setInterval(() => {
       if (document.visibilityState === "visible") lido.current += 5;

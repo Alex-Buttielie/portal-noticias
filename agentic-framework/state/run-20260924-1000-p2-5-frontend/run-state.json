@@ -1,0 +1,92 @@
+{
+  "run_id": "20260924-1000-p2-5-frontend",
+  "task_title": "P2-5: otimizar frontend da Home, polling, AdSense consentido e news_view",
+  "status": "closed",
+  "current_phase": "done",
+  "iteration_count": 2,
+  "max_iterations": 3,
+  "requested_by": "sessão pai (subagent executor) — itens P2-5 de ANALISE_CUSTO_PERFORMANCE.md",
+  "source_spec": "ANALISE_CUSTO_PERFORMANCE.md",
+  "phases": {
+    "planning": {
+      "status": "done",
+      "agent": "executor",
+      "execution_mode": "delegated",
+      "started_at": "2026-09-24T10:00:00-03:00",
+      "finished_at": "2026-09-24T10:08:00-03:00",
+      "notes": "Contratos v1 preenchidos e revisados contra contract-checklist.md; decisões registradas para os quatro itens P2-5."
+    },
+    "implementation": {
+      "status": "done",
+      "agent": "executor",
+      "execution_mode": "delegated",
+      "started_at": "2026-09-24T10:08:00-03:00",
+      "finished_at": "2026-09-24T10:25:00-03:00",
+      "notes": "Quatro itens P2-5 implementados: colunistas no ISR, polling 180s, AdSense consentido/lazyOnload e fonte única de news_view. React Query permanece removido; nenhum backend/dependência foi alterado."
+    },
+    "testing": {
+      "status": "done",
+      "agent": "tester",
+      "execution_mode": "delegated",
+      "started_at": "2026-09-24T10:25:00-03:00",
+      "finished_at": "2026-09-24T10:30:00-03:00",
+      "notes": "Veredito independente: passed. Colunistas carregados no Server Component/ISR e SecaoColunistas sem fetch/useEffect; polling normalizado para >=180s, guarda de visibilidade e botão manual preservados; AdSense só renderiza após personalizacao, escuta alteracao de consentimento, usa lazyOnload e AdsSlot so faz push apos permissao; news_view nao e derivado no tracker e fica instrumentado pelo NoticiaReporter; npx tsc --noEmit e npm run build passaram; smoke standalone /, /noticia/1 e /comunidade retornou HTTP 200 e nao encontrou URL/script AdSense sem consentimento."
+    },
+    "review": {
+      "status": "done",
+      "agent": "reviewer",
+      "execution_mode": "delegated",
+      "started_at": "2026-09-24T10:30:00-03:00",
+      "finished_at": "2026-09-24T11:30:00-03:00",
+      "notes": "Revisão inicial e re-revisão concluídas. A re-revisão da iteração 2 retornou approve_with_comments após a centralização dos formatadores temporais em lib/datas e a correção do deadline/isolamento dos colunistas."
+    },
+    "remediation": {
+      "status": "done",
+      "agent": "remediator",
+      "execution_mode": "delegated",
+      "started_at": "2026-09-24T10:35:00-03:00",
+      "finished_at": "2026-09-24T11:30:00-03:00",
+      "notes": "Iteração 2: Finding 4 (major) resolvido com lib/datas.ts; 23 arquivos de apresentação de data/hora foram migrados (incluindo RadarClient/Rodape e NewsCard), e métricas usam locale explícita. Todos os formatos usam pt-BR/America/Sao_Paulo. Finding 3: deadline de publicações elevado a 5 s, perfis isolados com timeout próprio de 2 s e fallback [] confirmado. Relativas por Date.now permanecem sem timeZone e foram documentadas. Script de TZ idêntico, tsc e build passaram; nenhum backend/commit foi alterado."
+    },
+    "documentation": {
+      "status": "done",
+      "agent": "documenter",
+      "execution_mode": "delegated",
+      "started_at": "2026-09-24T12:20:00-03:00",
+      "finished_at": "2026-09-24T12:30:00-03:00",
+      "notes": "README.md atualizado com a regra do helper central de datas/horas e o gate de consentimento do AdSense; documentation-update.md criado. Nenhum código-fonte foi alterado."
+    },
+    "closing": {
+      "status": "done",
+      "agent": "historian",
+      "execution_mode": "delegated",
+      "started_at": "2026-09-24T12:25:00-03:00",
+      "finished_at": "2026-09-24T12:30:00-03:00",
+      "notes": "report.md criado com objetivo, entregas, validações, revisão e follow-ups; uma linha append-only foi adicionada ao HISTORY.md; estado validado com json.load e run fechada."
+    }
+  },
+  "findings": {
+    "blocker": 0,
+    "major": 0,
+    "minor": 1,
+    "nit": 0,
+    "resolved": 3
+  },
+  "artifacts": {
+    "task_plan": "task-plan.md",
+    "implementation_contract": "implementation-contract.md",
+    "implementation_history": "implementation-history.md",
+    "code_review_contract": "code-review-contract.md",
+    "documentation_update": "documentation-update.md",
+    "report": "report.md"
+  },
+  "blocked_reason": null,
+  "follow_ups": [
+    "Radar: tratar p.dia (YYYY-MM-DD) como data civil para evitar exibir o dia anterior quando a string for interpretada como UTC.",
+    "Tornar frontend/scripts/verificar-datas-tz.mjs portátil/assertivo e adicionar o check ao CI; atualmente depende de Node 24 e --experimental-strip-types.",
+    "Avaliar em uma run de API a projeção/limite do payload de perfil de autor; o endpoint atual ainda retorna a lista pública completa e esta remediação manteve o fallback best-effort.",
+    "Se o React Query voltar, reintroduzi-lo explicitamente com consumidor, dependências e estratégia de cache coerentes; ele permanece removido nesta run."
+  ],
+  "created_at": "2026-09-24T10:00:00-03:00",
+  "updated_at": "2026-09-24T12:30:00-03:00"
+}

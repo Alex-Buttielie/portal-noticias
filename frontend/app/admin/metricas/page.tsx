@@ -23,6 +23,7 @@ import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/lib/auth-context";
 import * as api from "@/lib/api";
 import type { CentralInteligencia, PeriodoInteligencia } from "@/lib/api";
+import { formatarNumeroPtBR } from "@/lib/datas";
 
 const PERIODOS: { chave: PeriodoInteligencia; rotulo: string }[] = [
   { chave: "hoje", rotulo: "Hoje" },
@@ -35,7 +36,7 @@ const PERIODOS: { chave: PeriodoInteligencia; rotulo: string }[] = [
 
 function fmt(n: number | undefined | null): string {
   if (n === undefined || n === null || Number.isNaN(n)) return "—";
-  return Number(n).toLocaleString("pt-BR");
+  return formatarNumeroPtBR(Number(n));
 }
 
 function Delta({ delta }: { delta: number | null | undefined }) {
@@ -52,7 +53,7 @@ function Delta({ delta }: { delta: number | null | undefined }) {
       variant="outline"
       className={pos ? "border-[var(--cor-sucesso)] text-[var(--cor-sucesso)]" : "border-[var(--cor-erro)] text-[var(--cor-erro)]"}
     >
-      {pos ? "▲" : "▼"} {Math.abs(delta).toLocaleString("pt-BR")}% vs. anterior
+      {pos ? "▲" : "▼"} {formatarNumeroPtBR(Math.abs(delta))}% vs. anterior
     </Badge>
   );
 }
@@ -379,7 +380,7 @@ export default function Page() {
             <Kpi rotulo="VISITAS" valor={fmt(data.audiencia.visitas)} detalhe={`${fmt(data.audiencia.sessoes)} sessões`} delta={comp?.visitas?.delta_pct} />
             <Kpi rotulo="USUÁRIOS NOVOS" valor={fmt(data.audiencia.usuarios_novos)} detalhe={`${fmt(data.audiencia.usuarios_recorrentes)} recorrentes`} delta={comp?.usuarios_novos?.delta_pct} />
             <Kpi rotulo="VIEWS EM NOTÍCIAS" valor={fmt(data.comportamento.views_noticia)} detalhe={`${fmt(data.audiencia.views_por_noticia)} views/notícia`} delta={comp?.views_noticia?.delta_pct} />
-            <Kpi rotulo="TAXA DE RETORNO" valor={`${data.audiencia.taxa_retorno_pct.toLocaleString("pt-BR")}%`} detalhe="sessões em 2+ dias" />
+            <Kpi rotulo="TAXA DE RETORNO" valor={`${formatarNumeroPtBR(data.audiencia.taxa_retorno_pct)}%`} detalhe="sessões em 2+ dias" />
             <Kpi rotulo="TEMPO MÉDIO DE LEITURA" valor={`${fmt(data.audiencia.tempo_medio_leitura_seg)}s`} detalhe={`${fmt(data.audiencia.leituras_com_tempo)} leituras medidas`} />
             <Kpi rotulo="BUSCAS" valor={fmt(data.comportamento.buscas_total)} detalhe={`${fmt(data.conteudo.buscas_sem_resultado)} sem resultado`} delta={comp?.buscas?.delta_pct} />
             <Kpi rotulo="COMPARTILHAMENTOS" valor={fmt(data.comportamento.shares)} detalhe={`${fmt(data.comportamento.salvos)} salvos`} delta={comp?.compartilhamentos?.delta_pct} />

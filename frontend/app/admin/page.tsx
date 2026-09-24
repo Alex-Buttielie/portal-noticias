@@ -9,6 +9,7 @@ import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import * as api from "@/lib/api";
+import { formatarDataPorExtenso, formatarNumeroPtBR } from "@/lib/datas";
 import Link from "next/link";
 import {
   LayoutDashboard,
@@ -218,7 +219,7 @@ export default function Page() {
   const dataExtenso = useMemo(() => {
     try {
       const d = new Date();
-      const s = d.toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+      const s = formatarDataPorExtenso(d);
       return s.charAt(0).toUpperCase() + s.slice(1);
     } catch {
       return "";
@@ -376,7 +377,7 @@ export default function Page() {
                 <ArrowUpRight className="h-3 w-3" /> +12 na semana
               </span>
             </div>
-            {loadingStats ? <Skeleton className="mt-4 h-7 w-20" /> : <p className="mt-4 text-2xl font-bold tracking-tight text-[var(--cor-texto)]">{v.usuarios.toLocaleString("pt-BR")}</p>}
+            {loadingStats ? <Skeleton className="mt-4 h-7 w-20" /> : <p className="mt-4 text-2xl font-bold tracking-tight text-[var(--cor-texto)]">{formatarNumeroPtBR(v.usuarios)}</p>}
             <p className="text-sm font-medium text-[var(--cor-texto)]">Usuários</p>
             <p className="text-xs text-[var(--cor-texto-suave)]">Total de contas cadastradas</p>
           </CardContent>
