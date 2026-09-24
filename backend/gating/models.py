@@ -2,17 +2,36 @@ from django.conf import settings
 from django.db import models
 
 
+def _invalidar_gating_best_effort():
+    # Import tardio: `gating.services` importa este módulo.
+    try:
+        from .services import invalidar_cache_gating
+
+        invalidar_cache_gating()
+    except Exception:
+        pass
+
+
+class ConfiguracaoSistemaQuerySet(models.QuerySet):
+    def delete(self):
+        # `QuerySet.delete()` em lote NÃO chama `Model.delete()` — sem este
+        # override, `filter(pk=1).delete()` deixaria o cache stale até o TTL.
+        resultado = super().delete()
+        _invalidar_gating_best_effort()
+        return resultado
+
+
 class FeatureLimit(models.Model):
     """
-    Camada central e parametrizável de controle de acesso Free x Premium
-    (BRD seção 7; implementation-contract.md run
+    Camada central e parametrizavel de controle de acesso Free x Premium
+    (BRD secao 7; implementation-contract.md run
     20260902-1420-gating-free-premium). Cada linha define o valor de UM
-    recurso para UM plano — editável via Django admin, nunca hardcoded em
-    código de negócio de outros módulos (ver `services.has_feature`).
+    recurso para UM plano - editavel via Django admin, nunca hardcoded em
+    codigo de negocio de outros modulos (ver `services.has_feature`).
 
-    `valor` é armazenado como string livre, interpretado pelo chamador
-    (booleano "true"/"false", número, etc.) — flexibilidade deliberada para
-    não precisar de um schema por tipo de recurso.
+    `valor` e armazenado como string livre, interpretado pelo chamador
+    (booleano "true"/"false", numero, etc.) - flexibilidade deliberada para
+    nao precisar de um schema por tipo de recurso.
     """
 
     PLANO_FREE = "free"
@@ -45,6 +64,23 @@ class FeatureLimit(models.Model):
     def __str__(self):
         return f"{self.chave} ({self.plano}) = {self.valor}"
 
+    def _invalidar_cache_gating(self):
+        # Import tardio: `gating.services` importa este módulo.
+        try:
+            from .services import invalidar_cache_gating
+
+            invalidar_cache_gating()
+        except Exception:
+            pass
+
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        self._invalidar_cache_gating()
+
+    def delete(self, *args, **kwargs):
+        super().delete(*args, **kwargs)
+        self._invalidar_cache_gating()
+
 
 class ConfiguracaoSistema(models.Model):
     """
@@ -69,9 +105,26 @@ class ConfiguracaoSistema(models.Model):
     def __str__(self):
         return f"ConfiguracaoSistema (premium_ativo={self.premium_ativo})"
 
+    objects = ConfiguracaoSistemaQuerySet.as_manager()
+
     def save(self, *args, **kwargs):
         self.pk = 1
         super().save(*args, **kwargs)
+        try:
+            from .services import invalidar_cache_gating
+
+            invalidar_cache_gating()
+        except Exception:
+            pass
+
+    def delete(self, *args, **kwargs):
+        super().delete(*args, **kwargs)
+        try:
+            from .services import invalidar_cache_gating
+
+            invalidar_cache_gating()
+        except Exception:
+            pass
 
 
 class FeatureLimitAlteracaoLog(models.Model):

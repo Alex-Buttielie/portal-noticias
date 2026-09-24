@@ -31,3 +31,16 @@ os.environ.setdefault(
 )
 
 from .settings import *  # noqa: F401,F403
+
+# Run 20260923-1216-p1-feed-cache-indices (P1-1): a suíte usa `DummyCache`
+# (nunca armazena) para que o cache curto das listagens/gating — com TTL de
+# ~45s, maior que o intervalo entre testes no mesmo processo — não vaze
+# respostas entre testes (o Django não limpa caches entre testes e o banco é
+# isolado por teste, mas o cache locmem seria global). Os testes DEDICADOS de
+# cache (`feed/tests/test_p1_feed_cache_indices.py`) religam um backend real
+# via `override_settings(CACHES=...)` + `cache.clear()` no escopo deles.
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.dummy.DummyCache",
+    }
+}

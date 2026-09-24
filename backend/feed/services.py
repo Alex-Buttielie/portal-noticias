@@ -14,11 +14,45 @@ esse cluster); itens standalone (cluster=None) viram sua própria entrada.
 
 from __future__ import annotations
 
+from datetime import timedelta
+
+from django.conf import settings
 from django.db.models import Q, QuerySet
+from django.utils import timezone
 
 from catalogo_noticias.models import NewsCluster, NewsItem
 
 STATUS_PUBLICAVEIS = [NewsItem.STATUS_NAO_APLICAVEL, NewsItem.STATUS_APROVADO]
+
+# Run 20260923-1216-p1-feed-cache-indices (P1-1): campos do `NewsItem` lidos
+# pelo caminho de LISTA do feed (`construir_feed_entries`,
+# `_timestamp_ordenacao`, `equilibrar_por_categoria` — que só toca dicts — e
+# `painel_admin.services_regras.aplicar_regras_curadoria`, que lê
+# `id`/`cluster_id`/`autor` dos itens). `conteudo_bruto`/`conteudo_completo`
+# ficam DE FORA de propósito: só as views de detalhe os exibem, com fetch
+# completo (`detalhe_cluster`/`detalhe_item` abaixo, sem `.only()`).
+# REGRA: quem adicionar leitura de campo de `NewsItem` no caminho de lista
+# deve incluí-lo aqui, senão reintroduz N+1 de deferred fields.
+CAMPOS_LISTA_FEED = (
+    "titulo",
+    "resumo_proprio",
+    "categoria",
+    "urgente",
+    "imagem_url",
+    "pais",
+    "estado",
+    "cidade",
+    "nome_fonte",
+    "autor",
+    "timestamp_publicacao_fonte",
+    "timestamp_ingestao",
+    "cluster",
+    "cluster__numero_fontes_distintas",
+)
+
+# Subconjunto de `CAMPOS_LISTA_FEED` válido para `.only()` (sem travessias
+# de relação — `cluster__...` vai via `select_related`, não via `.only()`).
+CAMPOS_SEM_RELACAO = tuple(c for c in CAMPOS_LISTA_FEED if "__" not in c)
 
 
 def _timestamp_ordenacao(item: NewsItem):
@@ -38,8 +72,24 @@ def itens_publicaveis(categoria: str | None = None, busca: str | None = None) ->
     esta é a única função que o restante do módulo `feed` usa para acessar
     `NewsItem`, então nenhum outro ponto do app precisa reimplementar essa
     checagem.
+
+    Run 20260923-1216-p1-feed-cache-indices (P1-1):
+    - janela de listagem (`settings.FEED_JANELA_HORAS`, default 72h): o feed
+      público cobre o ciclo de notícias sem varrer o acervo inteiro;
+    - `.only(*CAMPOS_LISTA_FEED)` + `select_related("cluster")`: as colunas
+      pesadas (`conteudo_bruto`/`conteudo_completo`) nunca são selecionadas
+      nas listagens — detalhe tem fetch próprio completo.
     """
-    qs = NewsItem.objects.filter(status_revisao__in=STATUS_PUBLICAVEIS).select_related("cluster")
+    janela_horas = float(getattr(settings, "FEED_JANELA_HORAS", 72))
+    corte = timezone.now() - timedelta(hours=janela_horas)
+    qs = (
+        NewsItem.objects.filter(
+            status_revisao__in=STATUS_PUBLICAVEIS,
+            timestamp_ingestao__gte=corte,
+        )
+        .select_related("cluster")
+        .only(*CAMPOS_LISTA_FEED)
+    )
 
     if categoria:
         qs = qs.filter(categoria__iexact=categoria)
@@ -68,6 +118,10 @@ def construir_feed_entries(itens: list[NewsItem]) -> list[dict]:
         existente = entradas.get(chave)
 
         if existente is None or timestamp_item > existente["timestamp"]:
+            # P1-1 (run 20260923-1216): coluna denormalizada — leitura direta
+            # do campo, sem COUNT por cluster. Exige `select_related("cluster")`
+            # (garantido por `itens_publicaveis`); passar itens sem o cluster
+            # pré-carregado reintroduz query por cluster.
             numero_fontes = item.cluster.numero_fontes_distintas if item.cluster_id else 1
             entradas[chave] = {
                 "tipo": chave[0],
@@ -232,24 +286,3 @@ def mais_lidas(limite: int = 5) -> list[dict]:
     entries = construir_feed_entries(itens)
     entries.sort(key=lambda e: (e["numero_fontes"], e["timestamp"]), reverse=True)
     return entries[:limite]
-
-
-def exibir_publicidade(user) -> bool:
-    """
-    Critério de aceite 7: `false` só para usuário autenticado com
-    `papel=premium`; visitante (`AnonymousUser`, `is_authenticated=False`)
-    ou usuário `free` sempre recebe `true`.
-
-    Exceção deliberada: com a flag de Premium DESLIGADA na Central, todos
-    navegam como Premium — sem publicidade para ninguém.
-    """
-    try:
-        from gating.services import premium_liberado_geral
-
-        if premium_liberado_geral():
-            return False
-    except Exception:
-        pass
-    if getattr(user, "is_authenticated", False) and getattr(user, "papel", None) == "premium":
-        return False
-    return True

@@ -857,13 +857,36 @@ CATALOGO_NOTICIAS_LLM_TETO_GASTO_DIARIO_USD = float(
 # a partir de `tokens_utilizados` (implementation-contract.md, run
 # 20260903-1211-teto-gasto-diario-llm) — SEMPRE uma ESTIMATIVA, nunca a
 # tabela de precos real de um provedor especifico (decisao de provedor
-# concreto continua em aberto, ver ARCHITECTURE.md secao 8). Default 0.15 na
-# mesma faixa de mercado de um modelo economico tipo `gpt-4o-mini` (o proprio
-# default de CATALOGO_NOTICIAS_LLM_MODEL acima) — ajustar via env var quando
-# o provedor real de producao for escolhido, sem alterar codigo.
+# concreto continua em aberto, ver ARCHITECTURE.md secao 8). Derivacao do
+# default (gpt-4o-mini, default de CATALOGO_NOTICIAS_LLM_MODEL acima):
+# entrada $0.15/1M = $0.00015/1k, saida $0.60/1M = $0.0006/1k; lote tipico
+# de 10 itens ~= 5000 tokens in + 2200 out ~= $0.00207/7200 tokens ~=
+# $0.00029/1k, arredondado para cima (conservador) => 0.0003. Revisar quando
+# o provedor de producao for escolhido; ajuste via env var sem alterar codigo.
 CATALOGO_NOTICIAS_LLM_PRECO_USD_POR_1K_TOKENS = float(
-    os.environ.get("CATALOGO_NOTICIAS_LLM_PRECO_USD_POR_1K_TOKENS", 0.15)
+    os.environ.get("CATALOGO_NOTICIAS_LLM_PRECO_USD_POR_1K_TOKENS", 0.0003)
 )
+
+
+# ---------------------------------------------------------------------------
+# Feed público — P1 performance (run 20260923-1216-p1-feed-cache-indices).
+# ---------------------------------------------------------------------------
+
+# Janela de listagem do feed (horas): `feed.services.itens_publicaveis`
+# filtra `timestamp_ingestao >= agora - janela`. Cobre o ciclo de notícias
+# sem varrer o acervo inteiro a cada request.
+FEED_JANELA_HORAS = float(os.environ.get("FEED_JANELA_HORAS", 72))
+
+# TTL (segundos) do cache das listagens públicas do feed
+# (`FeedListView`, seções, destaques, urgentes, mais-lidas — ver
+# `feed/views.py`). Staleness curta é aceitável (o frontend já pratica ISR
+# de 60s) e dispensa invalidação explícita na ingestão.
+FEED_CACHE_TTL_SEGUNDOS = int(os.environ.get("FEED_CACHE_TTL_SEGUNDOS", 45))
+
+# TTL (segundos) do cache curto de configuração de gating (flag
+# `ConfiguracaoSistema.premium_ativo` + `MeusRecursosView` — ver
+# `gating/services.py`). Mesma ordem de grandeza do cache do feed.
+GATING_CACHE_TTL_SEGUNDOS = int(os.environ.get("GATING_CACHE_TTL_SEGUNDOS", 45))
 
 
 # ---------------------------------------------------------------------------

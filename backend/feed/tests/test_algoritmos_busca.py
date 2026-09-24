@@ -91,8 +91,9 @@ def test_conteudo_velho_nao_abre_a_curadoria():
     for _ in range(6):
         _interacao("item", velho.id, tipo="click")
     entradas = _entradas()
-    velho_e = next(e for e in entradas if e["id"] == velho.id)
-    velho_e["timestamp"] = timezone.now() - timedelta(days=10)
+    # P1 (run 20260923-1216): janela de 72h em `itens_publicaveis` — item com
+    # 10 dias nem chega ao feed, quanto mais ao top-3 da curadoria.
+    assert all(e["id"] != velho.id for e in entradas)
     secoes = rec.montar_home(entradas)
     top3 = secoes["curadoria"][:3]
     assert all((e["tipo"], e["id"]) != ("item", velho.id) for e in top3)
@@ -203,13 +204,16 @@ def test_home_nao_duplica_cluster():
 
 # -- Endpoints --------------------------------------------------------------
 
-def test_home_endpoint_secoes_e_publicidade():
+def test_home_endpoint_secoes_sem_publicidade():
+    # Run 20260923-1216: `exibir_publicidade` saiu de TODOS os payloads do
+    # feed (aqui incluído) — ads via `GET /api/gating/status`.
     _news_item()
     client = APIClient()
     r = client.get("/api/feed/home/")
     assert r.status_code == 200
     for secao in ("manchetes", "curadoria", "para_voce", "populares", "tendencia", "recentes"):
         assert secao in r.data
+    assert "exibir_publicidade" not in r.data
 
 
 def test_radar_tendencias_com_score_e_para_voce():

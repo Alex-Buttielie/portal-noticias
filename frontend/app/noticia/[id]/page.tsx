@@ -17,7 +17,7 @@ export const revalidate = 60;
 async function getDetalhe(id: string): Promise<FeedDetalhe | null> {
   try { return await obterDetalheCluster(id); } catch {}
   try { return await obterDetalheItem(id); } catch {}
-  return { tipo: "item", id: Number(id) || 1, titulo: `Notícia #${id} — conteúdo de demonstração`, categoria: "geral", urgente: false, timestamp: new Date().toISOString(), fontes: [{ nome_fonte: "Fonte Exemplo", url_fonte_original: "https://example.com", resumo: "Resumo de fallback — API offline. Conteúdo demonstrativo para não quebrar build." }], exibir_publicidade: false };
+  return { tipo: "item", id: Number(id) || 1, titulo: `Notícia #${id} — conteúdo de demonstração`, categoria: "geral", urgente: false, timestamp: new Date().toISOString(), fontes: [{ nome_fonte: "Fonte Exemplo", url_fonte_original: "https://example.com", resumo: "Resumo de fallback — API offline. Conteúdo demonstrativo para não quebrar build." }]};
 }
 export default async function Page({ params }: { params: { id: string } }) {
   const d = (await getDetalhe(params.id))!;

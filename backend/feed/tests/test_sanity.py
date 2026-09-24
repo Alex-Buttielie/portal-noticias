@@ -136,24 +136,41 @@ def test_id_inexistente_retorna_404_nos_dois_endpoints_de_detalhe():
     assert resposta_cluster.status_code == 404
 
 
-def test_usuario_premium_nao_ve_publicidade():
+def test_feed_nao_expoe_exibir_publicidade_para_visitante_nem_premium():
+    # Run 20260923-1216-p1-feed-cache-indices (breaking controlado): o campo
+    # `exibir_publicidade` SAIU do feed — visibilidade de ads agora via
+    # `GET /api/gating/status` (frontend `lib/premium.ts`). O feed não varia
+    # por usuário; visitante e premium recebem o mesmo payload.
     _news_item()
     usuario_premium = User.objects.create_user(email="premium@example.com", password="senha123", papel="premium")
+    for client in (APIClient(), _autenticado(usuario_premium)):
+        resposta = client.get("/api/feed/")
+        assert resposta.status_code == 200
+        assert "exibir_publicidade" not in resposta.data
+
+
+def _autenticado(usuario):
     client = APIClient()
-    client.force_authenticate(user=usuario_premium)
-
-    resposta = client.get("/api/feed/")
-
-    assert resposta.data["exibir_publicidade"] is False
+    client.force_authenticate(user=usuario)
+    return client
 
 
-def test_visitante_ve_publicidade():
-    _news_item()
+def test_detalhe_e_home_e_cobertura_tambem_nao_expoem_exibir_publicidade():
+    cluster = NewsCluster.objects.create(
+        titulo_acontecimento="Fato", categoria_dominante="geral", numero_fontes_distintas=1
+    )
+    item = _news_item(cluster=cluster, url_fonte_original="https://g1/sem-ads")
     client = APIClient()
-
-    resposta = client.get("/api/feed/")
-
-    assert resposta.data["exibir_publicidade"] is True
+    for url in (f"/api/feed/cluster/{cluster.id}/", f"/api/feed/item/{item.id}/"):
+        resposta = client.get(url)
+        assert resposta.status_code == 200
+        assert "exibir_publicidade" not in resposta.data
+    resposta = client.get("/api/feed/home/")
+    assert resposta.status_code == 200
+    assert "exibir_publicidade" not in resposta.data
+    resposta = client.get(f"/api/feed/cobertura/cluster/{cluster.id}/")
+    assert resposta.status_code == 200
+    assert "exibir_publicidade" not in resposta.data
 
 
 # ---------------------------------------------------------------------------

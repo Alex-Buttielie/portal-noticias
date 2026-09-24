@@ -13,6 +13,14 @@ class NewsCluster(models.Model):
 
     titulo_acontecimento = models.CharField(max_length=300)
     categoria_dominante = models.CharField(max_length=100, blank=True)
+    # Run 20260923-1216-p1-feed-cache-indices (P1-1): contagem denormalizada
+    # de fontes distintas cobrindo este acontecimento. Antes era uma
+    # `@property` (`itens.values("nome_fonte").distinct().count()`) — um
+    # COUNT por cluster no caminho quente do feed (N+1). Agora é coluna,
+    # atualizada em todos os caminhos de escrita da ingestão
+    # (`services/ingestao.py::_persistir_grupo`/`_persistir_grupo_mesclado`) +
+    # backfill idempotente na migração. Leitura via campo direto, sem query.
+    numero_fontes_distintas = models.PositiveIntegerField(default=1)
     criado_em = models.DateTimeField(auto_now_add=True)
     atualizado_em = models.DateTimeField(auto_now=True)
 
@@ -24,9 +32,18 @@ class NewsCluster(models.Model):
     def __str__(self):
         return self.titulo_acontecimento
 
-    @property
-    def numero_fontes_distintas(self) -> int:
-        return self.itens.values("nome_fonte").distinct().count()
+    def recalcular_numero_fontes(self) -> int:
+        """
+        Recomputa `numero_fontes_distintas` a partir dos itens associados
+        (COUNT DISTINCT de `nome_fonte`) e persiste quando diverge. Retorna
+        o valor atual. Usado pelo backfill da migração e pelos caminhos de
+        escrita da ingestão — idempotente por construção.
+        """
+        total = self.itens.values("nome_fonte").distinct().count()
+        if total != self.numero_fontes_distintas:
+            self.numero_fontes_distintas = total
+            self.save(update_fields=["numero_fontes_distintas"])
+        return total
 
 
 class NewsItem(models.Model):
@@ -124,6 +141,21 @@ class NewsItem(models.Model):
             models.CheckConstraint(
                 condition=~models.Q(url_fonte_original="") & ~models.Q(nome_fonte=""),
                 name="newsitem_fonte_obrigatoria",
+            ),
+        ]
+        # Run 20260923-1216-p1-feed-cache-indices (P1-2): índices do caminho
+        # quente do feed (migração `0010_newsitem_indices_feed`). Busca
+        # textual usa o GIN trigram da `0011` (Postgres; sem equivalente no
+        # `Meta` — DDL cru com guarda por vendor).
+        indexes = [
+            models.Index(
+                fields=["status_revisao", "-timestamp_ingestao"],
+                name="feed_status_ingestao",
+            ),
+            models.Index(fields=["categoria"], name="newsitem_categoria"),
+            models.Index(fields=["urgente"], name="newsitem_urgente"),
+            models.Index(
+                fields=["pais", "estado", "cidade"], name="newsitem_localidade"
             ),
         ]
 

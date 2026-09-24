@@ -97,7 +97,16 @@ def buscar(
             )
         qs = qs.filter(cond)
 
-    candidatos = list(qs.select_related("cluster").order_by("-timestamp_ingestao")[:MAX_CANDIDATOS])
+    candidatos = list(
+        qs.select_related("cluster")
+        # P1-1 (run 20260923-1216): sem as colunas pesadas (`conteudo_bruto`
+        # não é lido em Python aqui; `conteudo_completo` só participa do
+        # filtro LIKE no banco, via índice GIN trigram). `tags` entra porque
+        # `_relevancia` pontua por elas. SEM janela de tempo — busca deve
+        # continuar retornando os mesmos resultados, só mais rápido.
+        .only(*feed_services.CAMPOS_LISTA_FEED, "tags")
+        .order_by("-timestamp_ingestao")[:MAX_CANDIDATOS]
+    )
     total = len(candidatos)
 
     pontuados = []
