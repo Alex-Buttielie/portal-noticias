@@ -66,8 +66,8 @@ python-dotenv==1.0.1
 
 python-json-logger==2.0.7  # opcional: JSON logs quando DJANGO_LOG_JSON=true
 
-# NOTA: django-cors-headers foi adicionada a este arquivo sem poder rodar
-# `pip install`/`pip freeze` nesta sessão (ferramentas de execução
-# indisponíveis) — a versão acima é uma referência razoável, não confirmada.
-# `requirements-lock.txt` NÃO foi regenerado; precisa ser refeito (pip freeze)
-# assim que o ambiente puder instalar de verdade.
+# Lock regenerado em 2026-09-24 a partir de `backend/.venv`; ver o cabeçalho
+# de `requirements-lock.txt` para o comando e as limitações. Ele ainda inclui
+# pytest/pytest-cov/pytest-django porque a separação runtime/dev e a remoção
+# das ferramentas da imagem de produção são um follow-up: alterá-las aqui
+# exigiria revisar em conjunto Dockerfile, CI e deploy PM2.

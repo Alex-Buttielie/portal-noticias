@@ -126,3 +126,140 @@
 6. `limit_req` 503→429 via `limit_req_status 429`: frontend deve tratar 429 como
    retry-mais-tarde (hoje trata como erro genérico) — follow-up frontend, sem
    urgência (burst 20 absorve uso legítimo).
+
+## Remediação (iteração 1)
+
+Esta seção substitui as decisões de timeout/zonas/mídia registradas antes da
+revisão. O endpoint de ingestão e os arquivos de `settings.py`, `feed/` e
+`gating/` não foram alterados por esta remediação. Nas referências
+`infra/nginx/portal-*.conf`, as linhas indicadas são equivalentes nos três
+ambientes (somente mudam upstream, porta e path do alias).
+
+### Finding 1 — blocker — `/media/` expõe documentos de credenciamento
+
+- **Investigação/evidência:** o grep de `FileField`/`upload_to` em
+  `backend/credenciamento/models.py:5-6,36,42,89` encontrou somente
+  `foto`, `documento` e `foto` de perfil, todos gravados em
+  `media/credenciamento/<user_id>/`; `backend/credenciamento/views.py:56-78`
+  exige o próprio solicitante ou admin no `DocumentoView`.
+- **Correção:** `infra/nginx/portal-dev.conf:78-109`,
+  `portal-homolog.conf:78-109` e `portal-prod.conf:78-109` removem o alias
+  de `backend/media/` inteiro. A subtree privada é negada por
+  `location = /media/credenciamento` e
+  `location ^~ /media/credenciamento/` retornam 404; o único alias
+  direto é a allowlist `/media/public/`. Não há bloqueio por extensão nem
+  caminho Nginx não autenticado para o documento. Como as fotos atuais
+  compartilham a árvore privada, a decisão é fail-closed (não as expor
+  até uma futura separação de storage); o endpoint Django continua sendo o
+  caminho autorizado.
+- **Evidência:** os três confs não contêm `alias .../media/` genérico e
+  o teste Nginx com todos os sites + include global passou; a proteção do
+  `DocumentoView` não foi alterada.
+
+### Finding 2 — blocker — zones ausentes quebram `nginx -t`
+
+- **Correção:** `infra/nginx/http-cache.conf:19-35` versiona os dois
+  `map`, as duas `limit_req_zone` e `proxy_cache_path` no contexto correto
+  `http {}`. Os snippets `infra/nginx/portal-location-cache.conf:6-20`,
+  `portal-location-auth.conf:5-6` e `portal-location-write.conf:6-7`
+  versionam as diretivas de location. Os sites referenciam esses snippets
+  por includes opcionais (`portal-*.conf:123,137,154,188-189,212`) e não mantêm
+  referências ativas a zones; antes da instalação, cache/rate ficam
+  deliberadamente desligados e o parser continua válido.
+- **Runbook:** `infra/DEPLOY.md:147-208` documenta a ordem include global
+  → snippets → site → `nginx -t` → reload, criação/permissão de
+  `/var/cache/nginx/feed` e a proibição de instalar snippets antes do
+  `http {}`; `CI-CD.md:32-39` aponta o procedimento.
+- **Evidência:** `nginx:alpine` 1.31.6 (imagem local) passou em dois
+  wrappers: (a) ativação completa com `http-cache.conf` + três snippets +
+  os três sites; (b) sites standalone sem zones/snippets. O teste da ordem
+  errada (snippet de location sem `http-cache.conf`) reproduziu
+  `proxy_cache zone "feed_cache" is unknown`; o script de chaves
+  balanceadas passou em todos os sete arquivos `.conf`.
+
+### Finding 3 — major — timeout 45 dependia de 202 não commitado
+
+- **Correção:** `backend/gunicorn.conf.py:54-62` passa a ter default
+  seguro `timeout=60` e condiciona qualquer `45` ao commit 202+background
+  ser ancestral comprovado do ref implantado. O PM2 em
+  `.github/workflows/deploy.yml:191-195` também fixa
+  `GUNICORN_TIMEOUT=60`; os três Nginx usam
+  `proxy_read_timeout 60s` (`portal-*.conf:128-129,142-143,159-160,
+  200-201,217-221`). A pré-condição “commit 202 antes de 45” está também
+  no comentário de `gunicorn.conf.py:54-59`, no workflow e no runbook
+  `infra/DEPLOY.md:230-240`.
+- **Decisão:** 60 é o default seguro para o estado atual; 45 fica como
+  follow-up atômico (Gunicorn + três locations), sem tocar no endpoint.
+- **Evidência:** `gunicorn --check-config --config gunicorn.conf.py
+  config.wsgi:application` passou e `--print-config` reportou
+  `workers=2`, `threads=4`, `worker_class=gthread`, `timeout=60`.
+
+### Finding 4 — major — POST `/api/feed/interacoes/` capturado pelo cache
+
+- **Correção:** os três confs têm a location exata
+  `location = /api/feed/interacoes/` (`portal-*.conf:150-165`) com o
+  snippet de escrita pública, fora do regex; o regex (`portal-*.conf:
+  167-206`) é uma allowlist de URIs GET e não inclui `interacoes/` nem
+  `busca/historico/`. `http-cache.conf:24-31` e
+  `portal-location-cache.conf:6-14` também impedem cache de métodos não
+  GET/HEAD. Portanto o POST não pode ser servido/armazenado pelo cache e
+  continua sujeito a `limit_req` de 20/min quando os snippets são instalados.
+- **Evidência:** grep nos três confs confirmou a location exata e a
+  ausência de `feed/interacoes/` no allowlist; a simulação Nginx completa
+  passou com o include de escrita ativo.
+
+### Finding 5 — minor — descoberta do conf PM2 dependia do cwd
+
+- **Correção/documentação:** `.github/workflows/deploy.yml:182,186-190,195`
+  registra que o `cd "$APP_DIR/backend"` imediatamente anterior faz o
+  PM2 herdar `pm_cwd=backend` e passa `--config
+  "$APP_DIR/backend/gunicorn.conf.py"` absoluto; `--chdir` continua
+  apenas para o caminho de import da aplicação. O mesmo motivo está em
+  `backend/gunicorn.conf.py:10-16`.
+- **Evidência:** `--print-config` executado de `/tmp/opencode` com
+  `--config` absoluto + `--chdir` reportou `gthread/2/4/timeout=60`, sem
+  depender da descoberta automática por cwd.
+
+### Finding 6 — minor — keepalive ausente em auth/health
+
+- **Correção:** `proxy_http_version 1.1` e `proxy_set_header Connection ""`
+  foram adicionados em `/healthz` (`portal-*.conf:111-118`) e em toda a
+  subtree `/api/auth/`, incluindo a location exata de cadastro
+  (`portal-*.conf:120-148`), nos três ambientes.
+- **Evidência:** verificação estática encontrou as duas diretivas em cada
+  um dos três confs; o wrapper Nginx completo passou.
+
+### Finding 7 — minor — cadastro com 10/min em vez de 20/min
+
+- **Correção:** `location = /api/auth/cadastro/` (`portal-*.conf:
+  120-134`) inclui `portal-location-write*.conf`, cuja taxa é 20/min
+  (`portal-location-write.conf:1-7`). A subtree restante
+  `location /api/auth/` (`portal-*.conf:136-148`) inclui
+  `portal-location-auth*.conf`, 10/min (`portal-location-auth.conf:1-6`).
+  Isso preserva `CadastroView`/DRF 20/min e aplica 10/min a login,
+  recuperação e demais endpoints sensíveis.
+- **Evidência:** `backend/config/settings.py:369-374` foi somente lido
+  (20/min para `escrita_publica`, 10/min para `auth_sensivel`); as duas
+  locations e os dois snippets existem de forma idêntica nos três confs.
+
+### Validação da iteração
+
+- `gunicorn --check-config --config gunicorn.conf.py
+  config.wsgi:application` (a partir de `backend`, com SQLite/locmem de
+  teste) → exit 0.
+- `deploy.yml` parseado com `yaml.safe_load` → válido (`guard`, `deploy`,
+  `validate`).
+- `python3 -m py_compile backend/gunicorn.conf.py` → exit 0;
+  `git diff --check` → sem whitespace errors.
+- `nginx:alpine` em wrapper com `http-cache.conf` + três snippets + três
+  sites → `syntax is ok` / `test is successful`; wrapper standalone sem
+  zones/snippets → igualmente `syntax is ok` / `test is successful`.
+- Teste de regex/rota: 3/3 `portal-*.conf` não casam
+  `/api/feed/interacoes/` nem `busca/historico/`; as locations exatas de
+  interação e cadastro estão presentes.
+- Leitura manual + script de chaves balanceadas: 7/7 `.conf` válidos;
+  os três sites mantêm o mesmo conteúdo estrutural, variando apenas
+  ambiente, upstream, porta e alias.
+
+**Veredito da remediação:** 7/7 findings cobertos; pronto para a
+revisão do remediator/orchestrator, sem commit realizado nesta etapa.

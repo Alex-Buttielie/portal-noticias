@@ -3,11 +3,20 @@
 # e o build de produção do
 # frontend a cada push/PR — fecha a lacuna descrita na memória do projeto
 # ("project-portal-noticias-tool-outage": boa parte do código foi escrita
-# sem poder executar/testar de verdade). Só valida, não faz deploy: o deploy
-# é papel dos workflows deploy-dev/homolog/prod (PM2 + Nginx na VPS).
+# sem poder executar/testar de verdade). Também é chamado pelos workflows
+# de deploy como o job `verify`; nesse caso é o gate do mesmo run, antes
+# de qualquer conexão SSH. Só valida, não faz deploy: o provisionamento é
+# papel dos workflows deploy-dev/homolog/prod (PM2 + Nginx na VPS).
 name: CI
 
 on:
+  workflow_call:
+    inputs:
+      checkout_ref:
+        description: "Ref/commit exato a verificar; vazio usa o SHA do evento chamador"
+        required: false
+        type: string
+        default: ""
   push:
     branches: [develop, main]
   pull_request:
@@ -45,6 +54,10 @@ jobs:
         working-directory: backend
     steps:
       - uses: actions/checkout@v4
+        with:
+          # No workflow reutilizável, o caller envia o mesmo commit/ref que
+          # será implantado. No trigger direto, mantém o comportamento padrão.
+          ref: ${{ inputs.checkout_ref || github.sha }}
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -61,6 +74,10 @@ jobs:
         working-directory: frontend
     steps:
       - uses: actions/checkout@v4
+        with:
+          # No workflow reutilizável, o caller envia o mesmo commit/ref que
+          # será implantado. No trigger direto, mantém o comportamento padrão.
+          ref: ${{ inputs.checkout_ref || github.sha }}
       - uses: actions/setup-node@v4
         with:
           node-version: "20"

@@ -1,12 +1,16 @@
-# Gerado via `pip freeze` do venv `backend/.venv`, validado por
-# `manage.py check` + suíte pytest completa (195 testes) rodando contra
-# estas versões exatas. Regenerado em 2026-09-03 (nova arquitetura de
-# infra) — acrescentou django-redis, gunicorn, whitenoise e sentry-sdk;
-# as versões anteriores (incl. django-cors-headers, que nunca tinha sido
-# congelada de verdade) foram confirmadas nesta rodada.
-amqp==5.3.1
+# Gerado em 2026-09-24 a partir de `backend/.venv` com:
+#   (cd backend && .venv/bin/python -m pip freeze > /tmp/requirements-lock.txt)
+# e, depois, este cabeçalho foi preservado acima do freeze.
+#
+# Ambiente usado na regeneração: Python 3.14.4. O CI instala este lock em
+# Python 3.12; o job de CI valida a compatibilidade dessa versão.
+# O lock ainda inclui dependências de desenvolvimento porque a separação
+# runtime/dev é um follow-up desta run. Regenerar após qualquer mudança
+# intencional em requirements.txt e validar com `pip check`, `manage.py check`
+# e pytest.
+amqp==5.4.0
 asgiref==3.12.1
-billiard==4.2.4
+billiard==4.3.0
 celery==5.6.0
 certifi==2026.7.22
 cffi==2.1.1
@@ -14,9 +18,8 @@ charset-normalizer==3.5.1
 click==8.5.0
 click-didyoumean==0.3.1
 click-plugins==1.1.1.2
-click-repl==0.3.0
-colorama==0.4.6
-coverage==7.16.0
+click-repl==0.4.0
+coverage==7.16.1
 cryptography==50.0.1
 Django==5.2.17
 django-allauth==65.19.2
@@ -26,7 +29,7 @@ djangorestframework==3.16.1
 exceptiongroup==1.3.1
 feedparser==6.0.11
 gunicorn==23.0.0
-idna==3.19
+idna==3.20
 iniconfig==2.3.0
 kombu==5.6.2
 oauthlib==3.3.1
@@ -36,7 +39,7 @@ prompt_toolkit==3.0.53
 psycopg2-binary==2.9.12
 pycparser==3.0
 Pygments==2.21.0
-PyJWT==2.13.0
+PyJWT==2.14.0
 pytest==9.1.1
 pytest-cov==7.1.0
 pytest-django==4.14.0
@@ -49,9 +52,10 @@ sentry-sdk==2.19.2
 sgmllib3k==1.0.0
 six==1.17.0
 sqlparse==0.6.0
-tzdata==2026.3
+typing_extensions==4.16.0
+tzdata==2026.4
 tzlocal==5.4.4
-urllib3==2.7.0
+urllib3==2.8.0
 vine==5.1.0
-wcwidth==0.8.3
+wcwidth==0.8.4
 whitenoise==6.8.2

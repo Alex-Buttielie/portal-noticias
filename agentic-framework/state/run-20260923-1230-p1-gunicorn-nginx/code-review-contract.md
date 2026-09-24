@@ -97,7 +97,45 @@ QUANDO E CRIADO: reconciliação da run 20260923-1230-p1-gunicorn-nginx; a revis
 | minor | 3 |
 | nit | 0 |
 
-## Veredito
+## Re-revisão iteração 1
+
+### Escopo e método
+
+- **Escopo reinspecionado:** `git status` + `git diff` da remediação sobre o descendente de `93b919d` (`HEAD=c773f9d`), incluindo os quatro includes Nginx ainda não rastreados. Arquivos não relacionados que surgiram na working tree durante a revisão foram ignorados.
+- **Modelos/mídia:** grep independente por `FileField`, `ImageField`, `upload_to`, `default_storage.save`, `request.FILES` e referências a `MEDIA_ROOT`; leitura de `credenciamento/models.py`, serializers, views, `config/urls.py` e todos os sites Nginx.
+- **Nginx:** o binário do host não está instalado. Usei a imagem local `nginx:alpine`/Nginx 1.31.6 em dois wrappers independentes dos artefatos: (a) os três sites sem include global e sem snippets; (b) os três sites + `http-cache.conf` + os três snippets. Ambos passaram em `nginx -t`.
+- **Comportamento:** Nginx real com arquivos sentinela confirmou 404 para documentos/fotos de `credenciamento`, inclusive tentativas de path traversal, e 200 somente em `/media/public/`; uma segunda instância exercitou os limites de login, cadastro e interações.
+- **Gunicorn/YAML:** `gunicorn --check-config` e `--print-config` a partir de `/tmp/opencode`, com `--config` absoluto + `--chdir`, reportaram `gthread`, 2 workers, 4 threads e timeout 60; `deploy.yml` passou em `yaml.safe_load` e `git diff --check` passou.
+
+### Resultado por finding
+
+| Finding | Resultado | Evidência independente |
+|---|---|---|
+| 1 — blocker `/media/` | **RESOLVIDO** | Só existem três `FileField`, todos com `caminho_documento` para `media/credenciamento/<user_id>/` (`backend/credenciamento/models.py:5-6,36,42,89`). Os sites removem o alias de `MEDIA_ROOT`, negam essa subtree e só expõem `/media/public/` (`portal-*.conf:78-109`). `^~ /media/credenciamento/` é o prefixo mais longo e impede sobreposição por regex; como não há alias genérico nem regex de mídia, o match é inequívoco. `config/urls.py` não registra `static(settings.MEDIA_URL, ...)`; o único download de documento é `DocumentoView`, autenticado e restrito ao dono/admin (`backend/credenciamento/views.py:56-78`). O teste real retornou 404 para diploma e foto, inclusive via `..`/percent-encoding, e 200 para o arquivo público. |
+| 2 — blocker zones | **RESOLVIDO** | Os sites não contêm `proxy_cache`/`limit_req` ativos; só includes com glob opcional (`portal-*.conf:123,137,154,188-189,212`). Os maps, as duas zones e `proxy_cache_path` estão versionados no contexto `http` em `infra/nginx/http-cache.conf:19-35`; os usos correspondentes estão nos três snippets. `nginx -t` passou tanto no modo standalone quanto na ativação completa, provando que a ausência dos arquivos opcionais é válida e que a ordem documentada elimina zones desconhecidas. |
+| 3 — major timeout | **RESOLVIDO** | `backend/gunicorn.conf.py:53-62`, `.github/workflows/deploy.yml:191-195` e todos os locations API dos três Nginx fixam 60 s; a pré-condição para 45 s está documentada no conf, workflow e `infra/DEPLOY.md:231-242`. No HEAD corrente, o 202+background de `c773f9d` já é ancestral de `93b919d`, então a pré-condição está satisfeita; manter 60 s é conservador e não reintroduz o achado. |
+| 4 — major interações/cache | **RESOLVIDO** | `/api/feed/interacoes/` tem location exata com `portal-location-write*.conf` e não inclui cache (`portal-*.conf:150-165`). A regex escolhe a location pela allowlist de URI; dentro dela, `proxy_cache_methods GET HEAD` e `$cache_method_bypass` em bypass/no-cache restringem a operação a GET/HEAD. No teste real, 30 POSTs de teste confirmaram o limite (10 respostas 429 após a janela inicial) e a resposta não teve `X-Cache-Status`. |
+| 5 — minor PM2/cwd | **RESOLVIDO** | O PM2 passa `--config "$APP_DIR/backend/gunicorn.conf.py"` absoluto (`.github/workflows/deploy.yml:186-195`). A reprodução fora do cwd carregou `gthread/2/4/60`; `--chdir` ficou explicitamente só para imports. |
+| 6 — minor keepalive | **RESOLVIDO** | `/healthz`, cadastro e a subtree `/api/auth/` têm `proxy_http_version 1.1` e `Connection ""` nos três sites (`portal-*.conf:111-148`); o parser Nginx aceitou a configuração. |
+| 7 — minor taxas auth | **RESOLVIDO** | Cadastro é location exata com a zone de escrita 20r/m; login e os demais endpoints sensíveis ficam na subtree auth 10r/m (`portal-*.conf:120-148`, snippets de 1–7 linhas). Isso corresponde a `DEFAULT_THROTTLE_RATES` em `backend/config/settings.py:369-374`; o teste real mostrou a janela inicial esperada e 429 nos dois fluxos. |
+
+### Confirmação explícita dos blockers
+
+- **BLOCKER 1 — CONFIRMADO RESOLVIDO:** no caminho Nginx + Django ativo da run, não há rota anônima para documentos privados; a subtree real de uploads é fail-closed e apenas `/media/public/` possui alias.
+- **BLOCKER 2 — CONFIRMADO RESOLVIDO:** não há mais referência ativa a zone inexistente; o conjunto standalone e o conjunto completo de includes passaram em `nginx -t` real no Nginx 1.31.6.
+
+### Observações de escopo
+
+- O `Caddyfile:41-44` da stack Docker alternativa continua servindo `/media/*` sem autenticação. Essa exposição é preexistente, não faz parte do diff de `93b919d` nem da remediação e já havia sido explicitamente excluída na revisão original; o arquivo declara que a VPS ativa usa Nginx. Ela não altera a confirmação do Finding 1 no escopo desta run, mas a stack Caddy não deve ser usada para credenciamento antes de aplicar a mesma separação de storage.
+- Os comentários que descrevem o 202+background como “ainda não commitada” ficaram desatualizados após `c773f9d`; isso não muda o default seguro de 60 s nem o comportamento.
+
+### Novo veredito
+
+**approve**
+
+A re-revisão confirma a resolução independente dos 7/7 findings, incluindo os dois blockers. Não há finding residual de severidade blocker, major ou minor dentro do escopo da run; a ativação deve seguir a ordem versionada global → snippets → sites → `nginx -t` → reload documentada em `infra/DEPLOY.md`. Este veredito substitui o `changes_requested` original para fins de fechamento da iteração 1.
+
+## Veredito original
 
 **changes_requested**
 
