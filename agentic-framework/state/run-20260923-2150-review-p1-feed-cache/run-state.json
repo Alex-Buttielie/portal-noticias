@@ -1,0 +1,27 @@
+{
+ "artifacts": {
+  "code_review_contract": "code-review-contract.md",
+  "implementation_contract": "../run-20260923-1216-p1-feed-cache-indices/implementation-contract.md"
+ },
+ "created_at": "2026-09-23T21:50:00-03:00",
+ "current_phase": "done",
+ "follow_ups": [],
+ "iteration_count": 0,
+ "max_iterations": 3,
+ "phases": {
+  "review": {
+   "agent": "reviewer",
+   "execution_mode": "delegated",
+   "finished_at": "2026-09-23T22:00:00-03:00",
+   "notes": "VEREDITO: approve_with_comments (7 minor/nit, 0 blockers/majors). Spot-check orchestrator: finding 2 falso positivo parcial, finding 1 mitigado. Autorizado deploy com findings como follow-up.",
+   "started_at": "2026-09-23T21:50:00-03:00",
+   "status": "done"
+  }
+ },
+ "requested_by": "humano (Alex) — fluxo de verificação pré-deploy; gatilhos review-triggers.md: schema migration + API pública",
+ "run_id": "20260923-2150-review-p1-feed-cache",
+ "source_spec": null,
+ "status": "closed",
+ "task_title": "Revisão obrigatória P1: feed cache/índices (schema + API pública)",
+ "updated_at": "2026-09-23T22:00:00-03:00"
+}

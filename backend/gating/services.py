@@ -8,12 +8,42 @@ módulo que precise checar se um usuário tem acesso a um recurso deve usar
 
 from __future__ import annotations
 
+from django.conf import settings
+from django.core.cache import cache
 from rest_framework import status
 from rest_framework.exceptions import APIException
 
 from .models import ConfiguracaoSistema, FeatureLimit
 
 _VALORES_VERDADEIROS = {"true", "1", "sim", "yes"}
+
+# Run 20260923-1216-p1-feed-cache-indices (P1-1): chaves do cache curto de
+# configuração (`settings.GATING_CACHE_TTL_SEGUNDOS`). Invalidadas em
+# `invalidar_cache_gating()` (chamado pelos `save()`/`delete()` dos modelos
+# abaixo — cobre admin, Central e testes que escrevem via ORM).
+_CACHE_PREMIUM_ATIVO = "gating:v1:premium_ativo"
+_CACHE_MEUS_RECURSOS = "gating:v1:meus-recursos"
+
+
+def _ttl_gating() -> int:
+    try:
+        return max(1, int(getattr(settings, "GATING_CACHE_TTL_SEGUNDOS", 45)))
+    except (TypeError, ValueError):
+        return 45
+
+
+def invalidar_cache_gating() -> None:
+    """Descarta flag premium + respostas de `MeusRecursosView` (por plano)."""
+    try:
+        cache.delete_many(
+            [
+                _CACHE_PREMIUM_ATIVO,
+                f"{_CACHE_MEUS_RECURSOS}:free",
+                f"{_CACHE_MEUS_RECURSOS}:premium",
+            ]
+        )
+    except Exception:
+        pass
 
 
 def premium_ativo() -> bool:
@@ -22,14 +52,20 @@ def premium_ativo() -> bool:
     Padrão DESLIGADO: premium liberado a todos, assinaturas pausadas.
     Fail-safe: se a tabela ainda não existir (migração pendente), considera
     desligado — nunca limita por falta de configuração.
+
+    Run 20260923-1216-p1-feed-cache-indices (P1-1): cache curto — a flag era
+    lida do banco a cada `has_feature`/`plano_do_usuario` (até ~3N queries em
+    `MeusRecursosView`). Invalidado em cada escrita (`models.save()`/`delete()`).
     """
     try:
-        cfg = ConfiguracaoSistema.objects.filter(pk=1).first()
+        valor = cache.get(_CACHE_PREMIUM_ATIVO)
+        if valor is None:
+            cfg = ConfiguracaoSistema.objects.filter(pk=1).first()
+            valor = bool(cfg.premium_ativo) if cfg is not None else False
+            cache.set(_CACHE_PREMIUM_ATIVO, valor, _ttl_gating())
+        return bool(valor)
     except Exception:
         return False
-    if cfg is None:
-        return False
-    return bool(cfg.premium_ativo)
 
 
 def premium_liberado_geral() -> bool:

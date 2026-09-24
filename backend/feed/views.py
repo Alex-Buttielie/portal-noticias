@@ -6,6 +6,9 @@ from rest_framework.views import APIView
 
 import logging
 
+from django.conf import settings
+from django.core.cache import cache
+
 from . import busca as busca_engine
 from . import microservice_client, recomendacao, services
 from .microservice_client import MicroserviceIndisponivelError
@@ -19,6 +22,30 @@ from .serializers import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _ttl_feed() -> int:
+    """TTL do cache das listagens (`settings.FEED_CACHE_TTL_SEGUNDOS`)."""
+    try:
+        return max(1, int(getattr(settings, "FEED_CACHE_TTL_SEGUNDOS", 45)))
+    except (TypeError, ValueError):
+        return 45
+
+
+def _chave_cache_listagem(request, prefixo: str) -> str:
+    """
+    Chave por querystring normalizada (ordenada) + usuário (pk ou "anon").
+
+    Run 20260923-1216-p1-feed-cache-indices (P1-1): o cache só é correto
+    porque NENHUM payload listado aqui varia por usuário — `exibir_publicidade`
+    saiu do feed (vai via `GET /api/gating/status`). O sufixo de usuário é
+    defesa em profundidade (ex.: seções personalizam por interesses de quem
+    está logado) — tráfego anônimo (dominante) compartilha a chave "anon".
+    """
+    params = sorted((k, v) for k, v in request.query_params.items())
+    base = "&".join(f"{k}={v}" for k, v in params)
+    usuario = getattr(request.user, "pk", None) or "anon"
+    return f"feed:v1:{prefixo}:u{usuario}:{base}"
 
 
 class FeedPagination(PageNumberPagination):
@@ -42,6 +69,13 @@ class FeedListView(APIView):
         categoria = request.query_params.get("categoria") or None
         busca = request.query_params.get("busca") or None
 
+        # P1-1 (run 20260923-1216): cache curto da resposta paginada final
+        # (payload não varia por usuário — sem `exibir_publicidade`).
+        chave = _chave_cache_listagem(request, "lista")
+        em_cache = cache.get(chave)
+        if em_cache is not None:
+            return Response(em_cache)
+
         # Frente D — microserviço primeiro quando ativo; qualquer falha cai
         # silenciosamente para o serviço local (contrato de resposta idêntico:
         # o microserviço usa os mesmos shapes de FeedEntrySerializer).
@@ -53,7 +87,11 @@ class FeedListView(APIView):
                     page=request.query_params.get("page") or 1,
                     page_size=request.query_params.get("page_size") or None,
                 )
-                payload["exibir_publicidade"] = services.exibir_publicidade(request.user)
+                # O microserviço pode ainda espelhar o contrato antigo com a
+                # flag per-user — nunca repassar ao frontend (contrato novo:
+                # ads via `GET /api/gating/status`).
+                payload.pop("exibir_publicidade", None)
+                cache.set(chave, payload, _ttl_feed())
                 return Response(payload)
             except MicroserviceIndisponivelError:
                 logger.warning("Microserviço de ingestão indisponível; usando feed local.", exc_info=True)
@@ -80,7 +118,7 @@ class FeedListView(APIView):
         serializer = FeedEntrySerializer(pagina, many=True)
 
         resposta = paginator.get_paginated_response(serializer.data)
-        resposta.data["exibir_publicidade"] = services.exibir_publicidade(request.user)
+        cache.set(chave, resposta.data, _ttl_feed())
         return resposta
 
 
@@ -98,7 +136,7 @@ class ClusterDetailView(APIView):
                 if detalhe_remoto is None:
                     return Response(status=status.HTTP_404_NOT_FOUND)
                 dados_remotos = dict(detalhe_remoto)
-                dados_remotos["exibir_publicidade"] = services.exibir_publicidade(request.user)
+                dados_remotos.pop("exibir_publicidade", None)
                 return Response(dados_remotos)
             except MicroserviceIndisponivelError:
                 logger.warning(
@@ -113,9 +151,7 @@ class ClusterDetailView(APIView):
             # aprovado).
             return Response(status=status.HTTP_404_NOT_FOUND)
 
-        dados = dict(FeedDetalheSerializer(detalhe).data)
-        dados["exibir_publicidade"] = services.exibir_publicidade(request.user)
-        return Response(dados)
+        return Response(FeedDetalheSerializer(detalhe).data)
 
 
 class ItemDetailView(APIView):
@@ -132,7 +168,7 @@ class ItemDetailView(APIView):
                 if detalhe_remoto is None:
                     return Response(status=status.HTTP_404_NOT_FOUND)
                 dados_remotos = dict(detalhe_remoto)
-                dados_remotos["exibir_publicidade"] = services.exibir_publicidade(request.user)
+                dados_remotos.pop("exibir_publicidade", None)
                 return Response(dados_remotos)
             except MicroserviceIndisponivelError:
                 logger.warning(
@@ -143,28 +179,45 @@ class ItemDetailView(APIView):
         if detalhe is None:
             return Response(status=status.HTTP_404_NOT_FOUND)
 
-        dados = dict(FeedDetalheSerializer(detalhe).data)
-        dados["exibir_publicidade"] = services.exibir_publicidade(request.user)
-        return Response(dados)
+        return Response(FeedDetalheSerializer(detalhe).data)
 
 
 class UrgentesView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request):
-        limite = min(12, max(1, int(request.query_params.get("limite", 6))))
+        try:
+            limite = min(12, max(1, int(request.query_params.get("limite", 6))))
+        except (TypeError, ValueError):
+            limite = 6
+        # P1-1 (run 20260923-1216): cache curto por querystring, como nas
+        # demais listagens (payload não varia por usuário).
+        chave = _chave_cache_listagem(request, "urgentes")
+        em_cache = cache.get(chave)
+        if em_cache is not None:
+            return Response(em_cache)
         # Frente D — microserviço primeiro quando ativo, com fallback
         # silencioso para o serviço local (mesmo shape de FeedEntrySerializer).
         if microservice_client.servico_ativo():
             try:
-                return Response(microservice_client.obter_urgentes(limite=limite))
+                dados_remotos = microservice_client.obter_urgentes(limite=limite)
+                # O microserviço pode ainda espelhar o contrato antigo com a
+                # flag per-user — nunca repassar ao frontend (contrato novo:
+                # ads via `GET /api/gating/status`).
+                for entrada in dados_remotos:
+                    if isinstance(entrada, dict):
+                        entrada.pop("exibir_publicidade", None)
+                cache.set(chave, dados_remotos, _ttl_feed())
+                return Response(dados_remotos)
             except MicroserviceIndisponivelError:
                 logger.warning(
                     "Microserviço de ingestão indisponível; usando urgentes locais.",
                     exc_info=True,
                 )
         entradas = services.urgentes(limite=limite)
-        return Response(FeedEntrySerializer(entradas, many=True).data)
+        dados = FeedEntrySerializer(entradas, many=True).data
+        cache.set(chave, dados, _ttl_feed())
+        return Response(dados)
 
 
 class MaisLidasView(APIView):
@@ -172,8 +225,14 @@ class MaisLidasView(APIView):
 
     def get(self, request):
         limite = min(12, max(1, int(request.query_params.get("limite", 5))))
+        chave = _chave_cache_listagem(request, "mais-lidas")
+        em_cache = cache.get(chave)
+        if em_cache is not None:
+            return Response(em_cache)
         entradas = services.mais_lidas(limite=limite)
-        return Response(FeedEntrySerializer(entradas, many=True).data)
+        dados = FeedEntrySerializer(entradas, many=True).data
+        cache.set(chave, dados, _ttl_feed())
+        return Response(dados)
 
 
 # ---------------------------------------------------------------------------
@@ -213,11 +272,15 @@ class HomeSecoesView(APIView):
             limite = min(10, max(1, int(request.query_params.get("limite", 6))))
         except (TypeError, ValueError):
             limite = 6
+        chave = _chave_cache_listagem(request, "home")
+        em_cache = cache.get(chave)
+        if em_cache is not None:
+            return Response(em_cache)
         itens = list(services.itens_publicaveis())
         entradas = services.construir_feed_entries(itens)
         secoes = recomendacao.montar_home(entradas, interesses=interesses, regiao=regiao, limite_secao=limite)
         dados = {nome: SecaoHomeSerializer(lista, many=True).data for nome, lista in secoes.items()}
-        dados["exibir_publicidade"] = services.exibir_publicidade(request.user)
+        cache.set(chave, dados, _ttl_feed())
         return Response(dados)
 
 
@@ -232,10 +295,16 @@ class DestaquesDiaView(APIView):
             limite = min(10, max(1, int(request.query_params.get("limite", 5))))
         except (TypeError, ValueError):
             limite = 5
+        chave = _chave_cache_listagem(request, "destaques")
+        em_cache = cache.get(chave)
+        if em_cache is not None:
+            return Response(em_cache)
         itens = list(services.itens_publicaveis())
         entradas = services.construir_feed_entries(itens)
         destaques = recomendacao.destaques_do_dia(entradas, regiao=regiao, limite=limite)
-        return Response(SecaoHomeSerializer(destaques, many=True).data)
+        dados = SecaoHomeSerializer(destaques, many=True).data
+        cache.set(chave, dados, _ttl_feed())
+        return Response(dados)
 
 
 class BuscaView(APIView):
@@ -312,9 +381,7 @@ class CoberturaCompletaView(APIView):
         cobertura = recomendacao.cobertura_completa(tipo, entrada_id)
         if cobertura is None:
             return Response(status=status.HTTP_404_NOT_FOUND)
-        dados = dict(CoberturaCompletaSerializer(cobertura).data)
-        dados["exibir_publicidade"] = services.exibir_publicidade(request.user)
-        return Response(dados)
+        return Response(CoberturaCompletaSerializer(cobertura).data)
 
 
 class InteracaoView(APIView):

@@ -268,9 +268,10 @@ class TestCustoEstimadoUsd:
         assert all(r.tokens_utilizados is None for r in resultados)
         assert all(r.custo_estimado_usd is None for r in resultados)
 
-    @override_settings(CATALOGO_NOTICIAS_LLM_PRECO_USD_POR_1K_TOKENS=0.15)
     def test_preco_configuravel_via_env_var_muda_o_custo_calculado_sem_alterar_codigo(self):
         """Mesmo padrao de configurabilidade ja usado pelas demais settings CATALOGO_NOTICIAS_LLM_*."""
+        # Default corrigido (run 20260923-0943-p0-correcoes-criticas, P0-1):
+        # preco blended do gpt-4o-mini ~= $0.0003/1k tokens, nao 0.15.
         provider_preco_padrao = LLMHttpSummarizationProvider(api_key="chave-de-teste")
         conteudo = json.dumps({"resumo": "Resumo autoral.", "categoria": "geral", "urgente": False})
 
@@ -280,7 +281,17 @@ class TestCustoEstimadoUsd:
         ):
             resultado_preco_padrao = provider_preco_padrao.resumir_e_classificar([_item("Noticia unica")])
 
-        assert resultado_preco_padrao.custo_estimado_usd == pytest.approx(0.15)
+        assert resultado_preco_padrao.custo_estimado_usd == pytest.approx(0.0003)
+
+        # Criterio de aceite 2 do contrato: 10000 tokens ao preco default
+        # custam 10 x 0.0003 = 0.003 USD (antes da correcao: 1.5).
+        with patch(
+            "catalogo_noticias.providers.summarization.requests.post",
+            return_value=_resposta_chat_completions(conteudo, total_tokens=10000),
+        ):
+            resultado_10k = provider_preco_padrao.resumir_e_classificar([_item("Noticia unica")])
+
+        assert resultado_10k.custo_estimado_usd == pytest.approx(0.003)
 
         with override_settings(CATALOGO_NOTICIAS_LLM_PRECO_USD_POR_1K_TOKENS=1.0):
             provider_preco_alterado = LLMHttpSummarizationProvider(api_key="chave-de-teste")

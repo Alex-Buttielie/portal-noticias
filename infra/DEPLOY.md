@@ -139,6 +139,11 @@ afetados; `db`/`redis` (com dados persistidos em volume) não são recriados.
 Ver `.github/workflows/ci.yml` — a suíte de testes roda automaticamente a
 cada push, então um `git pull` só deve acontecer depois de o CI passar.
 
+> **Janela fria para o `migrate`:** a migração `0011_newsitem_busca_trgm` cria
+> um índice GIN (não-CONCURRENTLY) sobre `catalogo_noticias_newsitem` e
+> bloqueia escrita na tabela durante a construção. Rode o deploy/migrate em
+> horário de baixo tráfego.
+
 ## Ambiente de homologação (multi-env)
 
 Ideia incorporada do protótipo `testes-ia` (que tinha DEV/HOMOLOG/PROD via

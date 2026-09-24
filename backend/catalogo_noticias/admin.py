@@ -41,6 +41,16 @@ class NewsClusterAdmin(admin.ModelAdmin):
     def numero_fontes_distintas_admin(self, obj):
         return obj.numero_fontes_distintas
 
+    def save_related(self, request, form, formsets, change):
+        # O inline de NewsItem pode associar/desassociar itens ao cluster
+        # fora do pipeline de ingestão — recalcula a coluna denormalizada
+        # (run 20260923-1216-p1-feed-cache-indices, P1-1) após salvar.
+        super().save_related(request, form, formsets, change)
+        try:
+            form.instance.recalcular_numero_fontes()
+        except Exception:
+            pass
+
 
 @admin.register(NewsItem)
 class NewsItemAdmin(admin.ModelAdmin):

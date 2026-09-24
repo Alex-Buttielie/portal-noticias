@@ -402,7 +402,7 @@ export default function Page() {
                     </div>
                     <div className="grid gap-3 md:grid-cols-2">
                       <div className="space-y-1"><Label>Teto gasto diário USD</Label><Input type="number" step={0.1} value={cfg.llm_teto_gasto_diario_usd} onChange={(e) => setCfgField("llm_teto_gasto_diario_usd", Number(e.target.value))} /><p className="text-xs text-[var(--cor-texto-suave)]">Trava de custo — se atingir, pausa resumos no dia.</p></div>
-                      <div className="space-y-1"><Label>Preço por 1 mil trechos (USD)</Label><Input type="number" step={0.01} value={cfg.llm_preco_por_1k_tokens} onChange={(e) => setCfgField("llm_preco_por_1k_tokens", Number(e.target.value))} /><p className="text-xs text-[var(--cor-texto-suave)]">Para calcular custo estimado. Ex: 0.15.</p></div>
+                      <div className="space-y-1"><Label>Preço por 1 mil trechos (USD)</Label><Input type="number" step={0.01} value={cfg.llm_preco_por_1k_tokens} onChange={(e) => setCfgField("llm_preco_por_1k_tokens", Number(e.target.value))} /><p className="text-xs text-[var(--cor-texto-suave)]">Para calcular custo estimado. Ex: 0.0003.</p></div>
                     </div>
                     <Button onClick={salvarCfg} disabled={savingC || !dirty || !!cfgInvalido} className="min-h-[44px] w-full bg-[var(--cor-primaria)] text-[var(--cor-texto-invertido)] md:w-auto">{savingC ? "Salvando..." : "Salvar configuração"}</Button>
                   </div>

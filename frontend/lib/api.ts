@@ -270,7 +270,8 @@ export interface FeedResposta {
   next: string | null;
   previous: string | null;
   results: FeedEntrada[];
-  exibir_publicidade: boolean;
+  // Publicidade: NÃO vem mais do feed (run 20260923-1216-p1-feed-cache-indices).
+  // Usar `obterStatusSistema()` (`GET /api/gating/status`, ver lib/premium.ts).
 }
 
 export function obterFeed(params: {
@@ -321,7 +322,8 @@ export interface FeedDetalhe {
   estado?: string;
   cidade?: string;
   fontes: FonteDetalhe[];
-  exibir_publicidade: boolean;
+  // Publicidade: NÃO vem mais do feed (run 20260923-1216-p1-feed-cache-indices).
+  // Usar `obterStatusSistema()` (`GET /api/gating/status`, ver lib/premium.ts).
 }
 
 export function obterDetalheCluster(id: number | string): Promise<FeedDetalhe> {
@@ -349,7 +351,8 @@ export type NomeSecaoHome = "manchetes" | "curadoria" | "para_voce" | "populares
 export type SecoesHome = Record<NomeSecaoHome, EntradaRanqueda[]>;
 
 export interface HomeSecoesResposta extends SecoesHome {
-  exibir_publicidade: boolean;
+  // Publicidade: NÃO vem mais do feed (run 20260923-1216-p1-feed-cache-indices).
+  // Usar `obterStatusSistema()` (`GET /api/gating/status`, ver lib/premium.ts).
 }
 
 export function obterHomeSecoes(params: {

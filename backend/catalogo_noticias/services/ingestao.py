@@ -328,6 +328,9 @@ def _persistir_grupo(
         cluster = NewsCluster.objects.create(
             titulo_acontecimento=grupo[0].titulo,
             categoria_dominante=primeira_categoria,
+            # P1-1 (run 20260923-1216): coluna denormalizada gravada já na
+            # criação — o caminho quente do feed lê o campo sem COUNT.
+            numero_fontes_distintas=numero_fontes_distintas,
         )
 
     itens_criados = []
@@ -520,7 +523,14 @@ def _persistir_grupo_mesclado(
     # publicados automaticamente (o proprio problema que o Finding 3 aponta).
     # Comportamento preservado da 2a passada — ver nota sobre AC-7 acima de
     # `_persistir_grupo` para o porque este criterio NAO virou incondicional.
-    numero_fontes_distintas = cluster.numero_fontes_distintas
+    #
+    # P1-1 (run 20260923-1216): a contagem denormalizada e atualizada aqui
+    # (único ponto de mesclagem/movimentação de itens entre clusters) a
+    # partir do estado real do banco — cobre promoção de standalone,
+    # crescimento do canônico e fusão de clusters não-canônicos. Usa o
+    # método canônico do modelo (mesma lógica do backfill da migração) para
+    # as duas implementações nunca divergirem.
+    numero_fontes_distintas = cluster.recalcular_numero_fontes()
     if _eh_alta_relevancia(categoria_grupo or cluster.categoria_dominante, numero_fontes_distintas):
         atualizados = cluster.itens.exclude(
             status_revisao__in=[NewsItem.STATUS_APROVADO, NewsItem.STATUS_REJEITADO]

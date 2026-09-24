@@ -91,6 +91,7 @@ Detalhes de payload de cada endpoint podem ser consultados diretamente no códig
 | Método | Endpoint | O que faz |
 |---|---|---|
 | `GET` | `/api/gating/meus-recursos/` | Matriz de recursos/limites Free x Premium: para cada recurso configurado, mostra o valor aplicável ao plano do usuário e se ele está disponível. Funciona sem login (tratado como plano Free). |
+| `GET` | `/api/gating/status/` | Flag `premium_ativo` (público, sem login). É a fonte consumida pelo frontend para decidir exibição de publicidade — os payloads do feed não expõem mais `exibir_publicidade`. Resposta com cache curto (`GATING_CACHE_TTL_SEGUNDOS`, padrão 45s). |
 
 ### Endpoints disponíveis (módulo `assinatura`)
 
@@ -213,10 +214,12 @@ Depois de uma execução, o campo "Chamadas summarization provider" de cada `Reg
 
 Cada chamada ao provedor de resumo tem seu custo estimado a partir dos tokens efetivamente consumidos, multiplicados por um preço configurável em `backend/.env`:
 
-- `CATALOGO_NOTICIAS_LLM_PRECO_USD_POR_1K_TOKENS` (padrão `0.15`): estimativa de custo em dólares por 1000 tokens (entrada + saída somados). É uma estimativa — não a tabela de preços exata de nenhum provedor específico. Ajuste esse valor para refletir o preço real do provedor de LLM escolhido.
+- `CATALOGO_NOTICIAS_LLM_PRECO_USD_POR_1K_TOKENS` (padrão `0.0003`): estimativa de custo em dólares por 1000 tokens (entrada + saída somados). É uma estimativa — não a tabela de preços exata de nenhum provedor específico. O padrão é o preço blended conservador do `gpt-4o-mini` (entrada $0.15/1M + saída $0.60/1M; um lote típico de 10 itens ≈ 5000 tokens de entrada + 2200 de saída ≈ $0.00029/1k, arredondado para cima). Com esse padrão, o teto de $5/dia cobre cerca de 16 milhões de tokens por dia. Ajuste esse valor para refletir o preço real do provedor de LLM escolhido.
 - `CATALOGO_NOTICIAS_LLM_TETO_GASTO_DIARIO_USD` (padrão `5.0`): teto de gasto diário, em dólares. Assim que o gasto estimado acumulado do dia corrente atinge esse valor, a ingestão **para de chamar o provedor de LLM** pelo restante do dia — as notícias continuam sendo buscadas e ingeridas normalmente, só sem resumo automático: caem na mesma fila de revisão humana do admin usada quando o resumo automático falha por outro motivo (`status_revisao=pendente`). Nenhuma notícia é descartada ou trava a ingestão por causa do teto.
 
 O gasto acumulado do dia (e se o teto já foi atingido) pode ser consultado sem precisar olhar o banco diretamente, no painel de métricas (`GET /api/metricas/painel/`, autenticado como admin): os campos `custo_llm_hoje_usd`, `teto_llm_diario_usd` e `teto_llm_excedido_hoje` mostram, respectivamente, o gasto estimado já feito hoje, o teto configurado e se ele já foi ultrapassado.
+
+> **Nota operacional:** instalações que já têm uma linha `ConfiguracaoRobo` persistida no banco mantêm o valor antigo de `llm_preco_por_1k_tokens` (`0.15`) até ajuste manual via tela admin de robôs — o default novo (`0.0003`) só vale para instalações sem override no banco.
 
 ## Como rodar o frontend
 

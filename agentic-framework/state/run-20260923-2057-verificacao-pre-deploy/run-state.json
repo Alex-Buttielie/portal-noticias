@@ -1,0 +1,27 @@
+{
+ "artifacts": {
+  "implementation_contract": "../run-20260923-1216-p1-feed-cache-indices/implementation-contract.md",
+  "report": "report.md"
+ },
+ "created_at": "2026-09-23T20:57:00-03:00",
+ "current_phase": "done",
+ "follow_ups": [],
+ "iteration_count": 0,
+ "max_iterations": 3,
+ "phases": {
+  "testing": {
+   "agent": "tester",
+   "execution_mode": "delegated",
+   "finished_at": "2026-09-23T21:00:00-03:00",
+   "notes": "VEREDITO: passed 8/8. Suite: 431 passed, cobertura 87.74% (gate 80 OK). 0 testes adicionados (18 P1 já cobriam).",
+   "started_at": "2026-09-23T20:57:00-03:00",
+   "status": "done"
+  }
+ },
+ "requested_by": "humano (Alex) — pedido: validar se há algo a commitar/levar a produção, validar funcionamento e levar até prod, validar ambientes dev/homol/prod",
+ "run_id": "20260923-2057-verificacao-pre-deploy",
+ "source_spec": null,
+ "status": "closed",
+ "task_title": "Verificação pré-deploy: P1 feed cache/índices + P0 preço LLM/ISR",
+ "updated_at": "2026-09-23T22:00:00-03:00"
+}

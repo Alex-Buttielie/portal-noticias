@@ -40,7 +40,7 @@ Cada spec detalha os campos necessários ao seu escopo; aqui só as entidades qu
 - **Subscription** — id, user_id, plano, status (`teste`\|`ativa`\|`pagamento_pendente`\|`inadimplente`\|`cancelada`\|`expirada`\|`encerrada`), início, vencimento, gateway_reference (id externo opaco).
 - **Plan** — id, nome, preço, periodicidade, ativo, parametrizado via admin (sem alteração de código, conforme seção 6 do BRD).
 - **NewsItem** — id, título, resumo próprio, fonte(s) de origem, url original, categoria(s), timestamp, cluster_id (agrupamento de cobertura do mesmo acontecimento), flag urgente/normal, status de revisão humana.
-- **NewsCluster** — id, acontecimento, lista de NewsItem relacionados, categoria dominante.
+- **NewsCluster** — id, acontecimento, lista de NewsItem relacionados, categoria dominante, `numero_fontes_distintas` (coluna denormalizada, mantida pela ingestão/admin; evita COUNT por cluster no caminho quente do feed).
 - **FeatureLimit** — chave, valor, plano aplicável — parametrização dos limites Free/Premium (seção 7 do BRD) via admin, sem deploy.
 
 ## 4. Papéis e permissões (RBAC deste recorte)
@@ -147,3 +147,13 @@ quando reconsiderar:
 - **Multi-tenancy do B2B via FK + checagem em `services.py`, não
   schema-per-tenant:** revisitar se um cliente B2B Enterprise exigir
   isolamento de dado mais forte que RBAC por organização.
+
+## 10. Análise de custo e performance (2026-09-22)
+
+Ver `ANALISE_CUSTO_PERFORMANCE.md` (raiz do repo): revisão completa do
+projeto visando menor custo e mais performance, com achados verificados
+no código (ex.: estimativa de custo de LLM ~1000x acima do preço real,
+backup diário quebrado na topologia PM2 ativa, feed sem cache com N+1,
+`headers()` no root layout anulando o ISR) e plano de ação priorizado
+(P0/P1/P2). Este documento (`ARCHITECTURE.md`) continua sendo a
+referência de stack/módulos; a análise é o backlog vivo de otimizações.
