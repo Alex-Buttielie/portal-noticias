@@ -13,6 +13,34 @@ Este repositório contém a documentação de negócio (`BRD_portal_noticias_ver
 - **Agentes disponíveis (Claude Code):** `.claude/agents/` (`orchestrator`, `executor`, `tester`, `reviewer`, `remediator`, `documenter`, `historian`).
 - **Fluxos de trabalho (skills):** `.claude/skills/` (`agentic-run`, `agentic-review`, `agentic-verify`).
 
+## Deploy e infraestrutura
+
+A topologia VPS ativa usa **Gunicorn + PM2 + Nginx**; os runbooks são
+`CI-CD.md` e `infra/DEPLOY.md`. O backup da topologia ativa usa
+`infra/backup/pg_backup_pm2.sh`; a seção 0 do runbook de infraestrutura cobre
+cron, S3 e restore, enquanto `infra/backup/pg_backup.sh` é exclusivo da variante
+Docker/Caddy. O Gunicorn usa uma configuração única em
+`backend/gunicorn.conf.py`: `worker_class = gthread`, 2 workers × 4 threads e
+`timeout = 60` por padrão (ajustáveis por `GUNICORN_*`). O PM2 passa o caminho
+absoluto desse arquivo em `--config`, e o timeout pode ser reduzido para 45 s
+somente depois que o endpoint 202+background estiver no ref implantado,
+alterando Gunicorn e Nginx na mesma mudança.
+
+O Nginx comprime respostas, mantém conexões com o upstream, limita escritas
+públicas e usa cache curto de rotas GET públicas. `/static/` e somente
+`/media/public/` são servidos diretamente; documentos em
+`/media/credenciamento/` **não** têm alias público e continuam disponíveis
+somente pela `DocumentoView` autenticada. A ativação dos includes de
+cache/rate na VPS segue a ordem include global no `http {}` → snippets/site →
+`nginx -t` → reload → restart da API no PM2. A topologia Docker/Caddy é
+alternativa: antes de habilitar credenciamento, ela precisa da mesma
+separação de storage aplicada ao Nginx (veja o aviso de segurança em
+`infra/DEPLOY.md`).
+
+**TLS:** os confs Nginx já suportam HTTPS via Certbot, mas a ativação exige
+seguir o runbook em `infra/DEPLOY.md`; produção hoje continua em HTTP até o
+certificado ser emitido e `tls_enabled` ser habilitado.
+
 ## Inicialização rápida (Windows/PowerShell)
 
 ```
@@ -116,10 +144,10 @@ Detalhes de payload de cada endpoint podem ser consultados diretamente no códig
 
 | Método | Endpoint | O que faz |
 |---|---|---|
-| `GET`/`POST` | `/api/comunidade/publicacoes/` | Lista publicações já publicadas (filtros `destaque`, `autor`), público. Criar (`POST`) exige login e ser jornalista credenciado — cria um rascunho. |
+| `GET`/`POST` | `/api/comunidade/publicacoes/` | Lista publicações já publicadas (filtros `destaque`, `autor`), público. Criar (`POST`) exige login e ser jornalista credenciado — cria um rascunho. A listagem aceita `page`/`page_size` (padrão 20, máximo 100) e, quando explicitamente paginada, retorna o envelope `count`/`next`/`previous`/`results`. |
 | `GET`/`PATCH` | `/api/comunidade/publicacoes/<id>/` | Detalhe de uma publicação (rascunho só visível ao próprio autor) / edição do conteúdo pelo autor. |
 | `POST` | `/api/comunidade/publicacoes/<id>/enviar/` | O autor envia o próprio rascunho para publicação. |
-| `GET`/`POST` | `/api/comunidade/comentarios/` | Lista comentários de uma publicação ou notícia (filtros `publicacao`, `news_item`), público. Criar exige login; suporta resposta a outro comentário. |
+| `GET`/`POST` | `/api/comunidade/comentarios/` | Lista comentários de uma publicação ou notícia (filtros `publicacao`, `news_item`), público. Criar exige login; suporta resposta a outro comentário. A paginação explícita usa os mesmos limites (`page`/`page_size`, padrão 20, máximo 100) e o envelope paginado. |
 | `POST`/`DELETE` | `/api/comunidade/autores/<id>/seguir/` | Segue/deixa de seguir um autor (exige login). |
 | `GET` | `/api/comunidade/autores/<id>/perfil/` | Perfil público de um autor: se é jornalista credenciado, número de seguidores e suas publicações. |
 | `POST` | `/api/comunidade/denunciar/` | Denuncia um comentário ou publicação (exige login). |
@@ -177,6 +205,8 @@ Em todos os endpoints de `b2b`, a organização é sempre determinada a partir d
 
 ## Como popular o feed com notícias reais (ingestão)
 
+A ingestão consulta cada fonte RSS de forma incremental: quando há `ETag`/`Last-Modified` válidos, envia `If-None-Match`/`If-Modified-Since` e trata um `304` sem baixar nem parsear o XML. Os validators só são confirmados depois que o lote foi persistido com segurança; periodicamente a fonte é revalidada sem headers para recuperar o acervo caso o `304` não reflita o estado local. Isso reduz banda e tempo de ingestão sem transformar o validator em prova de completude do acervo.
+
 O pipeline de ingestão (`backend/catalogo_noticias/`) busca notícias de verdade nos feeds RSS configurados em `settings.CATALOGO_NOTICIAS_FONTES_RSS` (G1, UOL, CNN Brasil, Folha — `config/settings.py`), deduplica/agrupa acontecimentos cobertos por várias fontes, gera um resumo próprio via `SummarizationProvider` e classifica categoria/urgência.
 
 1. Com o backend configurado (`.env` + `migrate` já feitos), rode uma execução manual do pipeline a qualquer momento, sem precisar de Celery/Redis:
@@ -191,7 +221,7 @@ O pipeline de ingestão (`backend/catalogo_noticias/`) busca notícias de verdad
 2. **Sem uma `CATALOGO_NOTICIAS_LLM_API_KEY` real configurada em `backend/.env`**, os itens são ingeridos normalmente (título, URL, fonte, conteúdo bruto — tudo real), mas como o resumo automático falha, todo item novo cai em `status_revisao=pendente` e **não aparece no feed público** (`/api/feed/`) — só na fila de revisão do admin (`http://localhost:8000/admin/catalogo_noticias/newsitem/`, filtro "Status revisão = Pendente"). Para validar o fluxo completo (resumo automático + classificação + publicação direta de itens de baixa relevância), é preciso uma chave de API real de um provedor compatível com o formato "Chat Completions" (OpenAI, Groq, OpenRouter, Azure OpenAI, um modelo local via Ollama/vLLM em modo compatível, etc. — `CATALOGO_NOTICIAS_LLM_API_BASE_URL`/`_MODEL` também são configuráveis). Preencha `CATALOGO_NOTICIAS_LLM_API_KEY` em `backend/.env` e rode o comando de novo.
 3. Enquanto isso, dá para validar o resto do sistema sem a chave de LLM: aprove manualmente alguns itens da fila do admin (ação em massa "Marcar selecionados como aprovado") para vê-los aparecer no feed público mesmo sem resumo automático.
 4. Rodar de novo o mesmo comando é seguro (idempotente) — URLs já ingeridas não são reprocessadas; só notícias novas publicadas pelas fontes desde a última execução entram.
-5. Em produção (ou se quiser automatizar localmente), a mesma lógica roda periodicamente via Celery Beat (`CELERY_BEAT_SCHEDULE` em `config/settings.py`, intervalo em `CATALOGO_NOTICIAS_INTERVALO_INGESTAO_MINUTOS`) — exige um Redis local rodando (`CELERY_BROKER_URL`/`CELERY_RESULT_BACKEND` em `.env`):
+5. Em produção (ou se quiser automatizar localmente), a mesma lógica roda periodicamente via Celery Beat (`CELERY_BEAT_SCHEDULE` em `config/settings.py`, intervalo em `CATALOGO_NOTICIAS_INTERVALO_INGESTAO_MINUTOS`) — exige um Redis local rodando (`CELERY_BROKER_URL`/`CELERY_RESULT_BACKEND` em `.env`). A task de ingestão e a task de registro de `EventoBusca` são configuradas por task para reentrega segura; as demais tasks com efeitos externos mantêm o comportamento padrão.
 
    ```
    cd backend
@@ -220,6 +250,12 @@ Cada chamada ao provedor de resumo tem seu custo estimado a partir dos tokens ef
 O gasto acumulado do dia (e se o teto já foi atingido) pode ser consultado sem precisar olhar o banco diretamente, no painel de métricas (`GET /api/metricas/painel/`, autenticado como admin): os campos `custo_llm_hoje_usd`, `teto_llm_diario_usd` e `teto_llm_excedido_hoje` mostram, respectivamente, o gasto estimado já feito hoje, o teto configurado e se ele já foi ultrapassado.
 
 > **Nota operacional:** instalações que já têm uma linha `ConfiguracaoRobo` persistida no banco mantêm o valor antigo de `llm_preco_por_1k_tokens` (`0.15`) até ajuste manual via tela admin de robôs — o default novo (`0.0003`) só vale para instalações sem override no banco.
+
+### Eventos de busca e rate limiting
+
+A busca pública responde sem inserir `EventoBusca` no request: `registrar_busca` despacha `feed.tasks.registrar_evento_busca` com payload JSON primitivo, preservando consulta, resultados, filtros, usuário, sessão e `request_id`. O `EventoBusca` é persistido no worker; quando há `request_id`, a task é idempotente para não duplicar a métrica em uma reentrega. A falha de enfileiramento é apenas registrada (métrica best-effort), sem criar uma escrita síncrona no caminho de leitura.
+
+O rate limiting continua aplicado somente às escritas públicas anônimas e usa o cache Redis; essa seção não limita os GETs de leitura. Assim, a resposta de busca não espera por broker nem por uma escrita de métrica, enquanto a proteção contra abuso permanece no mesmo ponto documentado abaixo.
 
 ## Como rodar o frontend
 
@@ -291,7 +327,8 @@ O frontend gera metadata, dados estruturados e os arquivos técnicos que buscado
 > **A política de privacidade (`/privacidade/politica`) é um rascunho funcional, não uma peça jurídica validada.** O aviso está escrito na própria página. Não trate esse texto como definitivo antes de uma revisão jurídica real.
 
 - **Banner de consentimento** (`frontend/components/BannerConsentimentoCookies.tsx`): aparece para qualquer visitante sem escolha registrada, com três opções — "Aceitar todos", "Recusar não essenciais" e "Gerenciar preferências" (painel com um toggle por categoria; a categoria "essenciais" é sempre ativa e não pode ser desligada). A escolha fica salva em `localStorage` e vale para as próximas visitas — o banner não reaparece depois de uma resposta.
-- **Nenhum cookie não essencial antes do consentimento:** qualquer script de analytics ou personalização deve checar `permiteCategoria("analytics")`/`permiteCategoria("personalizacao")` (`frontend/lib/cookie-consent.ts`) antes de inicializar. Por padrão, sem resposta registrada, `permiteCategoria` retorna `false` (nega por padrão) — essa é a regra a seguir sempre que um script de terceiros for adicionado no futuro (nenhum script desse tipo existe no projeto hoje).
+- **Nenhum cookie não essencial antes do consentimento:** qualquer script de analytics ou personalização deve checar `permiteCategoria("analytics")`/`permiteCategoria("personalizacao")` (`frontend/lib/cookie-consent.ts`) antes de inicializar. Por padrão, sem resposta registrada, `permiteCategoria` retorna `false` (nega por padrão) — essa é a regra a seguir sempre que um script de terceiros for adicionado no futuro.
+- **AdSense/publicidade:** o script do Google AdSense só é carregado após consentimento em `personalizacao`; o componente reage a mudanças de preferência e usa `lazyOnload`, enquanto os slots permanecem placeholders antes da autorização.
 
   ```ts
   import { permiteCategoria } from "@/lib/cookie-consent";
@@ -320,6 +357,12 @@ Os endpoints públicos de escrita mais expostos a abuso automatizado (`POST /api
 ## Design system
 
 Os componentes de interface do projeto usam **Tailwind CSS 3.4.17 + shadcn/ui v4 (Radix)** sobre os tokens CSS existentes (`frontend/app/globals.css` com `@tailwind` + `@layer base`; `frontend/tailwind.config.ts` espelhando `--cor-*`/`--espaco-*`/`--raio-*`/`--sombra-*`/`--z-*`; `frontend/lib/utils.ts` helper `cn`), consistente com o padrão já usado em `ThemeToggle.tsx`/`CartaoEsqueleto.tsx` — antes desta run (20260915-2142) eram CSS puro sem Tailwind.
+
+### Datas e horas (`frontend/lib/datas.ts`)
+
+Datas e horas devem ser formatadas pelo helper central, com locale `pt-BR` e fuso fixo `America/Sao_Paulo`;
+isso evita hydration mismatch entre SSR e navegador. Novos componentes devem reutilizar os formatadores do helper, em vez de chamar `toLocale*` diretamente.
+O check manual `frontend/scripts/verificar-datas-tz.mjs` imprime uma saída comparável em diferentes `TZ` (executado com Node 24 e `--experimental-strip-types`).
 
 ### Tokens (`frontend/app/globals.css`)
 

@@ -2,8 +2,9 @@
 
 > Gravado a pedido do Alex em 2026-09-17. Regra: **se precisar de qualquer
 > informação externa (chaves, contas, provedor, revisão), PERGUNTAR ao Alex
-> em vez de adivinhar.** Infra decidida: `infra/DEPLOY.md` (Docker + Caddy),
-> validada localmente (compose config, builds, up, healthz, feed, superuser).
+> em vez de adivinhar.** Infra ativa: **PM2 + Nginx** na VPS, conforme
+> `CI-CD.md` e `infra/nginx/`; Docker + Caddy é a variante alternativa/local
+> documentada em `infra/DEPLOY.md`.
 
 ## Ordem de execução
 
@@ -49,6 +50,52 @@
 - Categorias com subcategorias fixas + vivas das notícias (`lib/categorias.ts`),
   menu Editorias no Header (desktop/mobile), editorias e categoria com tópicos,
   footer "Desenvolvido por ButtielieDev", ritmo de espaçamento normalizado.
+
+## Decisões desta execução (2026-09-24)
+
+6. **TLS na topologia ativa (P0-3)** — preparação versionada, ativação humana
+   pendente. O Nginx da VPS usa **Certbot/Let's Encrypt na origem** com
+   `certonly --webroot`; não foi escolhido Cloudflare Origin CA. A escolha é
+   deliberada: o certificado da origem continua válido com ou sem Cloudflare,
+   é o padrão Debian/Ubuntu e tem renovação por timer. Os três sites foram
+   preparados com HTTP → 301, `listen 443 ssl`, ACME HTTP-01 e exceções para
+   o health check interno. O domínio não foi inventado: os arquivos usam
+   marcadores `__DOMAIN_FRONTEND__`/`__DOMAIN_FRONTEND_WWW__` e o operador
+   precisa renderizá-los na VPS. Cloudflare (CDN/WAF/DDoS/Brotli) continua
+   opcional, exige conta e deve ser medido após a ativação; esta run não mede
+   nem promete ganho. Status: **repo pronto; certbot, DNS, `nginx -t`, reload,
+   `.env` e `tls_enabled=true` aguardam operador**.
+
+7. **`ingestao-service/` — recomendação de não ativar agora** — o diretório
+   continua desligado (`MICROSERVICO_INGESTAO_URL` vazio) e não será apagado
+   nesta run. A comparação honesta é:
+   - **Pipeline Django (fonte de verdade atual):** já roda em produção/Celery,
+     busca RSS paralela com `ETag`/`Last-Modified`, idempotência por URL,
+     janela de deduplicação, `bulk_create`, snapshot/cache da configuração,
+     curadoria e proteção de cópia, integração direta com Postgres, feed e
+     painel administrativo. A suíte Django roda no CI.
+   - **Microserviço:** oferece isolamento de processo/dados, API FastAPI com
+     token, CRUD/sincronização de fontes, Swagger e um painel HTML próprio em
+     `/painel`; o painel é um diferencial real de operação. O alias raiz
+     `/painel` é servido sem autentização no código atual, enquanto a rota
+     `/api/v1/painel` exige token — outro motivo para não expor o serviço
+     como está. Em troca,
+     duplica regras de pipeline, mantém LLM/batch/dedup/curadoria em outra
+     base, não tem o mesmo cache/ETag/`bulk_create` do Django, e seus testes
+     não são um gate do workflow principal.
+   - **Riscos operacionais:** duas fontes de verdade e contratos de feed,
+     MongoDB adicional, mais um serviço para observar/backupar; o compose
+     publica `27017:27017` (interface `0.0.0.0` no host), o que cria uma
+     superfície de ataque desnecessária. O default `LLM_PRECO_1K=0.15` também
+     está desatualizado em relação ao pipeline Django, sem medição que
+     justifique a duplicação.
+   - **Recomendação:** manter `MICROSERVICO_INGESTAO_URL` vazio, não promover
+     o microserviço a produção e não apagar o diretório sem decisão humana.
+     Se o painel for necessário, levar essa capacidade para o admin Django ou
+     criar uma run de experimentação com CI, bind privado do Mongo, plano de
+     migração de dados, benchmark de custo/latência e critério claro de
+     fonte da verdade. Status: **recomendação técnica; decisão do humano
+     pendente**.
 
 ## Registro de conclusões
 

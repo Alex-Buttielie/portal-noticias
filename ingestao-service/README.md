@@ -4,6 +4,16 @@ Microserviço **independente** do portal (`backend/` não é importado nem
 dependido aqui). Stack: FastAPI + uvicorn, pymongo (MongoDB 7 via compose),
 feedparser, requests, pydantic v2, pytest + httpx.
 
+> **Status operacional (2026-09-24):** serviço desligado por padrão. O portal
+> opera com o pipeline Django/Postgres em produção e
+> `MICROSERVICO_INGESTAO_URL` deve permanecer vazio até uma decisão humana.
+> A análise em `PROD_DECISOES.md` recomenda **não ativar este segundo
+> pipeline agora**: o `docker-compose.yml` publica MongoDB em
+> `0.0.0.0:27017`, os 43 testes deste diretório não são gate do CI principal
+> e a manutenção ficaria duplicada. O diretório, o compose e o painel HTML
+> (`/painel`) foram preservados; nada deve ser apagado ou publicado apenas
+> porque este README ainda descreve como executar o serviço localmente.
+
 ## Como rodar
 
 ```bash

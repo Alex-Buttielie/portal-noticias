@@ -7,11 +7,13 @@
 # conexão por 60s, compatível com workers/threads de longa vida; pgbouncer
 # fica como follow-up se o pool saturar).
 #
-# Lido automaticamente pelos dois caminhos de serving (Docker e PM2 na VPS):
+# Lido pelo caminho Docker e explicitamente pelo PM2/VPS:
 # - Docker: `CMD gunicorn config.wsgi:application` (o conf na raiz do
 #   backend, nomeado `gunicorn.conf.py`, é carregado por padrão).
-# - PM2/VPS: o workflow (.github/workflows/deploy.yml) não passa flags de
-#   worker/timeout — tudo vem daqui (bind/porta continuam via env/args).
+# - PM2/VPS: o `cd backend` anterior faz o PM2 herdar `pm_cwd=backend`; o
+#   workflow também passa `--config` absoluto para não depender só do --chdir.
+#   Não são passados flags de worker/timeout; tudo vem daqui (bind/porta
+#   continuam via env/args).
 #
 # Env vars (override sem editar arquivo):
 # - GUNICORN_WORKERS (default 2: VPS atual tem pouca RAM; 2 workers x 4
@@ -48,12 +50,14 @@ workers = _int_env("GUNICORN_WORKERS", 2)
 # Mínimo 2: com 1 thread o worker fica bloqueado por requisição.
 threads = _int_env("GUNICORN_THREADS", 4, minimo=2, maximo=32)
 worker_class = "gthread"
-# 60s é o default seguro enquanto o ref implantado ainda puder ter o
-# endpoint síncrono. O 202+background de /api/admin/robos/executar/ está
-# em uma alteração de trabalho ainda não commitada: só ative
-# `GUNICORN_TIMEOUT=45` (e `proxy_read_timeout 45s` nos três confs) depois
-# que esse commit for ancestral comprovado do ref implantado. Não reduzir o
-# timeout antes disso; a ingestão síncrona pode passar de 45s.
+# 60s é o default seguro. O endpoint /api/admin/robos/executar/ já responde
+# 202 e roda a ingestão em background (commit c773f9d), então o caminho
+# lento de HTTP está eliminado — mas o default fica em 60s até que o ref
+# implantado contenha esse commit, para não depender da ordem de deploy.
+# Para reduzir: `GUNICORN_TIMEOUT=45` (e `proxy_read_timeout 45s` nos três
+# confs nginx) na MESMA mudança, só depois de confirmar em produção que o
+# endpoint 202 está ativo. Não reduzir antes disso; uma versão antiga do
+# código ainda sincrona a ingestão e passa de 45s.
 # Nginx usa proxy_read_timeout 60s para casar (infra/nginx/portal-*.conf):
 # o teto de 60s mantém o par servidor/proxy dentro do contrato documentado.
 timeout = _int_env("GUNICORN_TIMEOUT", 60, minimo=10, maximo=60)
