@@ -305,10 +305,14 @@ overengineering).
   como variante local — o Caddyfile já se declara "variante Docker
   alternativa" (`Caddyfile:8-9`); registrar a decisão em
   `PROD_DECISOES.md`.
-- **`ingestao-service/` duplica o pipeline Django** (FastAPI + MongoDB,
-  24 arquivos, 43 testes fora do CI; compose próprio publica Mongo em
-  `0.0.0.0:27017`). Decidir: arquivar ou ativar
-  (`PROD_DECISOES.md:44-48` pendente).
+- **Achado histórico — resolvido em 2026-09-24:** o diretório
+  `ingestao-service/` duplicava o pipeline Django (FastAPI + MongoDB, 43 testes
+  fora do CI e exposição anterior de Mongo em `0.0.0.0:27017`). A decisão
+  humana foi arquivá-lo definitivamente; o código, o adaptador do portal e as
+  flags foram removidos. Django/PostgreSQL/Celery permanece como única fonte de
+  verdade. Contêineres e volumes externos existentes exigem desligamento e
+  eventual remoção manual após backup; esta decisão de repositório não
+  declara que esses dados foram apagados.
 - **`requirements-lock.txt` desatualizado** (nota no próprio
   `requirements.txt:69-73`); `pytest`/`pytest-cov` na imagem de
   runtime — separar requirements de dev.
@@ -349,7 +353,7 @@ máquina e ficam como runbook + verificação.
 | P2-4 | Celery `acks_late` + `prefetch_multiplier=1` | M1 | Baixo |
 | P2-5 | Colunistas server-side; polling 90s → `router.refresh()`; AdSense com consentimento + `lazyOnload`; imports nomeados de `lib/api` | §5 | Médio |
 | P2-6 | Postgres tuning + rotação de logs | §6 | Baixo |
-| P2-7 | Decisão `ingestao-service` (arquivar ou ativar); `requirements-lock` regenerado; requirements de dev separadas; corrigir comentário `settings.py:405-407` | §6 | Baixo |
+| P2-7 | Arquivamento do segundo pipeline **concluído em 2026-09-24**; follow-up: `requirements-lock` regenerado e requirements de dev separadas | §6 | Baixo |
 
 ### Gatilhos para reconsiderar (não fazer agora)
 

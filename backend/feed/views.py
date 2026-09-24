@@ -4,14 +4,11 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-import logging
-
 from django.conf import settings
 from django.core.cache import cache
 
 from . import busca as busca_engine
-from . import microservice_client, recomendacao, services
-from .microservice_client import MicroserviceIndisponivelError
+from . import recomendacao, services
 from .models import InteracaoNoticia
 from .serializers import (
     CoberturaCompletaSerializer,
@@ -20,8 +17,6 @@ from .serializers import (
     ResultadoBuscaSerializer,
     SecaoHomeSerializer,
 )
-
-logger = logging.getLogger(__name__)
 
 
 def _ttl_feed() -> int:
@@ -76,26 +71,6 @@ class FeedListView(APIView):
         if em_cache is not None:
             return Response(em_cache)
 
-        # Frente D — microserviço primeiro quando ativo; qualquer falha cai
-        # silenciosamente para o serviço local (contrato de resposta idêntico:
-        # o microserviço usa os mesmos shapes de FeedEntrySerializer).
-        if microservice_client.servico_ativo():
-            try:
-                payload = microservice_client.obter_feed(
-                    categoria=categoria,
-                    busca=busca,
-                    page=request.query_params.get("page") or 1,
-                    page_size=request.query_params.get("page_size") or None,
-                )
-                # O microserviço pode ainda espelhar o contrato antigo com a
-                # flag per-user — nunca repassar ao frontend (contrato novo:
-                # ads via `GET /api/gating/status`).
-                payload.pop("exibir_publicidade", None)
-                cache.set(chave, payload, _ttl_feed())
-                return Response(payload)
-            except MicroserviceIndisponivelError:
-                logger.warning("Microserviço de ingestão indisponível; usando feed local.", exc_info=True)
-
         itens = list(services.itens_publicaveis(categoria=categoria, busca=busca))
         entradas = services.construir_feed_entries(itens)
         if not categoria and not busca:
@@ -128,21 +103,6 @@ class ClusterDetailView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request, cluster_id):
-        # Frente D — microserviço primeiro quando ativo, com fallback
-        # silencioso para o serviço local (mesmo shape de FeedDetalheSerializer).
-        if microservice_client.servico_ativo():
-            try:
-                detalhe_remoto = microservice_client.obter_detalhe_cluster(cluster_id)
-                if detalhe_remoto is None:
-                    return Response(status=status.HTTP_404_NOT_FOUND)
-                dados_remotos = dict(detalhe_remoto)
-                dados_remotos.pop("exibir_publicidade", None)
-                return Response(dados_remotos)
-            except MicroserviceIndisponivelError:
-                logger.warning(
-                    "Microserviço de ingestão indisponível; usando detalhe de cluster local.",
-                    exc_info=True,
-                )
         detalhe = services.detalhe_cluster(cluster_id)
         if detalhe is None:
             # Critério de aceite 2 e 8: cluster inexistente OU sem nenhum
@@ -160,21 +120,6 @@ class ItemDetailView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request, item_id):
-        # Frente D — microserviço primeiro quando ativo, com fallback
-        # silencioso para o serviço local (mesmo shape de FeedDetalheSerializer).
-        if microservice_client.servico_ativo():
-            try:
-                detalhe_remoto = microservice_client.obter_detalhe_item(item_id)
-                if detalhe_remoto is None:
-                    return Response(status=status.HTTP_404_NOT_FOUND)
-                dados_remotos = dict(detalhe_remoto)
-                dados_remotos.pop("exibir_publicidade", None)
-                return Response(dados_remotos)
-            except MicroserviceIndisponivelError:
-                logger.warning(
-                    "Microserviço de ingestão indisponível; usando detalhe de item local.",
-                    exc_info=True,
-                )
         detalhe = services.detalhe_item(item_id)
         if detalhe is None:
             return Response(status=status.HTTP_404_NOT_FOUND)
@@ -196,24 +141,6 @@ class UrgentesView(APIView):
         em_cache = cache.get(chave)
         if em_cache is not None:
             return Response(em_cache)
-        # Frente D — microserviço primeiro quando ativo, com fallback
-        # silencioso para o serviço local (mesmo shape de FeedEntrySerializer).
-        if microservice_client.servico_ativo():
-            try:
-                dados_remotos = microservice_client.obter_urgentes(limite=limite)
-                # O microserviço pode ainda espelhar o contrato antigo com a
-                # flag per-user — nunca repassar ao frontend (contrato novo:
-                # ads via `GET /api/gating/status`).
-                for entrada in dados_remotos:
-                    if isinstance(entrada, dict):
-                        entrada.pop("exibir_publicidade", None)
-                cache.set(chave, dados_remotos, _ttl_feed())
-                return Response(dados_remotos)
-            except MicroserviceIndisponivelError:
-                logger.warning(
-                    "Microserviço de ingestão indisponível; usando urgentes locais.",
-                    exc_info=True,
-                )
         entradas = services.urgentes(limite=limite)
         dados = FeedEntrySerializer(entradas, many=True).data
         cache.set(chave, dados, _ttl_feed())

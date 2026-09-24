@@ -276,52 +276,6 @@ class TestFeedQueriesCacheContrato:
 
 
 # ---------------------------------------------------------------------------
-# Remediação review (iteração 1) — UrgentesView no caminho microserviço
-# ---------------------------------------------------------------------------
-
-
-class RespostaRemotaFake:
-    def __init__(self, payload):
-        self._payload = payload
-        self.status_code = 200
-        self.ok = True
-
-    def json(self):
-        return [dict(e) for e in self._payload]
-
-
-@pytest.mark.usefixtures("_cache_locmem_real")
-class TestUrgentesMicroservicoRemediacao:
-    def test_urgentes_remoto_remove_publicidade_e_usa_cache(self):
-        from unittest.mock import patch
-
-        from django.test import override_settings
-
-        from feed import microservice_client
-
-        self._seis_clusters = TestFeedQueriesCacheContrato._seis_clusters
-        self._seis_clusters(self)
-        client = APIClient()
-        payload_remoto = [
-            {"id": 11, "titulo": "U1", "exibir_publicidade": True},
-            {"id": 12, "titulo": "U2", "exibir_publicidade": False},
-        ]
-        with override_settings(MICROSERVICO_INGESTAO_URL="http://ingestao-teste:8001"):
-            with patch.object(
-                microservice_client.requests,
-                "get",
-                return_value=RespostaRemotaFake(payload_remoto),
-            ) as mock_get:
-                primeira = client.get("/api/feed/urgentes/?limite=2")
-                assert primeira.status_code == 200
-                assert all("exibir_publicidade" not in e for e in primeira.data)
-                segunda = client.get("/api/feed/urgentes/?limite=2")
-                assert segunda.status_code == 200
-                assert segunda.data == primeira.data
-                assert mock_get.call_count == 1
-
-
-# ---------------------------------------------------------------------------
 # Crit. 5 (gating) — MeusRecursos consolidada + flag com cache
 # ---------------------------------------------------------------------------
 

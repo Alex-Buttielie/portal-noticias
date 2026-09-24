@@ -18,6 +18,12 @@ Este documento cobre o recorte **MVP + Assinatura Premium** (ver seção 31 do B
 | IA (resumo/classificação/dedup) | API de LLM de terceiros, atrás de uma interface abstrata (`SummarizationProvider`) | Escolha do usuário. Interface desacoplada permite trocar de provedor sem reescrever o pipeline de curadoria — mitiga o risco "Custo de IA/infraestrutura" listado na seção 30 do BRD. |
 | Pagamento | Gateway abstrato (`PaymentGatewayProvider`), provedor concreto a definir | Escolha do usuário. Ver seção 6 abaixo — o desenho já isola estados de assinatura da implementação do gateway. |
 
+**Fonte de verdade da ingestão (decisão de 2026-09-24):** Django,
+PostgreSQL e Celery formam a única topologia executável de ingestão,
+deduplicação, curadoria e leitura. Não existe um segundo pipeline ou uma API
+alternativa de feed no portal; operações locais, periódicas por Celery e
+gatilhos manais persistem e consultam o mesmo catálogo no PostgreSQL.
+
 ## 2. Módulos macro (bounded contexts)
 
 ```

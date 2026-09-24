@@ -19,8 +19,7 @@ backend/ensure_local_admin.py
 .env.localhost
 docker-compose.localhost.yml
 
-# Bytecode e caches regeneráveis — nunca commitar (valeu para
-# ingestao-service/, que não tinha .gitignore próprio).
+# Bytecode e caches regeneráveis — nunca commitar.
 __pycache__/
 *.py[cod]
 *$py.class

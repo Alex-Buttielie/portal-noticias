@@ -522,8 +522,9 @@ após o `nginx -t` passar.
 
 Consulte a seção 3. A Cloudflare é uma camada adicional, não um pré-requisito
 do Certbot e não substitui o teste local. Mantenha `Full (strict)`, ative o
-proxy laranja somente depois de validar o par Cloudflare→origem, restrinja o
-MongoDB e as portas internas e meça cache/latência antes de afirmar ganhos.
+proxy laranja somente depois de validar o par Cloudflare→origem, mantenha
+PostgreSQL e Redis restritos às interfaces internas e meça cache/latência antes
+de afirmar ganhos.
 A conta, os nameservers, o IP de origem e as regras de cache são decisões
 humanas; nada é ativado por esta run.
 

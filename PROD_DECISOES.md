@@ -40,13 +40,13 @@
    pagamento + planos estiverem prontos para cobrar de verdade.
    Status: pendente (decisão final do Alex).
 
-## Registro de conclusões (TRABALHO LOCAL — NÃO COMMITADO, NÃO PUBLICADO)
+## Contexto histórico da ingestão
 
-- Microserviço `ingestao-service/` (FastAPI + Mongo, Swagger /docs): esqueleto,
-  pipeline (RSS/dedup/LLM/curadoria + regras N1–N4), API + painel `/painel`,
-  portal adaptado (`feed/microservice_client.py` com fallback local, sync de
-  fontes best-effort). Testes: 43 service + 41 feed-portal. `tsc 0`, build OK.
-  Ligar no portal: `MICROSERVICO_INGESTAO_URL` + `INGESTAO_API_TOKEN`.
+- **Estado anterior a 2026-09-24 (não operacional):** o segundo pipeline
+  FastAPI/Mongo tinha 43 testes próprios e o conjunto de testes do portal
+  contava 41 testes. Esse caminho foi removido do repositório; os números e a
+  topologia anterior são registrados apenas como histórico da decisão abaixo,
+  não como instruções para implantação.
 - Categorias com subcategorias fixas + vivas das notícias (`lib/categorias.ts`),
   menu Editorias no Header (desktop/mobile), editorias e categoria com tópicos,
   footer "Desenvolvido por ButtielieDev", ritmo de espaçamento normalizado.
@@ -66,36 +66,27 @@
    nem promete ganho. Status: **repo pronto; certbot, DNS, `nginx -t`, reload,
    `.env` e `tls_enabled=true` aguardam operador**.
 
-7. **`ingestao-service/` — recomendação de não ativar agora** — o diretório
-   continua desligado (`MICROSERVICO_INGESTAO_URL` vazio) e não será apagado
-   nesta run. A comparação honesta é:
-   - **Pipeline Django (fonte de verdade atual):** já roda em produção/Celery,
-     busca RSS paralela com `ETag`/`Last-Modified`, idempotência por URL,
-     janela de deduplicação, `bulk_create`, snapshot/cache da configuração,
-     curadoria e proteção de cópia, integração direta com Postgres, feed e
-     painel administrativo. A suíte Django roda no CI.
-   - **Microserviço:** oferece isolamento de processo/dados, API FastAPI com
-     token, CRUD/sincronização de fontes, Swagger e um painel HTML próprio em
-     `/painel`; o painel é um diferencial real de operação. O alias raiz
-     `/painel` é servido sem autentização no código atual, enquanto a rota
-     `/api/v1/painel` exige token — outro motivo para não expor o serviço
-     como está. Em troca,
-     duplica regras de pipeline, mantém LLM/batch/dedup/curadoria em outra
-     base, não tem o mesmo cache/ETag/`bulk_create` do Django, e seus testes
-     não são um gate do workflow principal.
-   - **Riscos operacionais:** duas fontes de verdade e contratos de feed,
-     MongoDB adicional, mais um serviço para observar/backupar; o compose
-     publica `27017:27017` (interface `0.0.0.0` no host), o que cria uma
-     superfície de ataque desnecessária. O default `LLM_PRECO_1K=0.15` também
-     está desatualizado em relação ao pipeline Django, sem medição que
-     justifique a duplicação.
-   - **Recomendação:** manter `MICROSERVICO_INGESTAO_URL` vazio, não promover
-     o microserviço a produção e não apagar o diretório sem decisão humana.
-     Se o painel for necessário, levar essa capacidade para o admin Django ou
-     criar uma run de experimentação com CI, bind privado do Mongo, plano de
-     migração de dados, benchmark de custo/latência e critério claro de
-     fonte da verdade. Status: **recomendação técnica; decisão do humano
-     pendente**.
+7. **Arquivamento definitivo do segundo pipeline (decisão humana de
+   2026-09-24)** — `ingestao-service/` foi removido por decisão explícita do
+   solicitante, sem stub e sem cópia em `docs/archive`. O adaptador HTTP do
+   feed, a sincronização remota de fontes dos robôs, seus testes e as flags de
+   URL/token também foram eliminados. **Django/PostgreSQL/Celery é a única
+   fonte de verdade executável**; as capacidades de curadoria permanecem no
+   admin Django.
+   - **Motivos:** duplicar pipeline, dedup, curadoria e contratos de feed criava
+     duas bases e dois contratos; o painel próprio era servido sem
+     autenticação; a configuração anterior expunha MongoDB em `0.0.0.0`; e os
+     testes do segundo pipeline não eram gate do CI principal.
+   - **Decisão de produto:** não ativar nem recuperar esse segundo pipeline. Se
+     surgir necessidade de uma tela operacional, implementar a capacidade no
+     admin Django autenticado em uma run própria.
+   - **Ação operacional após o deploy:** em arquivos de ambiente preexistentes,
+     remover as duas flags antigas se ainda estiverem presentes; variáveis
+     remanescentes passam a ser ignoradas pelo Django. Em cada VPS, inspecionar
+     serviços/contêineres e volumes Mongo antigos, desligar o componente e
+     remover o volume **somente após confirmar backup e necessidade dos dados**.
+     Esta decisão de repositório **não acessou a VPS, não desligou a instância e
+     não afirma que o banco Mongo ou seus volumes foram apagados**.
 
 ## Registro de conclusões
 
