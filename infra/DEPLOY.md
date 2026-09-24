@@ -15,6 +15,26 @@
 > de infra (`docker-compose.yml` + `Caddyfile` na raiz do projeto). Faça uma
 > vez por VPS; deploys seguintes usam só a seção "Deploy de uma nova versão".
 
+## Atenção: limpeza manual de uma instância legada de ingestão
+
+A remoção do `ingestao-service/` (FastAPI/Mongo) do código versionado não
+apaga dados externos, não encerra processos que já estejam em execução e não
+remove volumes de uma VPS. O operador deve tratar cada ambiente separadamente:
+
+- No arquivo de ambiente da VPS, procure e remova
+  `MICROSERVICO_INGESTAO_URL` e `INGESTAO_API_TOKEN` se ainda existirem. As
+  flags antigas não são mais lidas pelo Django e, portanto, são inertes, mas
+  não devem continuar em uma configuração operacional sem revisão.
+- Inspecione os serviços gerenciados (PM2, systemd ou Docker) e os volumes
+  associados a uma instância antiga de ingestão/Mongo. A remoção do checkout
+  não aparece nesses inventários.
+- Só desligue o processo e remova o container/volume depois de confirmar um
+  backup, a política de retenção e a necessidade de preservar os dados. Não
+  remova um volume que ainda seja necessário para recuperação ou auditoria.
+
+Esta é uma etapa humana posterior ao deploy; a remoção do código no repositório
+não deve ser interpretada como prova de que a VPS foi limpa.
+
 ## 0. Operação da topologia ATIVA — PostgreSQL do host + PM2 + Nginx
 
 Esta seção prevalece sobre qualquer comando Docker/Caddy das seções seguintes.
@@ -248,6 +268,64 @@ configuração, portanto não se promete economia ou percentual sem medir.
 6. Depois de ativar, compare `curl -sI https://<host>/...`, os headers
    `CF-Cache-Status`/`CF-Ray` quando aplicável e os logs da VPS. Se o tráfego
    ainda não justificar, mantenha o TLS direto e deixe a Cloudflare desligada.
+
+## 3-Z. ESTADO ATUAL NA VPS: variante HTTP-only (sem DNS, sem certificado)
+
+> **Situação real em 2026-09-24.** `portal-noticias.com.br` **não tem registro
+> A nem NS** (confirmado de dentro da VPS consultando o 8.8.8.8 — o resolver
+> funciona, o domínio do projeto não resolve). Com isso:
+>
+> - o Let's Encrypt **não consegue** emitir certificado: o challenge HTTP-01
+>   exige que o domínio aponte para a VPS;
+> - os confs de site deste repositório têm `listen 443 ssl` com
+>   `ssl_certificate` **incondicional**, então `nginx -t` falha sem certificado
+>   (o fail-safe do projeto mantém o ambiente antigo, mas o P1-4 não ativa).
+>
+> **O que foi feito** para ativar o P1-4 mesmo assim, sem TLS:
+>
+> 1. `http-cache.conf` e os três `portal-location-*.conf` instalados em
+>    `/etc/nginx/`, com o `include /etc/nginx/http-cache.conf` dentro do
+>    `http {}` de `/etc/nginx/nginx.conf` (antes de `sites-enabled/*`);
+> 2. `/var/cache/nginx/feed` criado e pertencente a `www-data`;
+> 3. **variantes HTTP-only** dos três sites em `/etc/nginx/sites-available/`.
+>
+> **O que continua valendo na variante:** cache de borda, rate limit, gzip,
+> `keepalive`, `/static/` e `/media/public/` servidos direto. O único item
+> ausente é o TLS. Verificado no PROD: `X-Cache-Status: HIT` no feed, `MISS`→`HIT`
+> no radar, `BYPASS` com cookie de sessão, 429 após o burst de 20/min,
+> `/media/credenciamento/*` em 404 e `/static/*` em 200 com `immutable`.
+
+### ⚠️ Drift: os arquivos na VPS NÃO são os deste repositório
+
+`/etc/nginx/sites-available/portal-{dev,homolog,prod}` são **variantes
+geradas**, não os arquivos versionados. Cada uma tem no cabeçalho um aviso.
+A transformação aplicada ao bloco `server` da 443 (o que serve a aplicação) foi
+apenas esta — nada mais foi alterado:
+
+- `listen 443 ssl` → `listen 80`
+- remoção de `ssl_certificate`, `ssl_certificate_key`, `ssl_protocols`,
+  `ssl_session_cache` e `ssl_session_timeout`
+- descarte do bloco da porta 80 original (ACME + `/healthz` + `return 301
+  https://…`), porque o redirect deixaria o site inacessível sem a 443
+
+O bloco `upstream` e todos os `location` (inclusive os `include` de cache e
+rate) são os mesmos deste repositório.
+
+### Quando o DNS for configurado — volte ao conf do repositório
+
+**Não edite a variante.** Siga a seção 3A a partir do 3A.1, que já tem o
+procedimento completo. Em resumo:
+
+1. configure o registro A apontando para o IP da VPS e espere propagar;
+2. `dig +short @8.8.8.8 <dominio> A` tem que devolver o IP da VPS;
+3. siga **3A.2 → 3A.3 → 3A.4 → 3A.5** (webroot, `certonly`, conf TLS, flags);
+4. copie o conf **do repositório** (com TLS) por cima da variante, com os
+   marcadores `__DOMAIN_FRONTEND__` substituídos pelo hostname real;
+5. `nginx -t && systemctl reload nginx` e confirme `listen 443` respondendo.
+
+Backup do estado anterior a esta instalação:
+`/root/nginx-backup-20260924-165515/` (`nginx.conf`, `sites-available`,
+`sites-enabled`).
 
 ## 3A. Ativando TLS (PM2 + Nginx)
 
