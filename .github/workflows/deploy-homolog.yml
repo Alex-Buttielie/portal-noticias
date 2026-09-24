@@ -16,10 +16,14 @@ jobs:
       app_dir: /home/apps/portal-homolog
       git_mode: pr
       pr_number: ${{ github.event.pull_request.number }}
+      # O deploy busca o head do PR; o mesmo SHA é passado ao CI.
+      verify_ref: ${{ github.event.pull_request.head.sha }}
       pm_suffix: homolog
       web_port: "3102"
       api_port: "5102"
       host: homolog.portal-noticias.com.br
+      # TLS só é ativado depois da emissão do certificado neste ambiente.
+      tls_enabled: false
       db_name: brd_portal_homolog
       db_user: portal_homolog
       strict_validate: false

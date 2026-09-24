@@ -11,6 +11,7 @@ import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth-context";
 import * as api from "@/lib/api";
+import { formatarDataHoraCompleta } from "@/lib/datas";
 import { BadgeCheck, Crown, Pencil, Plus, RefreshCw, ShieldAlert, Trash2 } from "lucide-react";
 
 type Plano = api.Plano;
@@ -79,7 +80,7 @@ export default function Page() {
     try {
       await api.adminCriarPlano(token || "", { nome: nome.trim(), preco: preco.trim(), duracao_dias: Number(dias), ativo });
       toast.success("Plano criado");
-      setLog((p) => [`${new Date().toLocaleString("pt-BR")} — criar ${nome.trim()} R$ ${preco.trim()} ${dias}d ativo=${ativo}`].concat(p).slice(0, 20));
+      setLog((p) => [`${formatarDataHoraCompleta(new Date())} — criar ${nome.trim()} R$ ${preco.trim()} ${dias}d ativo=${ativo}`].concat(p).slice(0, 20));
       setNome(""); setPreco(""); setDias("30"); setAtivo(true);
       await carregar();
     } catch (e: unknown) { const m = e instanceof Error ? e.message : "Falha ao criar"; setErrForm(m); toast.error(m); }
@@ -98,7 +99,7 @@ export default function Page() {
     try {
       await api.adminAtualizarPlano(token || "", edit.id, { nome: eNome.trim(), preco: ePreco.trim(), duracao_dias: Number(eDias), ativo: eAtivo });
       toast.success("Plano atualizado");
-      setLog((p) => [`${new Date().toLocaleString("pt-BR")} — editar #${edit.id} → ${eNome.trim()} R$ ${ePreco.trim()} ${eDias}d ativo=${eAtivo}`].concat(p).slice(0, 20));
+      setLog((p) => [`${formatarDataHoraCompleta(new Date())} — editar #${edit.id} → ${eNome.trim()} R$ ${ePreco.trim()} ${eDias}d ativo=${eAtivo}`].concat(p).slice(0, 20));
       setEdit(null); await carregar();
     } catch (e: unknown) { const m = e instanceof Error ? e.message : "Falha ao atualizar"; setEErr(m); toast.error(m); }
     finally { setSaving(false); }
@@ -110,7 +111,7 @@ export default function Page() {
     try {
       await api.adminExcluirPlano(token || "", excluir.id);
       toast.success("Plano excluído");
-      setLog((p) => [`${new Date().toLocaleString("pt-BR")} — excluir #${excluir.id} ${excluir.nome}`].concat(p).slice(0, 20));
+      setLog((p) => [`${formatarDataHoraCompleta(new Date())} — excluir #${excluir.id} ${excluir.nome}`].concat(p).slice(0, 20));
       setExcluir(null); await carregar();
     } catch (e: unknown) {
       const err = e as { status?: number; message?: string };

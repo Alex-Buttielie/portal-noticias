@@ -8,6 +8,7 @@ import { AdsSlot } from "@/components/AdsSlot";
 import RadarLocalSimples from "@/components/RadarLocalSimples";
 import type { Regiao } from "@/lib/regiao";
 import { cn } from "@/lib/utils";
+import { formatarDataSemAno } from "@/lib/datas";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -21,8 +22,6 @@ import { RefreshCw, MapPin, TrendingUp, BarChart3, BookmarkPlus, Bookmark, X, Al
 const MOCK_T: RadarTendencias = { aviso_metodologia: "Dados de exemplo", localidade: { pais: null, estado: null, cidade: null }, assuntos_em_alta: [{ categoria: "politica", numero_noticias: 12, numero_fontes: 4, cluster_id: 1, item_id: null }, { categoria: "tecnologia", numero_noticias: 8, numero_fontes: 3, cluster_id: null, item_id: 2 }, { categoria: "economia", numero_noticias: 5, numero_fontes: 2, cluster_id: 3, item_id: null }] };
 function mockSerie(): RadarEvolucao { const hoje = new Date(); const serie = Array.from({ length: 7 }, (_, i) => { const d = new Date(hoje); d.setDate(hoje.getDate() - (6 - i)); return { dia: d.toISOString().slice(0, 10), numero_noticias: Math.floor(2 + Math.random() * 8) }; }); return { aviso_metodologia: "Dados de exemplo", categoria: null, serie }; }
 const CATS = ["", "politica", "economia", "tecnologia", "cidades", "esportes", "cultura", "geral"];
-
-function fmtDia(s: string) { try { const d = new Date(s); return `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}`; } catch { return s.slice(5); } }
 
 function locLabel(l: { pais?: string | null; estado?: string | null; cidade?: string | null }) { const p = [l.pais, l.estado, l.cidade].filter(Boolean).join(" · "); return p || "Recorte nacional"; }
 
@@ -187,7 +186,7 @@ export default function RadarClient() {
                             <div key={p.dia} className="flex flex-1 flex-col items-center justify-end gap-1">
                               <span className="text-[10px] font-medium text-[var(--cor-texto)]">{p.numero_noticias}</span>
                               <div className="w-full rounded-t-[var(--raio-sm)] bg-[var(--cor-neon-ciano)] transition-all" style={{ height: `${Math.max(4, (p.numero_noticias / maxEvo) * 100)}%`, minHeight: 4 }} aria-label={`${p.dia}: ${p.numero_noticias}`} />
-                              <span className="text-[10px] text-[var(--cor-texto-suave)]">{fmtDia(p.dia)}</span>
+                              <span className="text-[10px] text-[var(--cor-texto-suave)]">{formatarDataSemAno(p.dia) || p.dia.slice(5)}</span>
                             </div>
                           ))}
                         </div>

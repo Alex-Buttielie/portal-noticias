@@ -6,6 +6,7 @@ from datetime import timedelta
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.test import override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
 
@@ -141,6 +142,7 @@ def test_busca_multi_campo_autor_categoria_tags():
     assert resultados == []
 
 
+@override_settings(CELERY_TASK_ALWAYS_EAGER=True, CELERY_TASK_EAGER_PROPAGATES=True)
 def test_busca_registra_evento_e_historico():
     client = APIClient()
     _news_item(titulo="Buscável demais")

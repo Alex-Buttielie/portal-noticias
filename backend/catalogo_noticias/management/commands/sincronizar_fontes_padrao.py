@@ -50,6 +50,11 @@ class Command(BaseCommand):
                     mudou = False
                     if atual.url != url:
                         atual.url = url
+                        # Validators HTTP são específicos do recurso antigo;
+                        # trocar a URL precisa forçar um download completo.
+                        atual.etag = ""
+                        atual.last_modified = ""
+                        atual.ultima_revalidacao_completa = None
                         mudou = True
                     if (atual.estado_padrao or "") != uf:
                         atual.estado_padrao = uf

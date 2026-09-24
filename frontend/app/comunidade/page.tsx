@@ -15,6 +15,7 @@ import { SeloFormato, barraPorFormato, formatoDaPublicacao } from "@/components/
 import { useAuth } from "@/lib/auth-context";
 import * as api from "@/lib/api";
 import { registrarEventoComunidade } from "@/lib/interacoes-comunidade";
+import { formatarDataCurta } from "@/lib/datas";
 import { cn } from "@/lib/utils";
 import {
   Users, MessageSquare, Shield, Newspaper, Star, Search, LogIn, Plus, Eye,
@@ -248,7 +249,7 @@ export default function Page() {
             </div>
             <p className="mt-1 line-clamp-2 text-[15px] font-semibold leading-tight text-[var(--cor-texto)]">{p.titulo}</p>
             <p className="line-clamp-2 text-sm text-[var(--cor-texto-suave)]">{p.conteudo.slice(0, 160)}</p>
-            <p className="mt-1 text-xs text-[var(--cor-texto-suave)]">por {p.autor_nome} · {new Date(p.criado_em).toLocaleDateString("pt-BR")}</p>
+            <p className="mt-1 text-xs text-[var(--cor-texto-suave)]">por {p.autor_nome} · {formatarDataCurta(p.criado_em)}</p>
             {!!p.tags.length && <div className="mt-1 flex flex-wrap gap-1">{p.tags.slice(0, 3).map((t) => <span key={t} className="rounded-full border border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] px-2 py-0.5 text-[11px] text-[var(--cor-texto-suave)]">#{t}</span>)}</div>}
           </div>
         </Link>
@@ -542,7 +543,7 @@ export default function Page() {
               {[...pubs].slice(0, 4).map((p) => (
                 <Link key={p.id} href={`/comunidade/${p.id}`} className="block rounded-md p-1.5 hover:bg-[var(--cor-primaria-suave)]">
                   <p className="truncate text-sm font-medium text-[var(--cor-texto)]">{p.titulo}</p>
-                  <p className="text-xs text-[var(--cor-texto-suave)]">{new Date(p.criado_em).toLocaleDateString("pt-BR")} · {p.autor_nome}</p>
+                  <p className="text-xs text-[var(--cor-texto-suave)]">{formatarDataCurta(p.criado_em)} · {p.autor_nome}</p>
                 </Link>
               ))}
               {pubs.length === 0 && <p className="text-xs text-[var(--cor-texto-suave)]">Nada por aqui ainda.</p>}

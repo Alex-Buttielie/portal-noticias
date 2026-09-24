@@ -3,7 +3,8 @@ import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Clock3, RefreshCw } from "lucide-react";
 import { obterFeed, type FeedEntrada } from "@/lib/api";
-import { ehNova, formatarHora, formatarLocalidade, timeAgo, useDebouncedValue } from "@/lib/editorial";
+import { ehNova, formatarLocalidade, timeAgo, useDebouncedValue } from "@/lib/editorial";
+import { formatarHora } from "@/lib/datas";
 import { ImagemNoticia } from "@/components/ImagemNoticia";
 import { cn } from "@/lib/utils";
 
@@ -16,7 +17,7 @@ interface UltimasNoticiasProps {
 
 /**
  * Últimas Notícias — ordem estritamente cronológica, horário visível (HH:MM),
- * selo "nova" (<60min) e atualização dinâmica (polling + botão manual).
+ * selo "nova" (<60min) e atualização periódica (polling visível + botão manual).
  * Expansão inline ("mostrar mais"), sem modal.
  */
 export const UltimasNoticias = memo(function UltimasNoticias({ inicial, limite, passo, intervaloSegundos }: UltimasNoticiasProps) {
@@ -55,6 +56,8 @@ export const UltimasNoticias = memo(function UltimasNoticias({ inicial, limite, 
   useEffect(() => {
     if (intervaloSegundos <= 0) return;
     const id = setInterval(() => {
+      // A Home é ISR de 60s; o ciclo padrão de 180s evita polling
+      // duplicado por visitante sem retirar a atualização automática.
       if (document.visibilityState === "visible") atualizar();
     }, intervaloSegundos * 1000);
     return () => clearInterval(id);
@@ -96,7 +99,7 @@ export const UltimasNoticias = memo(function UltimasNoticias({ inicial, limite, 
       </div>
       {atualizadoEm && (
         <p className="mb-2 text-xs text-[var(--cor-texto-suave)]">
-          Atualizado às {atualizadoEm.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
+          Atualizado às {formatarHora(atualizadoEm)}
           {buscaDebounced ? ` • ${totalFiltrado} ${totalFiltrado === 1 ? "resultado" : "resultados"}` : ""}
         </p>
       )}

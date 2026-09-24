@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { SITE_DESCRIPTION, SITE_NAME } from "@/lib/site";
 import { obterDestaquesDia, obterFeed, obterMaisLidas, obterUrgentes, type EntradaRanqueda, type FeedEntrada } from "@/lib/api";
 import { carregarHome } from "@/lib/recomendacao";
+import { carregarColunistas, type Colunista } from "@/lib/colunistas";
 import { HomeClient } from "@/components/HomeClient";
 import { DestaquesDia } from "@/components/DestaquesDia";
 
@@ -30,11 +31,12 @@ async function getData() {
   try {
     // FRENTE 3 — feed ranqueado pelo backend (curadoria/popularidade/
     // personalização/tendência/recência + overrides, sem repetição).
-    const [home, urg, lidas, destaques] = await Promise.all([
+    const [home, urg, lidas, destaques, colunistas] = await Promise.all([
       carregarHome(10),
       obterUrgentes(8).catch(() => [] as FeedEntrada[]),
       obterMaisLidas(10).catch(() => [] as FeedEntrada[]),
       obterDestaquesDia({ limite: 5 }).catch(() => [] as EntradaRanqueda[]),
+      carregarColunistas(4),
     ]);
     let lista = home.feed.length ? home.feed : MOCK;
     if (!home.feed.length) {
@@ -46,18 +48,25 @@ async function getData() {
       urg: urg.length ? urg : lista.filter((x) => x.urgente),
       maisLidas: lidas.length ? lidas : [],
       destaques,
+      colunistas,
     };
   } catch {
-    return { feed: MOCK, urg: MOCK.filter((x) => x.urgente), maisLidas: [] as FeedEntrada[], destaques: [] as EntradaRanqueda[] };
+    return {
+      feed: MOCK,
+      urg: MOCK.filter((x) => x.urgente),
+      maisLidas: [] as FeedEntrada[],
+      destaques: [] as EntradaRanqueda[],
+      colunistas: [] as Colunista[],
+    };
   }
 }
 
 export default async function Page() {
-  const { feed, urg, maisLidas, destaques } = await getData();
+  const { feed, urg, maisLidas, destaques, colunistas } = await getData();
   return (
     <>
       <DestaquesDia destaques={destaques} />
-      <HomeClient feed={feed} urg={urg} maisLidas={maisLidas} />
+      <HomeClient feed={feed} urg={urg} maisLidas={maisLidas} colunistas={colunistas} />
     </>
   );
 }

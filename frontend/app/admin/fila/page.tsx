@@ -11,6 +11,7 @@ import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import { useAuth } from "@/lib/auth-context";
 import * as api from "@/lib/api";
+import { formatarDataHoraCompleta } from "@/lib/datas";
 import { Clock, Filter, CheckCheck, XCircle, RefreshCw, AlertTriangle, Layers, Search, CheckSquare, Square, Zap, Sparkles } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 
@@ -222,7 +223,7 @@ export default function Page(){
                       <Badge variant={it.tipo==="cluster"?"default":"outline"} className={it.tipo==="cluster"?"bg-[var(--cor-neon-violeta)] text-[var(--cor-texto-invertido)] text-xs":"text-xs"}>{it.tipo}</Badge>
                       {it.urgente&&<Badge className="bg-[var(--cor-sinal)] text-[var(--cor-texto-invertido)] text-xs">urgente</Badge>}
                       {it.cluster&&<Badge variant="outline" className="border-[var(--cor-neon-ciano)] text-[var(--cor-neon-ciano)] text-xs">cluster #{it.cluster}</Badge>}
-                      <span className="ml-auto flex items-center gap-1 text-xs text-[var(--cor-texto-suave)]"><Clock className="h-3 w-3" />{timeAgo(it.timestamp_ingestao)} · {new Date(it.timestamp_ingestao).toLocaleString("pt-BR")}</span>
+                      <span className="ml-auto flex items-center gap-1 text-xs text-[var(--cor-texto-suave)]"><Clock className="h-3 w-3" />{timeAgo(it.timestamp_ingestao)} · {formatarDataHoraCompleta(it.timestamp_ingestao)}</span>
                     </div>
                     <p className="mt-1 line-clamp-2 text-sm font-semibold leading-tight text-[var(--cor-texto)]">{it.titulo}</p>
                     {it.cluster_titulo&&<p className="text-xs text-[var(--cor-neon-violeta)]">↳ {it.cluster_titulo}</p>}

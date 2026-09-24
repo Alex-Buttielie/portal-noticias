@@ -11,6 +11,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth-context";
 import * as api from "@/lib/api";
+import { formatarDataHoraCompleta } from "@/lib/datas";
 import { Clock3, Layers, Pencil, RefreshCw, Settings2, ShieldCheck, Sparkles, Zap } from "lucide-react";
 
 type Lim = { id: number; chave: string; plano: string; valor: string; descricao: string; atualizado_em?: string | null };
@@ -91,7 +92,7 @@ export default function Page() {
     try {
       await api.adminAtualizarLimite(token || "", edit.id, { valor: valor.trim(), descricao: desc.trim() });
       toast.success("Limite atualizado");
-      setLog((p) => [`${new Date().toLocaleString("pt-BR")} — ${edit.chave}/${edit.plano} → ${valor.trim()} — ${desc.trim() || "sem descrição"}`].concat(p).slice(0, 20));
+      setLog((p) => [`${formatarDataHoraCompleta(new Date())} — ${edit.chave}/${edit.plano} → ${valor.trim()} — ${desc.trim() || "sem descrição"}`].concat(p).slice(0, 20));
       setEdit(null);
       await carregar();
     } catch (e: unknown) {
@@ -164,7 +165,7 @@ export default function Page() {
                             <td className="py-2"><Badge className={l.plano === "premium" ? "bg-[var(--cor-premium)] text-[var(--cor-texto-invertido)]" : "bg-[var(--cor-secundaria)] text-[var(--cor-texto-invertido)]"}>{l.plano}</Badge>{isRecente(l.atualizado_em) && <Badge variant="outline" className="ml-1 border-[var(--cor-sucesso)] text-[var(--cor-sucesso)]">recente</Badge>}</td>
                             <td className="py-2 font-mono font-medium text-[var(--cor-texto)]">{l.valor}</td>
                             <td className="max-w-[260px] truncate py-2 text-xs text-[var(--cor-texto-suave)]">{l.descricao || "—"}</td>
-                            <td className="py-2 text-xs text-[var(--cor-texto-suave)]">{l.atualizado_em ? new Date(l.atualizado_em).toLocaleString("pt-BR") : "—"}</td>
+                            <td className="py-2 text-xs text-[var(--cor-texto-suave)]">{l.atualizado_em ? formatarDataHoraCompleta(l.atualizado_em) : "—"}</td>
                             <td className="py-2 text-right"><Button size="sm" variant="outline" className="h-8 border-[var(--cor-borda)]" onClick={() => abrirEdicao(l)}><Pencil className="mr-1 h-3.5 w-3.5" /> Editar</Button></td>
                           </tr>
                         ))}
@@ -187,7 +188,7 @@ export default function Page() {
                             <td className="py-2"><Badge className={l.plano === "premium" ? "bg-[var(--cor-premium)] text-[var(--cor-texto-invertido)]" : "bg-[var(--cor-secundaria)] text-[var(--cor-texto-invertido)]"}>{l.plano}</Badge>{isRecente(l.atualizado_em) && <Badge variant="outline" className="ml-1 border-[var(--cor-sucesso)] text-[var(--cor-sucesso)]">recente</Badge>}</td>
                             <td className="py-2 font-mono font-medium text-[var(--cor-texto)]">{l.valor}</td>
                             <td className="max-w-[260px] truncate py-2 text-xs text-[var(--cor-texto-suave)]">{l.descricao || "—"}</td>
-                            <td className="py-2 text-xs text-[var(--cor-texto-suave)]">{l.atualizado_em ? new Date(l.atualizado_em).toLocaleString("pt-BR") : "—"}</td>
+                            <td className="py-2 text-xs text-[var(--cor-texto-suave)]">{l.atualizado_em ? formatarDataHoraCompleta(l.atualizado_em) : "—"}</td>
                             <td className="py-2 text-right"><Button size="sm" variant="outline" className="h-8 border-[var(--cor-borda)]" onClick={() => abrirEdicao(l)}><Pencil className="mr-1 h-3.5 w-3.5" /> Editar</Button></td>
                           </tr>
                         ))}

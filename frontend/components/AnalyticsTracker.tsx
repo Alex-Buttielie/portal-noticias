@@ -3,9 +3,10 @@
  *
  * Automático, sem tocar nas páginas das outras frentes:
  * - `page_view` a cada troca de rota;
- * - derivados do pathname: news_view (leitura via URL), category_view
- *   (/categoria, /editorias), author_view (/autor), radar_view (/radar),
- *   community_view (/comunidade), search_result_click não (precisa de termo);
+ * - derivados do pathname: category_view (/categoria, /editorias),
+ *   author_view (/autor), radar_view (/radar), community_view
+ *   (/comunidade), search_result_click não (precisa de termo);
+ *   `news_view` é instrumentado exclusivamente por `NoticiaReporter`;
  * - `news_click`: clique em qualquer link para /noticia/* (com entry_tipo/id
  *   extraídos da URL) + `home_section_click` quando o clique ocorre na Home
  *   dentro de `section[aria-label]`;
@@ -65,6 +66,8 @@ export function AnalyticsTracker() {
     const path = qs ? `${pathname}?${qs}` : pathname;
     track({ tipo: "page_view", path });
 
+    // `news_view` não é derivado aqui: `NoticiaReporter` é a fonte única
+    // e preserva entry_tipo/entry_id, categoria, tempo de leitura e scroll.
     if (pathname.startsWith("/categoria/") || pathname.startsWith("/editorias")) {
       const categoria = decodeURIComponent(pathname.split("/").pop() || "").replace(/-/g, " ");
       if (categoria) track({ tipo: "category_view", categoria, path });

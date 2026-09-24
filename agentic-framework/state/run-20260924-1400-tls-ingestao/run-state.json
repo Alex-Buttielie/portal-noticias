@@ -1,0 +1,94 @@
+{
+ "run_id": "20260924-1400-tls-ingestao",
+ "task_title": "P0-3: TLS parametrizado e decisão sobre ingestao-service",
+ "status": "closed",
+ "current_phase": "done",
+ "iteration_count": 1,
+ "max_iterations": 3,
+ "requested_by": "humano (Alex), via sessão orquestradora",
+ "source_spec": "ANALISE_CUSTO_PERFORMANCE.md",
+ "phases": {
+  "planning": {
+   "status": "done",
+   "agent": "orchestrator",
+   "execution_mode": "delegated",
+   "started_at": "2026-09-24T14:00:00-03:00",
+   "finished_at": "2026-09-24T14:10:00-03:00",
+   "notes": "Contratos preenchidos a partir de E1/P0-3 e da decisão pendente do microserviço; revisão considerada necessária por TLS e volume."
+  },
+  "implementation": {
+   "status": "done",
+   "agent": "executor",
+   "execution_mode": "delegated",
+   "started_at": "2026-09-24T14:10:00-03:00",
+   "finished_at": "2026-09-24T15:20:00-03:00",
+   "notes": "Três sites Nginx parametrizados com Certbot, workflow com gate tls_enabled, runbook, decisão de ingestão e histórico; nenhum código de aplicação alterado."
+  },
+  "testing": {
+   "status": "done",
+   "agent": "tester",
+   "execution_mode": "delegated",
+   "started_at": "2026-09-24T03:20:00-03:00",
+   "finished_at": "2026-09-24T04:00:47-03:00",
+   "notes": "VEREDITO: failed (1 major). Evidência própria: os três sites, renderizados somente substituindo os marcadores e com certificado self-signed temporário, passaram em nginx:alpine 1.31.6 individualmente e também todos juntos; runtime real retornou 301 HTTP normal, 200 ACME, 403 para health HTTP externo, 200 para health HTTP em loopback e 200 em HTTPS, com handshakes TLS 1.2/1.3. Runbook: os 9 blocos bash da seção 3A passaram em bash -n e a ordem Certbot antes dos flags está documentada; porém certbot certonly --webroot não instala deploy-hook. Reproduzi troca de certificado em Nginx: o serial não mudou antes do reload e mudou após reload, portanto a afirmação de que o Nginx passa a usar o arquivo novo na próxima conexão é incorreta. .env.production.example é coerente com Caddy (flags/origens HTTPS) e o bootstrap PM2 do workflow é false, mas a cópia cega para PM2 exigiria trocar os três flags para false; o próprio arquivo/runbook advertem. Monitor HTTP externo falhará com 403 por decisão de segurança; HTTPS funciona, e o healthcheck Docker é direto em localhost:8000. PROD_DECISOES e README de ingestao-service foram comparados ao código: recomendação é embasada, incluindo pipeline Django, painel /painel sem auth, Mongo 27017, 43 testes fora do CI e default de custo; a afirmação de execução Celery em produção não é comprovável sem a VPS. Nenhum fonte Python/TS teve mtime na janela desta run e ingestao-service não foi apagado; a worktree já continha mudanças de outras runs. Workflows foram apenas lidos: default false e lógica condicional foram observados, mas deploy.yml/prod mudaram às 03:56 pela run paralela; YAML/actionlint deve ser refeito depois, sem atribuir falha a esta run. | RETEST 2026-09-24 (follow-up (f) resolvido): revalidacao cruzada dos 6 workflows (.github/workflows/*.yml) — PyYAML OK nos 6 e actionlint 1.7.12 (imagem docker) sem findings; 3 sites nginx renderizados substituindo os marcadores __DOMAIN_FRONTEND__/__DOMAIN_FRONTEND_WWW__ por dominio de teste, certificados self-signed no path esperado e http-cache.conf + portal-location-*.conf REAIS: nginx -t 1.31-alpine 'test is successful' com os 3 sites juntos. Fail-safe tambem confirmado: sem http-cache.conf e sem os snippets, os 3 sites seguem sintaticamente validos (glob include e no-op; cache/rate apenas inativos). Nenhuma falha de validacao. Su backend: 462 passed, cobertura 88.34% (gate 80)."
+  },
+  "review": {
+   "status": "done",
+   "agent": "reviewer",
+   "execution_mode": "delegated",
+   "started_at": "2026-09-24T04:00:47-03:00",
+   "finished_at": "2026-09-24T14:00:00-03:00",
+   "notes": "Re-revisão da remediação concluída com veredito approve_with_comments: finding major de renovação resolvido pelo deploy-hook fail-closed, minor do monitor resolvido com HTTPS e nit de ciphers aceito com risco residual documentado. A validação cruzada dos workflows permanece follow-up devido à run paralela de ops."
+  },
+  "remediation": {
+   "status": "done",
+   "agent": "remediator",
+   "execution_mode": "delegated",
+   "started_at": "2026-09-24T04:05:00-03:00",
+   "finished_at": "2026-09-24T04:23:51-03:00",
+   "notes": "Remediação da iteração 1 concluída. Major resolvido com hook versionado executável, nginx -t fail-closed, reload systemctl/fallback e documentação de dry-run/renovação; minor resolvido com monitor externo em HTTPS; nit de ciphers avaliado e default mantido com justificativa e risco residual documentado. bash -n e smoke test do hook passaram; nenhum workflow, backup, compose ou código de aplicação foi alterado."
+  },
+  "documentation": {
+   "status": "done",
+   "agent": "documenter",
+   "execution_mode": "delegated",
+   "started_at": "2026-09-24T14:00:00-03:00",
+   "finished_at": "2026-09-24T14:00:00-03:00",
+   "updated_at": "2026-09-24T14:00:00-03:00",
+   "notes": "README.md recebeu o aviso de TLS preparado/mais ativação via infra/DEPLOY.md; ARCHITECTURE.md §9 foi alinhado à topologia PM2 + Nginx e ao Certbot; documentation-update.md criado. Nenhum código-fonte ou configuração de infra foi alterado."
+  },
+  "closing": {
+   "status": "done",
+   "agent": "historian",
+   "execution_mode": "delegated",
+   "started_at": "2026-09-24T14:00:00-03:00",
+   "finished_at": "2026-09-24T14:00:00-03:00",
+   "updated_at": "2026-09-24T14:00:00-03:00",
+   "notes": "report.md criado com objetivo, entregas, validações, revisão e follow-ups; uma linha append-only foi adicionada ao HISTORY.md; estado validado com json.load e run fechada."
+  }
+ },
+ "findings": {
+  "blocker": 0,
+  "major": 0,
+  "minor": 0,
+  "nit": 1,
+  "resolved": 3
+ },
+ "artifacts": {
+  "task_plan": "task-plan.md",
+  "implementation_contract": "implementation-contract.md",
+  "implementation_history": "implementation-history.md",
+  "code_review_contract": "code-review-contract.md",
+  "documentation_update": "documentation-update.md",
+  "report": "report.md"
+ },
+ "blocked_reason": null,
+ "follow_ups": [
+  "RESOLVIDO 2026-09-24: follow-up (f) — revalidacao YAML/actionlint dos 6 workflows e nginx -t dos 3 sites feita; ver testing.notes.",
+  "Operador humano deve preencher DOMAIN_FRONTEND/alias, email do Certbot, DNS, instalar o hook executável e ativar tls_enabled somente após nginx -t/reload/teste HTTPS e a comparação do certificado servido.",
+  "O nit de ciphers permanece uma decisão residual aceita: revisar uma lista mínima estrita em alteração coordenada dos três sites, com nova validação em nginx:alpine, se o modelo de segurança exigir excluir todas as suítes CBC/SHA.",
+  "Decisão humana sobre arquivamento futuro do ingestao-service; recomendação atual é mantê-lo desligado."
+ ],
+ "created_at": "2026-09-24T14:00:00-03:00",
+ "updated_at": "2026-09-24T16:25:00-03:00"
+}

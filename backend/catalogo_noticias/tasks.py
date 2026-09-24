@@ -13,7 +13,11 @@ from .services.ingestao import executar_ingestao
 logger = logging.getLogger(__name__)
 
 
-@shared_task(name="catalogo_noticias.tasks.ingerir_noticias")
+@shared_task(
+    name="catalogo_noticias.tasks.ingerir_noticias",
+    acks_late=True,
+    reject_on_worker_lost=True,
+)
 def ingerir_noticias():
     """
     Executa uma rodada do pipeline de ingestao (busca -> dedup -> resumo/
@@ -22,6 +26,12 @@ def ingerir_noticias():
     de producao sempre usa a configuracao corrente, nunca uma lista
     hardcoded (permite adicionar/remover fontes via config sem alterar
     codigo/deploy do worker).
+
+    ``acks_late`` e ``reject_on_worker_lost`` são explícitos somente nesta
+    task: cada grupo é transacional e a constraint/consulta de
+    ``url_fonte_original`` torna uma reentrega idempotente. Um worker
+    perdido pode repetir o fetch, mas não duplica o item já confirmado pelo
+    banco; a reserva de custo antes do LLM mantém esse custo visível.
     """
     registro = executar_ingestao()
     logger.info(

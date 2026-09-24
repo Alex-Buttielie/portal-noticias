@@ -15,11 +15,15 @@ jobs:
       app_dir: /home/apps/portal-dev
       git_mode: branch
       git_ref: develop
-      guard_ref: ${{ github.sha }}
+      # SHA do push: o gate e o checkout da VPS não podem testar/implantar
+      # commits diferentes se outro push entrar enquanto o run está na fila.
+      verify_ref: ${{ github.sha }}
       pm_suffix: dev
       web_port: "3101"
       api_port: "5101"
       host: dev.portal-noticias.com.br
+      # TLS só é ativado depois da emissão do certificado neste ambiente.
+      tls_enabled: false
       db_name: brd_portal_dev
       db_user: portal_dev
       strict_validate: false

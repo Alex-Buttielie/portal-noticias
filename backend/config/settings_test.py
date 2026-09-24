@@ -44,3 +44,11 @@ CACHES = {
         "BACKEND": "django.core.cache.backends.dummy.DummyCache",
     }
 }
+
+# A suíte não sobe Redis. O transporte em memória permite testar o
+# dispatch sem transformar a task em INSERT síncrono; os dois testes de
+# integração que precisam observar a persistência ativam `always_eager`
+# localmente com override_settings.
+CELERY_BROKER_URL = "memory://"
+CELERY_RESULT_BACKEND = "cache+memory://"
+CELERY_TASK_ALWAYS_EAGER = False

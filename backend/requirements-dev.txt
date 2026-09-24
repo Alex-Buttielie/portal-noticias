@@ -1,0 +1,8 @@
+# Dependências exclusive de desenvolvimento/testes.
+# O runtime (Docker e PM2) instala requirements.txt; este arquivo é usado
+# pelo CI e pela suíte local.
+-r requirements.txt
+
+pytest==9.1.1
+pytest-django==4.14.0
+pytest-cov==7.1.0

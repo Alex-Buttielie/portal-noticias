@@ -285,6 +285,20 @@ class LLMHttpSummarizationProvider(SummarizationProvider):
     def _max_tokens_para_lote(self, quantidade_itens: int) -> int:
         return self.max_tokens_por_item * quantidade_itens
 
+    def estimar_custo_em_lote(self, quantidade_itens: int) -> float:
+        """Reserva conservadora antes da chamada HTTP.
+
+        O valor usa o teto configurado de tokens de resposta e o preço por
+        1k tokens. É deliberadamente uma reserva, não Usage do provider:
+        se a chamada cair, o gasto continua visível no teto. O fallback local
+        (sem API key) não tem custo externo e reserva zero.
+        """
+        if not (self.api_key or "").strip() or quantidade_itens <= 0:
+            return 0.0
+        return (
+            self._max_tokens_para_lote(quantidade_itens) / 1000
+        ) * self.preco_usd_por_1k_tokens
+
     def _montar_prompt_lote(self, itens_brutos: list[ItemBruto]) -> str:
         itens_texto = "\n\n".join(
             f"Noticia {indice}:\nFonte: {item.nome_fonte}\nTitulo: {item.titulo}\nConteudo: {item.conteudo_bruto}"

@@ -9,11 +9,11 @@ import type { FeedEntrada } from "@/lib/api";
 import {
   derivarSelo,
   formatarCredito,
-  formatarDataHora,
   formatarLocalidade,
   timeAgo,
   type SeloEditorial,
 } from "@/lib/editorial";
+import { formatarDataHora } from "@/lib/datas";
 
 const SELO_ESTILO: Record<SeloEditorial, string> = {
   Urgente: "bg-[var(--cor-sinal)] text-[var(--cor-texto-invertido)]",

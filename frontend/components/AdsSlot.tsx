@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import { ADSENSE_CLIENT_ID } from "./AdsScript";
+import { EVENTO_CONSENTIMENTO_ALTERADO, permiteCategoria } from "@/lib/cookie-consent";
 
 type Formato = "horizontal" | "retangulo" | "vertical" | "in-feed";
 
@@ -40,18 +41,26 @@ export function AdsSlot({
   rotulo?: string;
 }) {
   const ref = useRef<HTMLModElement>(null);
+  const [podeExibir, setPodeExibir] = useState(false);
   const slot = SLOT_POR_FORMATO[formato];
 
   useEffect(() => {
-    if (!ADSENSE_CLIENT_ID || !slot || !ref.current) return;
+    const atualizar = () => setPodeExibir(permiteCategoria("personalizacao"));
+    atualizar();
+    window.addEventListener(EVENTO_CONSENTIMENTO_ALTERADO, atualizar);
+    return () => window.removeEventListener(EVENTO_CONSENTIMENTO_ALTERADO, atualizar);
+  }, []);
+
+  useEffect(() => {
+    if (!podeExibir || !ADSENSE_CLIENT_ID || !slot || !ref.current) return;
     try {
       (window.adsbygoogle = window.adsbygoogle || []).push({});
     } catch {
       /* AdSense indisponível (adblock/offline) — mantém o espaço reservado */
     }
-  }, [slot]);
+  }, [podeExibir, slot]);
 
-  if (ADSENSE_CLIENT_ID && slot) {
+  if (ADSENSE_CLIENT_ID && slot && podeExibir) {
     return (
       <div
         role="complementary"

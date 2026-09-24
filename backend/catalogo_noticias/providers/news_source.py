@@ -14,12 +14,14 @@ import calendar
 import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from datetime import datetime, timezone as dt_timezone
+from datetime import datetime, timedelta, timezone as dt_timezone
 from html.parser import HTMLParser
 from typing import Optional
 
 import feedparser
 import requests
+from django.conf import settings
+from django.utils import timezone as django_timezone
 
 logger = logging.getLogger(__name__)
 
@@ -211,20 +213,190 @@ class RSSNewsSourceProvider(NewsSourceProvider):
         timeout_segundos: int = 15,
         estado_fonte: str = "",
         pais_fonte: str = "",
+        etag: str = "",
+        last_modified: str = "",
+        fonte_robo=None,
+        ultima_revalidacao_completa=None,
     ):
         self.nome_fonte = nome_fonte
         self.url_feed = url_feed
         self.timeout_segundos = timeout_segundos
         self.estado_fonte = (estado_fonte or "").strip().upper()
         self.pais_fonte = (pais_fonte or "").strip()
+        self.etag = str(etag or "").strip()
+        self.last_modified = str(last_modified or "").strip()
+        self.fonte_robo = fonte_robo
+        self.ultima_revalidacao_completa = (
+            getattr(fonte_robo, "ultima_revalidacao_completa", None)
+            if ultima_revalidacao_completa is None
+            else ultima_revalidacao_completa
+        )
+        self.not_modified = False
+        self._validators_pendentes: tuple[str, str] | None = None
+        self._validacao_completa_pendente = False
+
+    @staticmethod
+    def _header(resposta, nome: str) -> str:
+        headers = getattr(resposta, "headers", None) or {}
+        try:
+            valor = headers.get(nome, "")
+            if not valor:
+                # `requests` entrega CaseInsensitiveDict, mas dublês e
+                # fontes de teste às vezes usam um dict simples.
+                for chave, candidato in headers.items():
+                    if str(chave).lower() == nome.lower():
+                        valor = candidato
+                        break
+        except (AttributeError, TypeError):
+            return ""
+        return str(valor).strip() if valor else ""
+
+    def _revalidacao_forcada(self) -> bool:
+        """Indica que os validators não devem ser enviados nesta rodada.
+
+        Um 304 é apenas uma resposta do upstream, não uma prova de que o
+        acervo local está completo.  Forçamos uma leitura sem headers após
+        o TTL de segurança; o marcador ``NULL`` das linhas migradas também
+        provoca essa reconciliação na primeira execução.
+        """
+        ultima = self.ultima_revalidacao_completa
+        if not ultima:
+            return True
+        try:
+            horas = float(
+                getattr(settings, "CATALOGO_NOTICIAS_REVALIDACAO_COMPLETA_HORAS", 6)
+            )
+        except (TypeError, ValueError):
+            horas = 6.0
+        if horas <= 0:
+            return True
+        if django_timezone.is_naive(ultima):
+            ultima = django_timezone.make_aware(ultima)
+        return django_timezone.now() - ultima >= timedelta(hours=horas)
+
+    def _capturar_validadores(self, resposta) -> None:
+        """Captura headers para confirmar somente após persistir os itens.
+
+        Salvar o validator no fetch criaria uma janela perigosa: o worker
+        poderia cair depois do INSERT do validator e antes dos NewsItems;
+        na próxima rodada um 304 faria o pipeline perder os itens baixados.
+        """
+        self.etag = self._header(resposta, "ETag")
+        self.last_modified = self._header(resposta, "Last-Modified")
+        self._validators_pendentes = (self.etag, self.last_modified)
+        self._validacao_completa_pendente = True
+
+    def confirmar_validadores(self) -> None:
+        """Persiste validators/marcador de uma execução concluída com sucesso.
+
+        O ``UPDATE`` condicional por ``pk + url`` é a barreira contra a
+        corrida em que um administrador troca a URL enquanto o pipeline ainda
+        está resumindo/persistindo o feed antigo.  Não usamos ``save()`` da
+        instância carregada no início: ela poderia estar obsoleta (TOCTOU).
+        """
+        pendentes = self._validators_pendentes
+        if pendentes is None and not self._validacao_completa_pendente:
+            return
+        fonte = self.fonte_robo
+        try:
+            if fonte is not None and getattr(fonte, "pk", None):
+                from ..models import FonteRobo
+
+                updates = {
+                    "ultima_revalidacao_completa": django_timezone.now(),
+                }
+                if pendentes is not None:
+                    updates["etag"], updates["last_modified"] = pendentes
+                atualizados = FonteRobo.objects.filter(
+                    pk=fonte.pk,
+                    url=self.url_feed,
+                ).update(**updates)
+                if not atualizados:
+                    logger.info(
+                        "Validator HTTP descartado para '%s': a URL mudou "
+                        "durante a execução (pk=%s).",
+                        self.nome_fonte,
+                        fonte.pk,
+                    )
+                else:
+                    # Mantém a instância do provider coerente para uma
+                    # eventual reentrega no mesmo objeto, sem salvar a linha.
+                    if pendentes is not None:
+                        fonte.etag, fonte.last_modified = pendentes
+                    fonte.ultima_revalidacao_completa = updates[
+                        "ultima_revalidacao_completa"
+                    ]
+                    self.ultima_revalidacao_completa = fonte.ultima_revalidacao_completa
+        except Exception:
+            # O fetch e os itens já foram processados; uma falha ao salvar o
+            # validator apenas fará um download completo na próxima rodada.
+            logger.warning(
+                "Não foi possível persistir validator HTTP da fonte '%s'",
+                self.nome_fonte,
+                exc_info=True,
+            )
+        finally:
+            self._validators_pendentes = None
+            self._validacao_completa_pendente = False
+
+    def invalidar_validadores_apos_erro(self) -> None:
+        """Limpa validators antigos quando a última tentativa falhou.
+
+        A comparação com os valores vistos no início evita que uma execução
+        concorrente que já confirmou um fetch novo seja apagada por um erro
+        atrasado da execução anterior.  A próxima rodada então faz download
+        completo em vez de aceitar um 304 possivelmente enganoso.
+        """
+        fonte = self.fonte_robo
+        if fonte is None or not getattr(fonte, "pk", None):
+            return
+        try:
+            from ..models import FonteRobo
+
+            FonteRobo.objects.filter(
+                pk=fonte.pk,
+                url=self.url_feed,
+                etag=self.etag,
+                last_modified=self.last_modified,
+                ultima_revalidacao_completa=self.ultima_revalidacao_completa,
+            ).update(
+                etag="",
+                last_modified="",
+                ultima_revalidacao_completa=None,
+            )
+        except Exception:
+            logger.warning(
+                "Não foi possível invalidar validator HTTP da fonte '%s'",
+                self.nome_fonte,
+                exc_info=True,
+            )
 
     def buscar_itens(self) -> list[ItemBruto]:
+        self.not_modified = False
+        self._validators_pendentes = None
+        self._validacao_completa_pendente = False
+        headers = {"User-Agent": "BRDPortalNoticias/1.0 (+ingestao-catalogo-noticias)"}
+        forcar_revalidacao = self._revalidacao_forcada()
+        if not forcar_revalidacao:
+            if self.etag:
+                headers["If-None-Match"] = self.etag
+            if self.last_modified:
+                headers["If-Modified-Since"] = self.last_modified
         try:
             resposta = requests.get(
                 self.url_feed,
                 timeout=self.timeout_segundos,
-                headers={"User-Agent": "BRDPortalNoticias/1.0 (+ingestao-catalogo-noticias)"},
+                headers=headers,
             )
+            # 304 é uma resposta válida de download condicional: não há corpo
+            # para parsear e os validators anteriores devem ser preservados.
+            if getattr(resposta, "status_code", None) == 304:
+                self.not_modified = True
+                # Mesmo um 304 sem validators (reconciliação periódica) é
+                # uma tentativa concluída; o marcador só é confirmado pelo
+                # pipeline depois de toda a persistência.
+                self._validacao_completa_pendente = True
+                return []
             resposta.raise_for_status()
         except requests.RequestException as exc:
             raise FonteIndisponivelError(
@@ -289,4 +461,8 @@ class RSSNewsSourceProvider(NewsSourceProvider):
                     pais_fonte=self.pais_fonte,
                 )
             )
+        # Só capturamos validators depois de um parse válido. A gravação no
+        # FonteRobo é adiada para `confirmar_validadores`, após a persistência
+        # dos NewsItems, para não perder uma rodada em queda de worker.
+        self._capturar_validadores(resposta)
         return itens

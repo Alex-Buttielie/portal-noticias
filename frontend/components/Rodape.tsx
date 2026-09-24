@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { formatarAno } from "@/lib/datas";
 export function Rodape() {
   return (
     <footer className="border-t border-[var(--cor-borda)] bg-[var(--cor-fundo-card)]">
@@ -39,7 +40,7 @@ export function Rodape() {
           </nav>
         </div>
         <div className="mt-6 flex flex-col gap-2 border-t border-[var(--cor-borda)] pt-4 text-xs text-[var(--cor-texto-suave)] md:flex-row md:items-center md:justify-between">
-          <span>© {new Date().getFullYear()} Portal de Notícias. Todos os direitos reservados.</span>
+          <span>© {formatarAno(new Date())} Portal de Notícias. Todos os direitos reservados.</span>
           <span>Desenvolvido por ButtielieDev.</span>
           <span className="inline-flex items-center gap-2"><span className="h-2 w-2 rounded-full bg-[var(--cor-sinal)]" aria-hidden /> Feito para leitura confortável</span>
         </div>

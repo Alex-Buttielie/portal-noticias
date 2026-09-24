@@ -7,7 +7,12 @@ from .services import verificar_e_enviar_alertas
 logger = logging.getLogger(__name__)
 
 
-@shared_task(name="b2b.tasks.verificar_alertas")
+# Alertas podem disparar efeitos externos; não herdam reentrega tardia.
+@shared_task(
+    name="b2b.tasks.verificar_alertas",
+    acks_late=False,
+    reject_on_worker_lost=False,
+)
 def verificar_alertas_task():
     resultado = verificar_e_enviar_alertas()
     logger.info(

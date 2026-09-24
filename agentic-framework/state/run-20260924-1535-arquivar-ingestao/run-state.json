@@ -1,0 +1,87 @@
+{
+  "run_id": "20260924-1535-arquivar-ingestao",
+  "task_title": "Arquivar definitivamente o microserviço de ingestão e sua integração",
+  "status": "in_progress",
+  "current_phase": "testing",
+  "iteration_count": 0,
+  "max_iterations": 3,
+  "requested_by": "humano (Alex), via sessão orquestradora",
+  "source_spec": "PROD_DECISOES.md §7, ANALISE_CUSTO_PERFORMANCE.md e decisão explícita do solicitante",
+  "phases": {
+    "planning": {
+      "status": "done",
+      "agent": "orchestrator",
+      "execution_mode": "delegated",
+      "started_at": "2026-09-24T15:30:00-03:00",
+      "finished_at": "2026-09-24T15:35:00-03:00",
+      "notes": "Decisão confirmada: remover o diretório e também o adaptador/flags do portal. Revisão obrigatória por API, segurança e volume; histórico de outras runs preservado."
+    },
+    "implementation": {
+      "status": "done",
+      "agent": "executor",
+      "execution_mode": "delegated",
+      "started_at": "2026-09-24T15:35:00-03:00",
+      "finished_at": "2026-09-24T15:46:00-03:00",
+      "notes": "Executor removeu 33 arquivos do microserviço, 2 adaptadores e referências operacionais; reportou 476 testes PostgreSQL, 88,84%, tsc/build 59/59 e compose válido. Durante a execução outra sessão commitou o Lote A em 6e61a97 e moveu o worktree para develop; refs ficaram iguais e as mudanças desta run permanecem no índice/worktree, sem commit."
+    },
+    "testing": {
+      "status": "in_progress",
+      "agent": "tester",
+      "execution_mode": "delegated",
+      "started_at": "2026-09-24T15:47:00-03:00",
+      "finished_at": null,
+      "notes": "Tester independente deve validar o estado staged+unstaged sem trocar branch, resetar índice ou commitar."
+    },
+    "review": {
+      "status": "pending",
+      "agent": "reviewer",
+      "execution_mode": "delegated",
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Revisão obrigatória: mudança de API/configuração, superfície de segurança e volume de deleções."
+    },
+    "remediation": {
+      "status": "pending",
+      "agent": "remediator",
+      "execution_mode": "delegated",
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Ativar se o reviewer encontrar findings bloqueantes."
+    },
+    "documentation": {
+      "status": "pending",
+      "agent": "documenter",
+      "execution_mode": "delegated",
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Pendente de teste e revisão aprovados."
+    },
+    "closing": {
+      "status": "pending",
+      "agent": "historian",
+      "execution_mode": "delegated",
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Pendente do fechamento completo."
+    }
+  },
+  "findings": {
+    "blocker": 0,
+    "major": 0,
+    "minor": 0,
+    "nit": 0,
+    "resolved": 0
+  },
+  "artifacts": {
+    "task_plan": "task-plan.md",
+    "implementation_contract": "implementation-contract.md"
+  },
+  "blocked_reason": null,
+  "follow_ups": [
+    "Após revisão e merge, operador deve confirmar em cada VPS se há container/volume Mongo do ingestao-service e desligar/remover somente após backup/validação.",
+    "Após revisão e merge, operador deve remover MICROSERVICO_INGESTAO_URL e INGESTAO_API_TOKEN de .env existentes se ainda presentes; não são editados por esta run.",
+    "Migrar React Query e mover build para o runner continuam lotes separados."
+  ],
+  "created_at": "2026-09-24T15:30:00-03:00",
+  "updated_at": "2026-09-24T15:35:00-03:00"
+}

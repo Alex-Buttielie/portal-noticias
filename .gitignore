@@ -3,9 +3,10 @@
 .env.homolog
 .env.dev
 
-# Artefatos de backup gerados localmente (infra/backup/pg_backup.sh).
+# Artefatos/lock de backup gerados localmente (scripts PM2 e Docker).
 infra/backup/*.dump
 infra/backup/*.tar.gz
+infra/backup/.pg_backup_pm2.lock
 
 # Estado de runtime local do Claude Code, não do projeto.
 .claude/scheduled_tasks.lock
@@ -18,8 +19,7 @@ backend/ensure_local_admin.py
 .env.localhost
 docker-compose.localhost.yml
 
-# Bytecode e caches regeneráveis — nunca commitar (valeu para
-# ingestao-service/, que não tinha .gitignore próprio).
+# Bytecode e caches regeneráveis — nunca commitar.
 __pycache__/
 *.py[cod]
 *$py.class

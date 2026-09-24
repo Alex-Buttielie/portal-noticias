@@ -189,6 +189,23 @@ class NewsItem(models.Model):
 class FonteRobo(models.Model):
     nome = models.CharField(max_length=150, unique=True)
     url = models.URLField(max_length=1000, unique=True)
+    # Validadores HTTP de downloads condicionais (P2-2): a próxima rodada
+    # envia If-None-Match/If-Modified-Since e pode receber 304 sem baixar o
+    # XML. Guardamos o valor textual retornado pelo servidor para não perder
+    # a semântica de header (ETag pode ser quoted/fraco).
+    etag = models.CharField(max_length=512, blank=True, default="")
+    last_modified = models.CharField(max_length=128, blank=True, default="")
+    # Os validators HTTP são apenas uma otimização. Este marcador permite
+    # forçar uma leitura sem If-None-Match/If-Modified-Since periodicamente,
+    # para que um 304 falso ou uma perda local não fique escondido para sempre.
+    ultima_revalidacao_completa = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=(
+            "Última execução em que o feed foi validado sem depender de um "
+            "304; após o TTL de segurança a próxima leitura é incondicional."
+        ),
+    )
     ativo = models.BooleanField(default=True)
     categoria_padrao = models.CharField(max_length=100, blank=True)
     estado_padrao = models.CharField(
@@ -206,6 +223,34 @@ class FonteRobo(models.Model):
 
     def __str__(self):
         return f"{self.nome} ({'ativo' if self.ativo else 'inativo'})"
+
+    def save(self, *args, **kwargs):
+        """Invalida validators quando a URL da fonte muda.
+
+        A confirmação da ingestão também usa um UPDATE condicional por
+        ``pk + url``; esta salvaguarda cobre alterações administrativas e
+        comandos que passam pelo ``save()`` normal. O ``update_fields`` é
+        ampliado para que os três campos invalidados não fiquem ausentes
+        quando o chamador pediu uma atualização parcial.
+        """
+        update_fields = kwargs.get("update_fields")
+        if self.pk:
+            url_anterior = (
+                type(self).objects.filter(pk=self.pk)
+                .values_list("url", flat=True)
+                .first()
+            )
+            if url_anterior is not None and url_anterior != self.url:
+                self.etag = ""
+                self.last_modified = ""
+                self.ultima_revalidacao_completa = None
+                if update_fields is not None:
+                    kwargs["update_fields"] = set(update_fields) | {
+                        "etag",
+                        "last_modified",
+                        "ultima_revalidacao_completa",
+                    }
+        super().save(*args, **kwargs)
 
 
 class ConfiguracaoRobo(models.Model):

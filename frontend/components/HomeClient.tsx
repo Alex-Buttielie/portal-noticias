@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { AdsSlot } from "@/components/AdsSlot";
 import { SecaoRegiao } from "@/components/SecaoRegiao";
 import { SecaoColunistas } from "@/components/SecaoColunistas";
+import type { Colunista } from "@/lib/colunistas";
 import { LocalidadeTag } from "@/components/home/NewsCard";
 import { ManchetesGrid } from "@/components/home/ManchetesGrid";
 import { UltimasNoticias } from "@/components/home/UltimasNoticias";
@@ -43,10 +44,12 @@ export function HomeClient({
   feed: feedProp,
   urg: urgProp,
   maisLidas: maisLidasProp = [],
+  colunistas = [],
 }: {
   feed: FeedEntrada[];
   urg: FeedEntrada[];
   maisLidas?: FeedEntrada[];
+  colunistas?: Colunista[];
 }) {
   const { usuario } = useAuth();
   const isPremium = usuario?.papel === "premium" || usuario?.papel === "admin";
@@ -276,7 +279,7 @@ export function HomeClient({
 
       {!premiumGeral && <AdsSlot id="home-pos-regiao" formato="in-feed" />}
 
-      <SecaoColunistas />
+      <SecaoColunistas colunistas={colunistas} />
 
       {!premiumGeral && <AdsSlot id="home-pos-colunistas" formato="in-feed" />}
 

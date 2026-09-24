@@ -30,17 +30,34 @@
 
 	encode zstd gzip
 
-	# Estático/mídia direto do volume compartilhado, sem passar pelo Django/
-	# Gunicorn — mais rápido e mais barato em CPU do que servir binário via
-	# WhiteNoise para o volume alto de leitura esperado (thumbnails de
-	# notícias, documentos de credenciamento).
+	# Estático e mídia pública diretamente do volume compartilhado, sem passar
+	# pelo Django/Gunicorn — mais rápido e mais barato em CPU do que servir binário
+	# via WhiteNoise para o volume alto de leitura esperado (thumbnails de
+	# notícias). O volume de credenciamento nunca é exposto pelo edge.
 	handle_path /static/* {
 		root * /srv/static
 		file_server
 	}
-	handle_path /media/* {
-		root * /srv/media
+
+	# O MEDIA_ROOT também contém documentos de credenciamento em
+	# `credenciamento/<user_id>/`. Esses documentos são servidos somente pela
+	# DocumentoView autenticada do Django; nunca pelo Caddy.
+	@mediaCredenciamento path /media/credenciamento /media/credenciamento/*
+	handle @mediaCredenciamento {
+		respond 404
+	}
+
+	# Somente a subtree pública é servida diretamente. `handle_path` remove o
+	# prefixo `/media/public/` antes de procurar o arquivo sob a raiz abaixo.
+	handle_path /media/public/* {
+		root * /srv/media/public
 		file_server
+	}
+
+	# Qualquer outro caminho de MEDIA_ROOT fica fechado, inclusive `/media/`
+	# e a raiz, para não criar uma segunda porta de acesso ao volume.
+	handle /media* {
+		respond 404
 	}
 
 	reverse_proxy web:8000

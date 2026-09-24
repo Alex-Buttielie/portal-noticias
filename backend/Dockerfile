@@ -34,4 +34,8 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
     CMD curl -f http://localhost:8000/healthz || exit 1
 
 ENTRYPOINT ["./docker-entrypoint.sh"]
-CMD ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "3", "--timeout", "180"]
+# O conf `gunicorn.conf.py` na raiz do backend é carregado automaticamente
+# (workers/threads/timeout — run 20260923-1230 P1-3). Só o bind fica aqui
+# (porta do container). NÃO recolocar flags de worker/timeout: divergem do
+# conf e do deploy PM2 na VPS.
+CMD ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000"]

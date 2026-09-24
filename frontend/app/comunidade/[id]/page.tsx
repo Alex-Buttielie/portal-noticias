@@ -13,6 +13,7 @@ import { SeloFormato, formatoDaPublicacao } from "@/components/comunidade/TipoSe
 import { useAuth } from "@/lib/auth-context";
 import * as api from "@/lib/api";
 import { registrarEventoComunidade } from "@/lib/interacoes-comunidade";
+import { formatarDataHoraCompleta } from "@/lib/datas";
 import { AdsSlot } from "@/components/AdsSlot";
 import {
   Users, MessageSquare, MessagesSquare, Shield, Flag, Send, Trash2, Pencil,
@@ -230,7 +231,7 @@ export default function Page({ params }: { params: { id: string } }) {
             {c.autor_nome}
             <Badge variant="outline" className="border-[var(--cor-borda)] text-[10px]">Comentário</Badge>
           </span>
-          <span className="text-xs text-[var(--cor-texto-suave)]">{new Date(c.criado_em).toLocaleString("pt-BR")}</span>
+          <span className="text-xs text-[var(--cor-texto-suave)]">{formatarDataHoraCompleta(c.criado_em)}</span>
         </div>
         <p className="mt-1 text-sm text-[var(--cor-texto)] whitespace-pre-wrap">{c.conteudo}</p>
         <div className="mt-2 flex flex-wrap gap-1.5">
@@ -270,7 +271,7 @@ export default function Page({ params }: { params: { id: string } }) {
               <span className="inline-flex items-center gap-1 text-xs text-[var(--cor-texto-suave)]">
                 <MessagesSquare className="h-3.5 w-3.5" aria-hidden />{comentarios.length} {comentarios.length === 1 ? "comentário" : "comentários"}
               </span>
-              <span className="text-xs text-[var(--cor-texto-suave)]">#{pub.id} · {new Date(pub.criado_em).toLocaleString("pt-BR")}</span>
+              <span className="text-xs text-[var(--cor-texto-suave)]">#{pub.id} · {formatarDataHoraCompleta(pub.criado_em)}</span>
             </div>
             <h1 className="text-2xl font-bold leading-tight text-[var(--cor-texto)]">{pub.titulo}</h1>
             <div className="flex flex-wrap items-center gap-2 rounded-[var(--raio-lg)] border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] p-3">

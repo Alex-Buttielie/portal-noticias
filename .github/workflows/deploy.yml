@@ -2,14 +2,23 @@ name: Deploy portal (reutilizável)
 
 # Workflow ÚNICO que implanta UM ambiente (DEV/HOMOLOG/PROD) na VPS via
 # PM2 + Nginx. Os callers (deploy-dev/homolog/prod.yml) só definem trigger +
-# parâmetros — qualquer correção aqui vale para os 3 ambientes de uma vez
-# (anti-drift por construção; ver PROD_DECISOES.md "homogeneidade").
+# parâmetros; o caller manual de rollback reutiliza este mesmo caminho — qualquer
+# correção aqui vale para os ambientes de uma vez (anti-drift por construção;
+# ver PROD_DECISOES.md "homogeneidade").
 #
 # Invariantes preservadas dos workflows antigos (não mudar sem motivo):
-# - guard: npm ci + tsc + pip install + manage.py check (sqlite/locmem);
+# - o job verify chama o MESMO ci.yml usado no push/PR; deploy só começa
+#   depois que backend-tests e frontend-build terminam com sucesso;
+# - o runner de CI é o gate; o build de produção continua na VPS, sem
+#   repetir npm/pip/check sem cache;
 # - .env criado UMA vez (nunca sobrescrito) com SECRET aleatória;
-# - migrate + collectstatic a cada deploy; pm2 delete/start + save;
-# - frontend rebuild com NEXT_PUBLIC_* do ambiente;
+# - migrate + collectstatic a cada deploy; PM2 restart/start + save (sem
+#   janela explícita de delete);
+# - cada restart tem 3 tentativas e confirma `online` no PM2 antes de seguir;
+# - o SHA anterior fica em `.deployed-sha` até o smoke pós-restart promover
+#   o novo SHA; um workflow manual reutiliza este mesmo caminho para rollback;
+# - frontend rebuild com NEXT_PUBLIC_* do ambiente, cache npm persistente
+#   no home da VPS e heap Node limitado (decisão conservadora P1-5);
 # - validate: DEV/HOMOLOG avisam (warn), PROD falha (exit 1).
 
 on:
@@ -28,14 +37,18 @@ on:
         required: true
         type: string
       git_mode:
-        description: "branch | pr | tag"
+        description: "branch | pr | tag | rollback (rollback exige SHA verificado)"
         required: true
         type: string
       git_ref:
-        description: "Branch (modo branch) ou tag (modo tag); ignorado no modo pr"
+        description: "Branch/tag ou SHA alvo no modo rollback; ignorado no modo pr"
         required: false
         type: string
         default: ""
+      verify_ref:
+        description: "Ref/commit exato enviado ao CI reutilizável (SHA do evento ou alvo do rollback)"
+        required: true
+        type: string
       pr_number:
         description: "Número do PR (só modo pr)"
         required: false
@@ -55,6 +68,14 @@ on:
         description: "Domínio canônico do ambiente"
         required: true
         type: string
+      tls_enabled:
+        description: "true somente depois de certbot, nginx -t e reload bem-sucedidos"
+        required: false
+        type: boolean
+        default: false
+        # Com true, o .env novo recebe:
+        # DJANGO_SECURE_SSL_REDIRECT=true, DJANGO_SESSION_COOKIE_SECURE=true
+        # e DJANGO_CSRF_COOKIE_SECURE=true.
       allowed_hosts_extra:
         description: "Sufixo extra de hosts, ex.: ',www.portal-noticias.com.br' (só PROD)"
         required: false
@@ -71,11 +92,6 @@ on:
         required: false
         type: boolean
         default: false
-      guard_ref:
-        description: "Ref para o checkout do guard (vazio = default do evento)"
-        required: false
-        type: string
-        default: ""
     secrets:
       VPS_HOST:
         required: true
@@ -86,38 +102,27 @@ on:
       VPS_PORT:
         required: true
 
+# Impede que dois deploys do mesmo ambiente alterem o PM2 ao mesmo tempo. Um
+# run já em andamento nunca é cancelado; uma atualização mais nova espera sua
+# vez.
+concurrency:
+  group: portal-deploy-${{ inputs.environment_name }}
+  cancel-in-progress: false
+
 jobs:
-  guard:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.guard_ref != '' && inputs.guard_ref || github.sha }}
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - run: npm ci
-        working-directory: frontend
-      - run: npx tsc --noEmit
-        working-directory: frontend
-      - run: pip install -r requirements.txt
-        working-directory: backend
-        env:
-          DJANGO_DEBUG: "true"
-          DJANGO_DB_ENGINE: sqlite3
-          DJANGO_CACHE_BACKEND: locmem
-      - run: python manage.py check
-        working-directory: backend
-        env:
-          DJANGO_DEBUG: "true"
-          DJANGO_DB_ENGINE: sqlite3
-          DJANGO_CACHE_BACKEND: locmem
+  # Reutiliza a definição única de CI. Se qualquer um dos jobs internos
+  # (pytest/check ou tsc/build) falhar, este called workflow não fica verde
+  # e o job de provisionamento abaixo fica skipped automaticamente.
+  verify:
+    name: Verify ${{ inputs.env_label }} (${{ inputs.git_mode }})
+    uses: ./.github/workflows/ci.yml
+    with:
+      checkout_ref: ${{ inputs.verify_ref }}
+    permissions:
+      contents: read
 
   deploy:
-    needs: guard
+    needs: verify
     runs-on: ubuntu-latest
     environment: ${{ inputs.environment_name }}
     steps:
@@ -134,61 +139,318 @@ jobs:
             APP_DIR="${{ inputs.app_dir }}"; WEB_PORT=${{ inputs.web_port }}; API_PORT=${{ inputs.api_port }}
             HOST="${{ inputs.host }}"; DB_NAME="${{ inputs.db_name }}"; DB_USER="${{ inputs.db_user }}"
             SUF="${{ inputs.pm_suffix }}"; LABEL="${{ inputs.env_label }}"
+            GIT_MODE="${{ inputs.git_mode }}"; GIT_REF="${{ inputs.git_ref }}"; VERIFY_REF="${{ inputs.verify_ref }}"
+            DEPLOYED_SHA_FILE="$APP_DIR/.deployed-sha"
+            PM2_MAX_ATTEMPTS=3
+            PM2_RETRY_DELAY=3
+            PM2_ONLINE_CHECKS=10
+            PM2_ONLINE_DELAY=2
+            PM2_ONLINE_CONFIRMATIONS=2
+            TLS_ENABLED="${{ inputs.tls_enabled }}"
+            TLS_ENABLED=$(printf '%s' "$TLS_ENABLED" | tr '[:upper:]' '[:lower:]')
+            case "$TLS_ENABLED" in
+              true|false) ;;
+              *) echo "ERRO: tls_enabled deve ser true ou false"; exit 1 ;;
+            esac
+            case "$GIT_MODE" in
+              branch|pr|tag|rollback) ;;
+              *) echo "ERRO: git_mode inválido: $GIT_MODE"; exit 1 ;;
+            esac
+            if [ "$GIT_MODE" = "rollback" ] && { [ "${#VERIFY_REF}" -ne 40 ] || [ -n "$(printf '%s' "$VERIFY_REF" | tr -d '0-9a-fA-F')" ]; }; then
+              echo "ERRO: rollback exige verify_ref com exatamente 40 caracteres hexadecimais"
+              exit 1
+            fi
+            if [ -z "$VERIFY_REF" ]; then echo "ERRO: verify_ref obrigatório para impedir deploy de commit não verificado"; exit 1; fi
+            # O marker só é promovido no job validate, depois dos dois probes.
+            # Até lá, este valor é a referência de recuperação da VPS.
+            write_deployed_sha() {
+              local sha="$1"
+              local marker_tmp="$DEPLOYED_SHA_FILE.tmp.$$"
+              if ! (umask 077; printf '%s\n' "$sha" > "$marker_tmp"); then
+                rm -f -- "$marker_tmp" || true
+                return 1
+              fi
+              if ! chmod 600 -- "$marker_tmp" || ! mv -f -- "$marker_tmp" "$DEPLOYED_SHA_FILE"; then
+                rm -f -- "$marker_tmp" || true
+                return 1
+              fi
+            }
+            SSL_REDIRECT=false
+            SESSION_COOKIE_SECURE=false
+            CSRF_COOKIE_SECURE=false
+            if [ "$TLS_ENABLED" = true ]; then
+              SSL_REDIRECT=true
+              SESSION_COOKIE_SECURE=true
+              CSRF_COOKIE_SECURE=true
+            fi
+            if [ -z "$GIT_REF" ] && [ "$GIT_MODE" != "pr" ] && [ "$GIT_MODE" != "rollback" ]; then
+              echo "ERRO: git_ref obrigatório para git_mode=$GIT_MODE"; exit 1
+            fi
             # Origens públicas via Nginx (mesma origem do navegador — ver
             # infra/nginx/portal-{dev,homolog,prod}.conf): o frontend chama a
             # API pelo path /api/ do próprio domínio, então não há
             # mixed-content nem CORS — e o backend usa o mesmo host para CORS
             # e links de e-mail. NUNCA usar http://IP:porta aqui: é bloqueado
             # como mixed-content em página https e não está na allowlist de
-            # CORS (acesso por IP é contingência manual — ver DEPLOY.md).
-            API_ORIGIN="https://$HOST"; WEB_ORIGIN="https://$HOST"
+            # A origem pública acompanha o estado real do edge: não grave
+            # https no bundle enquanto o vhost ainda responde apenas em HTTP.
+            if [ "$TLS_ENABLED" = true ]; then
+              API_ORIGIN="https://$HOST"; WEB_ORIGIN="https://$HOST"
+            else
+              API_ORIGIN="http://$HOST"; WEB_ORIGIN="http://$HOST"
+            fi
             echo "=== Deploy $LABEL portal-noticias ==="
             mkdir -p /home/apps
-            [ -d "$APP_DIR/.git" ] || git clone -b "${{ inputs.git_ref }}" https://github.com/Alex-Buttielie/portal-noticias.git "$APP_DIR"
+            if [ ! -d "$APP_DIR/.git" ]; then
+              if [ "$GIT_MODE" = "pr" ] || [ "$GIT_MODE" = "rollback" ]; then
+                git clone https://github.com/Alex-Buttielie/portal-noticias.git "$APP_DIR"
+              else
+                git clone -b "$GIT_REF" https://github.com/Alex-Buttielie/portal-noticias.git "$APP_DIR"
+              fi
+            fi
             cd "$APP_DIR"
-            if [ "${{ inputs.git_mode }}" = "pr" ]; then
+
+            # Antes de trocar o checkout, conserva o SHA que o PM2 já executava.
+            # O fallback para HEAD só é aceito quando pelo menos um processo do
+            # ambiente existe; em uma primeira instalação não há referência
+            # antiga e o marker só será criado após o smoke bem-sucedido.
+            PREVIOUS_SHA=""
+            if [ -f "$DEPLOYED_SHA_FILE" ]; then
+              PREVIOUS_SHA="$(tr -d '[:space:]' < "$DEPLOYED_SHA_FILE" 2>/dev/null || true)"
+            fi
+            if ! printf '%s' "$PREVIOUS_SHA" | grep -Eq '^[0-9a-fA-F]{40}$'; then
+              PREVIOUS_SHA=""
+              if pm2 describe "portal-web-$SUF" >/dev/null 2>&1 || pm2 describe "portal-api-$SUF" >/dev/null 2>&1; then
+                PREVIOUS_SHA="$(git rev-parse HEAD 2>/dev/null || true)"
+              fi
+            fi
+            if printf '%s' "$PREVIOUS_SHA" | grep -Eq '^[0-9a-fA-F]{40}$'; then
+              echo "PM2: SHA anterior registrado: $PREVIOUS_SHA"
+              if ! write_deployed_sha "$PREVIOUS_SHA"; then
+                echo "ERRO: não foi possível registrar/preservar $DEPLOYED_SHA_FILE antes do deploy"
+                exit 1
+              fi
+            else
+              echo "PM2: nenhum SHA anterior encontrado; este será o primeiro marker após o smoke"
+            fi
+
+            if [ "$GIT_MODE" = "pr" ]; then
               # Fetch direto do ref do PR: funciona tanto para PR do mesmo
               # repo quanto de fork (origin/${head_ref} só existe no primeiro).
-              git fetch origin "+refs/pull/${{ inputs.pr_number }}/head:pr-head"; git reset --hard pr-head
-            elif [ "${{ inputs.git_mode }}" = "tag" ]; then
-              git fetch --all --tags --force; git reset --hard "origin/main"; git checkout "${{ inputs.git_ref }}"
+              git fetch origin "+refs/pull/${{ inputs.pr_number }}/head:pr-head"
+              git reset --hard "$VERIFY_REF"
+            elif [ "$GIT_MODE" = "tag" ]; then
+              git fetch --all --tags --force; git reset --hard "origin/main"; git checkout "$GIT_REF"
+              # A tag e o commit do evento podem divergir se a tag for movida;
+              # o reset final mantém o código igual ao testado pelo verify.
+              git reset --hard "$VERIFY_REF"
+            elif [ "$GIT_MODE" = "rollback" ]; then
+              echo "Rollback solicitado para o SHA verificado $VERIFY_REF"
+              git fetch --all --tags --force
+              if ! git cat-file -e "$VERIFY_REF^{commit}" 2>/dev/null; then
+                if ! git fetch origin "$VERIFY_REF"; then
+                  echo "ERRO: SHA de rollback $VERIFY_REF não pôde ser obtido do origin"
+                  exit 1
+                fi
+              fi
+              git reset --hard "$VERIFY_REF"
             else
-              git fetch origin; git reset --hard "origin/${{ inputs.git_ref }}"
+              git fetch origin
+              git reset --hard "$VERIFY_REF"
+            fi
+            ACTUAL_COMMIT="$(git rev-parse HEAD)"
+            EXPECTED_COMMIT="$(git rev-parse "$VERIFY_REF^{commit}" 2>/dev/null || true)"
+            if [ -z "$EXPECTED_COMMIT" ] || [ "$ACTUAL_COMMIT" != "$EXPECTED_COMMIT" ]; then
+              echo "ERRO: checkout ficou em $ACTUAL_COMMIT, mas o gate verificou $EXPECTED_COMMIT"
+              exit 1
             fi
             if [ ! -f backend/.env ]; then
               SECRET=$(python3 -c "import secrets;print(secrets.token_urlsafe(50))")
-              printf 'DJANGO_SECRET_KEY=%s\nDJANGO_DEBUG=false\nDJANGO_ALLOWED_HOSTS=%s%s,108.174.147.50,localhost,127.0.0.1\nDJANGO_SECURE_SSL_REDIRECT=false\nDJANGO_SESSION_COOKIE_SECURE=false\nDJANGO_CSRF_COOKIE_SECURE=false\nDJANGO_DB_ENGINE=postgresql\nDJANGO_DB_NAME=%s\nDJANGO_DB_USER=%s\nDJANGO_DB_PASSWORD=troque-aqui\nDJANGO_DB_HOST=localhost\nDJANGO_DB_PORT=5432\nFRONTEND_BASE_URL=%s\n' "$SECRET" "$HOST" "${{ inputs.allowed_hosts_extra }}" "$DB_NAME" "$DB_USER" "$WEB_ORIGIN" > backend/.env
-              chmod 600 backend/.env
+              # O arquivo é criado uma única vez. tls_enabled=false é o
+              # bootstrap seguro para uma VPS que ainda não tem certificado;
+              # tls_enabled=true grava os três flags de TLS, mas nunca emite
+              # o certificado — a emissão é um passo humano anterior.
+              # Escreve fora do caminho final e publica por rename. Uma
+              # interrupção no meio do printf nunca deixa backend/.env parcial.
+              ENV_TMP="$APP_DIR/backend/.env.tmp.$$"
+              (umask 077; : > "$ENV_TMP")
+              if ! printf 'DJANGO_SECRET_KEY=%s\nDJANGO_DEBUG=false\nDJANGO_ALLOWED_HOSTS=%s%s,108.174.147.50,localhost,127.0.0.1\nDJANGO_SECURE_SSL_REDIRECT=%s\nDJANGO_SESSION_COOKIE_SECURE=%s\nDJANGO_CSRF_COOKIE_SECURE=%s\nDJANGO_DB_ENGINE=postgresql\nDJANGO_DB_NAME=%s\nDJANGO_DB_USER=%s\nDJANGO_DB_PASSWORD=troque-aqui\nDJANGO_DB_HOST=localhost\nDJANGO_DB_PORT=5432\nFRONTEND_BASE_URL=%s\n' \
+                "$SECRET" "$HOST" "${{ inputs.allowed_hosts_extra }}" \
+                "$SSL_REDIRECT" "$SESSION_COOKIE_SECURE" "$CSRF_COOKIE_SECURE" \
+                "$DB_NAME" "$DB_USER" "$WEB_ORIGIN" > "$ENV_TMP"; then
+                rm -f -- "$ENV_TMP" || true
+                exit 1
+              fi
+              if ! chmod 600 "$ENV_TMP" || ! mv -f -- "$ENV_TMP" backend/.env; then
+                rm -f -- "$ENV_TMP" || true
+                echo "ERRO: não foi possível publicar atomicamente backend/.env"
+                exit 1
+              fi
+            else
+              # Não sobrescreve o .env nem faz downgrade automático. Se o
+              # operador trocou tls_enabled, o arquivo precisa ser editado de
+              # forma explícita antes do redeploy; caso contrário o deploy
+              # falha antes de iniciar um processo com flags incoerentes.
+              if [ "$TLS_ENABLED" = true ]; then EXPECTED_TLS=true; else EXPECTED_TLS=false; fi
+              for setting in DJANGO_SECURE_SSL_REDIRECT DJANGO_SESSION_COOKIE_SECURE DJANGO_CSRF_COOKIE_SECURE; do
+                if ! grep -Eq "^${setting}=${EXPECTED_TLS}$" backend/.env; then
+                  echo "ERRO: $setting deve ser $EXPECTED_TLS em backend/.env para tls_enabled=$TLS_ENABLED; ajuste o arquivo e redeploy"
+                  exit 1
+                fi
+              done
             fi
             cd "$APP_DIR/frontend"
-            npm ci
-            NEXT_PUBLIC_API_BASE_URL="$API_ORIGIN" NEXT_PUBLIC_SITE_URL="$WEB_ORIGIN" npm run build
+            # P1-5 conservador: o build continua na VPS até existir um teste
+            # real do artifact standalone. O cache vive no home do usuário
+            # (fora do APP_DIR, preservado pelo git reset) e o heap fica
+            # limitado para não disputar RAM com Postgres e as 3 stacks.
+            export NPM_CONFIG_CACHE="$HOME/.npm"
+            mkdir -p "$NPM_CONFIG_CACHE"
+            npm ci --cache "$NPM_CONFIG_CACHE" --prefer-offline
+            NODE_OPTIONS="--max-old-space-size=1536" \
+              NEXT_PUBLIC_API_BASE_URL="$API_ORIGIN" NEXT_PUBLIC_SITE_URL="$WEB_ORIGIN" \
+              npm run build
             cd "$APP_DIR/backend"
             python3 -m venv .venv 2>/dev/null || true
             . .venv/bin/activate
-            pip install -r requirements.txt
+            # O CI instalou e validou exatamente este lock; manter o mesmo
+            # conjunto na VPS torna o deploy reproduzível. Atualizar uma
+            # dependência exige regenerar requirements-lock.txt e rodar o CI.
+            pip install -r requirements-lock.txt
             set -a; . ./.env; set +a
             if [ "${DJANGO_DB_PASSWORD:-troque-aqui}" = "troque-aqui" ]; then echo "ERRO: preencha DJANGO_DB_PASSWORD em $APP_DIR/backend/.env (Postgres da VPS — ver CI-CD.md)"; exit 1; fi
             python manage.py check
             python manage.py migrate
             python manage.py collectstatic --noinput
-            pm2 delete "portal-web-$SUF" 2>/dev/null || true
-            pm2 delete "portal-api-$SUF" 2>/dev/null || true
+            # PM2 faz o restart no próprio processo: não há delete seguido de
+            # start, portanto uma interrupção nessa janela não deixa os dois
+            # serviços fora do daemon. Se o processo ainda não existir, start
+            # é o caminho inicial. Cada comando é tentado até 3 vezes e só
+            # volta a deployar o próximo processo depois de confirmar `online`.
+            pm2_state() {
+              local process_name="$1"
+              local jlist_output
+              if ! jlist_output="$(pm2 jlist 2>/dev/null)"; then
+                echo "PM2: não foi possível consultar jlist para $process_name" >&2
+                return 1
+              fi
+              if ! printf '%s' "$jlist_output" | python3 -c 'import json,sys; name=sys.argv[1]; data=json.load(sys.stdin); assert isinstance(data,list), "jlist root must be a list"; matches=[p for p in data if isinstance(p,dict) and p.get("name")==name]; print(((matches[0].get("pm2_env") or {}).get("status") or "unknown") if matches else "missing")' "$process_name" 2>/dev/null; then
+                echo "PM2: jlist inválido ao consultar $process_name" >&2
+                return 1
+              fi
+            }
+
+            wait_for_pm2_online() {
+              local process_name="$1"
+              local attempt=1
+              local state="unknown"
+              local online_confirmations=0
+              PM2_LAST_STATE="unknown"
+              while [ "$attempt" -le "$PM2_ONLINE_CHECKS" ]; do
+                if state="$(pm2_state "$process_name")"; then
+                  if [ "$state" = "online" ]; then
+                    online_confirmations=$((online_confirmations + 1))
+                    if [ "$online_confirmations" -ge "$PM2_ONLINE_CONFIRMATIONS" ]; then
+                      return 0
+                    fi
+                  else
+                    online_confirmations=0
+                  fi
+                else
+                  state="jlist-error"
+                  online_confirmations=0
+                fi
+                PM2_LAST_STATE="$state"
+                if [ "$attempt" -lt "$PM2_ONLINE_CHECKS" ]; then
+                  sleep "$PM2_ONLINE_DELAY"
+                fi
+                attempt=$((attempt + 1))
+              done
+              echo "PM2: $process_name não ficou online após $PM2_ONLINE_CHECKS verificações (último estado: $PM2_LAST_STATE)" >&2
+              return 1
+            }
+
+            restart_or_start() {
+              local process_name="$1"
+              shift
+              local mode="start"
+              local attempt=1
+              local command_ok=1
+              if pm2 describe "$process_name" >/dev/null 2>&1; then
+                mode="restart"
+              fi
+              while [ "$attempt" -le "$PM2_MAX_ATTEMPTS" ]; do
+                command_ok=1
+                echo "PM2: tentativa $attempt/$PM2_MAX_ATTEMPTS para $process_name (modo=$mode)"
+                if [ "$mode" = "restart" ]; then
+                  if pm2 restart "$process_name" --update-env; then
+                    command_ok=0
+                  else
+                    echo "PM2: restart de $process_name falhou; será repetido" >&2
+                  fi
+                else
+                  if pm2 start "$@"; then
+                    command_ok=0
+                  else
+                    echo "PM2: start de $process_name falhou; será repetido" >&2
+                  fi
+                fi
+                if wait_for_pm2_online "$process_name"; then
+                  if [ "$command_ok" -eq 0 ]; then
+                    echo "PM2: $process_name confirmado online"
+                    return 0
+                  fi
+                  echo "PM2: comando de $process_name falhou apesar do estado online; será repetido" >&2
+                fi
+                if [ "$mode" = "start" ] && pm2 describe "$process_name" >/dev/null 2>&1; then
+                  mode="restart"
+                fi
+                if [ "$attempt" -lt "$PM2_MAX_ATTEMPTS" ]; then
+                  sleep "$PM2_RETRY_DELAY"
+                fi
+                attempt=$((attempt + 1))
+              done
+              echo "ERRO: $process_name não está online após $PM2_MAX_ATTEMPTS tentativas (último estado: ${PM2_LAST_STATE:-unknown})" >&2
+              if [ -n "$PREVIOUS_SHA" ]; then
+                echo "Recuperação manual: rode o workflow 'Rollback manual do portal' com target_sha=$PREVIOUS_SHA; o marker antigo permanece em $DEPLOYED_SHA_FILE." >&2
+              else
+                echo "Recuperação manual: restaure o último checkout conhecido com o procedimento de rollback em CI-CD.md; não há marker anterior." >&2
+              fi
+              return 1
+            }
             cd "$APP_DIR/frontend"
             # API_INTERNAL_URL (runtime, não bake): alimenta o rewrite /api/*
             # do next.config.js — proxy mesma-origem para acesso direto por
             # IP:porta (sem passar pelo Nginx).
-            API_INTERNAL_URL="http://127.0.0.1:$API_PORT" PORT=$WEB_PORT pm2 start npm --name "portal-web-$SUF" -- start
+            API_INTERNAL_URL="http://127.0.0.1:$API_PORT" PORT="$WEB_PORT" \
+              restart_or_start "portal-web-$SUF" npm --name "portal-web-$SUF" -- start
             cd "$APP_DIR/backend"
             # Binário + args separados: pm2 não resolve string única citada
             # como executável. --interpreter explícito: o binário gunicorn não
             # tem extensão e o pm2 o executaria com node (SyntaxError).
-            DJANGO_SETTINGS_MODULE=config.settings pm2 start "$APP_DIR/backend/.venv/bin/gunicorn" --interpreter "$APP_DIR/backend/.venv/bin/python" --name "portal-api-$SUF" -- config.wsgi:application --bind "0.0.0.0:$API_PORT" --workers 2
+            # O `cd "$APP_DIR/backend"` imediatamente acima é importante:
+            # o PM2 captura esse cwd (pm_cwd) e, por isso, encontra o
+            # conf local; não dependemos só do --chdir. --config absoluto
+            # torna a garantia explícita mesmo se um PM2 futuro for iniciado
+            # de outro diretório.
+            # O default atual é 60s: o POST /api/admin/robos/executar/ só
+            # pode passar a 45s depois que o commit 202+background for
+            # ancestral do ref implantado (Nginx também deve ir a 45s).
+            # Só o bind varia por ambiente ($API_PORT).
+            GUNICORN_TIMEOUT=60 DJANGO_SETTINGS_MODULE=config.settings \
+              restart_or_start "portal-api-$SUF" "$APP_DIR/backend/.venv/bin/gunicorn" \
+              --interpreter "$APP_DIR/backend/.venv/bin/python" --name "portal-api-$SUF" -- \
+              --config "$APP_DIR/backend/gunicorn.conf.py" config.wsgi:application \
+              --bind "0.0.0.0:$API_PORT" --chdir "$APP_DIR/backend"
             pm2 save
             echo "=== $LABEL deployed $WEB_PORT(web) $API_PORT(api) ==="
 
+  # Mesmo quando o deploy falha depois de um restart, o probe é executado para
+  # deixar o estado da API/web explícito no run. `always` também cobre o caso
+  # de verify/interrupção; em DEV/HOMOLOG o aviso é não bloqueante.
   validate:
-    needs: deploy
+    needs: [verify, deploy]
+    if: ${{ always() }}
     runs-on: ubuntu-latest
     environment: ${{ inputs.environment_name }}
     steps:
@@ -200,10 +462,115 @@ jobs:
           password: ${{ secrets.VPS_PASSWORD }}
           port: ${{ secrets.VPS_PORT }}
           script: |
+            set -e
             export NVM_DIR="$HOME/.nvm"; [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"; nvm use 20
+            APP_DIR="${{ inputs.app_dir }}"
+            WEB_PORT="${{ inputs.web_port }}"
+            API_PORT="${{ inputs.api_port }}"
+            HOST="${{ inputs.host }}"
+            STRICT="${{ inputs.strict_validate }}"
+            TLS_ENABLED="${{ inputs.tls_enabled }}"
+            EXPECTED_SHA="${{ inputs.verify_ref }}"
+            DEPLOY_RESULT="${{ needs.deploy.result }}"
+            DEPLOYED_SHA_FILE="$APP_DIR/.deployed-sha"
+            API_OK=0
+            WEB_OK=0
+            API_CURL_RC=1
+            WEB_CURL_RC=1
+            API_HTTP_CODE=000
+            WEB_HTTP_CODE=000
+            write_deployed_sha() {
+              local sha="$1"
+              local marker_tmp="$DEPLOYED_SHA_FILE.tmp.$$"
+              if ! (umask 077; printf '%s\n' "$sha" > "$marker_tmp"); then
+                rm -f -- "$marker_tmp" || true
+                return 1
+              fi
+              if ! chmod 600 -- "$marker_tmp" || ! mv -f -- "$marker_tmp" "$DEPLOYED_SHA_FILE"; then
+                rm -f -- "$marker_tmp" || true
+                return 1
+              fi
+            }
+            probe_http() {
+              local url="$1"
+              local resolve_target="${2:-}"
+              if [ -n "$resolve_target" ]; then
+                curl -sS -o /dev/null -w "%{http_code}" --resolve "$resolve_target" "$url"
+              else
+                curl -sS -o /dev/null -w "%{http_code}" "$url"
+              fi
+            }
             sleep 5
-            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:${{ inputs.api_port }}/healthz || echo "000")
-            echo "${{ inputs.env_label }} api: $HTTP_CODE"
-            if [ "$HTTP_CODE" = "200" ]; then echo "${{ inputs.env_label }} api ok"; elif [ "${{ inputs.strict_validate }}" = "true" ]; then echo "${{ inputs.env_label }} FAIL"; pm2 logs "portal-api-${{ inputs.pm_suffix }}" --lines 30 --nostream 2>/dev/null || pm2 logs --lines 30 --nostream; exit 1; else echo "${{ inputs.env_label }} api warn $HTTP_CODE"; fi
-            if curl -sf -o /dev/null http://localhost:${{ inputs.web_port }}/; then echo "${{ inputs.env_label }} web ok"; elif [ "${{ inputs.strict_validate }}" = "true" ]; then echo "${{ inputs.env_label }} web FAIL"; exit 1; else echo "${{ inputs.env_label }} web warn"; fi
+            # O probe é local. Antes do TLS ele fala direto com o Gunicorn;
+            # depois ele percorre o vhost HTTPS real, sem depender do DNS
+            # externo nem enviar um header de proxy diretamente ao Gunicorn.
+            # curl fica dentro de `if` para capturar o rc sem desligar `set -e`;
+            # HTTP 200 com transferência incompleta (rc != 0) continua falhando.
+            if [ "$TLS_ENABLED" = "true" ]; then
+              if API_HTTP_CODE="$(probe_http "https://$HOST/healthz" "$HOST:443:127.0.0.1")"; then
+                API_CURL_RC=0
+              else
+                API_CURL_RC=$?
+              fi
+            else
+              if API_HTTP_CODE="$(probe_http "http://127.0.0.1:$API_PORT/healthz")"; then
+                API_CURL_RC=0
+              else
+                API_CURL_RC=$?
+              fi
+            fi
+            [ -n "$API_HTTP_CODE" ] || API_HTTP_CODE=000
+            echo "${{ inputs.env_label }} api: curl_rc=$API_CURL_RC http_code=$API_HTTP_CODE"
+            if [ "$API_CURL_RC" -eq 0 ] && [ "$API_HTTP_CODE" = "200" ]; then
+              API_OK=1
+              echo "${{ inputs.env_label }} api ok"
+            elif [ "$STRICT" = "true" ]; then
+              echo "${{ inputs.env_label }} api FAIL curl_rc=$API_CURL_RC http_code=$API_HTTP_CODE"
+              pm2 logs "portal-api-${{ inputs.pm_suffix }}" --lines 30 --nostream 2>/dev/null || pm2 logs --lines 30 --nostream
+              exit 1
+            else
+              echo "${{ inputs.env_label }} api warn curl_rc=$API_CURL_RC http_code=$API_HTTP_CODE"
+            fi
+            if WEB_HTTP_CODE="$(probe_http "http://127.0.0.1:$WEB_PORT/")"; then
+              WEB_CURL_RC=0
+            else
+              WEB_CURL_RC=$?
+            fi
+            [ -n "$WEB_HTTP_CODE" ] || WEB_HTTP_CODE=000
+            echo "${{ inputs.env_label }} web: curl_rc=$WEB_CURL_RC http_code=$WEB_HTTP_CODE"
+            if [ "$WEB_CURL_RC" -eq 0 ] && [ "$WEB_HTTP_CODE" = "200" ]; then
+              WEB_OK=1
+              echo "${{ inputs.env_label }} web ok"
+            elif [ "$STRICT" = "true" ]; then
+              echo "${{ inputs.env_label }} web FAIL curl_rc=$WEB_CURL_RC http_code=$WEB_HTTP_CODE"
+              exit 1
+            else
+              echo "${{ inputs.env_label }} web warn curl_rc=$WEB_CURL_RC http_code=$WEB_HTTP_CODE"
+            fi
+
+            # `.deployed-sha` é a fronteira de recuperação. Um probe verde
+            # não é suficiente se o job SSH de deploy falhou, foi cancelado
+            # ou se o checkout não é exatamente o SHA verificado.
+            if [ "$API_OK" -eq 1 ] && [ "$WEB_OK" -eq 1 ]; then
+              if [ "$DEPLOY_RESULT" != "success" ]; then
+                echo "Marker preservado: deploy não terminou com sucesso (result=$DEPLOY_RESULT)."
+              elif [ ! -d "$APP_DIR/.git" ]; then
+                echo "Marker preservado: checkout $APP_DIR não existe após o deploy."
+                [ "$STRICT" = "true" ] && exit 1
+              else
+                ACTUAL_SHA="$(git -C "$APP_DIR" rev-parse HEAD 2>/dev/null || true)"
+                EXPECTED_COMMIT="$(git -C "$APP_DIR" rev-parse "$EXPECTED_SHA^{commit}" 2>/dev/null || true)"
+                if [ -z "$ACTUAL_SHA" ] || [ "$ACTUAL_SHA" != "$EXPECTED_COMMIT" ]; then
+                  echo "Marker preservado: smoke verde, mas checkout não é o SHA verificado ($ACTUAL_SHA != $EXPECTED_COMMIT)."
+                  [ "$STRICT" = "true" ] && exit 1
+                elif ! write_deployed_sha "$ACTUAL_SHA"; then
+                  echo "ERRO: smoke verde, mas não foi possível promover $DEPLOYED_SHA_FILE."
+                  [ "$STRICT" = "true" ] && exit 1
+                else
+                  echo "SHA Deploy registrado após smoke: $ACTUAL_SHA"
+                fi
+              fi
+            else
+              echo "Marker anterior preservado: pelo menos um probe não retornou rc=0 e HTTP 200; não promova um deploy parcial."
+            fi
             pm2 status | grep portal || pm2 status

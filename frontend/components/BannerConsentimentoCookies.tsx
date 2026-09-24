@@ -21,7 +21,7 @@ export function BannerConsentimentoCookies() {
   return (
     <>
       <div role="dialog" aria-label="Consentimento de cookies" aria-modal="true" className="fixed inset-x-0 bottom-0 z-[var(--z-cookies)] border-t border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] p-4 shadow-2 md:bottom-4 md:left-1/2 md:w-[min(640px,calc(100%-2rem))] md:-translate-x-1/2 md:rounded-lg md:border">
-        <p className="text-sm leading-relaxed text-[var(--cor-texto)]">Usamos cookies essenciais e, com seu consentimento, cookies de analytics e personalização. Veja nossa <Link href="/privacidade/cookies" className="underline decoration-[var(--cor-borda)] underline-offset-2 hover:text-[var(--cor-primaria)]">política de cookies</Link>.</p>
+        <p className="text-sm leading-relaxed text-[var(--cor-texto)]">Usamos cookies essenciais e, com seu consentimento, cookies de analytics, personalização e publicidade de terceiros, como AdSense. Veja nossa <Link href="/privacidade/cookies" className="underline decoration-[var(--cor-borda)] underline-offset-2 hover:text-[var(--cor-primaria)]">política de cookies</Link>.</p>
         <div className="mt-4 flex flex-wrap gap-2">
           <button type="button" onClick={() => { aceitarTodos(); void sincronizarComBackendSeAutenticado(token); fechar(); }} className="inline-flex min-h-[44px] items-center rounded-md bg-[var(--cor-primaria)] px-4 text-sm font-medium text-[var(--cor-texto-invertido)] hover:bg-[var(--cor-primaria-hover)]">Aceitar todos</button>
           <button type="button" onClick={() => { recusarNaoEssenciais(); void sincronizarComBackendSeAutenticado(token); fechar(); }} className="inline-flex min-h-[44px] items-center rounded-md border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] px-4 text-sm font-medium text-[var(--cor-texto)] hover:bg-[var(--cor-borda)]">Rejeitar não essenciais</button>
@@ -44,7 +44,7 @@ export function BannerConsentimentoCookies() {
               <Switch id="cc-analytics" checked={analytics} onCheckedChange={setAnalytics} />
             </div>
             <div className="flex items-center justify-between rounded-md border border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] p-3">
-              <div className="space-y-0.5"><Label htmlFor="cc-pers">Personalização</Label><p className="text-xs text-[var(--cor-texto-suave)]">Recomendações e feed personalizado.</p></div>
+              <div className="space-y-0.5"><Label htmlFor="cc-pers">Personalização</Label><p className="text-xs text-[var(--cor-texto-suave)]">Recomendações, feed personalizado e publicidade de terceiros, como AdSense.</p></div>
               <Switch id="cc-pers" checked={personalizacao} onCheckedChange={setPersonalizacao} />
             </div>
             <p className="text-xs text-[var(--cor-texto-suave)]">Preferências completas em <Link href="/privacidade/preferencias-cookies" onClick={()=>setPrefOpen(false)} className="text-[var(--cor-primaria)] underline">/privacidade/preferencias-cookies</Link>.</p>

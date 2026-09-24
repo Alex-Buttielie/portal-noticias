@@ -15,6 +15,10 @@ class EventoBusca(models.Model):
         on_delete=models.SET_NULL, related_name="buscas",
     )
     session_key = models.CharField(max_length=64, blank=True)
+    # Correlaciona uma métrica com a requisição que a originou. NULL é
+    # permitido para eventos antigos/diretos; quando preenchido, a task
+    # pode usar get_or_create e uma reentrega do Celery não duplica a linha.
+    request_id = models.CharField(max_length=64, null=True, blank=True, unique=True)
     resultados = models.PositiveIntegerField(default=0)
     filtros = models.JSONField(default=dict, blank=True)
     criado_em = models.DateTimeField(auto_now_add=True, db_index=True)

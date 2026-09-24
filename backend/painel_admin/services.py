@@ -24,6 +24,15 @@ def decidir_fila(item_id, acao, admin_user):
     else:
         item.status_revisao = novo
         item.save(update_fields=["status_revisao"])
+
+    # A decisão muda o conjunto publicável e, portanto, o snapshot de
+    # títulos/categorias usado pelo autocomplete. Este serviço não abre uma
+    # transação atômica e sua única chamada é FilaDecisaoView, com
+    # ATOMIC_REQUESTS desabilitado; portanto a invalidação imediata é segura.
+    # Se um caller futuro envolver a função em atomic, deverá usar on_commit.
+    from feed.busca import invalidar_cache_autocomplete
+
+    invalidar_cache_autocomplete()
     auditar(
         acao=f"fila_{acao}",
         alvo_tipo="NewsItem",

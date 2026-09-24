@@ -2,8 +2,9 @@
 
 > Gravado a pedido do Alex em 2026-09-17. Regra: **se precisar de qualquer
 > informação externa (chaves, contas, provedor, revisão), PERGUNTAR ao Alex
-> em vez de adivinhar.** Infra decidida: `infra/DEPLOY.md` (Docker + Caddy),
-> validada localmente (compose config, builds, up, healthz, feed, superuser).
+> em vez de adivinhar.** Infra ativa: **PM2 + Nginx** na VPS, conforme
+> `CI-CD.md` e `infra/nginx/`; Docker + Caddy é a variante alternativa/local
+> documentada em `infra/DEPLOY.md`.
 
 ## Ordem de execução
 
@@ -39,16 +40,53 @@
    pagamento + planos estiverem prontos para cobrar de verdade.
    Status: pendente (decisão final do Alex).
 
-## Registro de conclusões (TRABALHO LOCAL — NÃO COMMITADO, NÃO PUBLICADO)
+## Contexto histórico da ingestão
 
-- Microserviço `ingestao-service/` (FastAPI + Mongo, Swagger /docs): esqueleto,
-  pipeline (RSS/dedup/LLM/curadoria + regras N1–N4), API + painel `/painel`,
-  portal adaptado (`feed/microservice_client.py` com fallback local, sync de
-  fontes best-effort). Testes: 43 service + 41 feed-portal. `tsc 0`, build OK.
-  Ligar no portal: `MICROSERVICO_INGESTAO_URL` + `INGESTAO_API_TOKEN`.
+- **Estado anterior a 2026-09-24 (não operacional):** o segundo pipeline
+  FastAPI/Mongo tinha 43 testes próprios e o conjunto de testes do portal
+  contava 41 testes. Esse caminho foi removido do repositório; os números e a
+  topologia anterior são registrados apenas como histórico da decisão abaixo,
+  não como instruções para implantação.
 - Categorias com subcategorias fixas + vivas das notícias (`lib/categorias.ts`),
   menu Editorias no Header (desktop/mobile), editorias e categoria com tópicos,
   footer "Desenvolvido por ButtielieDev", ritmo de espaçamento normalizado.
+
+## Decisões desta execução (2026-09-24)
+
+6. **TLS na topologia ativa (P0-3)** — preparação versionada, ativação humana
+   pendente. O Nginx da VPS usa **Certbot/Let's Encrypt na origem** com
+   `certonly --webroot`; não foi escolhido Cloudflare Origin CA. A escolha é
+   deliberada: o certificado da origem continua válido com ou sem Cloudflare,
+   é o padrão Debian/Ubuntu e tem renovação por timer. Os três sites foram
+   preparados com HTTP → 301, `listen 443 ssl`, ACME HTTP-01 e exceções para
+   o health check interno. O domínio não foi inventado: os arquivos usam
+   marcadores `__DOMAIN_FRONTEND__`/`__DOMAIN_FRONTEND_WWW__` e o operador
+   precisa renderizá-los na VPS. Cloudflare (CDN/WAF/DDoS/Brotli) continua
+   opcional, exige conta e deve ser medido após a ativação; esta run não mede
+   nem promete ganho. Status: **repo pronto; certbot, DNS, `nginx -t`, reload,
+   `.env` e `tls_enabled=true` aguardam operador**.
+
+7. **Arquivamento definitivo do segundo pipeline (decisão humana de
+   2026-09-24)** — `ingestao-service/` foi removido por decisão explícita do
+   solicitante, sem stub e sem cópia em `docs/archive`. O adaptador HTTP do
+   feed, a sincronização remota de fontes dos robôs, seus testes e as flags de
+   URL/token também foram eliminados. **Django/PostgreSQL/Celery é a única
+   fonte de verdade executável**; as capacidades de curadoria permanecem no
+   admin Django.
+   - **Motivos:** duplicar pipeline, dedup, curadoria e contratos de feed criava
+     duas bases e dois contratos; o painel próprio era servido sem
+     autenticação; a configuração anterior expunha MongoDB em `0.0.0.0`; e os
+     testes do segundo pipeline não eram gate do CI principal.
+   - **Decisão de produto:** não ativar nem recuperar esse segundo pipeline. Se
+     surgir necessidade de uma tela operacional, implementar a capacidade no
+     admin Django autenticado em uma run própria.
+   - **Ação operacional após o deploy:** em arquivos de ambiente preexistentes,
+     remover as duas flags antigas se ainda estiverem presentes; variáveis
+     remanescentes passam a ser ignoradas pelo Django. Em cada VPS, inspecionar
+     serviços/contêineres e volumes Mongo antigos, desligar o componente e
+     remover o volume **somente após confirmar backup e necessidade dos dados**.
+     Esta decisão de repositório **não acessou a VPS, não desligou a instância e
+     não afirma que o banco Mongo ou seus volumes foram apagados**.
 
 ## Registro de conclusões
 

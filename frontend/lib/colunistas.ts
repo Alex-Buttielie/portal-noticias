@@ -1,5 +1,13 @@
 import { obterPerfilAutor, obterPublicacoes, type Publicacao } from "./api";
 import type { SeloEditorial } from "./editorial";
+import { formatarDataCurta } from "./datas";
+
+// A listagem é a etapa que decide se a seção existe; por isso recebe um
+// orçamento mais tolerante que o deadline original de 2 s.
+const TIMEOUT_PUBLICACOES_COLUNISTAS_MS = 5000;
+// Cada perfil é opcional e independente: um perfil lento não cancela os demais.
+const TIMEOUT_PERFIL_COLUNISTA_MS = 2000;
+const PAGE_SIZE_COLUNISTAS = 6;
 
 // ---------------------------------------------------------------------------
 // Colunistas (FRENTE 2) — derivados SÓ de dados reais do backend:
@@ -65,75 +73,103 @@ function dataPub(p: Publicacao): number {
 }
 
 /**
- * Carrega colunistas: publicações em destaque (fallback: recentes),
- * agrupadas por autor, com perfil público (foto/bio/seguidores) buscado
- * em paralelo e ignorado silenciosamente quando indisponível.
- * Retorna [] em falha — a seção se oculta, nunca exibe dado inventado.
+ * Carrega colunistas no servidor/ISR: publicações em destaque (fallback:
+ * recentes), agrupadas por autor, com perfil público (foto/bio/seguidores)
+ * buscado em paralelo e ignorado silenciosamente quando indisponível.
+ * A consulta é limitada e usa um deadline de 5 s para as publicações; cada
+ * perfil tem timeout próprio de 2 s e um perfil lento não cancela os demais.
+ * Retorna [] quando a listagem não pode ser concluída — a seção se oculta,
+ * nunca exibe dado inventado. O timeout continua sendo um guardrail: uma
+ * listagem lenta não deve prender a revalidação da Home.
  */
 export async function carregarColunistas(limite = 4): Promise<Colunista[]> {
-  let pubs: Publicacao[];
+  const quantidade = Number.isFinite(limite) ? Math.max(1, Math.floor(limite)) : 1;
+  const tamanhoConsulta = Math.max(quantidade, PAGE_SIZE_COLUNISTAS);
+  const controllerPublicacoes = new AbortController();
+  const timeoutPublicacoes = setTimeout(
+    () => controllerPublicacoes.abort(),
+    TIMEOUT_PUBLICACOES_COLUNISTAS_MS
+  );
+
   try {
-    const destaques = await obterPublicacoes({ destaque: true });
-    pubs = destaques.length ? destaques : await obterPublicacoes({});
+    let pubs: Publicacao[];
+    try {
+      const destaques = await obterPublicacoes(
+        { destaque: true, page_size: tamanhoConsulta },
+        { signal: controllerPublicacoes.signal }
+      );
+      pubs = destaques.length
+        ? destaques
+        : await obterPublicacoes({ page_size: tamanhoConsulta }, { signal: controllerPublicacoes.signal });
+    } catch {
+      return [];
+    }
+    if (!pubs.length) return [];
+
+    const porAutor = new Map<number, Publicacao[]>();
+    for (const p of pubs) {
+      if (!porAutor.has(p.autor)) porAutor.set(p.autor, []);
+      porAutor.get(p.autor)!.push(p);
+    }
+
+    const grupos = [...porAutor.entries()]
+      .map(([autorId, lista]) => {
+        const ordenada = [...lista].sort((a, b) => dataPub(b) - dataPub(a));
+        return { autorId, lista: ordenada, recente: ordenada[0] };
+      })
+      .sort((a, b) => dataPub(b.recente) - dataPub(a.recente))
+      .slice(0, quantidade);
+
+    return await Promise.all(
+      grupos.map(async ({ autorId, lista, recente }): Promise<Colunista> => {
+        let foto_url: string | null = null;
+        let mini_bio = "";
+        let credenciado = false;
+        let numero_seguidores = 0;
+        let textos = lista;
+        const controllerPerfil = new AbortController();
+        const timeoutPerfil = setTimeout(
+          () => controllerPerfil.abort(),
+          TIMEOUT_PERFIL_COLUNISTA_MS
+        );
+        try {
+          const perfil = await obterPerfilAutor(autorId, { signal: controllerPerfil.signal });
+          foto_url = perfil.foto_url || null;
+          mini_bio = perfil.mini_bio || "";
+          credenciado = !!perfil.credenciado;
+          numero_seguidores = perfil.numero_seguidores || 0;
+          // A listagem paginada é apenas a amostra de apresentação; quando
+          // disponível, o perfil preserva a contagem/especialidade completas.
+          if (Array.isArray(perfil.publicacoes) && perfil.publicacoes.length) {
+            textos = perfil.publicacoes;
+          }
+        } catch {
+          // Perfil indisponível — mantém valores vazios honestos.
+        } finally {
+          clearTimeout(timeoutPerfil);
+        }
+        return {
+          id: autorId,
+          nome: recente.autor_nome || `Autor #${autorId}`,
+          foto_url,
+          mini_bio,
+          credenciado,
+          especialidade: especialidadeDe(textos),
+          total_textos: textos.length,
+          numero_seguidores,
+          recente,
+          selo: seloPublicacao(recente),
+        };
+      })
+    );
   } catch {
     return [];
+  } finally {
+    clearTimeout(timeoutPublicacoes);
   }
-  if (!pubs.length) return [];
-
-  const porAutor = new Map<number, Publicacao[]>();
-  for (const p of pubs) {
-    if (!porAutor.has(p.autor)) porAutor.set(p.autor, []);
-    porAutor.get(p.autor)!.push(p);
-  }
-
-  const grupos = [...porAutor.entries()]
-    .map(([autorId, lista]) => {
-      const ordenada = [...lista].sort((a, b) => dataPub(b) - dataPub(a));
-      return { autorId, lista: ordenada, recente: ordenada[0] };
-    })
-    .sort((a, b) => dataPub(b.recente) - dataPub(a.recente))
-    .slice(0, Math.max(1, limite));
-
-  const colunistas = await Promise.all(
-    grupos.map(async ({ autorId, lista, recente }): Promise<Colunista> => {
-      let foto_url: string | null = null;
-      let mini_bio = "";
-      let credenciado = false;
-      let numero_seguidores = 0;
-      try {
-        const perfil = await obterPerfilAutor(autorId);
-        foto_url = perfil.foto_url || null;
-        mini_bio = perfil.mini_bio || "";
-        credenciado = !!perfil.credenciado;
-        numero_seguidores = perfil.numero_seguidores || 0;
-      } catch {
-        // Perfil indisponível — mantém valores vazios honestos.
-      }
-      return {
-        id: autorId,
-        nome: recente.autor_nome || `Autor #${autorId}`,
-        foto_url,
-        mini_bio,
-        credenciado,
-        especialidade: especialidadeDe(lista),
-        total_textos: lista.length,
-        numero_seguidores,
-        recente,
-        selo: seloPublicacao(recente),
-      };
-    })
-  );
-  return colunistas;
 }
 
 /** Data do conteúdo (publicação ou criação) formatada pt-BR curta. */
 export function formatarDataConteudo(pub: Publicacao): string {
-  const iso = pub.publicado_em || pub.criado_em;
-  try {
-    const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) return "";
-    return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
-  } catch {
-    return "";
-  }
+  return formatarDataCurta(pub.publicado_em || pub.criado_em);
 }

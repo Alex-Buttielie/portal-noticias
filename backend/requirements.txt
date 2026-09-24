@@ -52,10 +52,8 @@ sentry-sdk==2.19.2
 # roda em origem diferente do backend (config/settings.py, CORS_ALLOWED_ORIGINS).
 django-cors-headers==4.9.0
 
-# Testes (usado pelo tester, não pelo runtime da aplicação)
-pytest-django==4.14.0
-# Gate de cobertura no CI (--cov-fail-under, ver .github/workflows/ci.yml)
-pytest-cov==7.1.0
+# As dependências de teste ficam em `requirements-dev.txt`; a imagem de
+# produção instala este arquivo e o runtime PM2 instala o lock runtime.
 
 # Carrega backend/.env automaticamente (config/settings.py, topo do
 # arquivo) — sem isso, `cp .env.example .env` (passo documentado no README)
@@ -65,9 +63,3 @@ pytest-cov==7.1.0
 python-dotenv==1.0.1
 
 python-json-logger==2.0.7  # opcional: JSON logs quando DJANGO_LOG_JSON=true
-
-# NOTA: django-cors-headers foi adicionada a este arquivo sem poder rodar
-# `pip install`/`pip freeze` nesta sessão (ferramentas de execução
-# indisponíveis) — a versão acima é uma referência razoável, não confirmada.
-# `requirements-lock.txt` NÃO foi regenerado; precisa ser refeito (pip freeze)
-# assim que o ambiente puder instalar de verdade.

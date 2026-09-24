@@ -2,6 +2,7 @@
 import * as React from "react"
 import { ChevronLeft, ChevronRight } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { formatarMesAno } from "@/lib/datas"
 import { Button } from "@/components/ui/button"
 export type CalendarProps = { className?: string; selected?: Date; onSelect?: (d: Date | undefined) => void; disabled?: (d: Date) => boolean; mode?: string }
 function Calendar({ className, selected, onSelect, disabled }: CalendarProps) {
@@ -10,12 +11,11 @@ function Calendar({ className, selected, onSelect, disabled }: CalendarProps) {
   const first = new Date(y, m, 1).getDay(); const days = new Date(y, m + 1, 0).getDate()
   const cells: (number | null)[] = Array(first).fill(null).concat(Array.from({ length: days }, (_, i) => i + 1))
   while (cells.length % 7 !== 0) cells.push(null)
-  const fmt = new Intl.DateTimeFormat("pt-BR", { month: "long", year: "numeric" })
   return (
     <div className={cn("p-3 bg-[var(--cor-fundo-card)] border border-[var(--cor-borda)] rounded-[var(--raio-lg)] shadow-[var(--sombra-1)]", className)}>
       <div className="flex items-center justify-between mb-2">
         <Button variant="ghost" size="icon" onClick={() => setCur(new Date(y, m - 1, 1))} aria-label="Mes anterior"><ChevronLeft className="h-4 w-4" /></Button>
-        <span className="text-sm font-medium text-[var(--cor-texto)] capitalize">{fmt.format(cur)}</span>
+        <span className="text-sm font-medium text-[var(--cor-texto)] capitalize">{formatarMesAno(new Date(Date.UTC(y, m, 1, 12)))}</span>
         <Button variant="ghost" size="icon" onClick={() => setCur(new Date(y, m + 1, 1))} aria-label="Proximo mes"><ChevronRight className="h-4 w-4" /></Button>
       </div>
       <div className="grid grid-cols-7 gap-1 text-center text-xs text-[var(--cor-texto-suave)] mb-1"><span>D</span><span>S</span><span>T</span><span>Q</span><span>Q</span><span>S</span><span>S</span></div>

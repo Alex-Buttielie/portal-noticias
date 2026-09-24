@@ -10,26 +10,16 @@ on:
       - 'v*'
 
 jobs:
+  # Apenas calcula o nome da tag. A publicação é um job separado, depois
+  # de verify + deploy + validate do reusable workflow.
   pre:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     outputs:
       version: ${{ steps.version.outputs.VERSION }}
     steps:
       - name: Get version
         id: version
-        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
-
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Create GitHub Release
-        run: gh release create ${{ steps.version.outputs.VERSION }} --title "Release ${{ steps.version.outputs.VERSION }}" --generate-notes
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
 
   deploy-prod:
     needs: pre
@@ -40,11 +30,15 @@ jobs:
       app_dir: /home/apps/portal-prod
       git_mode: tag
       git_ref: ${{ needs.pre.outputs.version }}
-      guard_ref: main
+      # A tag pode ser movida depois do evento; o gate fixa o commit original.
+      verify_ref: ${{ github.sha }}
       pm_suffix: prod
       web_port: "3103"
       api_port: "5103"
       host: portal-noticias.com.br
+      # Manter false até o certbot emitir, o nginx -t passar e o reload HTTPS
+      # ser verificado. Depois, altere para true e siga o runbook de TLS.
+      tls_enabled: false
       allowed_hosts_extra: ",www.portal-noticias.com.br"
       db_name: brd_portal_prod
       db_user: portal_prod
@@ -54,3 +48,37 @@ jobs:
       VPS_USER: ${{ secrets.VPS_USER }}
       VPS_PASSWORD: ${{ secrets.VPS_PASSWORD }}
       VPS_PORT: ${{ secrets.VPS_PORT }}
+
+  # A release só é criada depois que o reusable deploy terminou. Se verify,
+  # SSH, migrate, PM2 ou validate falhar, este job fica skipped e nenhum
+  # release/tag é publicado.
+  release:
+    needs: [pre, deploy-prod]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout verified tag
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.pre.outputs.version }}
+
+      - name: Ensure tag still points to gated commit
+        env:
+          TAG_NAME: ${{ needs.pre.outputs.version }}
+          VERIFIED_SHA: ${{ github.sha }}
+        run: |
+          TAG_COMMIT="$(git rev-parse "$TAG_NAME^{commit}")"
+          GATED_COMMIT="$(git rev-parse "$VERIFIED_SHA^{commit}")"
+          if [ "$TAG_COMMIT" != "$GATED_COMMIT" ]; then
+            echo "ERRO: a tag $TAG_NAME foi movida após o gate ($TAG_COMMIT != $GATED_COMMIT)"
+            exit 1
+          fi
+
+      - name: Create GitHub Release after verified deploy
+        run: >-
+          gh release create "${{ needs.pre.outputs.version }}" --verify-tag
+          --title "Release ${{ needs.pre.outputs.version }}" --generate-notes
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

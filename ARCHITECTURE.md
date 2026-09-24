@@ -9,7 +9,7 @@ Este documento cobre o recorte **MVP + Assinatura Premium** (ver seção 31 do B
 | Camada | Decisão | Justificativa |
 |---|---|---|
 | Backend | Python — **Django + Django REST Framework** | O BRD exige um painel administrativo pesado desde o MVP (preços configuráveis, parametrização de limites Free/Premium, fila de decisões). O admin nativo do Django reduz drasticamente esse esforço. Alternativa considerada: FastAPI (mais leve, melhor para API pura), descartada por exigir construir o admin do zero. **Decisão em aberto:** confirmar Django+DRF ou preferência explícita por FastAPI + admin próprio. |
-| Jobs assíncronos | Celery + Redis | Necessário para ingestão periódica de fontes de notícias, chamadas ao provedor de LLM (resumo/classificação) e envio de e-mails (onboarding, renovação), sem bloquear requisições HTTP. |
+| Jobs assíncronos | Celery + Redis | Necessário para ingestão periódica de fontes de notícias, chamadas ao provedor de LLM (resumo/classificação), registro assíncrono de `EventoBusca` e envio de e-mails (onboarding, renovação), sem bloquear requisições HTTP. |
 | Frontend | React (Next.js recomendado) | Escolha do usuário. Next.js dá SSR/SEO, importante para um portal de conteúdo. |
 | Banco de dados | PostgreSQL | Escolha do usuário. Usar JSONB para metadados de notícias/fontes e para armazenar snapshots de decisões de dedup/classificação (auditoria). |
 | Cache/fila | Redis | Suporta Celery e cache de feed/resumos. |
@@ -17,6 +17,12 @@ Este documento cobre o recorte **MVP + Assinatura Premium** (ver seção 31 do B
 | Autenticação | E-mail/senha + OAuth social (Google no mínimo) | Escolha do usuário. Usar biblioteca madura (ex: `django-allauth`) em vez de implementação própria de OAuth. |
 | IA (resumo/classificação/dedup) | API de LLM de terceiros, atrás de uma interface abstrata (`SummarizationProvider`) | Escolha do usuário. Interface desacoplada permite trocar de provedor sem reescrever o pipeline de curadoria — mitiga o risco "Custo de IA/infraestrutura" listado na seção 30 do BRD. |
 | Pagamento | Gateway abstrato (`PaymentGatewayProvider`), provedor concreto a definir | Escolha do usuário. Ver seção 6 abaixo — o desenho já isola estados de assinatura da implementação do gateway. |
+
+**Fonte de verdade da ingestão (decisão de 2026-09-24):** Django,
+PostgreSQL e Celery formam a única topologia executável de ingestão,
+deduplicação, curadoria e leitura. Não existe um segundo pipeline ou uma API
+alternativa de feed no portal; operações locais, periódicas por Celery e
+gatilhos manais persistem e consultam o mesmo catálogo no PostgreSQL.
 
 ## 2. Módulos macro (bounded contexts)
 
@@ -75,7 +81,7 @@ Nenhuma spec de feature deve amarrar código de negócio diretamente a um SDK de
 
 - **LGPD:** consentimento explícito no cadastro/onboarding; direito de exclusão de dados do usuário mesmo com assinatura ativa/expirada (BRD §9, §18). Implementado também: consentimento de cookies não essenciais (analytics/personalização), com banner, página de gestão de preferências e sincronização entre dispositivos para usuário autenticado (`identidade.services.atualizar_preferencias_cookies`) — ver "Privacidade e cookies (LGPD)" no `README.md`. A política de privacidade publicada é um rascunho funcional, **ainda não revisado juridicamente** — tratar como tal até uma validação jurídica real.
 - **Direitos autorais:** todo `NewsItem` deve manter referência rastreável à fonte original; resumo deve ser conteúdo próprio, não cópia integral (BRD §18) — validar isso como critério de aceite em qualquer feature de ingestão/resumo.
-- **Custo de IA controlado:** chamadas ao `SummarizationProvider` devem ser observáveis (contagem/custo por execução) desde o MVP — risco alto listado no BRD §30. Implementado: `custo_estimado_usd` é calculado por chamada (tokens × preço configurável, `CATALOGO_NOTICIAS_LLM_PRECO_USD_POR_1K_TOKENS`) e a ingestão para de chamar o provedor assim que o gasto do dia corrente ultrapassa `CATALOGO_NOTICIAS_LLM_TETO_GASTO_DIARIO_USD` (`catalogo_noticias/services/orcamento.py`); o gasto do dia é consultável via `metricas.services.painel()`.
+- **Custo de IA controlado:** chamadas ao `SummarizationProvider` devem ser observáveis (contagem/custo por execução) desde o MVP — risco alto listado no BRD §30. Implementado: `custo_estimado_usd` é calculado por chamada (tokens × preço configurável, `CATALOGO_NOTICIAS_LLM_PRECO_USD_POR_1K_TOKENS`) e a ingestão para de chamar o provedor assim que o gasto do dia corrente ultrapassa `CATALOGO_NOTICIAS_LLM_TETO_GASTO_DIARIO_USD` (`catalogo_noticias/services/orcamento.py`); o gasto do dia é consultável via `metricas.services.painel()`. A otimização de banda é independente do custo de tokens: cada `FonteRobo` guarda `ETag`/`Last-Modified`, envia `If-None-Match`/`If-Modified-Since` e evita baixar/parsear XML em respostas 304; como o validator é apenas uma otimização, a reconciliação completa periódica (`CATALOGO_NOTICIAS_REVALIDACAO_COMPLETA_HORAS`, padrão 6h) verifica o estado local sem headers.
 - **Auditoria:** alteração de preço/limite pelo admin deve ficar registrada (quem, quando, valor anterior/novo) — decorre da seção 17 do BRD (auditoria de alterações relevantes), mesmo estando fora do escopo de governança editorial completa.
 
 ## 8. Decisões em aberto (precisam de resposta humana antes ou durante a implementação)
@@ -107,32 +113,39 @@ falsos-positivos documentados, credenciamento, moderação, gating). O que
 estava genuinamente ausente — e que esta seção define — é a **arquitetura
 de infraestrutura de produção**, que antes desta mudança não existia.
 
-### 9.2 Topologia (self-hosted, VPS única com Docker)
+### 9.2 Topologia ativa (self-hosted, VPS única com PM2 + Nginx)
+
+A topologia de produção usa **PM2 + Nginx** na VPS. O Nginx é o reverse proxy
+ativo e, quando a ativação humana for concluída, termina TLS na origem com
+Certbot/Let's Encrypt; até lá, a configuração é preparada, mas a produção
+continua em HTTP. Docker/Caddy é uma variante alternativa/local, não o
+caminho de produção.
 
 ```
-Internet → Cloudflare (CDN + WAF + DDoS + TLS, camada gratuita)
-              → Caddy (reverse proxy, TLS automático via Let's Encrypt)
-                  → Next.js standalone (frontend/Dockerfile)
-                  → Gunicorn/Django (backend/Dockerfile)
-                        → Redis (cache de aplicação + broker/result do Celery)
-                        → PostgreSQL (dado transacional, com backup off-VPS)
+Internet → Cloudflare (opcional: CDN + WAF + DDoS + TLS na borda)
+              → Nginx (reverse proxy; TLS de origem via Certbot/Let's Encrypt quando ativado)
+                  → Next.js (PM2, porta 310x)
+                  → Gunicorn/Django (PM2, porta 510x, /api/)
+                        → Redis (cache + broker/result do Celery)
+                        → PostgreSQL (dados transacionais, backup off-VPS)
                   → Celery worker + beat (ingestão, e-mails, vencimentos)
 ```
 
-Toda a stack sobe com `docker compose --env-file .env.production up -d
---build` (ver `docker-compose.yml` na raiz). Sem RDS/ElastiCache/S3: o
-único custo recorrente é a VPS já contratada. Detalhamento operacional em
-`infra/DEPLOY.md`.
+O deploy ativo é feito pelos workflows em `.github/workflows/` para as
+aplicações PM2 e pelos sites em `infra/nginx/`; `docker compose --env-file
+.env.production up -d --build` e o `Caddyfile` descrevem somente a variante
+alternativa Docker/Caddy. O runbook da topologia ativa e a ativação de TLS
+estão em `infra/DEPLOY.md`.
 
 ### 9.3 Como cada requisito foi endereçado
 
 | Requisito | Decisão |
 |---|---|
-| **Custo** | Self-hosted numa VPS já paga; Cloudflare (CDN/WAF/DDoS) e Sentry/UptimeRobot no tier gratuito; mídia em disco local (não S3) até o volume justificar migração; chamadas ao LLM em lote com teto de tokens (já existente) + teto de gasto diário aplicado de fato: quando o gasto estimado do dia corrente ultrapassa `CATALOGO_NOTICIAS_LLM_TETO_GASTO_DIARIO_USD` (ver `config/settings.py`), a ingestão para de chamar o provedor de LLM pelo restante do dia e os itens novos caem na fila de revisão humana já existente — a ingestão em si nunca é interrompida (`catalogo_noticias/services/orcamento.py`). |
-| **Performance** | Cache Redis de aplicação (`CACHES` em `config/settings.py`, inexistente antes desta mudança); cache de borda via Cloudflare para conteúdo público (feed é majoritariamente leitura); WhiteNoise comprimido para estático; `CONN_MAX_AGE` para reuso de conexão com o Postgres. |
-| **Segurança** | Settings de produção reais (HSTS, cookies seguros, `SECURE_PROXY_SSL_HEADER`, `X_FRAME_OPTIONS`); trava que impede rodar com SQLite ou `SECRET_KEY` fraca quando `DEBUG=False`; firewall (ufw) + fail2ban + atualizações automáticas na VPS (`infra/DEPLOY.md`); containers rodando com usuário não-root; rede Docker isolada — só o Caddy publica porta. |
-| **Confiabilidade** | Healthcheck real (`/healthz`, checa conectividade com o banco) usado pelo Docker, pelo Caddy e por um monitor de uptime externo; CI (`.github/workflows/ci.yml`) roda a suíte completa antes de qualquer deploy; Sentry opcional para captura de erro em produção (mitiga a lacuna de validação registrada durante a implementação inicial). |
-| **Persistência dos dados** | Backup diário automatizado (Postgres + mídia) enviado para storage externo compatível com S3 (`infra/backup/pg_backup.sh`), com runbook de restore testável (`infra/backup/RESTORE.md`) — volume Docker sozinho não é backup, só protege contra restart de container. |
+| **Custo** | Self-hosted numa VPS já paga; Cloudflare (opcional; CDN/WAF/DDoS) e Sentry/UptimeRobot (opcionais, nos tiers gratuitos); mídia em disco local (não S3) até o volume justificar migração; chamadas ao LLM em lote com teto de tokens (já existente) + teto de gasto diário aplicado de fato: quando o gasto estimado do dia corrente ultrapassa `CATALOGO_NOTICIAS_LLM_TETO_GASTO_DIARIO_USD` (ver `config/settings.py`), a ingestão para de chamar o provedor de LLM pelo restante do dia e os itens novos caem na fila de revisão humana já existente — a ingestão em si nunca é interrompida (`catalogo_noticias/services/orcamento.py`). |
+| **Performance** | Cache Redis de aplicação (`CACHES` em `config/settings.py`, inexistente antes desta mudança); cache de borda opcional via Cloudflare para conteúdo público, quando essa camada for ativada; WhiteNoise comprimido para estático; `CONN_MAX_AGE` para reuso de conexão com o Postgres. Na ingestão RSS, validators HTTP persistidos (`ETag`/`Last-Modified`) permitem respostas 304 sem download nem parse; a reconciliação sem headers a cada 6 horas protege contra 304 falso ou perda local. |
+| **Segurança** | Settings de produção reais (HSTS, cookies seguros, `SECURE_PROXY_SSL_HEADER`, `X_FRAME_OPTIONS`); trava que impede rodar com SQLite ou `SECRET_KEY` fraca quando `DEBUG=False`; firewall (ufw) + fail2ban + atualizações automáticas na VPS (`infra/DEPLOY.md`); na topologia ativa, o Nginx é o reverse proxy público e Redis/PostgreSQL permanecem serviços internos; containers rodando com usuário não-root e rede Docker isolada são exigências da variante alternativa, não da esteira PM2 ativa. |
+| **Confiabilidade** | Healthcheck real (`/healthz`, checa conectividade com o banco) usado pelo Nginx (healthz HTTP somente em loopback e healthz HTTPS público) e por um monitor de uptime externo via HTTPS; o healthcheck Docker/Caddy pertence à variante alternativa; CI (`.github/workflows/ci.yml`) roda a suíte completa antes de qualquer deploy; Sentry opcional para captura de erro em produção (mitiga a lacuna de validação registrada durante a implementação inicial). |
+| **Persistência dos dados** | Backup diário automatizado (Postgres + mídia) enviado para storage externo compatível com S3; na topologia PM2, usar `infra/backup/pg_backup_pm2.sh` e o procedimento de restore correspondente; `pg_backup.sh`/`infra/backup/RESTORE.md` documentam a variante Docker/Caddy. Volume local sozinho não é backup. |
 
 ### 9.4 Limites conscientes (não overengineering)
 

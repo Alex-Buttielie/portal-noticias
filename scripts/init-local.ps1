@@ -84,7 +84,7 @@ function New-ChaveSecreta {
 # 0. Pre-requisitos
 # ---------------------------------------------------------------------------
 Write-Step "Verificando pre-requisitos"
-Assert-Comando "python" "Instale Python 3.13+ (https://www.python.org/downloads/) e garanta que esta no PATH."
+Assert-Comando "python" "Instale Python 3.12 (https://www.python.org/downloads/) e garanta que esta no PATH."
 Assert-Comando "node" "Instale Node.js 18+ (https://nodejs.org/) e garanta que esta no PATH."
 Assert-Comando "npm" "Vem junto com o Node.js - reinstale o Node se estiver faltando."
 
@@ -114,9 +114,9 @@ if (-not (Test-Path $VenvPython)) {
     Write-Host "    venv ja existe, reaproveitando."
 }
 
-Write-Step "Backend: instalando dependencias (requirements.txt)"
+Write-Step "Backend: instalando dependencias (requirements-dev.txt)"
 & $VenvPython -m pip install --upgrade pip --quiet
-& $VenvPython -m pip install -r (Join-Path $BackendDir "requirements.txt")
+& $VenvPython -m pip install -r (Join-Path $BackendDir "requirements-dev.txt")
 if ($LASTEXITCODE -ne 0) {
     Write-Host "ERRO: pip install falhou (veja o log acima)." -ForegroundColor Red
     exit 1

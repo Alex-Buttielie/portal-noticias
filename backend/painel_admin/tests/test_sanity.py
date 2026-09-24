@@ -1,10 +1,20 @@
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import pytest
+from django.contrib import admin
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
+from django.db import connection, transaction
+from django.db.models.query import QuerySet
+from django.test import Client, RequestFactory, override_settings
+from django.test.utils import CaptureQueriesContext
+from django.urls import reverse
 from rest_framework.test import APIClient
 
 from assinatura.models import Plan, Subscription
+from catalogo_noticias.admin import NewsItemAdmin
 from catalogo_noticias.models import NewsCluster, NewsItem
 from gating.models import FeatureLimit
 from moderacao.models import Denuncia
@@ -132,6 +142,442 @@ def test_admin_aprova_item_da_fila_e_reflete_no_feed():
     resposta_feed = APIClient().get("/api/feed/")
     titulos = [e["titulo"] for e in resposta_feed.data["results"]]
     assert "Noticia pendente" in titulos
+
+
+@override_settings(
+    CACHES={
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "painel-admin-autocomplete-invalidation",
+        }
+    }
+)
+@pytest.mark.parametrize(
+    ("acao", "status_esperado"),
+    [
+        ("aprovar", NewsItem.STATUS_APROVADO),
+        ("rejeitar", NewsItem.STATUS_REJEITADO),
+    ],
+)
+def test_admin_decisao_invalida_autocomplete(acao, status_esperado):
+    admin = _admin()
+    item = NewsItem.objects.create(
+        titulo="Notícia decidida para autocomplete",
+        url_fonte_original=f"https://exemplo.com/materia-cache-{acao}",
+        nome_fonte="Fonte Teste",
+        status_revisao=NewsItem.STATUS_PENDENTE,
+    )
+    chaves = {
+        f"feed:autocomplete:v2:{sufixo}": ["snapshot-antigo"]
+        for sufixo in ("categorias", "titulos", "populares")
+    }
+    for chave, valor in chaves.items():
+        cache.set(chave, valor, 300)
+
+    client = APIClient()
+    client.force_authenticate(user=admin)
+    resposta = client.post(
+        f"/api/admin/fila/{item.id}/decisao/", {"acao": acao}, format="json"
+    )
+
+    assert resposta.status_code == 200
+    assert resposta.data["status_revisao"] == status_esperado
+    assert all(cache.get(chave) is None for chave in chaves)
+
+
+@pytest.mark.django_db(transaction=True)
+@override_settings(
+    CACHES={
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "native-admin-autocomplete-invalidation-actions",
+        }
+    }
+)
+@pytest.mark.parametrize(
+    ("metodo", "status_esperado"),
+    [
+        ("marcar_como_aprovado", NewsItem.STATUS_APROVADO),
+        ("marcar_como_rejeitado", NewsItem.STATUS_REJEITADO),
+    ],
+)
+def test_admin_nativo_action_invalida_autocomplete(metodo, status_esperado):
+    item = NewsItem.objects.create(
+        titulo="Notícia decidida no admin nativo",
+        url_fonte_original=f"https://exemplo.com/nativa-{metodo}",
+        nome_fonte="Fonte Teste",
+        status_revisao=NewsItem.STATUS_PENDENTE,
+    )
+    chaves = {
+        f"feed:autocomplete:v2:{sufixo}": ["snapshot-antigo"]
+        for sufixo in ("categorias", "titulos", "populares")
+    }
+    for chave, valor in chaves.items():
+        cache.set(chave, valor, 300)
+
+    model_admin = NewsItemAdmin(NewsItem, admin.site)
+    request = RequestFactory().post("/admin/catalogo_noticias/newsitem/")
+    getattr(model_admin, metodo)(request, NewsItem.objects.filter(pk=item.pk))
+
+    item.refresh_from_db()
+    assert item.status_revisao == status_esperado
+    assert all(cache.get(chave) is None for chave in chaves)
+
+
+@pytest.mark.django_db(transaction=True)
+@override_settings(
+    CACHES={
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "native-admin-action-noop-preserves-cache",
+        }
+    }
+)
+@pytest.mark.parametrize(
+    ("metodo", "status_destino"),
+    [
+        ("marcar_como_aprovado", NewsItem.STATUS_APROVADO),
+        ("marcar_como_rejeitado", NewsItem.STATUS_REJEITADO),
+    ],
+)
+def test_admin_nativo_action_sem_mudanca_preserva_cache(metodo, status_destino):
+    from feed.busca import invalidar_cache_autocomplete
+
+    itens = [
+        NewsItem.objects.create(
+            titulo=f"Notícia já no destino {indice}",
+            url_fonte_original=(
+                f"https://exemplo.com/nativa-sem-mudanca-{metodo}-{indice}"
+            ),
+            nome_fonte="Fonte Teste",
+            status_revisao=status_destino,
+        )
+        for indice in (1, 2)
+    ]
+    chaves = {
+        f"feed:autocomplete:v2:{sufixo}": ["snapshot-antigo"]
+        for sufixo in ("categorias", "titulos", "populares")
+    }
+    for chave, valor in chaves.items():
+        cache.set(chave, valor, 300)
+
+    model_admin = NewsItemAdmin(NewsItem, admin.site)
+    request = RequestFactory().post("/admin/catalogo_noticias/newsitem/")
+    updates = []
+    original_update = QuerySet.update
+
+    def tracking_update(queryset, *args, **kwargs):
+        result = original_update(queryset, *args, **kwargs)
+        updates.append(result)
+        return result
+
+    with patch(
+        "feed.busca.invalidar_cache_autocomplete",
+        wraps=invalidar_cache_autocomplete,
+    ) as invalidar, patch.object(QuerySet, "update", tracking_update):
+        assert not connection.in_atomic_block
+        resultado = getattr(model_admin, metodo)(
+            request, NewsItem.objects.filter(pk__in=[item.pk for item in itens])
+        )
+
+    assert resultado is None
+    assert updates == [0]
+    invalidar.assert_not_called()
+    assert set(
+        NewsItem.objects.filter(pk__in=[item.pk for item in itens]).values_list(
+            "status_revisao", flat=True
+        )
+    ) == {status_destino}
+    assert all(cache.get(chave) == ["snapshot-antigo"] for chave in chaves)
+
+
+@pytest.mark.django_db(transaction=True)
+@override_settings(
+    CACHES={
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "native-admin-action-mixed-invalidates-on-commit",
+        }
+    }
+)
+@pytest.mark.parametrize(
+    ("metodo", "status_destino", "outro_status"),
+    [
+        (
+            "marcar_como_aprovado",
+            NewsItem.STATUS_APROVADO,
+            NewsItem.STATUS_REJEITADO,
+        ),
+        (
+            "marcar_como_rejeitado",
+            NewsItem.STATUS_REJEITADO,
+            NewsItem.STATUS_APROVADO,
+        ),
+    ],
+)
+def test_admin_nativo_action_mista_invalida_uma_vez_apos_commit(
+    metodo, status_destino, outro_status
+):
+    from feed.busca import invalidar_cache_autocomplete
+
+    itens = [
+        NewsItem.objects.create(
+            titulo=f"Notícia misto {status}",
+            url_fonte_original=(
+                f"https://exemplo.com/nativa-misto-{metodo}-{status}"
+            ),
+            nome_fonte="Fonte Teste",
+            status_revisao=status,
+        )
+        for status in (status_destino, NewsItem.STATUS_PENDENTE, outro_status)
+    ]
+    chaves = {
+        f"feed:autocomplete:v2:{sufixo}": ["snapshot-antigo"]
+        for sufixo in ("categorias", "titulos", "populares")
+    }
+    for chave, valor in chaves.items():
+        cache.set(chave, valor, 300)
+
+    model_admin = NewsItemAdmin(NewsItem, admin.site)
+    request = RequestFactory().post("/admin/catalogo_noticias/newsitem/")
+    with patch(
+        "feed.busca.invalidar_cache_autocomplete",
+        wraps=invalidar_cache_autocomplete,
+    ) as invalidar:
+        with CaptureQueriesContext(connection) as queries:
+            with transaction.atomic():
+                resultado = getattr(model_admin, metodo)(
+                    request, NewsItem.objects.filter(pk__in=[item.pk for item in itens])
+                )
+
+                assert resultado is None
+                invalidar.assert_not_called()
+                assert all(
+                    cache.get(chave) == ["snapshot-antigo"] for chave in chaves
+                )
+
+            invalidar.assert_called_once_with()
+
+    updates = [
+        query["sql"]
+        for query in queries.captured_queries
+        if query["sql"].lstrip().upper().startswith("UPDATE")
+    ]
+    assert len(updates) == 1
+    assert "NOT" in updates[0].upper()
+
+    assert set(
+        NewsItem.objects.filter(pk__in=[item.pk for item in itens]).values_list(
+            "status_revisao", flat=True
+        )
+    ) == {status_destino}
+    assert all(cache.get(chave) is None for chave in chaves)
+
+
+@pytest.mark.django_db(transaction=True)
+@override_settings(
+    CACHES={
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "native-admin-autocomplete-invalidation-edit",
+        }
+    }
+)
+def test_admin_nativo_edicao_de_status_invalida_autocomplete():
+    item = NewsItem.objects.create(
+        titulo="Notícia editada no admin nativo",
+        url_fonte_original="https://exemplo.com/nativa-edicao",
+        nome_fonte="Fonte Teste",
+        status_revisao=NewsItem.STATUS_PENDENTE,
+    )
+    chaves = {
+        f"feed:autocomplete:v2:{sufixo}": ["snapshot-antigo"]
+        for sufixo in ("categorias", "titulos", "populares")
+    }
+    for chave, valor in chaves.items():
+        cache.set(chave, valor, 300)
+
+    model_admin = NewsItemAdmin(NewsItem, admin.site)
+    request = RequestFactory().post("/admin/catalogo_noticias/newsitem/")
+    item.status_revisao = NewsItem.STATUS_APROVADO
+    model_admin.save_model(request, item, object(), change=True)
+
+    item.refresh_from_db()
+    assert item.status_revisao == NewsItem.STATUS_APROVADO
+    assert all(cache.get(chave) is None for chave in chaves)
+
+
+@pytest.mark.django_db(transaction=True)
+@override_settings(
+    CACHES={
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "native-admin-form-invalidation",
+        }
+    }
+)
+def test_formulario_admin_nativo_invalida_autocomplete():
+    superuser = User.objects.create_superuser(
+        email="admin-form@example.com", password="senha123"
+    )
+    item = NewsItem.objects.create(
+        titulo="Notícia editada pelo formulário nativo",
+        url_fonte_original="https://exemplo.com/nativa-formulario",
+        nome_fonte="Fonte Teste",
+        status_revisao=NewsItem.STATUS_PENDENTE,
+    )
+    chaves = {
+        f"feed:autocomplete:v2:{sufixo}": ["snapshot-antigo"]
+        for sufixo in ("categorias", "titulos", "populares")
+    }
+    for chave, valor in chaves.items():
+        cache.set(chave, valor, 300)
+
+    client = Client()
+    client.force_login(superuser)
+    resposta = client.post(
+        reverse("admin:catalogo_noticias_newsitem_change", args=[item.pk]),
+        {
+            "titulo": item.titulo,
+            "url_fonte_original": item.url_fonte_original,
+            "nome_fonte": item.nome_fonte,
+            "status_revisao": NewsItem.STATUS_APROVADO,
+            "tags": "[]",
+        },
+    )
+
+    assert resposta.status_code in (200, 302)
+    item.refresh_from_db()
+    assert item.status_revisao == NewsItem.STATUS_APROVADO
+    assert all(cache.get(chave) is None for chave in chaves)
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize("caminho", ["save_model", "marcar_como_aprovado"])
+@override_settings(
+    CACHES={
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "native-admin-invalidation-on-commit",
+        }
+    }
+)
+def test_admin_nativo_invalida_autocomplete_somente_depois_do_commit(caminho):
+    from feed.busca import invalidar_cache_autocomplete
+
+    item = NewsItem.objects.create(
+        titulo="Notícia com commit atômico",
+        url_fonte_original=f"https://exemplo.com/nativa-on-commit-{caminho}",
+        nome_fonte="Fonte Teste",
+        status_revisao=NewsItem.STATUS_PENDENTE,
+    )
+    chaves = {
+        f"feed:autocomplete:v2:{sufixo}": ["snapshot-antigo"]
+        for sufixo in ("categorias", "titulos", "populares")
+    }
+    for chave, valor in chaves.items():
+        cache.set(chave, valor, 300)
+
+    model_admin = NewsItemAdmin(NewsItem, admin.site)
+    request = RequestFactory().post("/admin/catalogo_noticias/newsitem/")
+    with patch(
+        "feed.busca.invalidar_cache_autocomplete",
+        wraps=invalidar_cache_autocomplete,
+    ) as invalidar:
+        with transaction.atomic():
+            if caminho == "save_model":
+                item.status_revisao = NewsItem.STATUS_APROVADO
+                model_admin.save_model(request, item, object(), change=True)
+            else:
+                model_admin.marcar_como_aprovado(
+                    request, NewsItem.objects.filter(pk=item.pk)
+                )
+
+            invalidar.assert_not_called()
+            assert all(cache.get(chave) == ["snapshot-antigo"] for chave in chaves)
+
+        invalidar.assert_called_once_with()
+
+    assert all(cache.get(chave) is None for chave in chaves)
+
+
+@pytest.mark.django_db(transaction=True)
+@override_settings(
+    CACHES={
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "native-admin-invalidation-rollback",
+        }
+    }
+)
+def test_rollback_admin_nativo_nao_invalida_autocomplete():
+    from feed.busca import invalidar_cache_autocomplete
+
+    item = NewsItem.objects.create(
+        titulo="Notícia com rollback",
+        url_fonte_original="https://exemplo.com/nativa-rollback",
+        nome_fonte="Fonte Teste",
+        status_revisao=NewsItem.STATUS_PENDENTE,
+    )
+    chaves = {
+        f"feed:autocomplete:v2:{sufixo}": ["snapshot-antigo"]
+        for sufixo in ("categorias", "titulos", "populares")
+    }
+    for chave, valor in chaves.items():
+        cache.set(chave, valor, 300)
+
+    model_admin = NewsItemAdmin(NewsItem, admin.site)
+    request = RequestFactory().post("/admin/catalogo_noticias/newsitem/")
+    with patch(
+        "feed.busca.invalidar_cache_autocomplete",
+        wraps=invalidar_cache_autocomplete,
+    ) as invalidar:
+        with pytest.raises(RuntimeError, match="rollback de teste"):
+            with transaction.atomic():
+                item.status_revisao = NewsItem.STATUS_APROVADO
+                model_admin.save_model(request, item, object(), change=True)
+
+                invalidar.assert_not_called()
+                assert all(
+                    cache.get(chave) == ["snapshot-antigo"] for chave in chaves
+                )
+                raise RuntimeError("rollback de teste")
+
+        invalidar.assert_not_called()
+
+    item.refresh_from_db()
+    assert item.status_revisao == NewsItem.STATUS_PENDENTE
+    assert all(cache.get(chave) == ["snapshot-antigo"] for chave in chaves)
+
+
+@override_settings(
+    CACHES={
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "cache-failure-is-not-fatal",
+        }
+    }
+)
+def test_falha_de_cache_nao_torna_decisao_editorial_fatal():
+    admin = _admin()
+    item = NewsItem.objects.create(
+        titulo="Notícia com cache indisponível",
+        url_fonte_original="https://exemplo.com/cache-indisponivel",
+        nome_fonte="Fonte Teste",
+        status_revisao=NewsItem.STATUS_PENDENTE,
+    )
+    client = APIClient()
+    client.force_authenticate(user=admin)
+
+    with patch("feed.busca.cache.delete", side_effect=RuntimeError("cache offline")):
+        resposta = client.post(
+            f"/api/admin/fila/{item.id}/decisao/",
+            {"acao": "aprovar"},
+            format="json",
+        )
+
+    assert resposta.status_code == 200
+    assert resposta.data["status_revisao"] == NewsItem.STATUS_APROVADO
 
 
 def test_admin_rejeita_item_da_fila():

@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import type { FeedEntrada } from "./api";
 import { obterTodasLeituras } from "./intent";
 
+export { formatarDataHora, formatarHora } from "./datas";
+
 // ---------------------------------------------------------------------------
 // Central editorial da Home (FRENTE 1) — utilidades puras + configuração.
 // Sem adivinhação: selo e localidade derivam SÓ do dado existente.
@@ -47,7 +49,7 @@ export const HOME_CONFIG_PADRAO: HomeConfig = {
   portfolioCategorias: 6,
   portfolioPorCategoria: 6,
   portfolioPasso: 4,
-  refreshUltimasSegundos: 90,
+  refreshUltimasSegundos: 180,
 };
 
 const CHAVE_CONFIG = "brd_home_config";
@@ -60,6 +62,10 @@ export function obterHomeConfig(): HomeConfig {
     const dados = JSON.parse(bruto) as Partial<HomeConfig>;
     const num = (v: unknown, fallback: number) =>
       typeof v === "number" && Number.isFinite(v) && v > 0 ? Math.min(Math.floor(v), 60) : fallback;
+    const intervalo = (v: unknown) =>
+      typeof v === "number" && Number.isFinite(v) && v > 0
+        ? Math.max(180, Math.min(Math.floor(v), 600))
+        : HOME_CONFIG_PADRAO.refreshUltimasSegundos;
     return {
       manchetesSecundarias: num(dados.manchetesSecundarias, HOME_CONFIG_PADRAO.manchetesSecundarias),
       ultimasLimite: num(dados.ultimasLimite, HOME_CONFIG_PADRAO.ultimasLimite),
@@ -69,7 +75,7 @@ export function obterHomeConfig(): HomeConfig {
       portfolioCategorias: num(dados.portfolioCategorias, HOME_CONFIG_PADRAO.portfolioCategorias),
       portfolioPorCategoria: num(dados.portfolioPorCategoria, HOME_CONFIG_PADRAO.portfolioPorCategoria),
       portfolioPasso: num(dados.portfolioPasso, HOME_CONFIG_PADRAO.portfolioPasso),
-      refreshUltimasSegundos: num(dados.refreshUltimasSegundos, HOME_CONFIG_PADRAO.refreshUltimasSegundos),
+      refreshUltimasSegundos: intervalo(dados.refreshUltimasSegundos),
     };
   } catch {
     return HOME_CONFIG_PADRAO;
@@ -139,28 +145,11 @@ export function formatarCredito(entrada: Pick<FeedEntrada, "autor" | "nome_fonte
 }
 
 // --- Data/hora ---------------------------------------------------------------
-
-export function formatarDataHora(iso: string): string {
-  try {
-    const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) return "";
-    const data = d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
-    const hora = d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
-    return `${data} • ${hora}`;
-  } catch {
-    return "";
-  }
-}
-
-export function formatarHora(iso: string): string {
-  try {
-    const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) return "";
-    return d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
-  } catch {
-    return "";
-  }
-}
+// A formatação absoluta é centralizada em `lib/datas`; as funções relativas
+// abaixo continuam usando o instante atual e não dependem de um fuso de exibição.
+// Como são cálculos de elapsed time, podem mudar de minuto/hora/dia entre SSR e
+// hidratação se o timestamp estiver exatamente no limite; isso é intencional e
+// não deve ser “corrigido” aplicando timeZone a uma string relativa.
 
 export function ehNova(iso: string, minutos = 60): boolean {
   try {

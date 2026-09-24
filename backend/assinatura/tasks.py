@@ -13,7 +13,13 @@ from .services import processar_vencimentos_e_grace_periods
 logger = logging.getLogger(__name__)
 
 
-@shared_task(name="assinatura.tasks.processar_vencimentos")
+# Cobrança/renovação pode produzir efeitos externos; ack imediato é
+# deliberado porque a task não possui idempotência durável por execução.
+@shared_task(
+    name="assinatura.tasks.processar_vencimentos",
+    acks_late=False,
+    reject_on_worker_lost=False,
+)
 def processar_vencimentos():
     resultado = processar_vencimentos_e_grace_periods()
     logger.info("Task 'processar_vencimentos' concluída: %s", resultado)

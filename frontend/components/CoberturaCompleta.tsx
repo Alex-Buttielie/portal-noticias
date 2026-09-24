@@ -6,6 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { carregarCobertura } from "@/lib/recomendacao";
 import type { CoberturaCompleta as TCobertura } from "@/lib/api";
+import { formatarDataHoraCompleta } from "@/lib/datas";
 
 /**
  * FRENTE 3 — "Ver cobertura completa": fontes, horários, atualizações e
@@ -54,7 +55,7 @@ export function CoberturaCompleta({ tipo, id }: { tipo: "cluster" | "item"; id: 
               <li key={a.url_fonte_original} className="flex flex-col gap-0.5 rounded-md border border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] p-2.5 text-sm">
                 <span className="font-medium text-[var(--cor-texto)]">{a.titulo}</span>
                 <span className="text-xs text-[var(--cor-texto-suave)]">
-                  {new Date(a.timestamp).toLocaleString("pt-BR")} • Fonte:{" "}
+                  {formatarDataHoraCompleta(a.timestamp)} • Fonte:{" "}
                   <a href={a.url_fonte_original} target="_blank" rel="noopener noreferrer" className="text-[var(--cor-primaria)] hover:underline">
                     {a.nome_fonte}
                   </a>

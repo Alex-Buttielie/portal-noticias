@@ -688,14 +688,18 @@ export interface PerfilAutorPublico {
   mini_bio?: string;
 }
 
-export function obterPublicacoes(params: {
-  destaque?: boolean;
-  autor?: number;
-  categoria?: string;
-  tipo?: string;
-  busca?: string;
-  ordenar?: "recentes" | "discutidos" | "destaques";
-} = {}): Promise<Publicacao[]> {
+export function obterPublicacoes(
+  params: {
+    destaque?: boolean;
+    autor?: number;
+    categoria?: string;
+    tipo?: string;
+    busca?: string;
+    ordenar?: "recentes" | "discutidos" | "destaques";
+    page_size?: number;
+  } = {},
+  opcoes: { signal?: AbortSignal } = {}
+): Promise<Publicacao[]> {
   const query = new URLSearchParams();
   if (params.destaque) query.set("destaque", "1");
   if (params.autor) query.set("autor", String(params.autor));
@@ -703,8 +707,16 @@ export function obterPublicacoes(params: {
   if (params.tipo) query.set("tipo", params.tipo);
   if (params.busca) query.set("busca", params.busca);
   if (params.ordenar) query.set("ordenar", params.ordenar);
+  if (params.page_size) query.set("page_size", String(params.page_size));
   const qs = query.toString();
-  return request(`/api/comunidade/publicacoes/${qs ? `?${qs}` : ""}`, { method: "GET" });
+  // O endpoint legado devolve array; com page_size, o DRF devolve o envelope
+  // paginado. Normalizamos os dois formatos para preservar a interface atual.
+  const opcoesRequest: RequestInit = { method: "GET" };
+  if (opcoes.signal) opcoesRequest.signal = opcoes.signal;
+  return request<Publicacao[] | { results?: Publicacao[] }>(
+    `/api/comunidade/publicacoes/${qs ? `?${qs}` : ""}`,
+    opcoesRequest
+  ).then((resposta) => (Array.isArray(resposta) ? resposta : resposta?.results ?? []));
 }
 
 export async function obterPublicacao(token: string | null, publicacaoId: number): Promise<Publicacao | null> {
@@ -782,8 +794,13 @@ export function deixarDeSeguirAutor(token: string, autorId: number): Promise<voi
   return request(`/api/comunidade/autores/${autorId}/seguir/`, { method: "DELETE" }, token);
 }
 
-export function obterPerfilAutor(autorId: number): Promise<PerfilAutorPublico> {
-  return request(`/api/comunidade/autores/${autorId}/perfil/`, { method: "GET" });
+export function obterPerfilAutor(
+  autorId: number,
+  opcoes: { signal?: AbortSignal } = {}
+): Promise<PerfilAutorPublico> {
+  const opcoesRequest: RequestInit = { method: "GET" };
+  if (opcoes.signal) opcoesRequest.signal = opcoes.signal;
+  return request(`/api/comunidade/autores/${autorId}/perfil/`, opcoesRequest);
 }
 
 export function denunciar(
@@ -1176,7 +1193,7 @@ export function robosSalvarConfig(token: string, dados: Partial<ConfigRobo>): Pr
   return request("/api/admin/robos/config/", { method: "PATCH", body: JSON.stringify(dados) }, token);
 }
 export function robosListarExecucoes(token: string): Promise<ExecucaoRobo[]> { return request("/api/admin/robos/execucoes/", { method: "GET" }, token); }
-export function robosExecutar(token: string): Promise<ExecucaoRobo> { return request("/api/admin/robos/executar/", { method: "POST" }, token); }
+export function robosExecutar(token: string): Promise<{ detail: string; request_id: string }> { return request("/api/admin/robos/executar/", { method: "POST" }, token); }
 
 // ---------------------------------------------------------------------------
 // gating/sistema — flag Premium (fail-open: desligada = tudo liberado).
