@@ -370,40 +370,43 @@ jobs:
               return 1
             }
 
+            # Aplica a DEFINICAO do processo, não apenas reinicia-lo.
+            #
+            # Por que delete+start e nunca `pm2 restart`: o restart reaproveita
+            # os argumentos ja salvos pelo proprio PM2 e ignora os argumentos
+            # novos passados aqui. Efeito observado em producao (2026-09-24):
+            # o `--config gunicorn.conf.py` foi adicionado ao comando da API,
+            # mas `pm2 restart` manteve `--workers 2` sem `--config` — o conf
+            # NUNCA era carregado, o gunicorn ficava em workers `sync`
+            # (1 thread por worker) com o timeout default de 30s, e o timeout
+            # do `GUNICORN_TIMEOUT` (lido so pelo conf) ficava inerte. O
+            # objetivo do P1-3 (gthread) nao estava em vigor em nenhum
+            # ambiente. Confirmado via /proc/<pid>/status (Threads: 1).
+            #
+            # `delete` + `start` curto o servico, mas e o unico jeito de
+            # garantir que o processo suba com os args desta run. O retry e o
+            # wait_for_pm2_online abaixo mantem a mesma garantia de antes: so
+            # retorna 0 com o processo online.
             restart_or_start() {
               local process_name="$1"
               shift
-              local mode="start"
               local attempt=1
               local command_ok=1
-              if pm2 describe "$process_name" >/dev/null 2>&1; then
-                mode="restart"
-              fi
               while [ "$attempt" -le "$PM2_MAX_ATTEMPTS" ]; do
                 command_ok=1
-                echo "PM2: tentativa $attempt/$PM2_MAX_ATTEMPTS para $process_name (modo=$mode)"
-                if [ "$mode" = "restart" ]; then
-                  if pm2 restart "$process_name" --update-env; then
-                    command_ok=0
-                  else
-                    echo "PM2: restart de $process_name falhou; será repetido" >&2
-                  fi
+                echo "PM2: tentativa $attempt/$PM2_MAX_ATTEMPTS para $process_name (delete+start)"
+                pm2 delete "$process_name" >/dev/null 2>&1 || true
+                if pm2 start "$@"; then
+                  command_ok=0
                 else
-                  if pm2 start "$@"; then
-                    command_ok=0
-                  else
-                    echo "PM2: start de $process_name falhou; será repetido" >&2
-                  fi
+                  echo "PM2: start de $process_name falhou; será repetido" >&2
                 fi
                 if wait_for_pm2_online "$process_name"; then
                   if [ "$command_ok" -eq 0 ]; then
                     echo "PM2: $process_name confirmado online"
                     return 0
                   fi
-                  echo "PM2: comando de $process_name falhou apesar do estado online; será repetido" >&2
-                fi
-                if [ "$mode" = "start" ] && pm2 describe "$process_name" >/dev/null 2>&1; then
-                  mode="restart"
+                  echo "PM2: start de $process_name falhou apesar do estado online; será repetido" >&2
                 fi
                 if [ "$attempt" -lt "$PM2_MAX_ATTEMPTS" ]; then
                   sleep "$PM2_RETRY_DELAY"
