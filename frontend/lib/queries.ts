@@ -688,7 +688,7 @@ export function useRobosSalvarConfig(): UseMutationResult<api.ConfigRobo, Error,
   });
 }
 
-export function useRobosExecutar(): UseMutationResult<api.ExecucaoRobo, Error, void> {
+export function useRobosExecutar(): UseMutationResult<{ detail: string; request_id: string }, Error, void> {
   const { token } = useAuth();
   const cliente = useQueryClient();
   return useMutation({

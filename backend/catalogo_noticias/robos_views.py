@@ -14,6 +14,46 @@ def _eh_admin(user):
     return getattr(user, "papel", None) == "admin"
 
 
+def _executar_ingestao_em_background(rid: str) -> None:
+    """Roda `executar_ingestao()` fora do ciclo da requisição.
+
+    O endpoint responde 202 antes; o SUCESSO fica registrado em
+    `RegistroExecucaoIngestao` (visível em GET /execucoes/). A FALHA não é
+    persistida no banco — `executar_ingestao()` só grava o registro quando
+    conclui — e por isso vai para o log com traceback e o `request_id`, que
+    é o caminho de investigação hoje. Persistir a falha no banco é backlog.
+    Conexões de banco por thread: o Django abre/fecha automaticamente por
+    thread; `close_old_connections()` no início evita reutilizar conexão
+    stale do pool do worker.
+
+    Risco aceito e documentado: thread `daemon` morre se o PM2 reiniciar o
+    processo no meio da ingestão. Migrar para Celery é o destino correto.
+    """
+    import logging
+    import traceback
+
+    from django.db import close_old_connections
+
+    _log = logging.getLogger(__name__)
+    close_old_connections()
+    try:
+        registro = executar_ingestao()
+    except Exception as exc:
+        tb = traceback.format_exc()
+        detalhe = str(exc).strip() or f"{exc.__class__.__name__} sem mensagem"
+        _log.exception("[%s] Falha em executar_ingestao (background): %s\n%s", rid, detalhe, tb)
+    else:
+        _log.info(
+            "[%s] Ingestão em background ok registro=%s itens=%s grupos=%s",
+            rid,
+            registro.id,
+            registro.total_itens_ingeridos,
+            registro.total_grupos_formados,
+        )
+    finally:
+        close_old_connections()
+
+
 def _sincronizar_fontes_best_effort():
     """Frente D — após qualquer mudança local em fontes/config, envia o
     conjunto vigente de `FonteRobo` ao microserviço. Best-effort: nunca
@@ -115,26 +155,26 @@ class ExecutarRoboView(APIView):
         if not _eh_admin(request.user):
             return Response(status=status.HTTP_403_FORBIDDEN)
         import logging
+        import threading
         import traceback
 
         _log = logging.getLogger(__name__)
         rid = getattr(request, "request_id", "-")
-        _log.info("[%s] POST /api/admin/robos/executar iniciado", rid)
-        try:
-            registro = executar_ingestao()
-        except Exception as exc:
-            tb = traceback.format_exc()
-            detalhe = str(exc).strip() or f"{exc.__class__.__name__} sem mensagem — veja logs do servidor (request_id={rid})"
-            _log.exception("[%s] Falha em executar_ingestao: %s\n%s", rid, detalhe, tb)
-            return Response(
-                {"detail": detalhe, "request_id": rid},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
-        _log.info(
-            "[%s] POST /api/admin/robos/executar ok registro=%s itens=%s grupos=%s",
-            rid,
-            registro.id,
-            registro.total_itens_ingeridos,
-            registro.total_grupos_formados,
+        # A ingestão síncrona (~90 feeds + LLM) excede qualquer timeout
+        # HTTP razoável — por isso roda em thread daemon com resposta 202
+        # imediata (o progresso é acompanhado via GET /execucoes/).
+        # Sem isso, o endpoint só funciona com `--timeout 180` (ou mais) no
+        # gunicorn, o que mantém workers presos e contraria o P1-3
+        # (ANALISE_CUSTO_PERFORMANCE.md): timeout curto + gthread.
+        _log.info("[%s] POST /api/admin/robos/executar aceito (ingestão em background)", rid)
+        thread = threading.Thread(
+            target=_executar_ingestao_em_background,
+            args=(rid,),
+            daemon=True,
+            name=f"ingestao-manual-{rid}",
         )
-        return Response(RegistroExecucaoIngestaoSerializer(registro).data, status=status.HTTP_201_CREATED)
+        thread.start()
+        return Response(
+            {"detail": "Ingestão iniciada em background.", "request_id": rid},
+            status=status.HTTP_202_ACCEPTED,
+        )

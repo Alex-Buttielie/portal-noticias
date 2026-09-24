@@ -191,11 +191,14 @@ export default function Page() {
     setConfirmExec(false); setExecLoading(true); setErr(null); setOk(null);
     setExecLog((p) => [...p, `[${new Date().toLocaleTimeString("pt-BR")}] Disparando ingestão...`]);
     try {
+      // O endpoint responde 202 imediatamente e roda a ingestão em
+      // background (robos_views.py): o resultado aparece na lista de
+      // execuções ao recarregar — não vem mais no corpo da resposta.
       const r = await api.robosExecutar(tk);
-      setExecLog((p) => [...p, `[${new Date().toLocaleTimeString("pt-BR")}] OK: ${r.total_itens_ingeridos} itens, ${r.total_grupos_formados} grupos, custo ${fmtUSD(r.custo_estimado_summarization_usd)}`]);
-      setOk(`Ingestão concluída — ${r.total_itens_ingeridos} itens, ${r.total_grupos_formados} grupos.`);
-      setExecs((p) => [r, ...p]);
-      setTimeout(() => { carregarExecs(); }, 1500);
+      const detalhe = (r as { detail?: string })?.detail ?? "Ingestão iniciada em background.";
+      setExecLog((p) => [...p, `[${new Date().toLocaleTimeString("pt-BR")}] ${detalhe} Acompanhe na lista de execuções abaixo.`]);
+      setOk(`${detalhe} Recarregue a lista de execuções em alguns minutos para ver o resultado.`);
+      setTimeout(() => { carregarExecs(); }, 5000);
     } catch (e: unknown) {
       const m = e instanceof Error ? e.message : "Falha ao executar robôs.";
       setErr(m); setExecLog((p) => [...p, `[${new Date().toLocaleTimeString("pt-BR")}] ERRO: ${m}`]);

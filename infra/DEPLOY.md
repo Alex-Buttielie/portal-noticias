@@ -144,6 +144,67 @@ cada push, então um `git pull` só deve acontecer depois de o CI passar.
 > bloqueia escrita na tabela durante a construção. Rode o deploy/migrate em
 > horário de baixo tráfego.
 
+## Nginx na VPS: zonas globais obrigatórias (P1-4)
+
+A partir do run `20260923-1230` os confs de site (`infra/nginx/portal-*.conf`)
+usam **zonas compartilhadas** que o Nginx só aceita no contexto `http {}` —
+declarar dentro do arquivo de site faz `nginx -t` falhar e **impede o reload**
+(deixar o ambiente com o Nginx antigo, sem cache/limit). As zonas estão
+comentadas no topo de cada conf como referência. Adicione-as **uma única vez**
+no global da VPS, em `/etc/nginx/nginx.conf` (dentro de `http { }`):
+
+```nginx
+# /etc/nginx/nginx.conf — dentro de http { }
+proxy_cache_path /var/cache/nginx/feed levels=1:2 keys_zone=feed_cache:10m max_size=200m inactive=120s use_temp_path=off;
+limit_req_zone $binary_remote_addr zone=escrita_publica:10m rate=20r/m;
+limit_req_zone $binary_remote_addr zone=auth:10m rate=10r/m;
+```
+
+Antes de recarregar, sempre valide:
+
+```bash
+sudo nginx -t                       # obrigatório: sem isto, NÃO recarregar
+sudo systemctl reload nginx
+```
+
+Se `nginx -t` reclamar de zona desconhecida (`unknown zone`), a linha está
+fora do `http {}` ou o `conf` ainda não foi copiado. Copie o conf do site
+por ambiente e valide cada um antes do reload:
+
+```bash
+sudo cp infra/nginx/portal-prod.conf /etc/nginx/sites-available/portal-prod
+sudo ln -sf /etc/nginx/sites-available/portal-prod /etc/nginx/sites-enabled/portal-prod
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+### Invalidação do cache de borda
+
+O cache de borda tem TTL 45s (`proxy_cache_valid 200 45s`), então não exige
+invalidação manual. Para forçar limpeza imediata (ex.: após correção de
+conteúdo no mesmo minuto do deploy):
+
+```bash
+sudo rm -rf /var/cache/nginx/feed/*    # ou: sudo nginx -s reload
+```
+
+### O que o cache de borda cobre (e o que NÃO cobre)
+
+O `location` de cache usa **allowlist** de rotas GET públicas que não variam
+por usuário: `feed/`, `urgentes/`, `mais-lidas/`, `home/`, `destaques/`,
+`busca/`, `busca/populares/`, `busca/autocomplete/` e `radar/tendencias/`.
+Fora da allowlist (tratados por `location /api/`, sem cache de borda):
+`feed/busca/historico/` (padrão por usuário/sessão), `feed/interacoes/`
+(escrita pública, só `limit_req`), detalhes de cluster/item e busca por
+cobertura. Requisição com `Authorization` ou cookie de sessão nunca é servida
+do cache nem o popula (`proxy_cache_bypass`/`proxy_no_cache`).
+
+Verifique se está servindo do cache pelo header de resposta:
+
+```bash
+curl -sI "https://<host>/api/feed/" | grep -i x-cache-status
+# HIT = veio do cache; MISS = foi ao Gunicorn e populou
+```
+
 ## Ambiente de homologação (multi-env)
 
 Ideia incorporada do protótipo `testes-ia` (que tinha DEV/HOMOLOG/PROD via

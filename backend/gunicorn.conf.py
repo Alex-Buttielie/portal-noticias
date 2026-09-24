@@ -18,29 +18,45 @@
 #   threads = 8 requisições concorrentes, folga para o tráfego atual).
 # - GUNICORN_BIND (default "0.0.0.0:8000"; na VPS o deploy passa
 #   --bind "0.0.0.0:$API_PORT" por cima).
-# - GUNICORN_THREADS (default 4), GUNICORN_TIMEOUT (default 45).
+# - GUNICORN_THREADS (default 4), GUNICORN_TIMEOUT (default 60 no estado
+#   atual; reduzir para 45 somente depois do commit do endpoint 202).
 import os
 
 
-def _int_env(nome, padrao):
+def _int_env(nome, padrao, minimo=1, maximo=None):
+    """Lê inteiro do env com clamp.
+
+    O clamp importa: `threads` e `timeout` alimentam invariantes que outros
+    arquivos assumem (`gthread` com threads >= 2 e o `proxy_read_timeout 60s`
+    do Nginx). Um override solto como `GUNICORN_TIMEOUT=180` desalinharia o
+    par servidor/proxy sem que ninguém perceba, e `GUNICORN_THREADS=1`
+    trocaria o benefício do gthread (uma requisição presa mata o worker).
+    """
     try:
-        return max(1, int(os.environ.get(nome, padrao)))
+        valor = int(os.environ.get(nome, padrao))
     except (TypeError, ValueError):
-        return padrao
+        valor = padrao
+    valor = max(minimo, valor)
+    if maximo is not None:
+        valor = min(maximo, valor)
+    return valor
 
 
 # 2 na VPS atual (pouca RAM); parametrizável sem editar arquivo.
 workers = _int_env("GUNICORN_WORKERS", 2)
 # 4 threads/worker: 2 x 4 = 8 concorrentes; I/O-bound escala bem aqui.
-threads = _int_env("GUNICORN_THREADS", 4)
+# Mínimo 2: com 1 thread o worker fica bloqueado por requisição.
+threads = _int_env("GUNICORN_THREADS", 4, minimo=2, maximo=32)
 worker_class = "gthread"
-# 45s: nenhum caminho HTTP legítimo precisa de mais — POST
-# /api/admin/robos/executar/ responde 202 imediato (thread background,
-# stash "ingestao-background-202" no develop, a commitar pela run dona;
-# ver implementation-history.md); ingestão longa roda em Celery
-# (catalogo_noticias/tasks.py:ingerir_noticias).
-# Nginx usa proxy_read_timeout 45s para casar (infra/nginx/portal-*.conf).
-timeout = _int_env("GUNICORN_TIMEOUT", 45)
+# 60s é o default seguro enquanto o ref implantado ainda puder ter o
+# endpoint síncrono. O 202+background de /api/admin/robos/executar/ está
+# em uma alteração de trabalho ainda não commitada: só ative
+# `GUNICORN_TIMEOUT=45` (e `proxy_read_timeout 45s` nos três confs) depois
+# que esse commit for ancestral comprovado do ref implantado. Não reduzir o
+# timeout antes disso; a ingestão síncrona pode passar de 45s.
+# Nginx usa proxy_read_timeout 60s para casar (infra/nginx/portal-*.conf):
+# o teto de 60s mantém o par servidor/proxy dentro do contrato documentado.
+timeout = _int_env("GUNICORN_TIMEOUT", 60, minimo=10, maximo=60)
 graceful_timeout = 30
 keepalive = 5
 bind = os.environ.get("GUNICORN_BIND", "0.0.0.0:8000")

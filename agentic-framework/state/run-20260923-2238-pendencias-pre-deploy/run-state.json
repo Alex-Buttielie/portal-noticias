@@ -1,0 +1,62 @@
+{
+ "artifacts": {
+  "code_review_contract": "code-review-contract.md",
+  "documentation_update": "documentation-update.md",
+  "implementation_contract": "implementation-contract.md",
+  "implementation_history": "implementation-history.md",
+  "report": "report.md",
+  "task_plan": "task-plan.md"
+ },
+ "created_at": "2026-09-23T22:38:00-03:00",
+ "current_phase": "closing",
+ "follow_ups": [
+  "PUSH BLOQUEADO: PAT da URL do remote sem escopo workflow; precisa token com escopo workflow (ou push manual) para subir 93b919d",
+  "VPS: adicionar proxy_cache_path + 2 limit_req_zone no http{} de /etc/nginx/nginx.conf e rodar nginx -t antes do reload (runbook em infra/DEPLOY.md)",
+  "Backend: migrar ingestao manual de thread daemon para Celery (thread morre em restart do PM2; sem lock contra execucoes simultaneas)",
+  "Backend: persistir falha da ingestao em RegistroExecucaoIngestao (hoje so vai para o log)",
+  "Backend: recalcular numero_fontes_distintas ao editar item isolado pelo admin (hoje so a ingestao e save_related do cluster)",
+  "Infra: confirmar pg_trgm pre-instalada ou privilegio do usuario do banco antes do proxim migrate em PROD"
+ ],
+ "iteration_count": 0,
+ "max_iterations": 3,
+ "phases": {
+  "planning": {
+   "agent": "orchestrator",
+   "execution_mode": "delegated",
+   "finished_at": "2026-09-23T23:05:00-03:00",
+   "started_at": "2026-09-23T22:38:00-03:00",
+   "status": "done",
+   "notes": "task-plan.md + implementation-contract.md produzidos. Acoplamento crítico identificado: P1-3 (timeout 45s) só é seguro junto com o WIP 202+background."
+  },
+  "testing": {
+   "agent": "tester",
+   "execution_mode": "delegated",
+   "finished_at": null,
+   "started_at": "2026-09-23T23:05:00-03:00",
+   "status": "in_progress",
+   "notes": "Validação da mudança 202, do gunicorn.conf.py e dos 3 confs nginx."
+  },
+  "review": {
+   "agent": "reviewer",
+   "execution_mode": "self_executed_fallback",
+   "finished_at": "2026-09-23T23:40:00-03:00",
+   "started_at": "2026-09-23T23:10:00-03:00",
+   "status": "done",
+   "notes": "Revisão ad hoc do orchestrator sobre os findings do tester. 1 major (cache servindo busca/historico entre usuários) corrigido + 1 major (POST interacoes escapando do limit_req) corrigido; 2 minor (clamp do gunicorn, docstring) corrigidos; runbook de VPS escrito. Sem blocker restante no código."
+  },
+  "remediation": {
+   "agent": "orchestrator",
+   "execution_mode": "self_executed_fallback",
+   "finished_at": "2026-09-23T23:40:00-03:00",
+   "started_at": "2026-09-23T23:10:00-03:00",
+   "status": "done",
+   "notes": "Allowlist de cache, clamp do gunicorn, runbook VPS, docstring e comentários obsoletos corrigidos. Revalidação: 435 passed / cob 87.89% / tsc 0 / check-config 0 / 3 confs balanceados."
+  }
+ },
+ "requested_by": "humano (Alex) — pedido: resolver as pendências",
+ "run_id": "20260923-2238-pendencias-pre-deploy",
+ "source_spec": null,
+ "status": "in_progress",
+ "task_title": "Pendências pré-deploy: ingestão 202, P1-3/P1-4, follow-ups, pg_trgm, homolog",
+ "updated_at": "2026-09-23T23:40:00-03:00"
+}

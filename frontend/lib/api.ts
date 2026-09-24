@@ -1176,7 +1176,7 @@ export function robosSalvarConfig(token: string, dados: Partial<ConfigRobo>): Pr
   return request("/api/admin/robos/config/", { method: "PATCH", body: JSON.stringify(dados) }, token);
 }
 export function robosListarExecucoes(token: string): Promise<ExecucaoRobo[]> { return request("/api/admin/robos/execucoes/", { method: "GET" }, token); }
-export function robosExecutar(token: string): Promise<ExecucaoRobo> { return request("/api/admin/robos/executar/", { method: "POST" }, token); }
+export function robosExecutar(token: string): Promise<{ detail: string; request_id: string }> { return request("/api/admin/robos/executar/", { method: "POST" }, token); }
 
 // ---------------------------------------------------------------------------
 // gating/sistema — flag Premium (fail-open: desligada = tudo liberado).
