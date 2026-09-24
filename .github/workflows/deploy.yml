@@ -183,7 +183,12 @@ jobs:
             # Binário + args separados: pm2 não resolve string única citada
             # como executável. --interpreter explícito: o binário gunicorn não
             # tem extensão e o pm2 o executaria com node (SyntaxError).
-            DJANGO_SETTINGS_MODULE=config.settings pm2 start "$APP_DIR/backend/.venv/bin/gunicorn" --interpreter "$APP_DIR/backend/.venv/bin/python" --name "portal-api-$SUF" -- config.wsgi:application --bind "0.0.0.0:$API_PORT" --workers 2
+            # Gunicorn: workers/threads/timeout vêm de backend/gunicorn.conf.py
+            # (run 20260923-1230 P1-3: gthread, timeout 45s — o POST
+            # /api/admin/robos/executar/ responde 202 imediato, sem caminho
+            # HTTP que precise de timeout longo). Só o bind varia por
+            # ambiente ($API_PORT). NÃO recolocar flags de worker/timeout.
+            DJANGO_SETTINGS_MODULE=config.settings pm2 start "$APP_DIR/backend/.venv/bin/gunicorn" --interpreter "$APP_DIR/backend/.venv/bin/python" --name "portal-api-$SUF" -- config.wsgi:application --bind "0.0.0.0:$API_PORT" --chdir "$APP_DIR/backend"
             pm2 save
             echo "=== $LABEL deployed $WEB_PORT(web) $API_PORT(api) ==="
 
