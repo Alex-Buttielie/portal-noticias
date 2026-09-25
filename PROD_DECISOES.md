@@ -79,17 +79,35 @@
      testes do segundo pipeline não eram gate do CI principal.
    - **Decisão de produto:** não ativar nem recuperar esse segundo pipeline. Se
      surgir necessidade de uma tela operacional, implementar a capacidade no
-     admin Django autenticado em uma run própria.
+     admin Django autenticado em uma tarefa futura.
+   - **Corte do cache e contratos locais:** as listagens do feed usam o
+     namespace `feed:v2`; payloads legados em `feed:v1` não são lidos durante o
+     corte. As operações locais de feed e robôs permanecem disponíveis, e a
+     execução manual dos robôs continua respondendo `202 Accepted` e iniciando o
+     trabalho em background.
    - **Ação operacional após o deploy:** em arquivos de ambiente preexistentes,
-     remover as duas flags antigas se ainda estiverem presentes; variáveis
-     remanescentes passam a ser ignoradas pelo Django. Em cada VPS, inspecionar
-     serviços/contêineres e volumes Mongo antigos, desligar o componente e
-     remover o volume **somente após confirmar backup e necessidade dos dados**.
-     Esta decisão de repositório **não acessou a VPS, não desligou a instância e
-     não afirma que o banco Mongo ou seus volumes foram apagados**.
+     remover `MICROSERVICO_INGESTAO_URL` e `INGESTAO_API_TOKEN` se ainda
+     estiverem presentes. As flags não são mais lidas pelo Django; se
+     permanecerem em uma VPS, são inertes e ainda exigem limpeza humana. Em
+     cada VPS, inspecionar serviços/contêineres e volumes Mongo antigos,
+     desligar o componente e remover o volume **somente após confirmar backup e
+     necessidade dos dados**. Esta decisão de repositório **não acessou a VPS,
+     não desligou a instância e não afirma que o banco Mongo ou seus volumes
+     foram apagados**.
 
 ## Registro de conclusões
 
+- 2026-09-25 — Cache de cliente com TanStack Query entregue (P1-6): os 22
+  sites de carregamento de backend inventariados em 15 arquivos passam a ser
+  gerenciados por hooks `useQuery` (27 hooks de leitura), com política
+  conservadora aprovada pelo solicitante: memória-only, público 60 s,
+  autenticado 15 s, decisão (Admin) 0 s, chaves sem token/PII (usuario.id
+  apenas), logout limpa o cache privado e sem persistência. Mutations
+  invalidam as queries afetadas. Check `verificar-query-client.mjs` na
+  esteira de CI (job `frontend-build`) e como gate `verify` dos deploys.
+  Validações: tsc 0 erros, build 59/59 páginas, smoke HTTP 25/25 rotas 200,
+  tester 15/15 critérios passed, reviewer approve_with_comments (1 major
+  corrigida durante o review). Run `20260924-1721-react-query-migracao`.
 - 2026-09-17 — Leitura dentro do sistema entregue (`conteudo_completo` RSS +
   seção Matéria com crédito + CTA para a fonte).
 - 2026-09-17 — Caminho Docker do DEPLOY.md validado local (builds, up,

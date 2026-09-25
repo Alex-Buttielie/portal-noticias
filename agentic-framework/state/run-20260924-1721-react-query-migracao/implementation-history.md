@@ -161,3 +161,34 @@ NATUREZA: append-only durante a execução — cada entrada é uma iteração, n
   npm ci → datas-tz → query-client → tsc → build).
 - `node frontend/scripts/verificar-query-client.mjs` — exit 0 (8/8),
   simulando o step do runner localmente.
+
+## Iteração 4 — 2026-09-25T12:40:00-03:00 — executor (documentação viva e fechamento)
+
+**O que foi feito:**
+
+- Documentação viva atualizada com a política de cache final:
+  `ARCHITECTURE.md` recebeu o parágrafo "Cache de cliente (2026-09-25,
+  P1-6)" como irmão do "Corte de cache e execução local" (cache de backend),
+  cobrindo TanStack Query, política conservadora (memória-only, 60s/15s/0s),
+  client por árvore sem singleton SSR, chaves sem token/PII,
+  QuerySessionBoundary, invalidação de mutations e o check na esteira de CI;
+  `PROD_DECISOES.md` recebeu entrada datada de 2026-09-25 no "Registro de
+  conclusões" com a entrega, a política, as validações e o veredito do
+  reviewer. O mesmo commit inclui pendências de documentação do run
+  `20260924-1535-arquivar-ingestao` que estavam no working tree sem commit
+  (atualizações dos mesmos dois documentos sobre o corte do microserviço),
+  registradas de forma transparente na mensagem.
+- `ANALISE_CUSTO_PERFORMANCE.md` não foi alterado: a tabela do plano de ação
+  não tem convenção de status (completados são registrados em
+  ARCHITECTURE/PROD_DECISOES/HISTORY).
+- Fechamento do run: run-state marcado como entregue (status done,
+  documentation/closing done) e HISTORY.md confirmado com a linha do run.
+- Push para origin/develop executado.
+
+**Validação:**
+
+- `npx tsc --noEmit` — zero erros; `verificar-query-client.mjs` — 8/8,
+  exit 0 (revalidados após as edições de documentação).
+- Smoke do servidor standalone (log): páginas renderizando 200 com
+  fallbacks enquanto o backend Django não estava no ar — comportamento
+  fail-open/fallback da migração confirmado em execução.
