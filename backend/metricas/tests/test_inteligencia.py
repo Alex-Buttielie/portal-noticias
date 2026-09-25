@@ -8,12 +8,33 @@ from django.test import override_settings
 from rest_framework.test import APIClient
 
 from catalogo_noticias.models import NewsItem
+from metricas import consent
 from metricas.models import EventoSite
 from painel_admin.models import RegraCuradoria
 
 pytestmark = pytest.mark.django_db
 
 User = get_user_model()
+
+# A ingestão pública passou a exigir token de consentimento assinado (run
+# 20260925-1020-observabilidade, Bloco A2). Estes testes cobrem o roteamento e a
+# agregação, não o consentimento — que tem suíte própria em
+# `test_consent_ingestao.py`/`test_consent_token.py` — então todos postam com um
+# token válido emitido aqui, e não com a validação desligada (desligar deixaria
+# o caminho legado sem cobertura nenhuma).
+CHAVE_CONSENTIMENTO = "chave-de-teste-a-nao-usar-em-producao-0123456789"
+
+
+def _token(sessao: str) -> str:
+    with override_settings(ANALYTICS_CONSENT_SIGNING_KEY=CHAVE_CONSENTIMENTO):
+        return consent.gerar_token_consent(sub=sessao)
+
+
+def _post_evento(corpo: dict):
+    token = _token(str(corpo.get("sessao") or "sessao-sem-id"))
+    return APIClient().post(
+        "/api/metricas/eventos/", corpo, format="json", HTTP_X_CONSENT_TOKEN=token
+    )
 
 try:
     from feed.models import DestaqueEditorial, EventoBusca, InteracaoNoticia
@@ -50,29 +71,22 @@ def _noticia(**kw):
 
 
 def test_evento_site_publico_anonimo_ok():
-    client = APIClient()
-    r = client.post(
-        "/api/metricas/eventos/",
-        {"tipo": "page_view", "path": "/", "sessao": "s1", "origem": "direto", "dispositivo": "mobile"},
-        format="json",
+    r = _post_evento(
+        {"tipo": "page_view", "path": "/", "sessao": "sessao-teste-01", "origem": "direto", "dispositivo": "mobile"}
     )
     assert r.status_code == 201
-    assert EventoSite.objects.filter(tipo="page_view", sessao="s1").count() == 1
+    assert EventoSite.objects.filter(tipo="page_view", sessao="sessao-teste-01").count() == 1
 
 
 def test_evento_tipo_desconhecido_400():
-    r = APIClient().post("/api/metricas/eventos/", {"tipo": "invasao_alien"}, format="json")
+    r = _post_evento({"tipo": "invasao_alien", "sessao": "sessao-teste-01"})
     assert r.status_code == 400
 
 
 @precisa_feed
 def test_evento_news_view_roteado_para_feed_sem_duplicar():
     item = _noticia()
-    r = APIClient().post(
-        "/api/metricas/eventos/",
-        {"tipo": "news_view", "entry_tipo": "item", "entry_id": item.id, "sessao": "s2"},
-        format="json",
-    )
+    r = _post_evento({"tipo": "news_view", "entry_tipo": "item", "entry_id": item.id, "sessao": "sessao-teste-02"})
     assert r.status_code == 201
     assert InteracaoNoticia.objects.filter(tipo="view", item=item).count() == 1
     # Fonte única: nada vai para EventoSite.
@@ -82,21 +96,13 @@ def test_evento_news_view_roteado_para_feed_sem_duplicar():
 @precisa_feed
 @override_settings(CELERY_TASK_ALWAYS_EAGER=True, CELERY_TASK_EAGER_PROPAGATES=True)
 def test_evento_search_roteado_para_eventobusca():
-    r = APIClient().post(
-        "/api/metricas/eventos/",
-        {"tipo": "search", "termo": "agronegócio", "resultados": 4, "sessao": "s3"},
-        format="json",
-    )
+    r = _post_evento({"tipo": "search", "termo": "agronegócio", "resultados": 4, "sessao": "sessao-teste-03"})
     assert r.status_code == 201
     assert EventoBusca.objects.filter(query_normalizada="agronegócio").count() == 1
 
 
 def test_evento_alvo_inexistente_nao_quebra():
-    r = APIClient().post(
-        "/api/metricas/eventos/",
-        {"tipo": "news_view", "entry_tipo": "item", "entry_id": 999999, "sessao": "sx"},
-        format="json",
-    )
+    r = _post_evento({"tipo": "news_view", "entry_tipo": "item", "entry_id": 999999, "sessao": "sessao-teste-0x"})
     assert r.status_code == 201
     assert r.data["registrado"] is False
 

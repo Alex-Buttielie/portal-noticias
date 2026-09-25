@@ -1,9 +1,21 @@
+"""API de analytics de produto (Central de Inteligência) e consentimento.
+
+A ingestão pública é a fronteira de privacidade do portal: até o Bloco A2 ela
+persistia evento sem conferir o token de consentimento, apesar de
+`ANALYTICS_REQUIRE_CONSENT_TOKEN` existir com default `True` (fail-open). Agora
+o token é verificado de verdade (`metricas/consent.py`), o payload passa por
+allowlist e nada é persistido sem prova de consentimento.
+"""
+
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from . import services
+from config.metrics import METRICS
+from config.throttling import ConsentimentoAnonThrottle
+
+from . import consent, services
 from .models import EventoSite
 from .services_inteligencia import central_inteligencia
 
@@ -51,19 +63,145 @@ def _texto(valor, limite=500):
     return str(valor)[:limite]
 
 
-class EventoIngestaoView(APIView):
-    """POST /api/metricas/eventos/ — público (tracking respeita o
-    consentimento no navegador; ver `frontend/lib/analytics.ts`).
+def _token_do_request(request, dados) -> str:
+    """Token de consentimento, do header ou do corpo.
 
-    Nunca quebra a navegação: falha de tracking devolve 202 com
-    `registrado: False` em vez de 500.
+    O header (`X-Consent-Token`) é o caminho preferido porque não entra no
+    corpo — e corpo é o que um log de aplicação ou um proxy poderia acabar
+    guardando. O campo `consent_token` existe porque `navigator.sendBeacon`
+    (usado por `frontend/lib/analytics.ts`) NÃO permite cabeçalhos
+    customizados: sem ele o tracker precisaria abandonar o beacon.
+    """
+
+    bruto = request.headers.get("X-Consent-Token", "") if hasattr(request, "headers") else ""
+    if not bruto and isinstance(dados, dict):
+        bruto = dados.get("consent_token", "")
+    return "" if bruto is None else str(bruto).strip()
+
+
+class ConsentimentoTokenView(APIView):
+    """POST /api/metricas/consent/ — emite o token de consentimento assinado.
+
+    É a única forma de obter um token válido: a chave HMAC é do backend e nunca
+    chega ao navegador. O navegador só chama isto DEPOIS do gesto de consentimento
+    (`frontend/lib/cookie-consent.ts`), e revalida quando `exp` passa.
+
+    Por que isso não é um botão de aceitar: o gesto humano é do cliente. O que o
+    token garante é que todo evento carregue a prova de que foi este backend que
+    autorizou aquela janela de coleta, para aquela sessão, e que a prova pode ser
+    revogada girando a chave. Sem emissor, o "token" seria uma string que o
+    próprio visitante inventa — o controle decorativo que o Bloco A2 removeu.
+
+    Rate limitado (`consentimento`) porque é público, sem autenticação e barato
+    de chamar: um emissor sem limite é um script de coleta de dados com carimbo
+    do próprio site.
+    """
+
+    permission_classes = [AllowAny]
+    throttle_classes = [ConsentimentoAnonThrottle]
+
+    def post(self, request):
+        dados = request.data if isinstance(request.data, dict) else {}
+        categoria = _texto(dados.get("categoria"), 32).strip() or consent.CATEGORIA_ANALYTICS
+        if categoria not in consent.CATEGORIAS_VALIDAS:
+            # Categoria errada (ex.: o token técnico) não é emitida aqui: este
+            # endpoint é de analytics de PRODUTO e o consentimento técnico tem
+            # outro mecanismo (header `X-Technical-Consent`).
+            consent.registrar_recusa(consent.MOTIVO_CATEGORIA, origem="token")
+            return Response(
+                {"detail": "Categoria de consentimento inválida."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        sujeito = consent.normalizar_sub(dados.get("sessao") or dados.get("sub"))
+        if not consent.sub_valido(sujeito):
+            consent.registrar_recusa(consent.MOTIVO_SUJEITO, origem="token")
+            return Response(
+                {"detail": "Sessão inválida para consentimento."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            token, claims = consent.emitir_consentimento(categoria=categoria, sub=sujeito)
+        except consent.ConsentError as exc:
+            # Configuração quebrada (sem chave). Fail-closed: nada é emitido.
+            consent.registrar_recusa(exc.motivo, origem="token")
+            return Response(
+                {"detail": "Consentimento indisponível."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        METRICS.inc("portal_analytics_consent_tokens_issued_total", category=categoria[:16])
+        return Response(
+            {
+                "token": token,
+                "categoria": categoria,
+                "sub": sujeito,
+                "exp": int(claims["exp"]),
+                "ttl_segundos": int(claims["exp"]) - int(claims["iat"]),
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class EventoIngestaoView(APIView):
+    """POST /api/metricas/eventos/ — público, fail-closed no consentimento.
+
+    Ordem deliberada das etapas:
+
+    1. **allowlist do payload** (`consent.sanear_payload`), que é uma função
+       pura: ela normaliza tipo/tamanho/texto e é o que dá a `sessao` já
+       normalizada com que o token vai ser comparado. Nada é persistido aqui.
+    2. **consentimento** (token assinado) — é o passo decisivo: sem prova
+       válida, o evento não chega a `EventoSite`, `InteracaoNoticia` nem
+       `EventoBusca`. Um payload recusado no passo 1 (ex.: grande demais) sai
+       antes, com o mesmo 202 e o mesmo formato de resposta.
+    3. **persistência** — só o que sobreviveu às duas primeiras etapas.
+
+    Nunca quebra a navegação: qualquer falha de persistência devolve 202 com
+    `registrado: False` em vez de 500 (o tracking é best-effort por definição).
+    Rejeição por consentimento também é 202, com um código estável e curto
+    (`motivo`) — suficiente para o cliente renovar o token, sem confirmar nada
+    sobre o visitante. O motivo completo fica no log técnico e na métrica.
     """
 
     permission_classes = [AllowAny]
 
     def post(self, request):
-        dados = request.data if isinstance(request.data, dict) else {}
+        bruto = request.data if isinstance(request.data, dict) else {}
+        saneado = consent.sanear_payload(bruto)
+        if not saneado.ok:
+            consent.registrar_recusa(saneado.motivo)
+            return Response(
+                {"registrado": False, "motivo": saneado.motivo},
+                status=status.HTTP_202_ACCEPTED,
+            )
+        dados = saneado.dados
         tipo = _texto(dados.get("tipo"), 40).strip()
+        if not consent.consentimento_requerido():
+            consent.registrar_bypass()
+        else:
+            # A sessão pedida só é exigida se ela for um sujeito válido: quando
+            # não é (cliente que não manda `sessao`, ou manda um id curto/inválido),
+            # quem manda é o TOKEN — o evento passa a ser atribuído ao sujeito
+            # assinado, nunca ao que o cliente alegou. Aceitar a alegação sem
+            # verificação deixaria um token válido (de uma sessão) poluir outra.
+            sub_pedido = dados.get("sessao") or None
+            if not consent.sub_valido(sub_pedido):
+                sub_pedido = None
+            verificacao = consent.verificar_consentimento(
+                _token_do_request(request, bruto), sub_esperado=sub_pedido
+            )
+            if not verificacao.ok:
+                consent.registrar_recusa(verificacao.motivo, tipo=tipo)
+                return Response(
+                    {"registrado": False, "motivo": f"consent_{verificacao.motivo}"},
+                    status=status.HTTP_202_ACCEPTED,
+                )
+            if not consent.sub_valido(dados.get("sessao")):
+                dados["sessao"] = verificacao.sub
+        if saneado.campos_excedentes:
+            METRICS.inc(
+                "portal_analytics_events_rejected_total",
+                reason=consent.MOTIVO_CAMPO_EXCEDENTE,
+            )
         if not tipo:
             return Response({"detail": "Informe tipo."}, status=status.HTTP_400_BAD_REQUEST)
         try:
@@ -72,8 +210,12 @@ class EventoIngestaoView(APIView):
             elif tipo in EventoSite.TIPOS_VALIDOS:
                 registrado = self._registrar_site(request, tipo, dados)
             else:
+                consent.registrar_recusa(consent.MOTIVO_TIPO_DESCONHECIDO, tipo=tipo)
                 return Response(
-                    {"detail": f"Tipo desconhecido: {tipo}."},
+                    {
+                        "detail": "Tipo de evento desconhecido.",
+                        "motivo": consent.MOTIVO_TIPO_DESCONHECIDO,
+                    },
                     status=status.HTTP_400_BAD_REQUEST,
                 )
             return Response({"registrado": registrado}, status=status.HTTP_201_CREATED)
@@ -81,6 +223,9 @@ class EventoIngestaoView(APIView):
             return Response({"registrado": False}, status=status.HTTP_202_ACCEPTED)
 
     def _base_sessao(self, dados):
+        # `sessao` já saiu do sanitizador normalizada (só `[A-Za-z0-9._-]`, até
+        # 64 chars) e ligada ao sujeito do token; o corte final é apenas o
+        # limite do `max_length` do modelo.
         return _texto(dados.get("sessao"), 64)
 
     def _registrar_site(self, request, tipo, dados) -> bool:
@@ -100,9 +245,9 @@ class EventoIngestaoView(APIView):
                 estado=_texto(dados.get("estado"), 100),
                 cidade=_texto(dados.get("cidade"), 150),
                 regiao=_texto(dados.get("regiao"), 150),
-                tempo_permanencia_seg=max(0, int(dados.get("tempo_permanencia_seg") or 0)),
-                scroll_max_pct=min(100, max(0, int(dados.get("scroll_max_pct") or 0))),
-                extra=dados.get("extra") if isinstance(dados.get("extra"), dict) else {},
+                tempo_permanencia_seg=int(dados.get("tempo_permanencia_seg") or 0),
+                scroll_max_pct=int(dados.get("scroll_max_pct") or 0),
+                extra=dados.get("extra") or {},
             )
             return True
         except Exception:
@@ -128,10 +273,10 @@ class EventoIngestaoView(APIView):
             entry_tipo = _texto(dados.get("entry_tipo"), 10).strip() or "item"
             if entry_tipo not in ("item", "cluster"):
                 entry_tipo = "item"
-            try:
-                entry_id = int(dados.get("entry_id") or dados.get("id") or 0)
-            except (TypeError, ValueError):
-                return False
+            # `id` era um alias informal aceito aqui; saiu da allowlist, então
+            # quem manda evento sem `entry_id` recebe `registrado: False` em vez
+            # de um evento gravado com id 0.
+            entry_id = int(dados.get("entry_id") or 0)
             if entry_id <= 0:
                 return False
             if tipo == "search_result_click":

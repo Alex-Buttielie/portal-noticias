@@ -321,6 +321,39 @@ METRICS.describe(
     "counter",
     "Sentry events discarded locally before sending (no technical consent)",
 )
+# Analytics de produto (run 20260925-1020-observabilidade, Bloco A2). Sem estas
+# séries, "nenhum evento persistido" e "todo evento descartado por falta de
+# consentimento" seriam o mesmo número — um falso verde dentro do falso verde.
+METRICS.describe(
+    "portal_analytics_consent_rejections_total",
+    "counter",
+    "Analytics consent tokens or events rejected, by reason and origin",
+)
+METRICS.describe(
+    "portal_analytics_consent_tokens_issued_total",
+    "counter",
+    "Analytics consent tokens issued by the backend, by category",
+)
+METRICS.describe(
+    "portal_analytics_consent_bypass_total",
+    "counter",
+    "Analytics events persisted without consent validation (flag off by config)",
+)
+METRICS.describe(
+    "portal_analytics_events_rejected_total",
+    "counter",
+    "Analytics events not persisted, by technical reason",
+)
+METRICS.describe(
+    "portal_analytics_payload_fields_dropped_total",
+    "counter",
+    "Analytics payload fields discarded by the allowlist, bucketed by count",
+)
+METRICS.describe(
+    "portal_healthz_legacy_total",
+    "counter",
+    "Calls to the legacy /healthz endpoint by result (migration signal)",
+)
 METRICS.describe(
     SERIES_DROPPED,
     "counter",

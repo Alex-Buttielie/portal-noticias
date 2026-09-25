@@ -71,3 +71,19 @@ class EnderecosAnonThrottle(AnonRateThrottle):
     """
 
     scope = "enderecos"
+
+
+class ConsentimentoAnonThrottle(AnonRateThrottle):
+    """
+    Run 20260925-1020-observabilidade (Bloco A2) — emissão do token de
+    consentimento de analytics (`POST /api/metricas/consent/`).
+
+    Escopo próprio (e não `escrita_publica`) porque o risco é diferente: o
+    endpoint é público, não grava nada em banco e responde em microssegundos,
+    então um chamador automatizado pode pedir milhares de tokens por minuto e
+    transformar o emissor num coletor de dados com o carimbo do próprio site. A
+    taxa (`30/min`, configurável por `THROTTLE_CONSENTIMENTO_RATE`) é folgada o
+    bastante para a renovação normal — uma vez por sessão por TTL — nunca bater.
+    """
+
+    scope = "consentimento"

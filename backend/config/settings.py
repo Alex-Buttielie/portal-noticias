@@ -381,6 +381,12 @@ REST_FRAMEWORK = {
         # debounce nunca bater, mas rajadas batem — ver
         # config/throttling.py:EnderecosAnonThrottle.
         "enderecos": os.environ.get("THROTTLE_ENDERECOS_RATE", "60/min"),
+        # Emissão do token de consentimento de analytics
+        # (`POST /api/metricas/consent/`, run 20260925-1020-observabilidade):
+        # é público, sem autenticação e barato — um emissor sem teto é um
+        # script de coleta de dados com o carimbo do próprio site. Folgado para
+        # a renovação de token (1 por sessão por TTL) nunca atrapalhar.
+        "consentimento": os.environ.get("THROTTLE_CONSENTIMENTO_RATE", "30/min"),
     },
 }
 
@@ -530,7 +536,16 @@ OBSERVABILITY_DISK_MIN_FREE_RATIO = float(
 # fail-closed: sem token HMAC válido, expirado ou de categoria errada, nada é
 # persistido. A chave pode ser rotacionada sem gravar segredo no repositório;
 # quando vazia, usa a SECRET_KEY já obrigatoriamente forte fora de DEBUG.
+# Formato do token e as regras de verificação: `metricas/consent.py`.
 ANALYTICS_CONSENT_SIGNING_KEY = os.environ.get("ANALYTICS_CONSENT_SIGNING_KEY", "")
+# Rotação sem derrubar o token que já está no navegador: as chaves listadas
+# aqui, separadas por vírgula, AINDA validam; a `ANALYTICS_CONSENT_SIGNING_KEY`
+# é a que assina. Depois de `ANALYTICS_CONSENT_TTL_SECONDS` sem emissão, remover
+# a chave antiga daqui passa a invalidar todos os tokens pendentes (revogação
+# real).
+ANALYTICS_CONSENT_SIGNING_KEY_PREVIOUS = os.environ.get(
+    "ANALYTICS_CONSENT_SIGNING_KEY_PREVIOUS", ""
+)
 ANALYTICS_REQUIRE_CONSENT_TOKEN = env_bool("ANALYTICS_REQUIRE_CONSENT_TOKEN", True)
 ANALYTICS_CONSENT_TTL_SECONDS = int(os.environ.get("ANALYTICS_CONSENT_TTL_SECONDS", "86400"))
 ANALYTICS_RETENTION_DAYS = int(os.environ.get("ANALYTICS_RETENTION_DAYS", "365"))
@@ -576,6 +591,7 @@ CORS_ALLOW_HEADERS = [
     "content-type",
     "origin",
     "user-agent",
+    "x-consent-token",
     "x-csrftoken",
     "x-request-id",
     "x-technical-consent",
