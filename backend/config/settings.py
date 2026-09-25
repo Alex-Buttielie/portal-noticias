@@ -469,6 +469,45 @@ DEFAULT_FROM_EMAIL = os.environ.get("DJANGO_DEFAULT_FROM_EMAIL", "no-reply@brdpo
 # e como origem permitida de CORS abaixo.
 FRONTEND_BASE_URL = os.environ.get("FRONTEND_BASE_URL", "http://localhost:3000")
 
+# Identidade da aplicação para logs, Sentry, métricas e proxy. Nunca derive o
+# ambiente de `DEBUG` em produção: o valor explícito é o que separa DEV,
+# HOMOLOG e PROD nos painéis e evita misturar ambientes de telemetria.
+OBSERVABILITY_SERVICE_NAME = os.environ.get("OTEL_SERVICE_NAME", "portal-api").strip() or "portal-api"
+OBSERVABILITY_ENVIRONMENT = (
+    os.environ.get("SENTRY_ENVIRONMENT")
+    or os.environ.get("DJANGO_ENVIRONMENT")
+    or os.environ.get("APP_ENV")
+    or ("development" if DEBUG else "production")
+).strip() or "development"
+OBSERVABILITY_RELEASE = (
+    os.environ.get("SENTRY_RELEASE")
+    or os.environ.get("GIT_SHA")
+    or os.environ.get("RELEASE_SHA")
+    or "local"
+).strip()[:200] or "local"
+OBSERVABILITY_LOG_RETENTION_DAYS = int(os.environ.get("OBSERVABILITY_LOG_RETENTION_DAYS", "30"))
+OBSERVABILITY_FEED_STALE_MAX_SECONDS = int(os.environ.get("FEED_STALE_MAX_SECONDS", "300"))
+OBSERVABILITY_CHECK_CELERY = env_bool("OBSERVABILITY_CHECK_CELERY", True)
+OBSERVABILITY_CELERY_PING_TIMEOUT = float(os.environ.get("OBSERVABILITY_CELERY_PING_TIMEOUT", "0.35"))
+# Tokens de acesso são configuração de operador, nunca valores padrão. Quando
+# vazio, endpoints detalhados exigem staff/admin e /metrics fica restrito a
+# loopback (ou a um bearer token definido no ambiente).
+OBSERVABILITY_HEALTH_TOKEN = os.environ.get("OBSERVABILITY_HEALTH_TOKEN", "")
+OBSERVABILITY_METRICS_TOKEN = os.environ.get("OBSERVABILITY_METRICS_TOKEN", "")
+
+# Analytics de produto é separado de telemetria técnica. O backend é
+# fail-closed: sem token HMAC válido, expirado ou de categoria errada, nada é
+# persistido. A chave pode ser rotacionada sem gravar segredo no repositório;
+# quando vazia, usa a SECRET_KEY já obrigatoriamente forte fora de DEBUG.
+ANALYTICS_CONSENT_SIGNING_KEY = os.environ.get("ANALYTICS_CONSENT_SIGNING_KEY", "")
+ANALYTICS_REQUIRE_CONSENT_TOKEN = env_bool("ANALYTICS_REQUIRE_CONSENT_TOKEN", True)
+ANALYTICS_CONSENT_TTL_SECONDS = int(os.environ.get("ANALYTICS_CONSENT_TTL_SECONDS", "86400"))
+ANALYTICS_RETENTION_DAYS = int(os.environ.get("ANALYTICS_RETENTION_DAYS", "365"))
+TECHNICAL_TELEMETRY_ENABLED = env_bool("TECHNICAL_TELEMETRY_ENABLED", False)
+TECHNICAL_CONSENT_TOKEN_TTL_SECONDS = int(
+    os.environ.get("TECHNICAL_CONSENT_TOKEN_TTL_SECONDS", "86400")
+)
+
 # CORS: o frontend Next.js roda em origem diferente (localhost:3000) do
 # backend (localhost:8000) — chamadas fetch() do navegador exigem CORS
 # habilitado explicitamente. Só a origem do próprio frontend é permitida
@@ -487,6 +526,25 @@ CORS_ALLOWED_ORIGINS = [FRONTEND_BASE_URL] + _parse_extra_origins(
     os.environ.get("DJANGO_CORS_EXTRA_ORIGINS", "")
 )
 CORS_ALLOW_CREDENTIALS = True
+# O browser precisa ler o mesmo request ID e o estado de release para exibir um
+# código de suporte; não expor cookies/Authorization em CORS.
+CORS_EXPOSE_HEADERS = [
+    "X-Request-ID",
+    "X-Service",
+    "X-Environment",
+    "X-Release",
+    "X-Operational-State",
+]
+CORS_ALLOW_HEADERS = [
+    "accept",
+    "authorization",
+    "content-type",
+    "origin",
+    "user-agent",
+    "x-csrftoken",
+    "x-request-id",
+    "x-technical-consent",
+]
 
 # Expiração de tokens (segundos).
 EMAIL_VERIFICATION_TOKEN_MAX_AGE_SECONDS = int(
@@ -521,6 +579,17 @@ CELERY_TASK_TRACK_STARTED = True
 # vencimentos depois de uma queda do worker.
 CELERY_WORKER_PREFETCH_MULTIPLIER = 1
 CELERY_WORKER_MAX_TASKS_PER_CHILD = int(os.environ.get("CELERY_WORKER_MAX_TASKS_PER_CHILD", "100"))
+CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
+CELERY_TASK_DEFAULT_QUEUE = os.environ.get("CELERY_TASK_DEFAULT_QUEUE", "default")
+CELERY_TASK_DEFAULT_EXCHANGE = os.environ.get("CELERY_TASK_DEFAULT_EXCHANGE", "celery")
+CELERY_TASK_DEFAULT_ROUTING_KEY = os.environ.get("CELERY_TASK_DEFAULT_ROUTING_KEY", "celery")
+# Ingestão tem timeout explícito: um worker não pode ficar preso indefinidamente
+# em uma fonte externa. A task usa hard/soft time limits e registra o estado.
+CELERY_INGESTAO_SOFT_TIME_LIMIT = int(os.environ.get("CELERY_INGESTAO_SOFT_TIME_LIMIT", "900"))
+CELERY_INGESTAO_TIME_LIMIT = int(os.environ.get("CELERY_INGESTAO_TIME_LIMIT", "960"))
+CELERY_INGESTAO_MAX_RETRIES = int(os.environ.get("CELERY_INGESTAO_MAX_RETRIES", "3"))
+CELERY_INGESTAO_RETRY_BACKOFF_SECONDS = int(os.environ.get("CELERY_INGESTAO_RETRY_BACKOFF_SECONDS", "30"))
+CELERY_INGESTAO_LOCK_TTL_SECONDS = int(os.environ.get("CELERY_INGESTAO_LOCK_TTL_SECONDS", "1200"))
 
 # TTL curto para o vocabulário de autocomplete. O cache é reconstruível a
 # partir de NewsItem/EventoBusca; a ingestão invalida as chaves de catálogo
@@ -587,6 +656,12 @@ CELERY_BEAT_SCHEDULE = {
     "b2b-verificar-alertas": {
         "task": "b2b.tasks.verificar_alertas",
         "schedule": B2B_INTERVALO_VERIFICAR_ALERTAS_MINUTOS * 60,
+    },
+    # Retenção de analytics é idempotente e roda mesmo sem novos eventos.
+    # O comando audita cada expurgo no logger técnico.
+    "metricas-expurar-analytics": {
+        "task": "metricas.tasks.expurar_analytics",
+        "schedule": crontab(hour=4, minute=17),
     },
 }
 
@@ -920,18 +995,10 @@ GATING_CACHE_TTL_SEGUNDOS = int(os.environ.get("GATING_CACHE_TTL_SEGUNDOS", 45))
 # qualquer coletor de log (ex.: `docker logs` + logrotate na VPS) esperam
 # stdout/stderr, não um arquivo de log local dentro do container (que some
 # quando o container é recriado a cada deploy).
-# DJANGO_LOG_JSON=true ativa saída JSON (requer python-json-logger); fallback
-# silencioso para verbose se a lib não estiver instalada.
-_USE_JSON_LOG = env_bool("DJANGO_LOG_JSON", False)
-try:
-    if _USE_JSON_LOG:
-        import pythonjsonlogger.jsonlogger  # noqa: F401
-
-        _LOG_FORMATTER = "json"
-    else:
-        _LOG_FORMATTER = "verbose"
-except ImportError:
-    _LOG_FORMATTER = "verbose"
+# DJANGO_LOG_JSON=true ativa saída JSON (requer python-json-logger); o
+# formatter customizado aplica a mesma allowlist/redaction do Sentry.
+_USE_JSON_LOG = env_bool("DJANGO_LOG_JSON", True)
+_LOG_FORMATTER = "json" if _USE_JSON_LOG else "verbose"
 
 LOGGING = {
     "version": 1,
@@ -943,11 +1010,19 @@ LOGGING = {
     },
     "formatters": {
         "verbose": {
-            "format": "%(asctime)s %(levelname)s %(name)s [%(module)s] [%(request_id)s] %(message)s",
+            "format": (
+                "%(asctime)s %(levelname)s %(name)s [%(module)s] "
+                "[env=%(environment)s service=%(service)s release=%(release)s "
+                "request_id=%(request_id)s task_id=%(task_id)s] %(message)s"
+            ),
         },
         "json": {
-            "()": "pythonjsonlogger.jsonlogger.JsonFormatter",
-            "format": "%(asctime)s %(levelname)s %(name)s %(module)s %(request_id)s %(message)s",
+            "()": "config.observability.RedactingJsonFormatter",
+            "format": (
+                "%(asctime)s %(levelname)s %(name)s %(module)s "
+                "%(environment)s %(service)s %(release)s %(request_id)s "
+                "%(task_id)s %(message)s"
+            ),
         },
     },
     "handlers": {
@@ -967,25 +1042,53 @@ LOGGING = {
             "level": "WARNING",
             "propagate": False,
         },
+        "django.security": {
+            "handlers": ["console"],
+            "level": "WARNING",
+            "propagate": False,
+        },
+        "celery": {
+            "handlers": ["console"],
+            "level": os.environ.get("CELERY_LOG_LEVEL", "INFO"),
+            "propagate": False,
+        },
     },
 }
 
-# Sentry (rastreamento de erros) — opcional e desligado por padrão
-# (SENTRY_DSN vazio = sentry_sdk nunca é importado nem inicializado, custo
-# zero quando não configurado). Cobre a lacuna descrita em
-# project-portal-noticias-tool-outage: uma boa parte deste projeto foi
-# escrita sem poder executar/testar de verdade — captura de erro real em
-# produção é a rede de segurança que substitui aquela validação que faltou.
+# Sentry (rastreamento de erros) — opcional e desligado por padrão. O DSN é
+# lido somente do ambiente; nenhum endpoint/segredo é inventado no código.
 SENTRY_DSN = os.environ.get("SENTRY_DSN", "")
+SENTRY_RELEASE = OBSERVABILITY_RELEASE
+SENTRY_ENVIRONMENT = OBSERVABILITY_ENVIRONMENT
+SENTRY_TECHNICAL_CONSENT_DEFAULT = env_bool(
+    "SENTRY_TECHNICAL_CONSENT_DEFAULT", False
+)
 if SENTRY_DSN:
-    import sentry_sdk
-    from sentry_sdk.integrations.celery import CeleryIntegration
-    from sentry_sdk.integrations.django import DjangoIntegration
+    try:
+        import sentry_sdk
+        from sentry_sdk.integrations.celery import CeleryIntegration
+        from sentry_sdk.integrations.django import DjangoIntegration
 
-    sentry_sdk.init(
-        dsn=SENTRY_DSN,
-        integrations=[DjangoIntegration(), CeleryIntegration()],
-        traces_sample_rate=float(os.environ.get("SENTRY_TRACES_SAMPLE_RATE", 0.1)),
-        environment=os.environ.get("SENTRY_ENVIRONMENT", "production" if not DEBUG else "development"),
-        send_default_pii=False,
-    )
+        _sentry_sample_rate = max(
+            0.0,
+            min(1.0, float(os.environ.get("SENTRY_TRACES_SAMPLE_RATE", "0.1"))),
+        )
+        sentry_sdk.init(
+            dsn=SENTRY_DSN,
+            integrations=[DjangoIntegration(), CeleryIntegration()],
+            traces_sample_rate=_sentry_sample_rate,
+            environment=SENTRY_ENVIRONMENT,
+            release=SENTRY_RELEASE,
+            send_default_pii=False,
+            attach_stacktrace=True,
+            before_send=__import__(
+                "config.observability", fromlist=["sentry_before_send"]
+            ).sentry_before_send,
+            before_send_transaction=__import__(
+                "config.observability", fromlist=["sentry_before_send_transaction"]
+            ).sentry_before_send_transaction,
+        )
+    except Exception:
+        # Uma configuração inválida de observabilidade não pode impedir que o
+        # portal suba — o init do Sentry é opcional (sem DSN, nada é enviado).
+        pass
