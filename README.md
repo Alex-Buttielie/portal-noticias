@@ -220,6 +220,8 @@ A ingestão consulta cada fonte RSS de forma incremental: quando há `ETag`/`Las
 
 O pipeline de ingestão (`backend/catalogo_noticias/`) busca notícias de verdade nos feeds RSS configurados em `settings.CATALOGO_NOTICIAS_FONTES_RSS` (G1, UOL, CNN Brasil, Folha — `config/settings.py`), deduplica/agrupa acontecimentos cobertos por várias fontes, gera um resumo próprio via `SummarizationProvider` e classifica categoria/urgência.
 
+**Desempenho do agrupamento:** decidir quais itens formam o mesmo acontecimento compara os itens do lote dois a dois (itens novos + itens recentes já persistidos), o que fica caro quando há muitas fontes ou um backlog acumulado. A comparação descarta de cara os pares que, mesmo no melhor caso, não atingiriam o limiar de similaridade (pré-filtro por limite superior), reaproveita o casamento fuzzy de tokens num cache LRU e calcula os pesos de cada item uma vez. O resultado é preservado — os mesmos grupos, com os mesmos scores — e em lotes grandes o ganho medido vai de 8,6x a 10,3x; com muitas fontes e backlog, a rodada saiu de horas para minutos.
+
 1. Com o backend configurado (`.env` + `migrate` já feitos), rode uma execução manual do pipeline a qualquer momento, sem precisar de Celery/Redis:
 
    ```
@@ -232,7 +234,9 @@ O pipeline de ingestão (`backend/catalogo_noticias/`) busca notícias de verdad
 2. **Sem uma `CATALOGO_NOTICIAS_LLM_API_KEY` real configurada em `backend/.env`**, os itens são ingeridos normalmente (título, URL, fonte, conteúdo bruto — tudo real), mas como o resumo automático falha, todo item novo cai em `status_revisao=pendente` e **não aparece no feed público** (`/api/feed/`) — só na fila de revisão do admin (`http://localhost:8000/admin/catalogo_noticias/newsitem/`, filtro "Status revisão = Pendente"). Para validar o fluxo completo (resumo automático + classificação + publicação direta de itens de baixa relevância), é preciso uma chave de API real de um provedor compatível com o formato "Chat Completions" (OpenAI, Groq, OpenRouter, Azure OpenAI, um modelo local via Ollama/vLLM em modo compatível, etc. — `CATALOGO_NOTICIAS_LLM_API_BASE_URL`/`_MODEL` também são configuráveis). Preencha `CATALOGO_NOTICIAS_LLM_API_KEY` em `backend/.env` e rode o comando de novo.
 3. Enquanto isso, dá para validar o resto do sistema sem a chave de LLM: aprove manualmente alguns itens da fila do admin (ação em massa "Marcar selecionados como aprovado") para vê-los aparecer no feed público mesmo sem resumo automático.
 4. Rodar de novo o mesmo comando é seguro (idempotente) — URLs já ingeridas não são reprocessadas; só notícias novas publicadas pelas fontes desde a última execução entram.
-5. Em produção (ou se quiser automatizar localmente), a mesma lógica roda periodicamente via Celery Beat (`CELERY_BEAT_SCHEDULE` em `config/settings.py`, intervalo em `CATALOGO_NOTICIAS_INTERVALO_INGESTAO_MINUTOS`) — exige um Redis local rodando (`CELERY_BROKER_URL`/`CELERY_RESULT_BACKEND` em `.env`). A task de ingestão e a task de registro de `EventoBusca` são configuradas por task para reentrega segura; as demais tasks com efeitos externos mantêm o comportamento padrão.
+5. **Para automatizar localmente, basta `./subir-localhost.sh`** (modo nativo — venv + SQLite, sem Docker): o script já sobe o agendador de ingestão em background junto com o backend e o frontend, e o `--stop` o encerra. Não é preciso Celery nem Redis para isso. Detalhes (log, pid file, opções, diagnóstico) nas seções "Agendador local de ingestão (modo nativo)" e "Diagnóstico da ingestão" abaixo.
+6. **Em produção — e no modo `--docker` do script local — o agendamento continua sendo do Celery Beat** (`CELERY_BEAT_SCHEDULE` em `config/settings.py`, intervalo em `CATALOGO_NOTICIAS_INTERVALO_INGESTAO_MINUTOS`) — exige Redis (`CELERY_BROKER_URL`/`CELERY_RESULT_BACKEND` em `.env`). A task de ingestão e a task de registro de `EventoBusca` são configuradas por task para reentrega segura; as demais tasks com efeitos externos mantêm o comportamento padrão. O agendador nativo lê o **mesmo** valor de intervalo da mesma setting, então o ajuste é feito em um lugar só.
+7. Se quiser rodar o Celery manualmente (só faz sentido se já houver um Redis acessível, porque o worker/beat não sobe junto do script):
 
    ```
    cd backend
@@ -240,7 +244,48 @@ O pipeline de ingestão (`backend/catalogo_noticias/`) busca notícias de verdad
    .\.venv\Scripts\celery.exe -A config beat -l info
    ```
 
-   (em duas janelas separadas; não é necessário para só validar funcionalidades manualmente com o comando `ingerir_noticias` acima.)
+   (em duas janelas separadas; não é necessário para validar funcionalidades manualmente com o comando `ingerir_noticias` acima, nem para o agendador nativo — e não deixe os dois agendadores rodando ao mesmo tempo, senão a mesma ingestão é disparada em duplicidade.)
+
+### Agendador local de ingestão (modo nativo)
+
+O modo nativo (venv + SQLite, sem Docker) não sobe worker nem beat do Celery, então nada disparava a ingestão periodicamente. O management command `agendar_ingestao` (`backend/catalogo_noticias/management/commands/agendar_ingestao.py`) repõe esse disparo chamando o **mesmo** pipeline de serviço (`catalogo_noticias/services/ingestao.py::executar_ingestao`) em loop — nenhuma lógica de busca, deduplicação ou resumo é duplicada. O `./subir-localhost.sh` (modo nativo) já o sobe em background junto com o backend; no modo `--docker` ele **não** é iniciado, porque lá quem agenda é o Celery Beat.
+
+```
+# primeira rodada imediata e depois a cada intervalo (padrão: 15 min)
+backend/.venv/bin/python backend/manage.py agendar_ingestao
+
+# uma única rodada e sai com código 0
+backend/.venv/bin/python backend/manage.py agendar_ingestao --rodadas 1
+
+# intervalo customizado, em segundos
+backend/.venv/bin/python backend/manage.py agendar_ingestao --intervalo-segundos 60
+```
+
+- **Intervalo:** `CATALOGO_NOTICIAS_INTERVALO_INGESTAO_MINUTOS * 60` — a mesma setting (e o mesmo valor) do `CELERY_BEAT_SCHEDULE`; `--intervalo-segundos` sobrescreve só naquela execução e `--rodadas N` limita o total (padrão: infinitas).
+- **Log:** `/tmp/brd-agendador.log`, em append. Cada rodada registra início e fim com `registro_id`, itens ingeridos e erros de fonte.
+- **Pid file:** `/tmp/brd-agendador.pid`. O `./subir-localhost.sh --stop` manda o sinal, **espera o processo sair** e só então remove o pid file (remover antes abriria espaço para duas instâncias rodando em paralelo).
+- **Uma rodada que falha não derruba o agendador:** a exceção é logada com traceback e a próxima rodada é tentada normalmente; a partir de **3 falhas seguidas** o log sobe para `ERROR` com um alerta de que a ingestão está parada de fato (o contador zera assim que uma rodada volta a dar certo).
+- **Parada graciosa:** o 1º `SIGINT`/`SIGTERM` deixa a rodada em curso terminar e não agenda mais nenhuma; um **2º sinal encerra na hora** (é o que o `--stop` usa depois de esperar). A persistência da ingestão é por grupo (`@transaction.atomic`), então abortar no meio não corrompe nada: os grupos já confirmados permanecem e o que não acontece é o fechamento do registro da rodada, que fica com `total_itens_ingeridos=0`.
+- **O script não anuncia o que não aconteceu:** antes de dizer que a ingestão está agendada, ele confere que o processo continua vivo **e** que a linha de início apareceu no log. Se não subiu, o banner avisa que a ingestão está PARADA e mostra as últimas linhas do log (é o que acontece, por exemplo, com um `manage.py` quebrado). O log é em append justamente para essa checagem ler só o que esta execução escreveu — e para o histórico não ser apagado a cada subida.
+
+### Diagnóstico da ingestão
+
+Onde ver o estado, e o que fazer quando ela para:
+
+| Onde olhar | O que mostra |
+|---|---|
+| `tail -f /tmp/brd-agendador.log` | o agendador nativo rodando: início e fim de cada rodada, `registro_id`, itens ingeridos, erros de fonte e o alerta de falha consecutiva |
+| `kill -0 "$(cat /tmp/brd-agendador.pid)"` (e o pid) | se o agendador está vivo |
+| `GET /api/admin/robos/execucoes/` (autenticado como admin) | histórico de execuções de ingestão (`RegistroExecucaoIngestao`) em JSON; `POST /api/admin/robos/executar/` dispara uma rodada na hora (só com o backend no ar) |
+| `http://localhost:8000/admin/catalogo_noticias/registroexecucaoingestao/` | o mesmo histórico na tela de admin, com itens por fonte, erros, chamadas ao provedor de resumo e custo estimado |
+
+O que fazer em cada caso:
+
+1. **O log parou de crescer / o processo não está mais vivo.** Rode `./subir-localhost.sh --stop` e depois `./subir-localhost.sh` de novo. O script reconhece e limpa um pid file órfão e não sobe uma segunda instância se a primeira estiver viva.
+2. **O log mostra `Rodada N: falhou`.** Rode uma rodada na mão para ver o traceback completo no terminal: `backend/.venv/bin/python backend/manage.py agendar_ingestao --rodadas 1`. Três falhas seguidas já disparam o alerta em `ERROR` no log do agendador; falha de uma fonte isolada (RSS fora, DNS) **não** conta como falha da rodada e não aparece nesse alerta — ela sai em `erros_por_fonte` do registro.
+3. **As rodadas terminam mas o feed não muda.** Não é falha de ingestão: sem `CATALOGO_NOTICIAS_LLM_API_KEY` real, todo item novo cai em `status_revisao=pendente` e só aparece depois de aprovado no admin (é o que o item 2 desta seção, no topo, descreve). E "0 itens novos" é o resultado normal quando as fontes não publicaram nada novo desde a rodada anterior.
+4. **Uma rodada está demorando muito.** Com o backlog limpo ela leva de 1 a 2 minutos mesmo com dezenas de fontes. O agendador **não** inicia uma rodada nova antes de terminar a anterior (ele só dorme entre rodadas), então uma rodada longa não vira duas rodadas concorrentes — mas, com o intervalo padrão de 15 min, uma rodada mais longa que isso faz o próximo disparo acontecer logo em seguida. Para espaçar mais, ajuste `CATALOGO_NOTICIAS_INTERVALO_INGESTAO_MINUTOS` no `backend/.env`.
+5. **Em produção (ou no modo `--docker`)**, quem agenda é o Celery: `systemctl status celery-worker@<env> celery-beat@<env>` e o log do journal — ver `infra/DEPLOY.md` §9.4. Lá, o sinal canônico é a execução da task de ingestão (canal `portal_job_*` em `/metrics`, alerta `PortalJobAtrasado`).
 
 ### Reduzindo custo/número de chamadas ao provedor de LLM
 

@@ -58,12 +58,41 @@ Ainda uma heuristica deliberadamente simples para o MVP — dedup
 verdadeiramente semantica (ex.: embeddings via o proprio
 `SummarizationProvider`) continua sendo um upgrade natural para uma execucao
 futura; registrado como decisao tecnica em implementation-history.md.
+
+OTIMIZACAO v2 (implementation-contract.md run
+20260924-2136-ingestao-noticias, Versao 2 — comportamento-PRESERVANDO,
+mesmos grupos de saida para qualquer entrada): com o lote combinado grande
+(itens novos + persistidos recentes — um backlog de 3 dias x 91 fontes tem
+milhares de itens), o pareamento fuzzy O(n^2) por par via SequenceMatcher
+tornava uma rodada de ingestao LONGA DEMAIS (horas de CPU; o cache
+`_CACHE_FUZZY_RATIO` se LIMPAVA inteiro a cada 8000 entradas e, em lote
+grande, quase toda chamada era MISS e o SequenceMatcher rodava de novo).
+Tres tecnicas aplicadas SEM mudar semantica de similaridade, limiares,
+ponderacao ou agrupamento single-linkage (os testes de calibracao Finding
+2/3 em `tests/test_acceptance_criteria.py` sao a regua):
+
+1. Pre-filtro por limite SUPERIOR (upper bound) exato do score possivel por
+   par (ver `_bound_similaridade`): pares cujo bound ja esta abaixo do
+   limiar sao pulados SEM o pareamento fuzzy caro — o score real e
+   garantidamente menor que o bound, entao a decisao de agrupamento e
+   identica (criterio de aceite 9 do contrato v2);
+2. Cache LRU real para o cache de ratio fuzzy (ver `_ratio_cached`):
+   `functools.lru_cache` com capacidade fixa substitui o clear-total —
+   mesmos valores, retencao melhor, sem thrash;
+3. Pre-calculo por item dos pesos ordenados (decrescente) e da soma de peso
+   dos tokens (que e o denominador do score), evitando recomputacao O(n)
+   repetida dentro do loop O(n^2).
+
+`_similaridade_ponderada` NAO foi alterada: os pares que passam no
+pre-filtro produzem EXATAMENTE os mesmos valores float da implementacao
+anterior (a equivalencia formal antigo-vs-novo e do tester).
 """
 
 from __future__ import annotations
 
 import re
 from difflib import SequenceMatcher
+from functools import lru_cache
 
 from ..providers.news_source import ItemBruto
 
@@ -219,28 +248,37 @@ def _pesos_por_frequencia_no_lote(lista_de_tokens: list[set[str]]) -> dict[str, 
     return pesos
 
 
-_CACHE_FUZZY_RATIO: dict[tuple[str, str], float] = {}
+# v2 (implementation-contract.md run 20260924-2136-ingestao-noticias, Versao
+# 2): cache LRU REAL para o ratio fuzzy — substitui o dicionario anterior
+# (`_CACHE_FUZZY_RATIO`), que se LIMPAVA inteiro a cada 8000 entradas. Em
+# lote grande (milhares de pares unicos de tokens) o clear-total thrashava o
+# cache: quase toda chamada era MISS e o SequenceMatcher (caro) rodava de
+# novo. LRU com capacidade fixa retém os pares mais quentes — mesmos valores
+# (a funcao e pura), retencao melhor, sem thrash. 65536 entradas ~ 15MB no
+# pior caso: custo de memoria aceitavel para um processo de longa vida
+# (agendador/worker), nenhuma dependencia nova (functools e stdlib).
+_CACHE_FUZZY_MAXSIZE = 65536
+
+
+@lru_cache(maxsize=_CACHE_FUZZY_MAXSIZE)
+def _ratio_sequence_matcher_canonico(a: str, b: str) -> float:
+    """SequenceMatcher puro para um par JA canonizado (a < b) — cache LRU."""
+    return SequenceMatcher(None, a, b).ratio()
 
 
 def _ratio_cached(a: str, b: str) -> float:
-    """SequenceMatcher com cache + poda barata por tamanho."""
+    """SequenceMatcher com cache LRU + poda barata por tamanho."""
     if a == b:
         return 1.0
     # poda: tokens muito diferentes em tamanho nunca atingem 0.82
     # ex.: "a" vs "internacionalizacao" — evita SequenceMatcher caro
     if abs(len(a) - len(b)) > 4 and min(len(a), len(b)) <= 4:
         return 0.0
-    # cache simétrico
-    key = (a, b) if a < b else (b, a)
-    v = _CACHE_FUZZY_RATIO.get(key)
-    if v is not None:
-        return v
-    v = SequenceMatcher(None, a, b).ratio()
-    # LRU simples: evita crescimento infinito em lotes gigantes
-    if len(_CACHE_FUZZY_RATIO) > 8000:
-        _CACHE_FUZZY_RATIO.clear()
-    _CACHE_FUZZY_RATIO[key] = v
-    return v
+    # cache simétrico: a chave canônica garante que (a, b) e (b, a) compartilham
+    # a MESMA entrada do LRU (mesmo comportamento do dicionário anterior)
+    if a < b:
+        return _ratio_sequence_matcher_canonico(a, b)
+    return _ratio_sequence_matcher_canonico(b, a)
 
 
 def _tokens_fuzzy_pareados(tokens_a: set[str], tokens_b: set[str]) -> list[tuple[str, str]]:
@@ -310,6 +348,96 @@ def calcular_similaridade_titulos(
     return _similaridade_ponderada(tokens_a, tokens_b, pesos_tokens or {})
 
 
+# v2 (implementation-contract.md run 20260924-2136-ingestao-noticias, Versao
+# 2, criterios de aceite 8-9): margem de seguranca do pre-filtro por limite
+# superior. Os somatorios do bound tem erro de arredondamento float
+# (~1e-14 relativo, composto); a poda so ocorre quando o bound computado ja
+# esta ABAIXO do limiar com folga muito maior que esse erro — um par cujo
+# score real poderia atingir o limiar NUNCA e podado (resultado do
+# agrupamento garantidamente identico ao calculo completo).
+_MARGEM_SEGURANCA_BOUND = 1e-12
+
+
+def _soma_k_maiores_pesos(
+    pesos_ordenados_a: list[float], pesos_ordenados_b: list[float], k: int
+) -> float:
+    """
+    Soma dos `k` maiores pesos da UNIAO das duas listas (ambas ja em ordem
+    DECRESCENTE) — two-pointer merge, O(k).
+
+    E o limite superior EXATO do acrescimo fuzzy possivel entre os dois
+    conjuntos (contrato v2): cada par fuzzy consome um token de cada lado e
+    contribui com o peso do lado MAIOR; os tokens que contribuem sao
+    distintos (restantes_a e restantes_b sao disjuntos — ambos vieram de
+    tokens_a/tokens_b menos os comuns) e em numero <= `k`, entao a soma e
+    maximizada exatamente pelos `k` maiores pesos da uniao. Como
+    `k <= min(len(a), len(b))` e garantido pelo chamador (os restantes sao
+    subconjuntos), o merge nunca estoura o fim de nenhuma lista.
+    """
+    total = 0.0
+    i = j = 0
+    for _ in range(k):
+        if pesos_ordenados_a[i] >= pesos_ordenados_b[j]:
+            total += pesos_ordenados_a[i]
+            i += 1
+        else:
+            total += pesos_ordenados_b[j]
+            j += 1
+    return total
+
+
+def _bound_similaridade(
+    tokens_a: set[str],
+    tokens_b: set[str],
+    pesos_tokens: dict[str, float],
+    pesos_ordenados_a: list[float],
+    peso_uniao_a: float,
+    pesos_ordenados_b: list[float],
+    peso_uniao_b: float,
+) -> float:
+    """
+    Limite SUPERIOR barato do valor que `_similaridade_ponderada` pode
+    devolver para este par (contrato v2, run
+    20260924-2136-ingestao-noticias) — nunca inferior ao score real, sem
+    rodar o pareamento fuzzy caro:
+
+    - `peso_comuns` (tokens EXATAMENTE comuns) e EXATO: todo token comum
+      sempre forma um par `(t, t)` em `_tokens_fuzzy_pareados`, com
+      contribuicao `max(w(t), w(t)) = w(t)`;
+    - acrescimo fuzzy: cada par fuzzy consome um token de cada lado e
+      contribui com o peso do lado MAIOR; o melhor pareamento possivel
+      captura exatamente os `k = min(|restantes_a|, |restantes_b|)` maiores
+      pesos da uniao (ver `_soma_k_maiores_pesos`). Os pesos ordenados vem
+      PRE-CALCULADOS por item (incluem os pesos dos comuns — a uniao
+      completa so deixa o bound mais folgado, nunca inferior);
+    - denominador real do score = `peso_uniao_a + peso_uniao_b -
+      peso_comuns` (a uniao de tokens e a soma dos dois conjuntos menos a
+      intersecao), calculado aqui em O(1) a partir das somas pre-calculadas.
+
+    Se o bound esta abaixo do limiar (com `_MARGEM_SEGURANCA_BOUND`), o
+    score real tambem esta — a comparacao cara pode ser pulada com resultado
+    identico (criterio de aceite 9: nunca pular um par que poderia atingir o
+    limiar).
+    """
+    if not tokens_a or not tokens_b:
+        return 0.0
+
+    comuns = tokens_a & tokens_b
+    peso_comuns = sum(pesos_tokens.get(token, 1.0) for token in comuns)
+    k = min(len(tokens_a), len(tokens_b)) - len(comuns)
+    if k > 0:
+        acrescimo_fuzzy = _soma_k_maiores_pesos(
+            pesos_ordenados_a, pesos_ordenados_b, k
+        )
+    else:
+        acrescimo_fuzzy = 0.0
+
+    peso_uniao = peso_uniao_a + peso_uniao_b - peso_comuns
+    if peso_uniao <= 0:
+        return 0.0
+    return (peso_comuns + acrescimo_fuzzy) / peso_uniao
+
+
 def agrupar_itens_brutos(
     itens: list[ItemBruto], limiar_similaridade: float = 0.55
 ) -> list[list[ItemBruto]]:
@@ -322,6 +450,16 @@ def agrupar_itens_brutos(
     mais representativo/realista for o lote (varias fontes, varias
     noticias), e degrada para lotes muito pequenos/artificiais (ver testes).
 
+    v2 (implementation-contract.md run 20260924-2136-ingestao-noticias,
+    criterios de aceite 8-9): antes de rodar `_similaridade_ponderada` (cara)
+    em cada par (item, membro de grupo), o pre-filtro por limite superior
+    (`_bound_similaridade`, dois niveis: membro a membro e grupo inteiro)
+    pula os pares cujo score possivel ja esta abaixo do limiar — resultado
+    garantidamente identico ao calculo completo, porque o pareamento fuzzy
+    carissimo (SequenceMatcher por token) so roda nos pares que ainda podem
+    atingir o limiar. Em lote grande (backlog de dias x dezenas de fontes)
+    isso reduz a rodada de horas para minutos.
+
     Retorna uma lista de grupos (cada grupo e uma lista de `ItemBruto`);
     grupos de tamanho 1 representam itens sem cobertura duplicada
     encontrada nesta execucao (nao geram `NewsCluster`, ver
@@ -330,16 +468,58 @@ def agrupar_itens_brutos(
     tokens_por_item = [_tokens_titulo(item.titulo) for item in itens]
     pesos_tokens = _pesos_por_frequencia_no_lote(tokens_por_item)
 
+    # v2: pre-calculo por item — pesos ordenados em ordem DECRESCENTE e soma
+    # de peso dos tokens do item (o denominador do score). Alimenta o
+    # pre-filtro por limite superior sem recomputacao O(n) repetida dentro do
+    # loop O(n^2). Usado SOMENTE para o bound: `_similaridade_ponderada`
+    # continua calculando o denominador exato como antes — valores de saida
+    # nao mudam (criterio de aceite 9).
+    dados_por_item: list[tuple[list[float], float]] = []
+    for tokens in tokens_por_item:
+        pesos_ordenados = sorted(
+            (pesos_tokens.get(token, 1.0) for token in tokens), reverse=True
+        )
+        dados_por_item.append((pesos_ordenados, sum(pesos_ordenados)))
+
+    # v2: limiar efetivo do pre-filtro (limiar menos a margem de seguranca —
+    # ver `_MARGEM_SEGURANCA_BOUND`): nunca pula um par que poderia atingir o
+    # limiar.
+    limiar_efetivo = limiar_similaridade - _MARGEM_SEGURANCA_BOUND
+
     grupos_indices: list[list[int]] = []
 
     for indice_item, tokens_item in enumerate(tokens_por_item):
         melhor_grupo_indice = None
         melhor_score = 0.0
+        pesos_ordenados_item, peso_uniao_item = dados_por_item[indice_item]
         for grupo_indice, indices_do_grupo in enumerate(grupos_indices):
-            score = max(
-                _similaridade_ponderada(tokens_item, tokens_por_item[outro_indice], pesos_tokens)
-                for outro_indice in indices_do_grupo
-            )
+            score = 0.0
+            algum_viavel = False
+            for outro_indice in indices_do_grupo:
+                dados_outro = dados_por_item[outro_indice]
+                bound = _bound_similaridade(
+                    tokens_item,
+                    tokens_por_item[outro_indice],
+                    pesos_tokens,
+                    pesos_ordenados_item,
+                    peso_uniao_item,
+                    dados_outro[0],
+                    dados_outro[1],
+                )
+                if bound < limiar_efetivo:
+                    # v2, nivel (item, membro): score impossivel de atingir o
+                    # limiar — a comparacao cara e pulada (resultado identico)
+                    continue
+                algum_viavel = True
+                score_parcial = _similaridade_ponderada(
+                    tokens_item, tokens_por_item[outro_indice], pesos_tokens
+                )
+                if score_parcial > score:
+                    score = score_parcial
+            if not algum_viavel:
+                # v2, nivel (item, grupo): NENHUM membro pode atingir o
+                # limiar — grupo inteiro pulado sem nenhuma comparacao cara
+                continue
             if score > melhor_score:
                 melhor_score = score
                 melhor_grupo_indice = grupo_indice

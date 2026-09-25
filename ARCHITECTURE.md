@@ -24,6 +24,16 @@ deduplicação, curadoria e leitura. Não existe um segundo pipeline ou uma API
 alternativa de feed no portal; operações locais, periódicas por Celery e
 gatilhos manais persistem e consultam o mesmo catálogo no PostgreSQL.
 
+**Execução local sem broker (2026-09-25):** o modo local nativo (venv +
+SQLite, sem Docker) não sobe worker/beat do Celery, então o disparo periódico
+da ingestão é feito pelo management command `agendar_ingestao`
+(`catalogo_noticias/management/commands/agendar_ingestao.py`), que chama o
+mesmo `services/ingestao.py::executar_ingestao` em loop e é iniciado pelo
+`subir-localhost.sh` nativo (log em `/tmp/brd-agendador.log`). Ele não entra no
+`docker-compose` nem é iniciado pelo startup do Django: em produção e no modo
+Docker o agendamento segue sendo do `CELERY_BEAT_SCHEDULE`, e os dois leem o
+mesmo intervalo (`CATALOGO_NOTICIAS_INTERVALO_INGESTAO_MINUTOS`).
+
 **Corte de cache e execução local:** as cinco listagens cacheadas do feed
 (`lista`, `urgentes`, `mais-lidas`, `home` e `destaques`) usam o namespace
 `feed:v2`. Entradas antigas em `feed:v1`, inclusive payloads remotos do pipeline
