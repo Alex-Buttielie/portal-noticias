@@ -1,0 +1,100 @@
+{
+  "run_id": "20260924-2136-ingestao-noticias",
+  "task_title": "Corrigir ingestão de notícias parada — agendamento periódico não roda no modo nativo",
+  "status": "closed",
+  "current_phase": "done",
+  "iteration_count": 2,
+  "max_iterations": 3,
+  "requested_by": "humano (Alex) via conversa OpenCode",
+  "source_spec": null,
+  "phases": {
+    "planning": {
+      "status": "done",
+      "agent": "orchestrator",
+      "execution_mode": "delegated",
+      "started_at": "2026-09-24T21:39:25-03:00",
+      "finished_at": "2026-09-24T21:41:30-03:00",
+      "notes": "Diagnóstico concluído: ingestão é agendada via Celery beat (CELERY_BEAT_SCHEDULE, 15 min) e executada por worker Celery; ambiente atual roda nativo (subir-localhost.sh: runserver + next dev, sem celery-worker/celery-beat/Redis — Redis nem instalado). Última execução: 2026-09-21 23:18 (manual). Pipeline saudável (run 2026-09-21 23:17: 175 itens de 3 fontes). Correção definida: management command agendar_ingestao (loop sem broker) + integração no subir-localhost.sh nativo + execução imediata. | Contratos task-plan.md e implementation-contract.md criados e validados contra contract-checklist.md."
+    },
+    "implementation": {
+      "status": "done",
+      "agent": "executor",
+      "execution_mode": "delegated",
+      "started_at": "2026-09-24T21:41:30-03:00",
+      "finished_at": "2026-09-25T15:10:11-03:00",
+      "notes": "Iteração 1 (executor): agendador + subir-localhost.sh implementados, checks ok. Iteração 2 (executor): operação parcial — ingestão manual NUNCA completa (7h37m, 1h19m CPU; threads de 21/09 há 10h+ sem concluir). Finding novo: agrupar_itens_brutos O(n²) com SequenceMatcher explode com backlog de 3 dias × 91 fontes (milhares de itens no lote). Contrato expandido para v2: otimização comportamento-preservando no dedup (upper-bound pre-filter + LRU cache real + pré-cálculo), benchmark, e operacional (matar pid 73054, iniciar agendador com código novo). | Iteração 5 (executor): benchmark v2 (antes/depois: 102,12s→9,96s em lote de 3000 itens, 10,3x, grupos idênticos — critérios 8-9 com evidência); restart do agendador BLOQUEADO: settings.py corrompido pela run 20260925-1020-observabilidade (10:31, IndentationError; servidor dev morto; agendador atual pid 129600 mantido vivo com código antigo) — critério 10 pendente do desbloqueio. | Iteração 6 (executor): settings.py desbloqueado (reparo cirúrgico do bloco Sentry truncado pela run 20260925-1020-observabilidade — py_compile/check OK, diff mínimo de 1 hunk no fim do arquivo, intenção do próprio comentário preservada), servidor de dev reiniciado (healthz ok, sem --noreload), agendador reiniciado com dedup otimizado (pid 364572, única instância; duplicata misteriosa 363955 — que truncou o log — eliminada com SIGTERM gracioso; overlap real de ~31s entre rodadas observado, ambas transacionais), rodada fresca concluída (registro_id=38, 103 itens; newsitems 10242→10345) — critério de aceite 10 FECHADO. Follow-ups: run 20260925-1020-observabilidade deve revisar o bloco Sentry ao retomar; overlap-guard no agendador (Iteração 2)."
+    },
+    "testing": {
+      "status": "done",
+      "agent": "tester",
+      "execution_mode": "delegated",
+      "started_at": "2026-09-25T15:12:00-03:00",
+      "finished_at": "2026-09-25T18:05:00-03:00",
+      "notes": "passed (delegado): pytest catalogo_noticias 171 passed; catalogo_noticias+feed+painel_admin+metricas 390 passed; bash -n OK; benchmark nova 19,02s (<60s) grupos idênticos + mutante prova não-vacuidade; 12 rodadas reais com código novo. Observação do tester: run 20260925-1020-observabilidade tem edição não commitada de backend/config/metrics.py quebrando 5 testes da suíte completa (fora do escopo desta run). || CARIMBO: finished_at 18:05 e uma aproximacao do orchestrator (o tester nao gravou carimbo proprio em artefato); por isso review.started_at 17:50 aparece como 15 min antes do fim formal desta fase. Nao foi corrigido para nao inventar horario."
+    },
+    "review": {
+      "status": "done",
+      "agent": "reviewer",
+      "execution_mode": "delegated",
+      "started_at": "2026-09-25T17:50:00-03:00",
+      "finished_at": "2026-09-25T19:18:17-03:00",
+      "notes": "2a passada (diff da remediacao) veredito approve_with_comments. 1a passada: changes_requested 0b/2m/3mi/3n; dedup provado correto (0 podas indevidas em 1,95M de pares) e CONFIRMADO intocado (mtime 10:05:59, 8h45 antes da remediacao; sha256 dafe6080). Os 6 findings tratados (1,2,3,5,6,8) estao RESOLVIDOS por medicao independente: pytest 177 passed; replay do Finding 1 com e sem flock -> sempre 1 instancia; --stop com observador a cada 0,1s -> 0 violacoes do estado proibido (pid file ausente com processo vivo) em 364 amostras; tempos medidos 1,0s (normal) / 16,1s (escalonamento) / 20,1s (pior caso, limitado); banner verificavel reprova ate o caso com log de execucao anterior (offset isola a leitura) e acusa o start que morre (caso settings.py da Iteracao 5); flock: filho NAO herda o lock (sem fd 9 em /proc), mesmo arquivo nos dois blocos, macOS sem flock -> aviso + guard correto. Findings novos: 1 minor (o os._exit aborta a rodada em curso e a justificativa 'nada e persistido' e imprecisa — a persistencia e por grupo, nao por rodada) + 3 nit (identidade do pid casa por substring e inclui o pytest desta run; confirmacao do banner nao reconfere a vivacidade; acoplamento do grep a string do log + afirmacao errada da Iteracao 8 sobre o lock). Findings 4 e 7 nao tratados = enhancements fora do escopo. Em aberto: 1 minor + 3 nit, nenhum bloqueia a entrega."
+    },
+    "remediation": {
+      "status": "done",
+      "agent": "remediator",
+      "execution_mode": "delegated",
+      "started_at": "2026-09-25T18:50:00-03:00",
+      "finished_at": "2026-09-25T19:30:00-03:00",
+      "notes": "Iteracao 8: 6/8 findings corrigidos, 177 testes verdes, 25 checks sandbox. 2a passada de review: approve_with_comments (0b/0m abertos; 1 minor + 3 nit novos). Iteracao 9 (micro, 3 itens, concluida): minor da redacao do 2o sinal corrigido no comando E no aviso do --stop (a persistencia e por grupo: grupos ja confirmados permanecem, o registro da rodada nao e finalizado) — so texto, sem mexer em logica; nit da identidade do pid corrigido (case passou a exigir *manage.py*agendar_ingestao*, o que impede uma suite de testes do dev de casar como agendador); nit do banner corrigido (rechecagem de _pid_vivo depois de AGENDADOR_CONFIRMADO=1, caindo no caminho AGENDADOR_FALHOU ja existente). Evidencia: bash -n OK, py_compile OK, manage.py check 0 issues, pytest catalogo_noticias 177 passed SEM nenhum teste ajustado, 4 cenarios de banner (0 falhas) e 4 processos na identidade (0 falhas) com blocos extraidos verbatim do script, mensagem de escalonamento renderizada em processo real (exit 143). Agendador de producao NAO reiniciado (pid 775406 vivo, rodada 3 concluida com registro_id=56): item 1 e so texto e 2/3 so afetam o script."
+    },
+    "documentation": {
+      "status": "done",
+      "agent": "documenter",
+      "execution_mode": "delegated",
+      "started_at": "2026-09-25T19:30:00-03:00",
+      "finished_at": "2026-09-25T19:40:57-03:00",
+      "notes": "Documentacao concluida. Docs tocados (3 fora do state dir): README.md (secao \"Como popular o feed com noticias reais (ingestao)\": item 5 reescrito — automatizar localmente agora e so ./subir-localhost.sh, que ja sobe o agendador; item 6 = Celery Beat segue sendo o mecanismo de producao/--docker e le o mesmo intervalo; item 7 = rodar o Celery manualmente, com aviso de nao deixar os dois agendadores juntos; + paragrafo \"Desempenho do agrupamento\" (8,6x a 10,3x com resultado preservado); + 2 subsecoes novas: \"Agendador local de ingestao (modo nativo)\" e \"Diagnostico da ingestao\" — runbook com onde ver o estado (log do agendador, pid file, GET /api/admin/robos/execucoes/, admin registroexecucaoingestao) e 5 sintomas com o que fazer em cada um), ARCHITECTURE.md (1 paragrafo novo de 10 linhas apos \"Fonte de verdade da ingestao\", sobre o agendador sem broker no modo nativo; edicao pontual, o arquivo nao foi regenerado) e subir-localhost.sh (cabecalho e usage(): --stop documentado como quem encerra o agendador esperando a saida, linha nova de Pid files, --docker anotado como ingestao via Celery Beat; zero linha de logica tocada). | Varredura por celery/ingestao/ingerir_noticias em todos os *.md, PROD_DECISOES.md e backend/.env.example: nenhum outro documento estava de fato contraditorio — PROD_DECISOES.md, CI-CD.md, infra/DEPLOY.md, infra/observability/**, ANALISE_CUSTO_PERFORMANCE.md e a spec de ingestao ficaram intocados (decisoes de producao ou analise datada, todas as afirmacoes seguem verdadeiras). Observacao registrada sem mudar: backend/.env.example nao tem comentario na variavel CATALOGO_NOTICIAS_INTERVALO_INGESTAO_MINUTOS, hoje lida pelo beat e pelo agendador nativo (mesmo valor). | CHANGELOG: nao existe nenhum CHANGELOG* no projeto (find confirmou) — nada foi inventado; o ponto esta registrado na secao \"Entrada de changelog\" do documentation-update.md. | Integridade: os 3 arquivos ja estavam sem modificacao pendente no inicio desta fase (git diff inicial so mostrava subir-localhost.sh com o bloco do executor), entao nao havia trabalho de outra run para preservar neles; arquivos de outras runs com edicao nao commitada seguem intactos (.github/workflows/deploy*.yml, backend/config/*, infra/observability/**, backend/feed/views.py, backend/identidade/.../criar_usuario_carga.py). Verificacao: bash -n OK, ./subir-localhost.sh --help conferido, git diff --numstat = 10/0 ARCHITECTURE.md, 47/2 README.md, 242/8 subir-localhost.sh (240/5 eram do executor; +2 linhas novas e 3 reescritas sao desta fase, todas no cabecalho/usage). Nao ha linter de markdown no projeto."
+    },
+    "closing": {
+      "status": "done",
+      "agent": "historian",
+      "execution_mode": "delegated",
+      "started_at": "2026-09-25T19:44:00-03:00",
+      "finished_at": "2026-09-25T19:47:00-03:00",
+      "notes": "Fechamento conferido pelo historian (Iteracao 10 do implementation-history.md). Integridade: as 10 iteracoes estao em ordem cronologica sem lacuna (executor 1-6, tester 7, remediator 8-9, historian 10); as 2 passagens de revisao nao tem entrada propria neste arquivo por desenho do artefato, e seus horarios ficam registrados na Iteracao 10 (1a passada ate 18:20 = changes_requested; 2a em 19:15-19:18 = approve_with_comments). Estado final verificado somente-leitura: agendador unico e vivo pid 775406, 'Rodada 4/infinitas concluida (registro_id=57, 138 itens, 0 erro(s) de fonte)' as 19:34:29, backend :8000/healthz = 200, frontend :3000 = 200, CELERY_BEAT_SCHEDULE e docker-compose intocados. Testes reconferidos por --collect-only: 30 testes no arquivo novo (16+8+6); suite catalogo_noticias em 177 passed conforme Iteracoes 8 e 9. METRICAS DA REVISAO (contagens no bloco findings, conforme schema; detalhe aqui): total_revisados=12 | abertos=1 (ids=2a-passada:3-comentario) | nao_tratados_por_decisao=2 (ids=1a-passada:4, 1a-passada:7) | resolvidos=9 (ids=1a-passada:1, 1a-passada:2, 1a-passada:3, 1a-passada:5, 1a-passada:6, 1a-passada:8, 2a-passada:1, 2a-passada:2, 2a-passada:3). Nota do finding aberto: [\"Finding 3 (2a passada), PARTE DE COMENTARIO/ACOPLAMENTO (nao corrigida na Iteracao 9, por estar fora dos 3 itens especificados): o grep -F 'Agendador de ingestao iniciado' amarra o script a uma string exata do log Python (direcao de falha segura: aviso, nao falso sucesso); e a afirmacao da Iteracao 8 (d)(iii) de que a verificacao do banner fica FORA da secao critica do lock esta errada — ela esta DENTRO (o destravarlock so roda depois). Efeito pratico benigno; corrigir o comentario por quem mexer no lock.\"] Nota dos resolvidos: 1a passada: 1=janela de 2a instancia (a espera antes de rm + b escalonamento + c identidade + d flock); 2=falha invisivel (banner verificavel + contador de falhas); 3=log de sucesso fora do try; 5=> trunca o log; 6=identidade do pid; 8=validacao de --rodadas. Todos reconfirmados por medicao na 2a passada do reviewer. 2a passada (Iteracao 9): 1=redacao do 2o sinal e do aviso do --stop corrigida (atomicidade real e por grupo, nao por rodada; grupos ja confirmados permanecem, o registro da rodada nao e finalizado — so texto); 2=_pid_e_o_agendador agora exige *manage.py*agendar_ingestao*, entao uma suite de testes do dev nunca leva sinal nem trava o guard (medido com 4 processos via ps); 3=o banner reconfere _pid_vivo depois de AGENDADOR_CONFIRMADO=1 e cai no caminho AGENDADOR_FALHOU existente (medido: cenario 'banner presente + processo morto' ia imprimir 'NO AR' antes da correcao). RECONCILIACAO DE SCHEMA: o run-state.json estava INVALIDO contra agentic-framework/schemas/run-state.schema.json ao chegar nesta fase (jsonschema 4.19.2 + format_checker: 7 chaves fora do schema no objeto findings — not_treated_by_decision, total_reviewed, open_ids, open_detail, resolved_ids, resolved_note, not_treated_ids). As chaves nao permitidas foram removidas de findings e TODO o conteudo delas foi preservado nesta nota, nos follow_ups e no report.md — nenhuma informacao foi perdida. Artifacts agora declara implementation_history e report. Verificado depois da reconciliacao: 0 erros de schema. || RECONCILIACAO DE CARIMBOS (2026-09-25T19:50:43-03:00, orchestrator): os carimbos de review/remediation/documentation estavam adiantados e o finished_at da remediation era anterior ao started_at (sinalizado pelo historian na Iteracao 10, que nao inventa horario). Corrigidos com a evidencia dos artefatos: mtime do code-review-contract.md 19:18:17 (fim da 2a passada; a 1a entre 17:50-18:20), header da Iteracao 8 = 18:50 (inicio da remediacao), Iteracao 9 entre 19:18 e o inicio da documentacao, mtime do documentation-update.md 19:40:57 (fim da documentacao), header da Iteracao 10 = 19:44 (inicio do fechamento) e updated_at do historian 19:47. Ver Iteracao 11 no implementation-history.md."
+    }
+  },
+  "findings": {
+    "blocker": 0,
+    "major": 0,
+    "minor": 0,
+    "nit": 1,
+    "resolved": 9
+  },
+  "artifacts": {
+    "task_plan": "task-plan.md",
+    "implementation_contract": "implementation-contract.md",
+    "code_review_contract": "code-review-contract.md",
+    "documentation_update": "documentation-update.md",
+    "implementation_history": "implementation-history.md",
+    "report": "report.md"
+  },
+  "blocked_reason": null,
+  "follow_ups": [
+    "PRODUTO/OPERACAO 1 — as outras 4 tasks periodicas do CELERY_BEAT_SCHEDULE tem o mesmo gap que a ingestao tinha no modo nativo (verificado no fechamento, settings.py ~linhas 703-731): assinatura.tasks.processar_vencimentos, newsletter.tasks.enviar_newsletters_manha (crontab 7:00), newsletter.tasks.enviar_newsletters_noite (crontab 19:00) e b2b.tasks.verificar_alertas nunca executam no modo nativo. Ou todas ganham agendador sem broker, ou o modo nativo passa a ser declarado oficialmente sem execucao periodica. Item herdado do task-plan (fora de escopo la), agora verificado e nomeado.",
+    "PRODUTO 2 — decisao de produto pendente sobre CATALOGO_NOTICIAS_LLM_API_KEY: verificado no fechamento que continua VAZIA (len=0 em backend/.env), logo o SummarizationProvider usa resumo local derivado de titulo/fonte e TUDO cai em revisao humana, enquanto o agendador roda a cada 15 min. Definir a chave ou assumir o modo local como estado desejado (nao e defeito de codigo).",
+    "OPERACAO 3 — ESPERA_PARADA_SEGUNDOS=15 no --stop: com rodadas de 1,1-1,5 min o limite nunca e atingido, mas com o backlog de 7h54m por rodada (Iteracao 3) o --stop interrompe a rodada no 2o sinal (deliberado e avisado no log). Se a perda da rodada em curso for inaceitavel em algum contexto, aumentar o limite ou fazer o 2o sinal apenas quando o processo estiver no intervalo entre rodadas.",
+    "MELHORIA 4 (Finding 4 da 1a passada, enhancement deliberadamente NAO tratado) — trade-off de performance do pre-filtro do dedup: 0,63x no caso degenerado em que nada e podado (120 titulos em 2 templates quase iguais; custo absoluto 49 ms) contra 8,6-10,3x no caso de ganho. Numeros para quem mexer no limiar: 0,86x / 0,63x / 1,74x / 8,6-10,3x. deduplicacao.py fica intocado.",
+    "MELHORIA 5 (Finding 7 da 1a passada, enhancement deliberadamente NAO tratado) — assinatura entrelaçada de _bound_similaridade (...pesos_ordenados_a, peso_uniao_a, pesos_ordenados_b, peso_uniao_b) torna uma troca parcial de argumentos silenciosa e catastrófica (bound deixa de ser upper bound). Mudanca mecanica: agrupar em dados_item = (pesos_ordenados, peso_uniao) e passar dados_item_a, dados_item_b; a fazer quando o dedup for mexido por outro motivo.",
+    "NIT RESIDUAL (unico finding em aberto, 2a passada) — o grep -F 'Agendador de ingestao iniciado' amarra o subir-localhost.sh a uma string exata do log Python (direcao de falha segura: aviso, nunca falso sucesso) e a afirmacao da Iteracao 8 (d)(iii) de que a verificacao do banner fica FORA da secao critica do lock esta ERRADA (ela esta dentro; o destravarlock so roda depois). Efeito pratico benigno; corrigir o comentario por quem mexer no lock e considerar um banner estruturado.",
+    "BACKOFF (follow-up do reviewer, nunca chegou a ser finding) — as 3 falhas que precedem o alerta de falha consecutiva ja pagaram 3 varreduras completas dos 91 feeds. O alerta existe; o backoff (que mudaria o tempo de recuperacao) nao foi implementado.",
+    "LIMITE CONHECIDO — o flock protege a corrida de dois ./subir-localhost.sh, mas 'manage.py agendar_ingestao' rodado a mao em outro terminal nao conhece o lock; os pid files de backend/frontend seguem o padrao pre-existente sem identidade de processo (aceito explicitamente pelo contrato).",
+    "ENCERRADO POR VERIFICACAO — a run 20260925-1020-observabilidade RETOMOU e revisou o bloco Sentry do settings.py reparado na Iteracao 6 (commit 5e7fe90): o 'pass' do reparo cirurgico desta run foi substituido por chamada real a reportar_falha_de_init_sentry (achado MINOR-9 do review de observabilidade). Nada a fazer; registrado para nao virar pendencia.",
+    "ENCERRADO POR VERIFICACAO — a quebra de backend/config/metrics.py (MAX_OBSERVATIONS removido, 5 falhas em config/tests) reportada pelo tester na Iteracao 7 esta SUPERADA: a constante voltou e test_health_checks.py + test_observability_redaction.py passam. Estado real da suite config/ agora: 223 passed / 2 failed, e as 2 falhas estao em config/tests/test_exposicao_metricas.py, arquivo UNTRACKED da run paralela de observabilidade ainda em refatoracao. Nenhuma falha restante e desta run.",
+    "OBSERVACAO DE AMBIENTE (fora do escopo desta run, sem atribuicao) — o frontend em :3000 respondia HTTP 500 durante boa parte do fechamento por alteracoes nao commitadas da run paralela de react-query; na conferencia final :3000 respondeu HTTP 200 e o backend :8000/healthz respondeu HTTP 200. O agendador nao depende do runserver.",
+    "PENDENCIA DE REGISTRO (nao e produto) — os carimbos de tempo das fases review (19:20-19:45), remediation (started_at 19:46 > finished_at 19:40) e documentation (20:05-20:40) no run-state estao adiantados em relacao ao relogio real da maquina (que marcava 19:44 quando o fechamento foi escrito; evidencia independente nos mtime dos arquivos: ARCHITECTURE.md 19:37:33, README.md 19:40:42, documentation-update.md 19:40:57, e no git log da run paralela, que para em 19:11:53). Nao foram corrigidos — o historian nao inventa carimbo. Por isso o updated_at deste fechamento e MENOR que o anterior (20:40)."
+  ],
+  "created_at": "2026-09-24T21:39:25-03:00",
+  "updated_at": "2026-09-25T19:50:43-03:00"
+}
