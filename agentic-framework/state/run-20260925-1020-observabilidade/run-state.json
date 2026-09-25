@@ -25,20 +25,20 @@
       "notes": "Retomada em 2026-09-25T16:38. WIP órfão do executor anterior recuperado do working tree de develop para a branch observability-20260925-1020 e versionado em 672ffba. Blocos executados e commitados: A (1b97836, telemetria backend e 10 bugs do baseline corrigidos), A2 (ca3ae4d+2bf82c0, consentimento assinado fail-closed e /healthz genérico), B1 (a340b17, correlação ponta a ponta, error boundaries e 18 arquivos sem conteúdo fictício), B2 (f7880a7, Sentry real, cliente do token e 89 testes), C1 (0c45cf0, collector Alloy, systemd, backup fail-closed, watchdog e 16 alertas), C2 (337ce37, release atômica com smoke, PM2 no standalone e gate de infra na CI) e D1 (a2e7334, gates de frontend na CI, lint bloqueante e source map fail-closed em produção). O diff aberto do lote P0-1 da run de go-live foi isolado em df20ad3 na branch lote-p0-1-proveniencia, o que liberou o escopo de .github/. Pendências conhecidas e registradas: critério 29 exige decisão entre migrar o PM2 para standalone ou reescrever o critério; 503 no documento HTML da Home é impossível em Server Component do App Router; idade de cache e 503 do feed no backend dependem de reconciliação com a run 20260924-2136; C2.6 (remoção da senha SSH) e as 8 variáveis de frontend dependem de acesso real."
     },
     "testing": {
-      "status": "pending",
+      "status": "done",
       "agent": "tester",
       "execution_mode": "delegated",
-      "started_at": null,
-      "finished_at": null,
-      "notes": "Aguardando implementação."
+      "started_at": "2026-09-25T18:20:00-03:00",
+      "finished_at": "2026-09-25T19:05:00-03:00",
+      "notes": "Veredito passed_with_blocked_criteria, registrado em test-report.md: 21 critérios passaram, 9 falharam e 12 não são verificáveis neste ambiente. Comandos da CI reproduzidos com saída real (pytest com --cov-fail-under=80 em 834 passed e 91,08%, npm run verificar, npm run build com 254 source maps, validar-infra --estrito em 57 OK, nginx -t, promtool, alloy validate, 6 workflows com actionlint). Comportamento provado com serviço real no ar: /livez 200 e /readyz 503 genérico com o Postgres derrubado, gating de /health-detail e /metrics sem token, com token errado, com Basic e com token não-ASCII, consentimento nos cinco modos de recusa com uma única linha persistida no banco, X-Request-ID igual no header, no ApiError, no log e como código de suporte na Home renderizada, 413 em body de 17 MB com e sem content-length, 504 em 2,008 s e 502 em 9 ms. Achou quatro falsos verdes novos: check_celery nunca pode dizer ok porque ping() devolve dict na Celery 5.6.0 e o código exige list, sendo a única linha não coberta do bloco com teste que mocka uma lista impossível; painel e alerta citando métrica ausente de todo scrape; portão de métricas conferindo nome no fonte e imprimindo OK; e o watchdog de backup respondendo ok com o objeto ausente do R2. O critério 4 ficou não verificável por ausência de browser conectado."
     },
     "review": {
-      "status": "in_progress",
+      "status": "done",
       "agent": "reviewer",
       "execution_mode": "delegated",
       "started_at": "2026-09-25T17:15:00-03:00",
-      "finished_at": null,
-      "notes": "Revisão obrigatória parcial do backend concluída em code-review-backend.md: veredito request_changes, 0 blockers e 4 majors com reprodução executada (throttle do emissor furado por X-Forwarded-For, rótulo de métrica controlado pelo cliente com perda silenciosa de séries e scrape de 0,89 s, beat parado não virando degradação no default, métricas de task invisíveis por METRICS ser process-local). O reviewer não conseguiu bypassar o gating de /health-detail e /metrics nem o consentimento fail-closed, e descartou uma hipótese própria que se mostrou falsa. Revisão completa do run (frontend, infra e deploy) ainda pendente em code-review-contract.md."
+      "finished_at": "2026-09-25T19:00:00-03:00",
+      "notes": "Duas revisões independentes. code-review-backend.md: request_changes com 0 blockers e 4 majors, todos reproduzidos. code-review-contract.md (revisão completa, 790 linhas): request_changes com 0 blockers, 3 majors, 10 minors e 6 nits. Os 3 majors são da mesma classe — promessa de observabilidade sem dado — e dois deles foram confirmados de forma independente pelo tester. O reviewer confirmou por execução, e não por leitura, que os 4 majors da rodada 1 foram corrigidos sem regressão, que a remoção de conteúdo fictício é honesta e que a atomicidade do deploy é real, incluindo pm2 start falhando depois da troca do symlink. Julgou os critérios 11 e 29 defensáveis e o 10 parcial, e classificou 22, 23, 32-37, 41 e 42 como não verificáveis por dependência de ambiente, e não como atalho de apresentação."
     },
     "remediation": {
       "status": "in_progress",
@@ -46,7 +46,7 @@
       "execution_mode": "delegated",
       "started_at": "2026-09-25T17:40:00-03:00",
       "finished_at": null,
-      "notes": "Rodada 1 de 3 delegada para os 4 majors do backend mais os minors de altíssimo valor (Authorization Basic e segundo cookie escapando da redação, CRLF sobrevivendo a redact_text, bearer não-ASCII gerando 500). Achado residual do Bloco B2 pendente de verificação nesta rodada: token solto de 40 hex escapando de redact_text no backend."
+      "notes": "Rodada 1 (5e7fe90) concluída: os 4 majors do backend corrigidos, com prova de regressão de 26 casos em que cada fix é revertido em memória e o teste roda, e 811 passed. Rodada 2 de 3 em execução com os 3 majors da revisão completa mais os 4 falsos verdes do tester, o XFF repassado pelo BFF para peer loopback, o balde único do compose com rede não declarada, o texto do error.tsx que deriva do consentimento em vez do envio, e o critério 17 como helper reutilizável de chamada externa. Convergência de dois revisores independentes nos mesmos majors tratada como prioridade máxima."
     },
     "documentation": {
       "status": "pending",
@@ -84,8 +84,12 @@
     "Reconciliar formalmente a run 20260924-2136-ingestao-noticias antes de lotes que toquem backend/feed/views.py, backend/catalogo_noticias/services/deduplicacao.py ou backend/feed/tests/test_p1_feed_cache_indices.py (WIP estrangeiro ainda não commitado no working tree).",
     "Reconciliar com a run 20260925-1433-go-live-producao: o lote P0-1 daquela run declarou backend/config/{health,metrics,observability}.py e middleware.py como protegidos e pertencentes a esta run; nenhum arquivo de .github/ pode ser tocado aqui sem acordo entre as duas runs.",
     "Contenção de ownership (2026-09-25T16:45): o lote P0-1 da run 20260925-1433-go-live-producao escreveu, sem commit, no mesmo working tree, scripts/release/verificar-proveniencia.sh, lote-p0-1-evidencias.md, implementation-history.md, e deixou modificações em CI-CD.md, PROD_DECISOES.md e infra/DEPLOY.md. Enquanto esse diff estiver aberto, .github/ e os três docs ficam bloqueados para esta run. O Bloco C foi dividido em C1 (executável agora) e C2 (adiado); ver bloco-c-plano.md.",
-    "WIP estrangeiro que continua no working tree e nunca deve ser commitado nesta branch: backend/feed/views.py, backend/catalogo_noticias/services/deduplicacao.py, backend/feed/tests/test_p1_feed_cache_indices.py, backend/catalogo_noticias/management/commands/agendar_ingestao.py, subir-localhost.sh, agentic-framework/state/run-20260924-2136-ingestao-noticias/ e agentic-framework/state/run-20260924-1535-arquivar-ingestao/."
+    "WIP estrangeiro que continua no working tree e nunca deve ser commitado nesta branch: backend/feed/views.py, backend/catalogo_noticias/services/deduplicacao.py, backend/feed/tests/test_p1_feed_cache_indices.py, backend/catalogo_noticias/management/commands/agendar_ingestao.py, subir-localhost.sh, agentic-framework/state/run-20260924-2136-ingestao-noticias/ e agentic-framework/state/run-20260924-1535-arquivar-ingestao/.",
+    "Diff aberto da run 20260925-1836-usuarios-teste-dev-homolog (outra sessao, ativa desde ~18:36): toca .github/workflows/deploy.yml e os tres callers com o gate usuarios_teste, mais backend/identidade/ e a propria pasta da run. Os 4 workflows NAO podem ser commitados por esta run enquanto esse diff estiver aberto; a mudanca de OBSERVABILITY_JOB_STATE_FILE no deploy.yml segue pendente de commit por esse motivo e esta registrada em bloco-d2-notas.md.",
+    "Lote P0-1 da run de go-live foi isolado em df20ad3 na branch lote-p0-1-proveniencia, em worktree proprio (/tmp/opencode/p01-wt), o que liberou o escopo de .github/. CI-CD.md, PROD_DECISOES.md e infra/DEPLOY.md foram restaurados no worktree principal; a run de go-live continua dona do seu conteudo e do veredito do P0-1.",
+    "Criterios 13 e 15 (estado duravel da ingestao manual e lock de concorrencia) foram atribidos a run 20260924-2136-ingestao-noticias na versao 2 do contrato: implementar aqui criaria duas fontes de verdade para o mesmo job, com WIP aberto nos mesmos arquivos.",
+    "Verificacao em browser real continua pendente: o criterio 4 (error boundary com reset e codigo de suporte) ficou nao verificavel para o tester por ausencia de browser conectado. O orchestrator vai tentar fechar essa verificacao com browser antes do fechamento."
   ],
   "created_at": "2026-09-25T10:20:17-03:00",
-  "updated_at": "2026-09-25T16:38:04-03:00"
+  "updated_at": "2026-09-25T19:20:00-03:00"
 }
