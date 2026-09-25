@@ -1,8 +1,8 @@
 {
   "run_id": "20260924-1721-react-query-migracao",
   "task_title": "Migrar os 22 sites de backend para cache de cliente com TanStack Query",
-  "status": "in_progress",
-  "current_phase": "documentation",
+  "status": "done",
+  "current_phase": "closing",
   "iteration_count": 3,
   "max_iterations": 3,
   "requested_by": "humano (Alex), decisão explícita após a run 20260923-1500-p1-6-react-query",
@@ -49,20 +49,20 @@
       "notes": "Ativar se findings bloqueantes forem encontrados."
     },
     "documentation": {
-      "status": "in_progress",
+      "status": "done",
       "agent": "documenter",
       "execution_mode": "orchestrator",
       "started_at": "2026-09-25T12:20:00-03:00",
-      "finished_at": null,
-      "notes": "Report completo (metadados, métricas, escopo, validações, timeline, commit 948a5b5 + ci 645aca3), implementation-history com 3 iterações, code-review-contract com veredito. HISTORY.md com linha do run. Pendente: documentação viva (ARCHITECTURE/PROD_DECISOES) com a política de cache final."
+      "finished_at": "2026-09-25T12:40:00-03:00",
+      "notes": "Documentação viva atualizada: ARCHITECTURE.md (parágrafo Cache de cliente 2026-09-25/P1-6, irmão do cache de backend) e PROD_DECISOES.md (entrada 2026-09-25 no Registro de conclusões). Commit 725a43b inclui também pendências de documentação do run 20260924-1535-arquivar-ingestao (mesmos arquivos), registrada de forma transparente. Report/history/code-review completos. ANALISE_CUSTO_PERFORMANCE.md intocado (sem convenção de status)."
     },
     "closing": {
-      "status": "pending",
+      "status": "done",
       "agent": "historian",
-      "execution_mode": "delegated",
-      "started_at": null,
-      "finished_at": null,
-      "notes": "Pendente do fechamento completo."
+      "execution_mode": "orchestrator",
+      "started_at": "2026-09-25T12:40:00-03:00",
+      "finished_at": "2026-09-25T12:45:00-03:00",
+      "notes": "Run fechado como entregue. HISTORY.md com a linha do run. Commits em develop: 948a5b5 (migração), 645aca3 (check CI), 725a43b (docs). Push para origin/develop executado. Follow-ups restantes registrados no report: tipos any em comunidade (dívida técnica), smoke HTTP no CI e suíte de unidade no frontend (escopo decidido fora desta esteira)."
     }
   },
   "findings": {
