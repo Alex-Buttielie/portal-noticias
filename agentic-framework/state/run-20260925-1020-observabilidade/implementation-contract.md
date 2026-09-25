@@ -9,10 +9,23 @@ RUN: 20260925-1020-observabilidade
 ## Metadados
 - **run_id:** 20260925-1020-observabilidade
 - **Deriva de:** task-plan.md (20260925-1020-observabilidade)
-- **Versão do contrato:** 1
-- **Executor:** subagente delegado pelo orchestrator
+- **Versão do contrato:** 2 — incrementada em 2026-09-25 após a revisão completa e o teste independente. A diferença está em "Decisões de escopo da v2" abaixo, e o incremento está declarado, não silencioso.
+- **Executor:** subagentes delegados pelo orchestrator
 - **Testador:** subagente independente
-- **Revisor:** subagente independente, obrigatório pelos gatilhos do projeto
+- **Revisor:** subagentes independentes, obrigatório pelos gatilhos do projeto
+
+## Decisões de escopo da v2 (2026-09-25)
+Cinco critérios não foram implementados como escritos. Registrados aqui, com dono, para que a Definition of Done não seja declarada cumprida sobre critérios que ninguém entregou:
+
+| Critério | Situação | Decisão |
+|---|---|---|
+| **13** — estado durável da ingestão manual (`queued/running/succeeded/failed`, `task_id`, lock, timeout, retry, erro persistido) | não implementado | **Fora do escopo desta run.** A ingestão manual está sendo reimplementada pela run `20260924-2136-ingestao-noticias`, que já tem WIP aberto em `backend/catalogo_noticias/management/commands/agendar_ingestao.py` e `backend/catalogo_noticias/services/deduplicacao.py`. Implementar aqui criaria duas fontes de verdade para o mesmo job. A parte de observabilidade do critério — o canal de métricas de job entregue na remediação (`config/job_state.py`) — fica. |
+| **15** — concorrência de ingestão rejeitada ou agrupada pelo lock | não implementado | **Fora do escopo desta run**, mesma razão e mesmo dono. |
+| **17** — dependência externa registrando status, duração, resultado e erro sanitizado | parcial | **Dentro do escopo, com limite explícito.** Implementado como helper reutilizável e adotado nos pontos de chamada de menor risco; a adoção em todos os provedores externos é trabalho incremental e não bloqueia o fechamento. |
+| **10** — stale de feed real por até 5 min, sinalizado | parcial | O sinal chega ao visitante apenas na janela de revalidação do ISR, porque a Home é página estática. O que é alcançável no App Router foi entregue no Bloco B1; o restante depende de o backend expor a idade do cache, o que exige `backend/feed/views.py` — WIP da run 2136. |
+| **29** — standalone sob PM2 com `HOSTNAME`, `PORT`, `static` e `public` | implementado, não verificado | O Bloco C2 trocou o `npm start` por `node .next/standalone/server.js` com as invariantes explícitas. O que falta é execução real na VPS, não decisão de escopo. |
+
+Nenhum desses cinco foi declarado entregue. A run só pode ser fechada com esta tabela ou com a lista de pendências do `test-report.md`, nunca sem uma das duas.
 
 ## O que deve ser construído
 Uma malha de observabilidade operacional integrada ao portal, com telemetria técnica do frontend e backend, correlação ponta a ponta, health/readiness separados, métricas e logs centralizados no Grafana Cloud US, APM no Sentry, checks externos no Better Stack, alertas multi-canal, jobs Celery duráveis, retenção/privacidade, deploy atômico e hardening da operação. A implementação deve preservar a telemetria de negócio existente, mas eliminá-la como substituta de observabilidade técnica.
