@@ -53,6 +53,12 @@ O solicitante pediu a reintrodução de cache de cliente real com TanStack Query
 | `npm run build` (páginas) | compilou e gerou 59/59 páginas (incluindo as 10 rotas Admin), sem erro |
 | Smoke HTTP | 25/25 rotas com HTTP 200 contra o servidor standalone do build de produção (home, comunidade, comunidade/[id], planos, radar, jornalista/status, 10 rotas Admin e demais rotas principais) |
 
+## Commit
+- **Branch:** develop
+- **Hash:** 948a5b5 (cherry-pick de 4c57ff0)
+- **Mensagem:** feat(frontend): reintroduz cache de cliente com TanStack Query e migra os 22 sites de backend (P1-6)
+- **Arquivos:** 33 (2316 insertions, 599 deletions) — apenas migração + artefatos de state; mudanças de runs anteriores (backend/, docs vivos, subir-localhost.sh) preservadas não commitadas
+
 ## Linha do tempo resumida
 - 2026-09-24 17:21 — abertura do run; política conservadora aprovada pelo solicitante.
 - 2026-09-24 17:25 — início da implementação (Etapa 1: núcleo + telas públicas/Community).
@@ -62,6 +68,7 @@ O solicitante pediu a reintrodução de cache de cliente real com TanStack Query
 - 2026-09-24/25 — decisão do solicitante: executar Etapa 1 + Etapa 2 nesta sessão; 404 = dado nulo; criar check de CI.
 - 2026-09-24/25 — subagentes em paralelo: Etapa 1 (jornalista/status + verificar-query-client.mjs) e Etapa 2 (hooks Admin + telas Admin).
 - 2026-09-25 00:20 — validações centrais e fechamento.
+- 2026-09-25 12:04 — commit da migração (4c57ff0 na observability, movido por decisão do solicitante para develop como 948a5b5; observability resetada para d1e0456).
 
 ## Desvios do plano original
 - O task-plan previa dois executores isolados sequenciais (Etapa 1 depois Etapa 2); nesta sessão, a pedido do solicitante, ambas as etapas rodaram em paralelo por subagentes com escopos disjuntos, validadas centralmente.
@@ -69,7 +76,7 @@ O solicitante pediu a reintrodução de cache de cliente real com TanStack Query
 - `next start` não funciona com a configuração `output: standalone` do projeto — o smoke de produção usou `node .next/standalone/server.js` com static/public copiados para o standalone. O smoke inicial contra `next dev` stale retornou 404/500 por cache `.next` compartilhado entre dev e produção (`Cannot find module './vendor-chunks/tailwind-merge.js'`), resolvido com limpeza de `.next` e rebuild — não era problema de código.
 
 ## Follow-ups / pendências
-- 1) Fase de tester independente do run (suíte completa, coverage 88.86% baseline). 2) Fase de reviewer (gatilhos: dependência externa, autenticação/dados privados, polling, volume). 3) Incluir verificar-query-client.mjs no pipeline de CI. 4) Commit da migração. 5) Documentação viva (ARCHITECTURE/PROD_DECISOES) com a política de cache final.
+- 1) Fase de tester independente do run (suíte completa, coverage 88.86% baseline). 2) Fase de reviewer (gatilhos: dependência externa, autenticação/dados privados, polling, volume). 3) ~~Incluir verificar-query-client.mjs no pipeline de CI~~ — ENDEREÇADO (Iteração 3: step adicionado ao job frontend-build do ci.yml). 4) Commit da migração. 5) Documentação viva (ARCHITECTURE/PROD_DECISOES) com a política de cache final.
 
 ## Artefatos desta execução
 - task-plan.md

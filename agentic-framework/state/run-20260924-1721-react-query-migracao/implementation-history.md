@@ -136,3 +136,28 @@ NATUREZA: append-only durante a execução — cada entrada é uma iteração, n
 - `npm run build` — compilou e gerou 59/59 páginas, incluindo as 10 rotas
   Admin; sem dependências órfãs reintroduzidas.
 - Smoke HTTP (produção) — 25/25 rotas com HTTP 200 contra o servidor standalone do build de produção (home, comunidade, comunidade/[id], planos, radar, jornalista/status, as 10 rotas Admin e demais rotas principais: ao-vivo, arquivo, buscar, editorias, favoritos, noticia/[id], minha-conta, personalizar, login, cadastro). Os 404/500 do smoke inicial foram causados por cache stale de `.next` compartilhado entre dev e produção, resolvidos com limpeza de `.next` e rebuild.
+
+## Iteração 3 — 2026-09-25T12:20:00-03:00 — executor (follow-up: check na esteira de CI)
+
+**O que foi feito:**
+
+- Follow-up do report endereçado: o check de política do query client não
+  estava na esteira de CI (o critério 13 do contrato exige "o CI executa o
+  mesmo check"). `.github/workflows/ci.yml` recebeu o step
+  "Verificar política de cache do query client (TanStack Query)" no job
+  `frontend-build`, seguindo o padrão do `verificar-datas-tz.mjs`
+  (checagem estática rápida, fail fast antes do tsc/build). Escopo decidido
+  pelo solicitante: apenas o check faltante (sem smoke HTTP no CI e sem
+  suíte de unidade no frontend nesta esteira).
+- A esteira de CI já cobria o restante: `backend-tests` (PostgreSQL 16 +
+  pytest + `--cov-fail-under=80`) e `frontend-build` (`npm ci`,
+  verificar-datas-tz em TZ UTC/Tokyo, `tsc --noEmit`, `npm run build`), com
+  triggers push/PR em develop+main e `workflow_call` como gate `verify` dos
+  deploys.
+
+**Validação:**
+
+- YAML do ci.yml válido (parse python-yaml; step na ordem esperada:
+  npm ci → datas-tz → query-client → tsc → build).
+- `node frontend/scripts/verificar-query-client.mjs` — exit 0 (8/8),
+  simulando o step do runner localmente.
