@@ -457,8 +457,45 @@ Celery parado.
 Correção mínima em arquivo do Bloco C1: `celery-beat-heartbeat@.service` ganhou
 `StateDirectory=portal-observabilidade`. Com `ProtectSystem=strict` (C1), o
 diretório do heartbeat ficava somente-leitura, o `touch` falharia a cada tick
-e a unit passaria a falhar **com o beat vivo** — o oposto do producers que ela
+e a unit passaria a falhar **com o beat vivo** — o oposto do produtor que ela
 existe para ser. `StateDirectory` resolve sem afrouxar o `ProtectSystem`.
+
+**A unit é a fonte única da verdade desse diretório** — o deploy não o cria.
+`StateDirectory` faz o systemd criar o diretório com o `User=`/`Group=` *da
+própria unit* e o coloca na lista de escrita do `ProtectSystem=strict`. Um
+`install -d` do deploy daria ao diretório o dono do usuário do deploy: hoje
+coincide com o `User=` da unit, mas divergiria no primeiro ambiente em que
+alguém ajustasse o `User=` (que é o ajuste que o cabeçalho da unit prescreve), e
+o sintoma seria `touch` falhando por permissão com o beat vivo.
+
+**E o heartbeat tem duas pontas, em arquivos diferentes** (achado do follow-up,
+que a primeira entrega do C2.3 tinha errado):
+
+| Ponta | Quem lê | De onde |
+|---|---|---|
+| **Produtor** — `celery-beat-heartbeat@<env>.service` faz o `touch` | unit systemd | `/etc/portal/celery-<env>.env` (`BEAT_HEARTBEAT_FILE`) |
+| **Consumidor** — `check_celery_beat` em `/health-detail` | gunicorn do PM2 | `backend/.env` (`OBSERVABILITY_BEAT_HEARTBEAT_FILE`) |
+
+O gunicorn sobe com `set -a; . ./.env`, ou seja, lê **só** `backend/.env` — ele
+nunca vê `/etc/portal/celery-<env>.env`, que é lido apenas pelas units systemd.
+Com a entrega anterior, o produtor escrevia o arquivo e o consumidor não tinha
+como saber o caminho: `check_celery_beat` ficava `not_configured` para sempre,
+com o beat vivo e o heartbeat sendo tocado a cada 5 min. É o pior tipo de falha
+de observabilidade — não há sintoma, porque nada acusa nada.
+
+O deploy agora também acrescenta `OBSERVABILITY_BEAT_HEARTBEAT_FILE` ao
+`backend/.env`, **sem reescrever o arquivo** (o `.env` é gerado uma vez e nunca
+sobrescrito, por invariante do projeto): se a chave já existir com o caminho
+certo, nada muda; se existir com **outro** valor, o deploy **avisa e preserva** —
+mudar o `.env` do operador em silêncio faria o check passar a ler um arquivo que
+ninguém produz. Falha de escrita também vira aviso, nunca derruba o deploy.
+
+O caminho é o mesmo nos três ambientes porque ambos vêm da mesma variável
+`$SUF` (`pm_suffix` do caller): `/var/lib/portal-observabilidade/beat-<env>.heartbeat`
+para `dev`, `homolog` e `prod`. O consumidor precisa apenas de travessia (`x`) no
+diretório para o `Path.stat()` — nunca de permissão de leitura no arquivo, cujo
+conteúdo é irrelevante (só o `st_mtime` é lido). Por isso a unit declara
+`StateDirectoryMode=0755`.
 
 #### SSH: chave com fallback, e por que a senha continua lá
 

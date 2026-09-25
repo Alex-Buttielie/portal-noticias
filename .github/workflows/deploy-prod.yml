@@ -43,6 +43,16 @@ jobs:
       db_name: brd_portal_prod
       db_user: portal_prod
       strict_validate: true
+      # D1: em PRODUÇÃO o source map não é mais fail-open. Sem
+      # SENTRY_AUTH_TOKEN (ou sem .map no build) o job `verify` reprova e o
+      # deploy não chega ao SSH: publicar uma release que não chega ao Sentry
+      # é publicar um stack trace de produção sem mapa, e o critério 20 fica
+      # não atendido sem ninguém perceber. Consequência operacional, e ela é
+      # deliberada: o PRIMEIRO deploy por tag depois deste merge vai reprovar
+      # se os três secrets não estiverem cadastrados no repositório. É o
+      # comportamento correto, e o conserto é cadastrar o secret — não desligar
+      # o gate.
+      sentry_exigido: true
       # Runtime do web e Celery ficam no PADRÃO do workflow reutilizável
       # (standalone + units systemd). Repetir aqui seria criar um segundo lugar
       # onde o runtime muda; o escape hatch é o dispatch de rollback, que
@@ -56,8 +66,11 @@ jobs:
       # Ambos OPCIONAIS: sem eles, o caminho por senha é idêntico ao anterior.
       VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
       VPS_HOST_FINGERPRINT: ${{ secrets.VPS_HOST_FINGERPRINT }}
-      # Sentry (C2.4): opcionais, usados só para o upload de source map do
-      # `verify`. Sem eles, o passo é pulado (fail-open) e o CI segue verde.
+      # Sentry (C2.4/D1): usados só para o upload de source map do `verify`.
+      # Aqui a ausência NÃO é tolerada — com `sentry_exigido: true` acima, o
+      # verify reprova e o deploy não segue. O que reprova é o gate, não a
+      # declaração do secret (que precisa continuar opcional para o `ci.yml`
+      # não quebrar fork e PR de terceiros).
       SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
       SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
       SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}

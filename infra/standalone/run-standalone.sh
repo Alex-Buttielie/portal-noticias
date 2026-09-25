@@ -280,9 +280,9 @@ PY
 }
 
 # ------------------------------------------------------------------ start ---
-# Executa no foreground para o supervisor (PM2 hoje; systemd quando o item
-# C2.3 do plano de deploy entrar). `exec` é obrigatório: sem ele o PID do
-# shell é o do processo e restart/shutdown chegam ao shell, não ao Next.
+# Executa no foreground para o supervisor. Hoje o supervisor é o PM2
+# (`web_runtime: standalone` em deploy.yml). `exec` é obrigatório: sem ele o PID
+# do shell é o do processo e restart/shutdown chegam ao shell, não ao Next.
 iniciar() {
     exigir "$DIR/server.js" "árvore standalone inválida"
     exigir_comando node node "runtime do Next standalone (Node >= 20)"
@@ -301,12 +301,39 @@ case "$COMANDO" in
 esac
 
 # ---------------------------------------------------------------------------
-# POR QUE O PM2 AINDA NÃO USA ISTO (C2.2, fora do escopo desta run)
+# ESTE É O RUNTIME DO PORTAL EM PRODUÇÃO (C2.2)
 # ---------------------------------------------------------------------------
-# Instalar isto na VPS sem uma estratégia de release atômica seria pior do que
-# o `npm start` atual: `next build` reescreve `.next/` no lugar, e o processo
-# em produção lê essa mesma árvore. A troca do comando do PM2 depende do
-# symlink `releases/current` + promoção só após smoke, que é o plano já
-# escrito em `CI-CD.md` (§P1-5) e que depende de `.github/workflows/deploy.yml`
-# — bloqueado nesta run pelo lote P0-1 da run de go-live. Enquanto isso, este
-# script fica disponível para execução manual e para o smoke de homologação.
+# O PM2 executa este script desde C2.2 (run 20260925-1020-observabilidade), via
+# `web_runtime: standalone` em `.github/workflows/deploy.yml`:
+#
+#   infra/standalone/run-standalone.sh prepare --dir releases/<id>/standalone
+#   infra/standalone/run-standalone.sh smoke  --dir releases/<id>/standalone
+#   infra/standalone/run-standalone.sh start   --dir releases/current/standalone
+#
+# A nota anterior deste arquivo dizia "o PM2 ainda NÃO usa isto", o que
+# deixou de ser verdade quando o deploy ganhou a release atômica. O motivo
+# original continua válido e é a razão de a troca ter sido adiada: usar esta
+# árvore sem estratégia de release seria PIOR que o `npm start` antigo, porque
+# `next build` reescreve `.next/` no lugar e o processo em produção lê essa
+# mesma árvore. Por isso a ordem é invariante: preparar → fumegar a release →
+# só então trocar o symlink `releases/current` e reiniciar.
+#
+# O QUE CONTINUA SENDO VERDADE (e não deve ser "simplificado"):
+#   * `start` NÃO faz promote. Promover é ato do deploy, e só depois do smoke
+#     verde. Se alguém chamar `start` apontando para uma release não validada,
+#     estará servindo código que ninguém checou.
+#   * `smoke` NÃO reinicia nada e NÃO toca em `current`/`previous`. Ele sobe o
+#     servidor numa porta livre, valida e derruba. Um smoke que promovesse
+#     alguma coisa seria um smoke que pode derrubar a produção.
+#   * O bind e o `PORT` vêm do ambiente/flags, nunca de valor fixo aqui. O
+#     deploy passa `--host`/`--port` explícitos porque o `HOSTNAME` ausente faz
+#     o Next escutar no hostname do host, que não é o que o Nginx faz proxy.
+#
+# SE ALGUÉM VOLTAR AO `npm start` (caminho de escape, ainda disponível):
+#   é o input `web_runtime: npm` no workflow reutilizável, exposto também no
+#   dispatch de `rollback.yml`. Ele faz build in-place e sobe `npm start` sem
+#   tocar em `releases/`. Voltar ao `npm start` reintroduz o problema original —
+#   `.next/` reescrito embaixo do processo em produção — e por isso exige
+#   decisão registrada em `CI-CD.md` §P1-6, não uma edição de workflow. NUNCA
+#   remova este caminho de escape sem antes de um deploy `standalone` validado
+#   num ambiente real com probes verdes.

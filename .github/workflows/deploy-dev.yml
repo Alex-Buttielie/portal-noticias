@@ -37,7 +37,8 @@ jobs:
       VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
       VPS_HOST_FINGERPRINT: ${{ secrets.VPS_HOST_FINGERPRINT }}
       # Sentry (C2.4): opcionais, usados só para o upload de source map do
-      # `verify`. Sem eles, o passo é pulado (fail-open) e o CI segue verde.
+      # `verify`. Sem eles, o passo é pulado (fail-open) e o CI segue verde —
+      # comportamento CORRETO em dev (D1: só PROD exige credencial).
       SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
       SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
       SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}

@@ -529,3 +529,197 @@ Registrado como pede a instrução, **sem mudança de status**:
    — inevitável para que o C2.3 funcione; declarado em vez de silencioso.
 8. **Exceção do `verify` que recebe secrets** (só os do Sentry). Justificada no
    arquivo: PROD sai de tag e o CI por `push` não a cobre.
+
+---
+
+# Follow-up — as duas incoerências C1↔C2 (2026-09-25, após `337ce37`)
+
+Fechamento das duas incoerências que a entrega do C2 havia deixado em aberto.
+Escopo: `infra/standalone/run-standalone.sh`, `infra/systemd/`,
+`.github/workflows/deploy.yml` (o `install -d` e o consumidor do heartbeat),
+`CI-CD.md` e `infra/DEPLOY.md`. `bloco-c1-notas.md` **não foi tocado** (registro
+histórico). `backend/`, `frontend/`, `docker-compose*.yml` e `run-state.json`
+intocados.
+
+## F1 — `run-standalone.sh`: a nota que descrevia um estado já resolvido
+
+A nota final dizia "POR QUE O PM2 AINDA NÃO USA ISTO (C2.2, fora do escopo)". O
+C2.2 faz o PM2 usar exatamente este script, então a nota mentia. Reescrita para o
+estado atual.
+
+**Só a nota e um comentário de cabeçalho mudaram. Nenhuma linha de código
+executável foi tocada** — `preparar`, `smoke` e `start` estão intactos
+(conferido com `git diff`: as alterações estão todas em linhas de comentário).
+
+A nota nova preserva o que continua verdadeiro, que é o motivo da troca ter sido
+adiada: usar a árvore standalone sem estratégia de release seria **pior** que o
+`npm start` antigo, porque `next build` reescreve `.next/` no lugar e o processo
+em produção lê essa mesma árvore. E registra as três invariantes que alguém
+tentaria "simplificar":
+
+- `start` **não** promove. Promover é ato do deploy, e só depois do smoke verde.
+- `smoke` **não** toca em `current`/`previous` — ele sobe numa porta livre,
+  valida e derruba.
+- bind e `PORT` vêm do ambiente/flags, nunca de valor fixo no script.
+
+E o que fazer se alguém voltar ao `npm start`: é o input `web_runtime: npm`,
+também exposto no dispatch de `rollback.yml`; volta ao build in-place sem tocar
+em `releases/`; **reintroduz** o problema original; por isso exige decisão
+registrada em `CI-CD.md` §P1-6 e nunca deve ser removido sem um deploy
+`standalone` validado com probes verdes.
+
+## F2 — Diretório do heartbeat: fonte única + uma quebra maior encontrada
+
+O pedido era resolver o conflito entre o `install -d` do deploy e o
+`StateDirectory=` da unit. Ao verificar, achei que o conflito era a ponta
+menor — havia uma **quebra funcional** na cadeia inteira, introduced pelo
+próprio C2.3.
+
+### A quebra: o produtor escrevia um arquivo que o consumidor não conseguia ver
+
+O heartbeat tem duas pontas, e elas **não se enxergam**:
+
+| Ponta | Quem executa | De onde lê a configuração |
+|---|---|---|
+| **Produtor** — `celery-beat-heartbeat@<env>.service` faz o `touch` | unit systemd | `/etc/portal/celery-<env>.env` → `BEAT_HEARTBEAT_FILE` |
+| **Consumidor** — `check_celery_beat` em `/health-detail` | **gunicorn do PM2** | **só** `backend/.env` → `OBSERVABILITY_BEAT_HEARTBEAT_FILE` |
+
+O gunicorn sobe com `set -a; . ./.env` (`deploy.yml:580`). Ele **nunca** lê
+`/etc/portal/celery-<env>.env` — esse arquivo é lido apenas pelas units systemd.
+E o bootstrap de `backend/.env` não escreve `OBSERVABILITY_BEAT_HEARTBEAT_FILE`,
+e o `.env` é gerado uma vez e **nunca reescrito** (invariante do projeto).
+
+Consequência do C2.3 como estava: o produtor escrevia o arquivo a cada 5 min, o
+beat estava vivo, e `check_celery_beat` ficava `not_configured` **para sempre**.
+É o pior tipo de falha de observabilidade: não há sintoma, porque nada acusa
+nada — e era exatamente a classe de falso verde que a run existe para eliminar.
+Note que o `StateDirectory` que eu havia adicionado na entrega anterior
+corrigia um problema **real** (diretório somente-leitura com
+`ProtectSystem=strict`), mas não esse.
+
+**Correção:** o deploy agora também acrescenta
+`OBSERVABILITY_BEAT_HEARTBEAT_FILE` ao `backend/.env`, sem reescrever o
+arquivo — se a chave já existir com o caminho certo, nada muda; se existir com
+**outro** valor, **avisa e preserva** (mudar o `.env` do operador em silêncio
+faria o check passar a ler um arquivo que ninguém produz); se a escrita falhar,
+avisa e **não** derruba o deploy.
+
+### Fonte única do diretório: a unit
+
+O conflito pedido está resolvido em favor da **unit**, e o `install -d` do
+deploy foi removido:
+
+- `StateDirectory=` faz o systemd criar o diretório com o `User=`/`Group=` **da
+  própria unit** e colocá-lo na lista de escrita do `ProtectSystem=strict`;
+- um `install -d` do deploy daria ao diretório o dono do usuário do deploy. Hoje
+  isso **coincide** com o `User=` da unit, por acidente (ambos vêm de
+  `id -un`); divergiria no primeiro ambiente em que alguém ajustasse o `User=`,
+  que é literalmente o ajuste manual que o cabeçalho da unit prescreve;
+- o sintoma do descasamento seria o pior possível: `touch` falhando por
+  permissão a cada tick, com o beat VIVO e o alerta de beat parado disparando.
+
+Uma fonte, uma verdade: o dono do diretório é função do `User=` da unit, e o
+`User=` já é a fonte de verdade. O comentário na unit registra isso, e um teste
+automatizado falha se o deploy voltar a criar o diretório.
+
+### Verificação da cadeia (o que o pedido pediu para conferir)
+
+**Caminho igual nos três ambientes** — ambos vêm da mesma `$SUF`
+(`pm_suffix` do caller: `dev`/`homolog`/`prod`):
+
+```text
+dev      produtor=/var/lib/portal-observabilidade/beat-dev.heartbeat
+         consumidor=/var/lib/portal-observabilidade/beat-dev.heartbeat      IGUAIS
+homolog  produtor=/var/lib/portal-observabilidade/beat-homolog.heartbeat
+         consumidor=/var/lib/portal-observabilidade/beat-homolog.heartbeat  IGUAIS
+prod     produtor=/var/lib/portal-observabilidade/beat-prod.heartbeat
+         consumidor=/var/lib/portal-observabilidade/beat-prod.heartbeat     IGUAIS
+```
+
+**Dono/permissão que o health check consegue ler** — o consumidor precisa de
+travessia (`x`) no diretório e **nada** no arquivo, porque `check_celery_beat`
+faz só `Path(caminho).stat()` e lê o `st_mtime`; o conteúdo é irrelevante. Com
+`StateDirectoryMode=0755` e `UMask=0027` (arquivo 640), `os.stat()` passa —
+verificado por execução. Antes do primeiro tick do timer o arquivo não existe e
+o check retorna `error` com `errno=2`, que é o comportamento correto: visível e
+**não** verde.
+
+Por que 0755 e não 0750: hoje 0750 funcionaria (o consumidor é o mesmo
+usuário), mas 0755 não depende de o consumidor estar no grupo primário certo, o
+que importa porque o `User=` é justamente o ajuste que o operador é
+instruído a fazer à mão.
+
+## Validação deste follow-up (saída real)
+
+Executado localmente. Sem `sudo` real, sem systemd, sem GitHub Actions, sem VPS
+— nada real foi tocado.
+
+| # | O que | Como | Resultado |
+|---|---|---|---|
+| W1 | `run-standalone.sh` intacto em código | `git diff` + inspeção | só linhas de comentário alteradas |
+| W2 | `bash -n run-standalone.sh` | shell | `OK` |
+| W3 | `bash -n validar-infra.sh` | shell | `OK` |
+| W4 | YAML dos 6 workflows | `python3 -c "import yaml; yaml.safe_load(...)"` | 6/6 `YAML OK` |
+| W5 | `actionlint 1.7.7` (com shellcheck) | `.github/workflows/*.yml` | **exit 0, sem achado** |
+| W6 | Shell embutido dos 2 scripts do deploy | extração + `bash -n` | 2/2 `bash -n OK` |
+| W7 | Cadeia de permissão do heartbeat | execução com `stat`/`os.stat` | `os.stat(): OK`; ausente → `errno=2` → `error` |
+| W8 | Caminho igual nos 3 ambientes | resolução de `$SUF` | 3/3 `IGUAIS` |
+| W9 | 4 cenários do consumidor do heartbeat | bloco extraído do `deploy.yml` + `backend/.env` falso | 4/4 passaram |
+| W10 | 5 cenários de systemd (regressão) | função extraída + `sudo`/`systemctl` falsos | 5/5 passaram, +2 asserções novas |
+| W11 | 9 cenários de release (regressão) | funções extraídas + `run-standalone.sh` real | 9/9 passaram |
+| W12 | `validar-infra.sh --estrito` | completo | `52 OK, 0 AVISO, 1 PENDENTE DECLARADA, 1 PULADO, 0 FALHOU`, **exit 0** |
+
+**W9 — detalhe dos 4 cenários do consumidor:**
+
+```text
+C1 ok: .env SEM a variável -> acrescentada, conteúdo existente preservado, permissão 600 intacta
+C2 ok: .env COM a variável correta -> não duplicou (1 ocorrência)
+C3 ok: .env com valor em OUTRO caminho -> AVISO e valor do operador preservado
+C4 ok: escrita no .env falha (diretório 0500) -> AVISO, deploy seguiu (rc=0), .env intacto
+```
+
+**W10 — asserções novas que este follow-up acrescenta** (o teste falharia se
+alguém reintroduzisse o conflito):
+
+```text
+ok: deploy NAO cria o diretorio do heartbeat (fonte unica = StateDirectory= da unit)
+ok: a unit mantem StateDirectory=portal-observabilidade
+```
+
+Dois ajustes nos testes foram necessários durante a execução e valem como
+registro: o T2 do teste de systemd verificava que o diretório era criado (o
+comportamento que eu acabei de remover), e os limites de linha das funções
+extradas quebravam a cada edição do workflow — troquei por `grep`/`awk`
+dinâmicos, que é a forma correta de extrair de um arquivo que muda.
+
+### NÃO validado (pendências, não "validado")
+
+1. **Nada disto rodou numa VPS.** A cadeia do heartbeat (produtor → consumidor)
+   foi verificada por leitura e por simulação de permissão, não em execução.
+   O teste que importa é, num ambiente real: `ls -l
+   /var/lib/portal-observabilidade/`, `curl` em `/health-detail` e confirmar que
+   `celery_beat` deixou de ser `not_configured`.
+2. **O `StateDirectory` ainda não foi provado dentro do systemd** com
+   `ProtectSystem=strict` ativo. O argumento está no comentário da unit, mas o
+   teste real é o `systemctl start` na VPS.
+3. **A escrita em `backend/.env` do consumidor** não foi exercitada contra um
+   arquivo real com ownership de root e `umask 077`; foi contra um arquivo do
+   próprio usuário.
+4. Se a VPS já tiver `/var/lib/portal-observabilidade` criado pelo
+   `install -d` da versão anterior do C2.3 com dono divergente do `User=` da
+   unit, o `StateDirectory` do systemd **não corrige o dono de um diretório já
+   existente** — ele só ajusta o que ele mesmo criou. Verificar `stat -c %U`
+   antes do primeiro deploy e remover o diretório se o dono estiver errado.
+   **Esta é a única migração manual que a mudança exige**, e ela não pode ser
+   automatizada sem risco de apagar um diretório com dados.
+
+## Pendências que continuam
+
+As do bloco principal permanecem inalteradas (primeiro deploy `standalone`,
+teste de falha controlada, SSH por chave, R-1, R-2). Acrescentam-se:
+
+1. **Verificar o dono de `/var/lib/portal-observabilidade`** numa VPS que já
+   tenha recebido um deploy com a versão anterior do C2.3 (item 4 acima).
+2. **`run-standalone.sh`**: a nota agora descreve o estado atual, mas o
+   cabeçalho de `bloco-c1-notas.md` ainda descreve o antigo — **por decisão,**
+   é registro histórico e não deve ser reescrito.

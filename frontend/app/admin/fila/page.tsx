@@ -21,6 +21,12 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 type Item = api.AdminFilaItem;
 const STATUS_OPS = ["pendente","aprovado","rejeitado","nao_aplicavel"] as const;
 const PAGE_SIZE = 20;
+// Vazia de módulo, não `[]` no corpo do componente: o literal do ternário criava
+// uma referência nova a CADA render, e os `useMemo` de `cats`/`filtrados`
+// dependentes de `itens` perdiam a memoização a cada render (react-hooks/
+// exhaustive-deps). Mesma lista vazia, mesma política de fail-closed, mesma
+// referência.
+const VAZIO: Item[] = [];
 
 function timeAgo(iso:string){
   const d = Date.now() - new Date(iso).getTime();
@@ -69,7 +75,10 @@ export default function Page(){
     page,
     intervaloMs: auto ? 30_000 : 0,
   });
-  const itens = consultaFila.isError ? [] : (consultaFila.data?.results ?? []);
+  const itens = useMemo(
+    () => (consultaFila.isError ? VAZIO : (consultaFila.data?.results ?? [])),
+    [consultaFila.isError, consultaFila.data]
+  );
   const total = consultaFila.isError ? 0 : (consultaFila.data?.count ?? 0);
   const loading = consultaFila.isFetching;
   const err = consultaFila.isError

@@ -17,10 +17,21 @@ on:
         required: false
         type: string
         default: ""
+      # D1: o fail-open de source map é o certo em PR/fork e o ERRADO no
+      # caminho de produção. Este input é a distinção, e é booleano para que
+      # ninguém tenha que lembrar de reimplementar a lógica em outro workflow.
+      # `true` só no `verify` do deploy de PROD (via `deploy.yml`).
+      sentry_exigido:
+        description: "true = sem credencial do Sentry o build REPROVA (só produção)"
+        required: false
+        type: boolean
+        default: false
     # Secrets OPCIONAIS e só do Sentry (C2.4). Precisam estar declarados aqui
     # porque o chamador tem que repassá-los um a um; `required: false` é o que
     # mantém o CI verde em fork, em clone local e antes de a conta existir. O
     # passo de upload é fail-open justamente por isso (ver `frontend-build`).
+    # Em produção, a ausência do token NÃO é mais tolerada: o input
+    # `sentry_exigido` transforma a mesma checagem em reprovação.
     secrets:
       SENTRY_AUTH_TOKEN:
         required: false
@@ -101,6 +112,12 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
+      # Ordem dos passos = ordem de custo e de valor da prova. Cada passo
+      # bloqueia os seguintes pela semântica normal do GitHub Actions (sem
+      # `if:` = `success()` implícito): teste vermelho NÃO gera build, e build
+      # vermelho NÃO gera upload. Nenhum `if: always()` aqui — `always()` em
+      # gate é o que faz "o build passou mesmo com o teste quebrado" parecer
+      # verde no resumo do job.
       - name: Verificar datas civis e instantes em TZ UTC/Tokyo
         run: |
           TZ=UTC node scripts/verificar-datas-tz.mjs
@@ -110,38 +127,113 @@ jobs:
       # token/PII. Node puro, sem dependências; fail fast antes do tsc/build.
       - name: Verificar política de cache do query client (TanStack Query)
         run: node scripts/verificar-query-client.mjs
-      - run: npx tsc --noEmit
+      # Guarda de conteúdo fictício (B1). Rodava só localmente, e conteúdo
+      # fictício em produção é o que os não-objetivos do contrato proíbem — uma
+      # guarda que existe e não roda no CI é a mesma categoria de mentira que o
+      # `lint` sem eslint: verifica local, não verifica o merge.
+      - name: Verificar ausência de conteúdo fictício (B1)
+        run: npm run test:conteudo-ficticio
+      # Suíte de comportamento de erro e consentimento (B2). `B2_INTEGRACAO` é
+      # o sinal que LIGA os 7 testes de integração; sem ele o `describe.skipIf`
+      # deles não roda e a suíte fica 100% pura (82 testes). Aqui a variável é
+      # zerada DE PROPÓSITO, e não por acaso: o runner não tem Django no ar, e
+      # teste de integração que falha por ausência de serviço é teste que mede
+      # a máquina, não o código. Fixar "" na CI impede que a variável vazada
+      # no runner transforme o gate em instável. O opt-in continua disponível
+      # para quem tem backend no ar (documentado no topo do arquivo de teste).
+      - name: Testes de comportamento de erro e consentimento (B2)
+        env:
+          B2_INTEGRACAO: ""
+        run: npm test
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Lint
+        # `--max-warnings 0` mora no script `lint`, não aqui: o mesmo comando
+        # roda local e na CI, então não existe versão "de verdade" do gate que
+        # só funciona no Actions. Baseline medido antes de fechar o gate:
+        # 0 erros e 8 avisos (ver bloco-d1-notas.md).
+        run: npm run lint
       - run: npm run build
         env:
           NEXT_PUBLIC_API_BASE_URL: http://localhost:8000
           NEXT_PUBLIC_SITE_URL: http://localhost:3000
-      # --- Source maps no Sentry (C2.4) -------------------------------------
-      # FAIL-OPEN de propósito, em duas camadas:
-      #   1) sem `SENTRY_AUTH_TOKEN` o passo nem roda (PR de fork, clone local,
-      #      repositório sem conta ainda). Um CI que exige segredo para
-      #      buildar trava o projeto inteiro — inclusive quem só quer abrir PR;
-      #   2) mesmo configurado, uma falha de upload NÃO reprova o build
-      #      (`continue-on-error`): source map é insumo de diagnóstico, e
-      #      transformar indisponibilidade do Sentry em indisponibilidade de
-      #      deploy é trocar um problema pequeno por um grande.
+      # --- Source maps no Sentry (C2.4, fechado em D1) -----------------------
+      # A política é DUAS CAMADAS, e o que distingue uma da outra é o input
+      # `sentry_exigido` (D1) — não dois blocos de shell:
+      #   - CI comum (PR, fork, branch de terceiro, `push` em develop/main):
+      #     FAIL-OPEN. Sem `SENTRY_AUTH_TOKEN` o passo nem roda. Um CI que
+      #     exige segredo para buildar trava o projeto inteiro — inclusive
+      #     quem só quer abrir PR, e inclusive fork, que não recebe secret;
+      #   - PRODUÇÃO (`deploy-prod.yml` -> `deploy.yml` -> aqui, com
+      #     `sentry_exigido: true`): FAIL-CLOSED. Sem credencial o build
+      #     REPROVA. Sem upload o release não chega ao Sentry, o stack trace
+      #     de produção chega sem mapa e o critério 20 fica não atendido sem
+      #     ninguém perceber — e produção é justamente onde dói.
+      # A checagem de credencial E a de existência dos `.map` moram no MESMO
+      # passo porque as duas respondem à mesma pergunta — "esta release chega
+      # ao Sentry?" — e as duas são erro de CONFIGURAÇÃO, determinístico. A
+      # FALHA DO UPLOAD em si (`continue-on-error`) continua não bloqueante:
+      # rede do Sentry cair não pode impedir um deploy. O que essa distinção
+      # deixa de fora está registrado como decisão pendente em bloco-d1-notas.md.
+      #
       # `if:` não pode referenciar `secrets` (o GitHub recusa a expressão), por
-      # isso a decisão sai de um passo anterior que publica um output.
+      # isso a decisão sai de um passo anterior que publica outputs.
       - name: Verificar configuração do Sentry
         id: sentry
         env:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
           SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
+          SENTRY_EXIGIDO: ${{ inputs.sentry_exigido || false }}
         run: |
           set -eu
+          FALTANDO=""
           if [ -z "${SENTRY_AUTH_TOKEN:-}" ]; then
-            echo "habilitado=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::Sentry sem SENTRY_AUTH_TOKEN: upload de source maps PULADO (fail-open)."
-            exit 0
+            FALTANDO="SENTRY_AUTH_TOKEN"
           fi
           if [ -z "${SENTRY_ORG:-}" ] || [ -z "${SENTRY_PROJECT:-}" ]; then
+            FALTANDO="${FALTANDO:+$FALTANDO, }SENTRY_ORG/SENTRY_PROJECT"
+          fi
+          if [ -n "$FALTANDO" ]; then
             echo "habilitado=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::SENTRY_AUTH_TOKEN existe, mas SENTRY_ORG/SENTRY_PROJECT não: upload PULADO. Preencha os três secrets (ver CI-CD.md, seção de secrets)."
+            echo "total=0" >> "$GITHUB_OUTPUT"
+            if [ "$SENTRY_EXIGIDO" = "true" ]; then
+              echo "::error::Sentry é obrigatório neste caminho (sentry_exigido=true) e falta: $FALTANDO. Reprovo o build em vez de publicar uma release sem source map. Preencha os três secrets (ver CI-CD.md, seção de secrets)."
+              exit 1
+            fi
+            echo "::notice::Sentry sem $FALTANDO: upload de source maps PULADO (fail-open — correto fora de produção)."
+            exit 0
+          fi
+          # A contagem é feita AQUI e não no passo de upload porque o gate
+          # precisa saber se os mapas existem ANTES de decidir habilitar o
+          # upload; duplicar o `find` em dois passos é duplicar a chance de os
+          # dois divergirem.
+          TOTAL="$(find .next -type f -name '*.map' 2>/dev/null | wc -l | tr -d ' ')"
+          echo "total=$TOTAL" >> "$GITHUB_OUTPUT"
+          if [ "$TOTAL" = "0" ]; then
+            echo "habilitado=false" >> "$GITHUB_OUTPUT"
+            if [ "$SENTRY_EXIGIDO" = "true" ]; then
+              echo "::error::Sentry é obrigatório neste caminho (sentry_exigido=true) e o build não produziu NENHUM .map em .next. Reprovo em vez de publicar uma release sem source map. Verificar next.config.js (withSentryConfig) e se o plugin do SDK foi carregado."
+              exit 1
+            fi
+            echo "::notice::Nenhum .map em .next: upload PULADO. Se o next.config.js voltar ao default do SDK (apagar os mapas após o upload) ou se nenhum plugin os gerar, nada é enviado — com aviso, não com erro."
+            exit 0
+          fi
+          # O CLI vem como dependência TRANSITIVA do @sentry/nextjs (via
+          # @sentry/bundler-plugin-core) e a versão é a do lockfile — que é a
+          # versão que o próprio `withSentryConfig` usa no build. Instalar "a
+          # versão do @sentry/nextjs" aqui estaria errado: o CLI tem linha de
+          # versionamento própria (2.x), e um `npx @sentry/cli@10.x` pediria um
+          # pacote que não existe. A checagem é do GATE, e não do upload,
+          # porque CLI ausente é erro de empacotamento (determinístico, não
+          # some sozinho) e não falha de upload (transitória).
+          if [ ! -x node_modules/.bin/sentry-cli ]; then
+            echo "habilitado=false" >> "$GITHUB_OUTPUT"
+            if [ "$SENTRY_EXIGIDO" = "true" ]; then
+              echo "::error::Sentry é obrigatório neste caminho (sentry_exigido=true) e node_modules/.bin/sentry-cli não existe: reprovo o build, porque um 'habilitado' apontando para binário inexistente é gate que só parece funcionar. O @sentry/nextjs traz o CLI como transitiva; se isso mudar, fixe a versão aqui em vez de adivinhar."
+              exit 1
+            fi
+            echo "::warning::node_modules/.bin/sentry-cli ausente: upload PULADO. O @sentry/nextjs traz o CLI como transitiva; se isso mudar, fixe a versão aqui em vez de adivinhar."
             exit 0
           fi
           echo "habilitado=true" >> "$GITHUB_OUTPUT"
@@ -160,22 +252,12 @@ jobs:
           # `github.sha` é o merge commit. Sem source map do mesmo release que
           # o deploy promovou, a correlação de stack trace não fecha.
           RELEASE="$(git rev-parse HEAD)"
-          TOTAL="$(find .next -type f -name '*.map' 2>/dev/null | wc -l | tr -d ' ')"
-          if [ "$TOTAL" = "0" ]; then
-            echo "::notice::Nenhum .map em .next: upload PULADO. Se o next.config.js voltar ao default do SDK (apagar os mapas após o upload) ou se nenhum plugin os gerar, nada é enviado — com aviso, não com erro."
-            exit 0
-          fi
-          echo "source maps encontrados: $TOTAL (release $RELEASE)"
-          # O CLI vem como dependência TRANSITIVA do @sentry/nextjs (via
-          # @sentry/bundler-plugin-core) e a versão é a do lockfile — que é a
-          # versão que o próprio `withSentryConfig` usa no build. Instalar
-          # "a versão do @sentry/nextjs" aqui estaria errado: o CLI tem linha
-          # de versionamento própria (2.x), e um `npx @sentry/cli@10.x` pediria
-          # um pacote que não existe.
-          if [ ! -x node_modules/.bin/sentry-cli ]; then
-            echo "::warning::node_modules/.bin/sentry-cli ausente: upload PULADO. O @sentry/nextjs traz o CLI como transitiva; se isso mudar, fixe a versão aqui em vez de adivinhar."
-            exit 0
-          fi
+          # A contagem dos `.map` e a existência do CLI foram decididas no passo
+          # `sentry` (o gate), não aqui: este passo só executa o upload.
+          # `continue-on-error` continua valendo de propósito — a partir daqui o
+          # que pode falhar é rede/indisponibilidade do Sentry, que não deve
+          # impedir um deploy.
+          echo "source maps a enviar: ${{ steps.sentry.outputs.total }} (release $RELEASE)"
           node_modules/.bin/sentry-cli sourcemaps upload \
             --org "$SENTRY_ORG" \
             --project "$SENTRY_PROJECT" \

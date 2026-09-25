@@ -32,16 +32,35 @@ Type=oneshot
 User=apps
 Group=apps
 EnvironmentFile=/etc/portal/celery-%i.env
-# `StateDirectory` (C2.3): `ProtectSystem=strict` abaixo deixa o sistema de
-# arquivos INTEIRO somente-leitura, exceto as rotas que o systemd declara como
-# graváveis. Sem esta linha, `/var/lib/portal-observabilidade` (o diretório de
-# `BEAT_HEARTBEAT_FILE`) ficaria somente-leitura, o `touch` falharia e a unit
-# passaria a falhar a cada tick — com o beat VIVO e o `check_celery_beat`
-# envelhecendo até `degraded`. Em vez de afrouxar o `ProtectSystem` (que existe
-# para travar o resto do disco), o systemd cria o diretório com o dono certo e
-# o libera para escrita. `celery-beat@` não precisa disto: ele usa
-# `ProtectSystem=full` e só toca o arquivo no ExecStartPost, tolerante a falha.
+# FONTE ÚNICA DA VERDADE DO DIRETÓRIO (C2.3): é esta unit, via
+# `StateDirectory`. Nenhum outro lugar cria `/var/lib/portal-observabilidade`.
+#
+# Por que a unit dita e não o deploy: `StateDirectory` faz o systemd criar o
+# diretório com o `User=`/`Group=` **desta** unit e, em especial, emoldá-lo na
+# lista de escrita do `ProtectSystem=strict` abaixo. Um `install -d` do deploy
+# criaria o diretório com o dono do usuário do deploy — que hoje é o mesmo,
+# por coincidência de o `User=` ser resolvido do mesmo lugar, e não por
+# construção. Divergiriam no primeiro ambiente em que alguém ajustasse o
+# `User=` (que é o ajuste manual que o cabeçalho da unit prescreve), e o sintoma
+# seria o pior possível: `touch` falhando por permissão, tick perdido, e
+# `check_celery_beat` envelhecendo até `degraded` COM O BEAT VIVO. Uma fonte,
+# uma verdade: o dono do diretório é uma função do `User=` da unit, e o
+# `User=` já é a fonte de verdade.
+#
+# Por que `ProtectSystem=strict` não pode ser afrouxado para resolver: ele
+# existe para travar o resto do disco, e `StateDirectory` dá a exceção exata
+# (esta rota gravável) sem abrir mais nada. `celery-beat@` NÃO declara este
+# `StateDirectory` de propósito: usa `ProtectSystem=full` e só toca o arquivo
+# num `ExecStartPost` com prefixo `-` (tolerante), porque o primeiro `touch`
+# pode acontecer antes do primeiro tick do timer criar o diretório.
 StateDirectory=portal-observabilidade
+# 0755 e não 0750: o CONSUMIDOR do arquivo é o gunicorn do PM2
+# (`/health-detail` -> `check_celery_beat`), que roda como o usuário do app —
+# o mesmo da unit. 0750 também funcionaria hoje, mas 0755 é o que sobrevive a
+# um `User=` de leitura para o diagnóstico (o `stat` não precisa de escrita) e
+# não depende de o consumidor estar no mesmo grupo primário. O CONTEÚDO do
+# arquivo é irrelevante: o backend só lê `st_mtime` (`Path.stat()`), que exige
+# apenas travessia (`x`) no diretório, nunca permissão de leitura no arquivo.
 StateDirectoryMode=0755
 # Se a unit do beat não estiver ativa, a condição falha e o resto do serviço
 # (incluindo o ExecStart) é pulado. `systemctl status` mostra "skipped".

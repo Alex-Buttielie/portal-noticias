@@ -77,6 +77,11 @@ export function HomeClient({
   }, [feedProp, urgProp, maisLidasProp, leiturasTick]);
 
   const perfil = useMemo(() => ({ interesses: usuario?.interesses ?? [] }), [usuario]);
+  // `leiturasTick` NÃO é dependência aqui: o único lugar que o incrementa é o
+  // efeito de montagem logo abaixo, que também seta `hidratado` — e é esse
+  // `hidratado` que já dispara a releitura (react-hooks/exhaustive-deps).
+  // Listar os dois fazia a regra sugerir uma dependência que, sozinha, nunca
+  // mudaria o resultado.
   const leituras = useMemo(() => {
     if (!hidratado) return {};
     try {
@@ -84,7 +89,7 @@ export function HomeClient({
     } catch {
       return {};
     }
-  }, [hidratado, leiturasTick]);
+  }, [hidratado]);
 
   useEffect(() => {
     setHidratado(true);

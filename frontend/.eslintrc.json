@@ -1,0 +1,33 @@
+// Lint do frontend (run 20260925-1020-observabilidade, Bloco D1, critério 39).
+//
+// Até este arquivo o projeto tinha o script `lint` (`next lint`) sem NENHUM
+// eslint instalado e sem config: `next lint` caía no assistente interativo do
+// create-next-app e saía com código 1 — um "lint" que não roda e não prova
+// nada. Este arquivo é o que torna o passo executável, e o script `lint` do
+// package.json (`next lint --dir . --max-warnings 0`) é o que o CI executa.
+//
+// `next/core-web-vitals` é o perfil PADRÃO do Next 14.2 — o mesmo que o
+// create-next-app escreveria aqui. Versões: `eslint@8.57.1` +
+// `eslint-config-next@14.2.15`, com a versão do config IGUAL à do `next` do
+// package.json, e eslint 8 porque é o que o peerDependency desse config aceita
+// (`^7.23.0 || ^8.0.0`).
+//
+// O preset `next/typescript` (plugin:@typescript-eslint/recommended) NÃO foi
+// adotado: ele produz 61 erros no código atual (27 `no-explicit-any`, 28
+// `no-unused-vars`, 4 `no-empty-object-type`, 2 `prefer-const`) em 35 arquivos,
+// quase todos em fronteira de API onde o `any` é deliberado. Consertar isso é
+// tipagem de ~30 arquivos — remediação de escopo de outra run, não deste
+// bloco. O número exato e o detalhamento por regra estão em
+// agentic-framework/state/run-20260925-1020-observabilidade/bloco-d1-notas.md,
+// como decisão pendente de quem solicitou o D1.
+//
+// `--dir .` (no script, não aqui) é o que faz o escopo incluir a raiz
+// (instrumentation.ts, sentry.client/server.config.ts, tailwind.config.ts),
+// `testes/` e `scripts/`: os defaults do `next lint` são
+// app/components/lib/pages/src, que deixariam fora justamente os arquivos de
+// observabilidade desta run. O escopo foi verificado com uma sonda que violava
+// `@next/next/no-img-element` na raiz e foi detectada.
+{
+  "extends": ["next/core-web-vitals"],
+  "ignorePatterns": ["node_modules/", ".next/", "out/"]
+}

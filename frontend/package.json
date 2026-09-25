@@ -6,14 +6,14 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
+    "lint": "next lint --dir . --max-warnings 0",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:conteudo-ficticio": "node scripts/verificar-conteudo-ficticio.mjs",
     "test:query-client": "node scripts/verificar-query-client.mjs",
     "test:datas-tz": "node scripts/verificar-datas-tz.mjs",
-    "verificar": "npm run typecheck && npm run test && npm run test:conteudo-ficticio && npm run test:query-client && npm run test:datas-tz"
+    "verificar": "npm run lint && npm run typecheck && npm run test && npm run test:conteudo-ficticio && npm run test:query-client && npm run test:datas-tz"
   },
   "dependencies": {
     "@radix-ui/react-accordion": "^1.2.20",
@@ -60,6 +60,8 @@
     "@types/node": "20.14.15",
     "@types/react": "18.3.3",
     "@types/react-dom": "18.3.0",
+    "eslint": "8.57.1",
+    "eslint-config-next": "14.2.15",
     "typescript": "5.5.4",
     "vitest": "3.2.4"
   },

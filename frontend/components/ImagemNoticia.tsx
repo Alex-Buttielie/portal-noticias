@@ -74,6 +74,7 @@ export function ImagemNoticia({
   const comSrcSet = usandoPicsum || ehPicsum(original);
 
   return (
+    // eslint-disable-next-line @next/next/no-img-element -- <img> é ESCOLHA, não esquecimento (Bloco D1, lint como gate): a origem é qualquer host de RSS, sem allowlist; o `srcSet` de picsum é montado aqui (o next/image é dono do srcset); e a cadeia de fallback depende de `onError` com fases. Migrar para next/image exige `images.remotePatterns` aberto — trocar hotlink bloqueado por erro de configuração, que é exatamente o defeito que este componente existe para resolver.
     <img
       src={atual}
       srcSet={comSrcSet ? srcSetPicsum(seedEfetiva) : undefined}

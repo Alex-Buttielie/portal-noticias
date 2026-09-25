@@ -977,22 +977,36 @@ app. Para conferir:
 systemctl status 'celery-worker@prod' 'celery-beat@prod' --no-pager
 systemctl list-timers 'celery-beat-heartbeat@*' --no-pager
 ls -l /var/lib/portal-observabilidade/          # beat-prod.heartbeat deve existir
+# As DUAS pontas do heartbeat (produtor e consumidor) precisam apontar para o
+# mesmo arquivo. Se divergirem, o beat está vivo e o check ainda assim não vê
+# nada — que é o caso silencioso que este comando denuncia:
+grep OBSERVABILITY_BEAT_HEARTBEAT_FILE /home/apps/portal-prod/backend/.env
+grep BEAT_HEARTBEAT_FILE /etc/portal/celery-prod.env
 ```
 
 Ajustes manuais que o deploy **preserva** (ele só cria o que falta):
 
 - `/etc/portal/celery-<env>.env` (0640, `root:<grupo-do-dono-do-app>`):
   `CELERY_WORKER_CONCURRENCY`, `CELERY_WORKER_MAX_TASKS_PER_CHILD` e
-  `BEAT_HEARTBEAT_FILE`/`OBSERVABILITY_BEAT_HEARTBEAT_FILE`. Os dois
-  `EnvironmentFile` das units **não** têm prefixo `-`: sem este arquivo a unit
-  **não sobe**, de propósito (worker com meia configuração agenda o que não
-  devia).
+  `BEAT_HEARTBEAT_FILE`. Os dois `EnvironmentFile` das units **não** têm
+  prefixo `-`: sem este arquivo a unit **não sobe**, de propósito (worker com
+  meia configuração agenda o que não devia).
+- **`backend/.env` também precisa de `OBSERVABILITY_BEAT_HEARTBEAT_FILE`**, com
+  o mesmo caminho do produtor. É a ponta do consumidor: `/health-detail` é
+  servido pelo gunicorn do PM2, e ele lê **só** `backend/.env` — nunca
+  `/etc/portal/celery-<env>.env`. Sem esta linha o `check_celery_beat` fica
+  `not_configured` para sempre, com o beat vivo e o heartbeat sendo tocado a
+  cada 5 min. O deploy acrescenta a linha se faltar (sem reescrever o arquivo);
+  se já existir com outro valor, ele **avisa e preserva**.
+- `/var/lib/portal-observabilidade` é criado pelo `StateDirectory=` da própria
+  `celery-beat-heartbeat@.service` (0755), com o dono do `User=` da unit.
+  **Não crie à mão:** um `install -d` manual daria um dono que só coincide hoje
+  por acaso, e o sintoma do descasamento seria o `touch` falhando por permissão
+  a cada 5 min, com o beat vivo. Se você ajustou o `User=` da unit e o heartbeat
+  parou de ser escrito, é aqui que se olha primeiro.
 - Se o broker não for um serviço chamado `redis.service`, ajuste `Wants=`/`After=`
   nas units (ou um drop-in) — e só troque por `Requires=` depois de confirmar o
   nome real.
-- `celery-beat-heartbeat@.service` usa `StateDirectory=portal-observabilidade`:
-  com `ProtectSystem=strict`, sem ele o diretório do heartbeat ficava
-  somente-leitura e a unit falharia **a cada tick com o beat vivo**.
 
 Para desativar num ambiente sem perder o arquivo: `systemctl disable --now
 'celery-worker@prod' 'celery-beat@prod'` (o deploy seguinte reativa, porque

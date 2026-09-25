@@ -19,6 +19,13 @@ import { Clock3, Layers, Pencil, RefreshCw, Settings2, ShieldCheck, Sparkles, Za
 
 type Lim = { id: number; chave: string; plano: string; valor: string; descricao: string; atualizado_em?: string | null };
 
+// Vazia de módulo, não `[]` no corpo do componente: o literal do ternário criava
+// uma referência nova a CADA render, e os `useMemo` de `chaves`/`agrupado`
+// dependentes de `itens` perdiam a memoização a cada render (react-hooks/
+// exhaustive-deps). Mesma lista vazia, mesma política de fail-closed, mesma
+// referência.
+const VAZIO: Lim[] = [];
+
 const META: Record<string, { label: string; desc: string; icon: typeof Layers; exemplo: string }> = {
   feed_max_itens: { label: "Itens no feed", desc: "Quantas matérias o usuário vê por dia no feed principal.", icon: Layers, exemplo: "free: 20 itens/dia · premium: ilimitado" },
   radar_credito: { label: "Radar", desc: "Consultas ao Radar de tendências e evolução por período.", icon: Zap, exemplo: "free: 3 consultas/dia · premium: ilimitado" },
@@ -59,9 +66,9 @@ export default function Page() {
   const [saving, setSaving] = useState(false);
   const [erroVal, setErroVal] = useState<string | null>(null);
 
-  const brutas = ((consulta.data?.results as unknown as Lim[]) || []);
+  const brutas = (consulta.data?.results as unknown as Lim[]) ?? VAZIO;
   const vazia = consulta.isSuccess && !brutas.length;
-  const itens = consulta.isError ? [] : brutas;
+  const itens = useMemo(() => (consulta.isError ? VAZIO : brutas), [consulta.isError, brutas]);
   const loading = consulta.isFetching;
   const err = consulta.isError
     ? (consulta.error instanceof Error

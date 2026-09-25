@@ -127,6 +127,16 @@ on:
         required: false
         type: boolean
         default: true
+      # D1: repassado ao `ci.yml` no job `verify`. `true` = o build de
+      # VERIFICAÇÃO deste ambiente reprova quando a credencial do Sentry (ou os
+      # `.map`) faltam. Só PROD liga: em dev/homolog o fail-open continua
+      # correto, porque lá o build vem de push de branch e o projeto pode ainda
+      # não ter conta configurada.
+      sentry_exigido:
+        description: "true = o verify reprova sem credencial do Sentry (só PROD); false = fail-open"
+        required: false
+        type: boolean
+        default: false
     secrets:
       VPS_HOST:
         required: true
@@ -180,11 +190,19 @@ jobs:
     uses: ./.github/workflows/ci.yml
     with:
       checkout_ref: ${{ inputs.verify_ref }}
+      # D1: a política de source map é o MESMO passo nos dois caminhos, e o que
+      # muda é este booleano. `true` (só PROD) transforma a ausência de
+      # credencial em reprovação do verify — e, como `deploy` tem
+      # `needs: verify`, em reprovação do deploy antes de qualquer SSH.
+      sentry_exigido: ${{ inputs.sentry_exigido }}
     # O job verify NÃO recebe secret de VPS (quem provisiona é o job `deploy`,
-    # com `environment:`). Repassa APENAS os do Sentry, todos opcionais: o
-    # deploy de PROD sai de uma tag, que não dispara o CI por `push`, então sem
-    # isto o source map da release de produção nunca seria enviado. São
-    # secrets de baixo valor (upload de mapa e DSN) e o passo é fail-open.
+    # com `environment:`). Repassa APENAS os do Sentry: o deploy de PROD sai de
+    # uma tag, que não dispara o CI por `push`, então sem isto o source map da
+    # release de produção nunca seria enviado. São secrets de baixo valor
+    # (upload de mapa e DSN). Eles continuam declarados como OPCIONAIS no
+    # `ci.yml` porque o fail-open é o comportamento de fork/PR; o que impede a
+    # release de produção ir sem mapa em produção é o `sentry_exigido` acima,
+    # não a obrigatoriedade da declaração.
     secrets:
       SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
       SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
@@ -835,13 +853,62 @@ jobs:
             BEAT_HEARTBEAT_FILE=/var/lib/portal-observabilidade/beat-$SUF.heartbeat
             OBSERVABILITY_BEAT_HEARTBEAT_FILE=/var/lib/portal-observabilidade/beat-$SUF.heartbeat
             EOF
-                if sudo install -d -m 0755 -o "$deploy_user" -g "$deploy_group" /var/lib/portal-observabilidade \
-                   && sudo install -m 0640 -o root -g "$deploy_group" "$tmp" "$tuning"; then
+                # NÃO cria /var/lib/portal-observabilidade: a fonte única desse
+                # diretório é `StateDirectory=` de celery-beat-heartbeat@.service
+                # (ver o comentário da unit). Criar aqui também daria ao
+                # diretório o dono do usuário do deploy, e o dono certo é o
+                # `User=` da unit — coincidiriam hoje, divergiriam no primeiro
+                # ajuste de `User=`, e o sintoma seria `touch` falhando por
+                # permissão com o beat VIVO.
+                if sudo install -m 0640 -o root -g "$deploy_group" "$tmp" "$tuning"; then
                   echo "Celery: criado $tuning (0640 root:$deploy_group)"
                 else
                   echo "Celery: FALHA ao criar $tuning; as units vão recusar subir (fail-closed)"
                 fi
                 rm -f -- "$tmp"
+              fi
+              # --- o CONSUMIDOR do heartbeat (esta é a parte que faltava) -----
+              # `/health-detail` é servido pelo gunicorn do PM2, e é ele que roda
+              # `check_celery_beat`. O gunicorn sobe com `set -a; . ./.env`, ou
+              # seja, SÓ `backend/.env` — ele NÃO lê `/etc/portal/celery-*.env`,
+              # que é lido apenas pelas units systemd. Sem esta linha, o produtor
+              # escreveria o arquivo e o check ficaria `not_configured` para
+              # sempre: beat vivo, heartbeat sendo tocado a cada 5 min, e o
+              # sinal invisível. Esse é o pior tipo de falha de observabilidade
+              # — parece que está tudo certo porque nada acusa nada.
+              #
+              # Acrescenta ao `backend/.env` SEM reescrever o arquivo (o `.env` é
+              # gerado uma vez e nunca sobrescrito, por invariante do projeto):
+              # só acrescenta a linha se a chave ainda não existir. Se já
+              # existir com OUTRO valor, avisa em vez de corrigir — mudar o
+              # `.env` do operador em silêncio seria a pior das opções, porque
+              # o check passaria a ler um arquivo que ninguém produz.
+              beat_path="/var/lib/portal-observabilidade/beat-$SUF.heartbeat"
+              app_env="$APP_DIR/backend/.env"
+              if grep -qE '^OBSERVABILITY_BEAT_HEARTBEAT_FILE=' "$app_env" 2>/dev/null; then
+                atual="$(grep -E '^OBSERVABILITY_BEAT_HEARTBEAT_FILE=' "$app_env" | tail -1)"
+                if [ "$atual" = "OBSERVABILITY_BEAT_HEARTBEAT_FILE=$beat_path" ]; then
+                  echo "Celery: $app_env já aponta o heartbeat para o caminho do ambiente"
+                else
+                  echo "AVISO: $app_env tem '$atual', diferente do caminho que este ambiente produz ('$beat_path')."
+                  echo "  O check do beat vai ler um arquivo que a unit não escreve. Corrija a linha à mão (infra/DEPLOY.md, seção 9)."
+                fi
+              else
+                env_tmp="$app_env.tmp.$$"
+                if (umask 077; cp -p "$app_env" "$env_tmp" \
+                    && printf '\n# C2.3: produtor = infra/systemd/celery-beat-heartbeat@%s.timer.\n# O gunicorn (que serve /health-detail) le SOMENTE este arquivo, nunca\n# /etc/portal/celery-%s.env — sem esta linha o check fica not_configured.\nOBSERVABILITY_BEAT_HEARTBEAT_FILE=%s\n' \
+                       "$SUF" "$SUF" "$beat_path" >> "$env_tmp") \
+                   && chmod --reference="$app_env" "$env_tmp" 2>/dev/null; then
+                  if mv -f -- "$env_tmp" "$app_env"; then
+                    echo "Celery: $app_env recebeu OBSERVABILITY_BEAT_HEARTBEAT_FILE=$beat_path"
+                  else
+                    rm -f -- "$env_tmp"
+                    echo "AVISO: não foi possível atualizar $app_env atomicamente; o check do beat pode ficar not_configured"
+                  fi
+                else
+                  rm -f -- "$env_tmp"
+                  echo "AVISO: falha ao preparar $env_tmp; o check do beat pode ficar not_configured"
+                fi
               fi
               for unit in "celery-worker@$SUF" "celery-beat@$SUF"; do
                 if sudo systemctl enable --now "$unit.service" >/dev/null 2>&1; then

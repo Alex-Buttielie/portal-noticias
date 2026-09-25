@@ -69,7 +69,11 @@ export default function Page({ params }: { params: { id: string } }) {
     if (pubQuery.isError && !pub) {
       setErroPub("Publicação indisponível — mostrando cópia local.");
     }
-  }, [pubQuery.data, pubQuery.isError, usuario?.id]);
+    // `pub` entrou nas dependências: a condição `!pub` LÊ o estado, e sem ele a
+    // lista continuava incompleta (react-hooks/exhaustive-deps). Nenhum ciclo:
+    // `setPub(pubQuery.data)` recebe a MESMA referência do cache a cada render,
+    // e `setEditVals` só roda quando `pubQuery.data` muda de fato.
+  }, [pubQuery.data, pubQuery.isError, usuario?.id, pub]);
 
   // Preservar LS de grupos ao mudar de página
   useEffect(() => { setSeguindo(readLS(LS_SEGUINDO)); }, []);

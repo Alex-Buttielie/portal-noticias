@@ -7,3 +7,8 @@ out/
 .env.production.local
 *.tsbuildinfo
 .next/cache/
+# C2.1: as releases do deploy (árvore standalone versionada da VPS) vivem
+# dentro de `frontend/releases/` porque o symlink `current` é relativo ao
+# checkout. Nunca versionar: são artefatos de build, e a promoção/rollback é por
+# symlink, não por git.
+releases/
