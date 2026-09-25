@@ -2,8 +2,8 @@
   "run_id": "20260925-1020-observabilidade",
   "task_title": "Implementar observabilidade de ponta a ponta",
   "status": "in_progress",
-  "current_phase": "implementation",
-  "iteration_count": 0,
+  "current_phase": "remediation",
+  "iteration_count": 1,
   "max_iterations": 3,
   "requested_by": "solicitante",
   "source_spec": null,
@@ -17,12 +17,12 @@
       "notes": "Escopo aprovado; task-plan.md e implementation-contract.md validados contra o checklist."
     },
     "implementation": {
-      "status": "in_progress",
+      "status": "done",
       "agent": "executor",
       "execution_mode": "delegated",
       "started_at": "2026-09-25T10:24:00-03:00",
-      "finished_at": null,
-      "notes": "Retomada em 2026-09-25T16:38. WIP órfão do executor anterior recuperado do working tree de develop para a branch observability-20260925-1020 e versionado em 672ffba (config/observability.py, health.py, metrics.py, middleware.py, settings.py). Diagnóstico do WIP: endpoints /livez, /readyz e /health-detail não ligados em config/urls.py; metricas.tasks.expurar_analytics agendado no beat mas inexistente; nenhum teste; frontend, infra, deploy e documentação do contrato ainda não iniciados. Bloco A (backend) em execução delegada. WIP de outras runs preservado e intocado no working tree."
+      "finished_at": "2026-09-25T17:58:00-03:00",
+      "notes": "Retomada em 2026-09-25T16:38. WIP órfão do executor anterior recuperado do working tree de develop para a branch observability-20260925-1020 e versionado em 672ffba. Blocos executados e commitados: A (1b97836, telemetria backend e 10 bugs do baseline corrigidos), A2 (ca3ae4d+2bf82c0, consentimento assinado fail-closed e /healthz genérico), B1 (a340b17, correlação ponta a ponta, error boundaries e 18 arquivos sem conteúdo fictício), B2 (f7880a7, Sentry real, cliente do token e 89 testes), C1 (0c45cf0, collector Alloy, systemd, backup fail-closed, watchdog e 16 alertas), C2 (337ce37, release atômica com smoke, PM2 no standalone e gate de infra na CI) e D1 (a2e7334, gates de frontend na CI, lint bloqueante e source map fail-closed em produção). O diff aberto do lote P0-1 da run de go-live foi isolado em df20ad3 na branch lote-p0-1-proveniencia, o que liberou o escopo de .github/. Pendências conhecidas e registradas: critério 29 exige decisão entre migrar o PM2 para standalone ou reescrever o critério; 503 no documento HTML da Home é impossível em Server Component do App Router; idade de cache e 503 do feed no backend dependem de reconciliação com a run 20260924-2136; C2.6 (remoção da senha SSH) e as 8 variáveis de frontend dependem de acesso real."
     },
     "testing": {
       "status": "pending",
@@ -33,20 +33,20 @@
       "notes": "Aguardando implementação."
     },
     "review": {
-      "status": "pending",
+      "status": "in_progress",
       "agent": "reviewer",
       "execution_mode": "delegated",
-      "started_at": null,
+      "started_at": "2026-09-25T17:15:00-03:00",
       "finished_at": null,
-      "notes": "Revisão obrigatória: API, migrations, dados pessoais, dependências e volume elevated."
+      "notes": "Revisão obrigatória parcial do backend concluída em code-review-backend.md: veredito request_changes, 0 blockers e 4 majors com reprodução executada (throttle do emissor furado por X-Forwarded-For, rótulo de métrica controlado pelo cliente com perda silenciosa de séries e scrape de 0,89 s, beat parado não virando degradação no default, métricas de task invisíveis por METRICS ser process-local). O reviewer não conseguiu bypassar o gating de /health-detail e /metrics nem o consentimento fail-closed, e descartou uma hipótese própria que se mostrou falsa. Revisão completa do run (frontend, infra e deploy) ainda pendente em code-review-contract.md."
     },
     "remediation": {
-      "status": "pending",
+      "status": "in_progress",
       "agent": "remediator",
       "execution_mode": "delegated",
-      "started_at": null,
+      "started_at": "2026-09-25T17:40:00-03:00",
       "finished_at": null,
-      "notes": "Ativado se a revisão solicitar mudanças."
+      "notes": "Rodada 1 de 3 delegada para os 4 majors do backend mais os minors de altíssimo valor (Authorization Basic e segundo cookie escapando da redação, CRLF sobrevivendo a redact_text, bearer não-ASCII gerando 500). Achado residual do Bloco B2 pendente de verificação nesta rodada: token solto de 40 hex escapando de redact_text no backend."
     },
     "documentation": {
       "status": "pending",
