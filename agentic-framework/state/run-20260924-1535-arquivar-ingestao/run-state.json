@@ -1,9 +1,9 @@
 {
   "run_id": "20260924-1535-arquivar-ingestao",
   "task_title": "Arquivar definitivamente o microserviço de ingestão e sua integração",
-  "status": "in_progress",
-  "current_phase": "testing",
-  "iteration_count": 0,
+  "status": "closed",
+  "current_phase": "done",
+  "iteration_count": 1,
   "max_iterations": 3,
   "requested_by": "humano (Alex), via sessão orquestradora",
   "source_spec": "PROD_DECISOES.md §7, ANALISE_CUSTO_PERFORMANCE.md e decisão explícita do solicitante",
@@ -25,44 +25,44 @@
       "notes": "Executor removeu 33 arquivos do microserviço, 2 adaptadores e referências operacionais; reportou 476 testes PostgreSQL, 88,84%, tsc/build 59/59 e compose válido. Durante a execução outra sessão commitou o Lote A em 6e61a97 e moveu o worktree para develop; refs ficaram iguais e as mudanças desta run permanecem no índice/worktree, sem commit."
     },
     "testing": {
-      "status": "in_progress",
+      "status": "done",
       "agent": "tester",
       "execution_mode": "delegated",
-      "started_at": "2026-09-24T15:47:00-03:00",
-      "finished_at": null,
-      "notes": "Tester independente deve validar o estado staged+unstaged sem trocar branch, resetar índice ou commitar."
+      "started_at": "2026-09-24T16:15:00-03:00",
+      "finished_at": "2026-09-24T16:55:00-03:00",
+      "notes": "Reteste independente passou após reconciliar o commit externo f8d8db6 como out-of-scope: cutover v1→v2, cinco prefixes, smoke offline, 48 feed, 14 gating, check/migrations/compile e diffs verdes; suíte completa anterior 477/88,86% em PostgreSQL 16."
     },
     "review": {
-      "status": "pending",
+      "status": "done",
       "agent": "reviewer",
       "execution_mode": "delegated",
-      "started_at": null,
-      "finished_at": null,
-      "notes": "Revisão obrigatória: mudança de API/configuração, superfície de segurança e volume de deleções."
+      "started_at": "2026-09-24T16:56:00-03:00",
+      "finished_at": "2026-09-24T17:00:00-03:00",
+      "notes": "Re-revisão com baseline f8d8db6: approve, 0 blocker/major/minor/nit. Finding de cache v1 resolvido por namespace feed:v2 e teste de cutover; commit PM2 externo preservado e não revisado."
     },
     "remediation": {
-      "status": "pending",
+      "status": "done",
       "agent": "remediator",
       "execution_mode": "delegated",
-      "started_at": null,
-      "finished_at": null,
-      "notes": "Ativar se o reviewer encontrar findings bloqueantes."
+      "started_at": "2026-09-24T16:10:00-03:00",
+      "finished_at": "2026-09-24T16:15:00-03:00",
+      "notes": "Finding 1 resolvido com namespace feed:v2 e teste que ignora payload legado v1; 477 testes PostgreSQL, 88,86%, build/compose/tsc verdes."
     },
     "documentation": {
-      "status": "pending",
+      "status": "done",
       "agent": "documenter",
       "execution_mode": "delegated",
-      "started_at": null,
-      "finished_at": null,
-      "notes": "Pendente de teste e revisão aprovados."
+      "started_at": "2026-09-24T17:00:00-03:00",
+      "finished_at": "2026-09-24T17:05:00-03:00",
+      "notes": "PROD_DECISOES, ARCHITECTURE e infra/DEPLOY atualizados; documentação da remoção, cache v2 e limpeza humana de Mongo foi validada. ANALISE/README/CI-CD conferidos."
     },
     "closing": {
-      "status": "pending",
+      "status": "done",
       "agent": "historian",
       "execution_mode": "delegated",
-      "started_at": null,
-      "finished_at": null,
-      "notes": "Pendente do fechamento completo."
+      "started_at": "2026-09-24T17:05:00-03:00",
+      "finished_at": "2026-09-24T17:15:08-03:00",
+      "notes": "Síntese cronológica preservada no implementation-history.md, report.md criado, uma linha append-only acrescentada ao HISTORY.md e run-state finalizado como closed/done. A reteste usou f8d8db6 como baseline; o commit externo posterior d1e0456 (parent f8d8db6, docs-only) foi registrado sem atribuição indevida. Commits externos 6e61a97, 5dc842d, f8d8db6 e d1e0456 foram preservados; nenhum commit, reset, branch ou push foi feito nesta run."
     }
   },
   "findings": {
@@ -70,18 +70,24 @@
     "major": 0,
     "minor": 0,
     "nit": 0,
-    "resolved": 0
+    "resolved": 1
   },
   "artifacts": {
     "task_plan": "task-plan.md",
-    "implementation_contract": "implementation-contract.md"
+    "implementation_contract": "implementation-contract.md",
+    "implementation_history": "implementation-history.md",
+    "code_review_contract": "code-review-contract.md",
+    "documentation_update": "documentation-update.md",
+    "report": "report.md"
   },
   "blocked_reason": null,
   "follow_ups": [
-    "Após revisão e merge, operador deve confirmar em cada VPS se há container/volume Mongo do ingestao-service e desligar/remover somente após backup/validação.",
-    "Após revisão e merge, operador deve remover MICROSERVICO_INGESTAO_URL e INGESTAO_API_TOKEN de .env existentes se ainda presentes; não são editados por esta run.",
-    "Migrar React Query e mover build para o runner continuam lotes separados."
+    "Operação humana, fora desta run: confirmar em cada VPS se há container/processo/volume Mongo do ingestao-service e desligar ou remover somente após backup, retenção e validação; nenhum dado externo foi apagado.",
+    "Operação humana, fora desta run: remover MICROSERVICO_INGESTAO_URL e INGESTAO_API_TOKEN de arquivos .env existentes se ainda presentes; as flags ficaram inertes, mas o .env não foi editado.",
+    "Provenance externa: f8d8db6 (parent 5dc842d) é uma correção independente de PM2 em .github/workflows/deploy.yml, criada por outra sessão; preservar e validar separadamente. Não é bug nem finding desta run de arquivamento.",
+    "Provenance externa posterior: d1e0456 (parent f8d8db6) é um commit docs-only de outra sessão em infra/DEPLOY.md; não foi atribuido a esta run nem reverteu o baseline de reteste.",
+    "Migrar React Query e mover o build para o runner continuam lotes separados."
   ],
   "created_at": "2026-09-24T15:30:00-03:00",
-  "updated_at": "2026-09-24T15:35:00-03:00"
+  "updated_at": "2026-09-24T17:15:08-03:00"
 }
