@@ -113,3 +113,75 @@
 - 2026-09-17 — Caminho Docker do DEPLOY.md validado local (builds, up,
   healthz, feed, superuser). Correção: `frontend/Dockerfile`, `.dockerignore`
   e `.env.local.example` convertidos de UTF-16 para UTF-8 (BuildKit quebrava).
+
+---
+
+## Lote P0-1 — Baseline de proveniência e gate de release (decisões)
+
+> Seção adicionada pelo lote P0-1 da run `20260925-1433-go-live-producao`.
+> Nenhuma seção anterior deste arquivo foi reescrita. Nenhum workflow,
+> gatilho, job, secret ou environment foi alterado, criado ou removido.
+
+### Decisões registradas
+
+1. **Gate de proveniência entregue como ferramenta, não como pipeline.**
+   `scripts/release/verificar-proveniencia.sh` é read-only, fail-closed, sem
+   rede, sem segredo e determinístico (`0` aprovado, `1` reprovado/incompleto,
+   `2` uso incorreto). Detalha uso, contrato e cobertura em `CI-CD.md`.
+2. **Nenhum pipeline foi alterado.** O gate não é executado por nenhum
+   workflow e não é today nenhum required status check.
+3. **A eficácia do gate depende de configuração humana (HD-2 / HD-6).** Só
+   bloqueia de fato com branch protection do GitHub (PR obrigatório) **e**
+   registro como required status check. Branch protection sozinha, sem check
+   registrado, não torna o gate obrigatório. HD-2 e HD-6 são pré-requisitos
+   de eficácia, não de entrega, e não bloqueiam o go-live.
+4. **Verificação de `backend/config/settings.py`, sem correção.** O gate G1
+   (P0-02) validou o arquivo com `ast.parse` e `compile()` in-memory: válido
+   no estado atual, sem `__pycache__` gerado e sem uma única edição. O
+   `manage.py check` foi **pulado com motivo registrado** (o `settings.py`
+   carrega `backend/.env` no import, o que exigiria acesso a segredo, vedado
+   a este lote). A correção de conteúdo, se necessária, é o lote **P0-02b /
+   GP-1b**, não este.
+5. **`.github/` permanece byte a byte intocado.** Comprovado por `sha256` de
+   todos os arquivos de `.github/` antes e depois, e por `git status`/`git
+   diff` vazios para esse caminho.
+
+### R-1 — supply chain PR → VPS: ACEITO, ABERTO, NÃO MITIGADO, NÃO COBERTO PELO GATE
+
+- **Fato atual, inalterado:** `.github/workflows/deploy-homolog.yml` dispara
+  em `pull_request` para `main` e implanta o head do pull request na VPS
+  persistente que hospeda HOMOLOG (`/home/apps/portal-homolog`, 3102/5102,
+  via `deploy.yml` com `git_mode: pr` e `verify_ref` do SHA do head do PR).
+  Código de pull request não aprovado pode rodar em uma máquina que tem
+  segredos.
+- **Situação padronizada: ACEITO** (decisão do solicitante) e, por isso,
+  **NÃO BLOQUEANTE para o go-live**; permanece **ABERTO**, **não mitigado**,
+  **não bloqueado** e **NÃO COBERTO PELO GATE** (o gate inspeciona o
+  repositório local e não participa de nenhum pipeline).
+- **Aceite explícito e assinado no go/no-go é obrigatório**, com: qual é o
+  caminho afetado, o que está sendo aceito, por quanto tempo e quem assinou.
+  O go/no-go lista R-1 como **aceito**, nunca como resolvido.
+- A decisão futura sobre substituir o caminho PR → VPS é de **lote próprio com
+  revisão de CI/CD** (**HD-1**) e não é precondição de lançamento.
+- Nenhum artefato deste lote pode afirmar ou sugerir que R-1 foi resolvido,
+  mitigado, bloqueado ou coberto pelo gate.
+
+### R-2 — divergência de domínio: ABERTO, registrada
+
+O canônico do programa é `https://portal-noticias.com/`; os workflows usam
+`portal-noticias.com.br` (DEV/HOMOLOG/PROD e `www`). Registrado como
+pendência de lote posterior, sem alteração de workflow, gatilho ou
+comportamento. Nenhum valor de domínio em workflow foi alterado.
+
+### Pendências humanas que continuam abertas
+
+| ID | Pendência | Efeito |
+|---|---|---|
+| **HD-1** | Decisão futura sobre substituir o caminho PR → VPS (lote próprio com revisão de CI/CD) | Não bloqueia o go-live; bloqueia a alegação de que a supply chain está fechada |
+| **HD-2** | Branch protection no GitHub com PR obrigatório + registro de evidência | Pré-requisito de eficácia do gate; não entregue por este lote; não bloqueia o go-live |
+| **HD-3** | SHA/branch de release e política de promoção (o SHA é re-derivado por `git rev-parse HEAD` a cada execução) | Uso de `--expected-sha` em promoção real |
+| **HD-5** | Reconciliação formal das runs abertas e dos arquivos não atribuídos | Este lote apenas registra a atribuição |
+| **HD-6** | Onde o gate rodará de forma recorrente, já que nenhum workflow pode ser alterado | Eficácia operacional; não bloqueia a entrega do script |
+
+Evidência completa do lote:
+`agentic-framework/state/run-20260925-1433-go-live-producao/lote-p0-1-evidencias.md`.
