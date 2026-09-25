@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Card, CardContent } from "@/components/ui/card";
 import { SITE_NAME } from "@/lib/site";
 import { AdsSlot } from "@/components/AdsSlot";
+import { EstadoVazio } from "@/components/EstadoVazio";
 import { BuscarReporter } from "@/components/Reporters";
 import { buscarNoticias, historicoBusca, termosPopularesBusca, type ResultadoBusca } from "@/lib/api";
 import { CampoBusca, ListaResultados } from "./BuscaClient";
@@ -10,16 +11,14 @@ import { CampoBusca, ListaResultados } from "./BuscaClient";
 export const metadata: Metadata = { title: `Buscar — ${SITE_NAME}`, description: `Busca no ${SITE_NAME}.` };
 export const revalidate = 0;
 
-const MOCK: ResultadoBusca[] = [
-  { tipo: "item", id: 201, titulo: "Resultados — busque por política, economia...", resumo: "Conteúdo de exemplo.", categoria: "geral", urgente: false, numero_fontes: 1, timestamp: new Date().toISOString() },
-];
-
 export default async function Page({ searchParams }: { searchParams: { q?: string } }) {
   const q = (searchParams.q || "").trim();
   let itens: ResultadoBusca[] = [];
   let sugestao: string | undefined;
   let populares: { termo: string; total: number }[] = [];
   let historico: string[] = [];
+  // P0-08: erro de busca vira estado de erro — nunca uma lista de exemplos.
+  let erroBusca = false;
 
   if (q) {
     try {
@@ -27,8 +26,8 @@ export default async function Page({ searchParams }: { searchParams: { q?: strin
       itens = r.results || [];
       sugestao = r.sugestao;
     } catch {
-      itens = MOCK.filter((x) => x.titulo.toLowerCase().includes(q.toLowerCase()) || !q);
-      if (!itens.length) itens = MOCK;
+      itens = [];
+      erroBusca = true;
     }
   } else {
     try {
@@ -119,17 +118,26 @@ export default async function Page({ searchParams }: { searchParams: { q?: strin
               ?
             </p>
           )}
-          {itens.length === 0 ? (
-            <Card className="border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)]">
-              <CardContent className="p-6 text-center text-sm text-[var(--cor-texto-suave)]">
-                Nenhum resultado para “{q}”. <Link href="/arquivo" className="font-medium text-[var(--cor-primaria)] underline">Ver arquivo</Link> •{" "}
-                <Link href="/" className="font-medium text-[var(--cor-primaria)] underline">Voltar ao início</Link>
-              </CardContent>
-            </Card>
+          {erroBusca ? (
+            <EstadoVazio
+              tom="erro"
+              titulo="Não foi possível buscar agora"
+              descricao={`A busca por “${q}” falhou. Nenhum resultado foi fabricado para preencher a página.`}
+              acao={{ rotulo: "Ver arquivo", href: "/arquivo" }}
+            />
+          ) : itens.length === 0 ? (
+            <EstadoVazio
+              titulo={`Nada encontrado para “${q}”`}
+              descricao="Não há matéria publicada com esse termo. Tente outra palavra ou navegue pelo arquivo."
+              acao={{ rotulo: "Ver arquivo", href: "/arquivo" }}
+            >
+              <Link href="/" className="text-sm font-medium text-[var(--cor-primaria)] underline">
+                Voltar ao início
+              </Link>
+            </EstadoVazio>
           ) : (
             <ListaResultados itens={itens} termo={q} />
           )}
-          <AdsSlot id="buscar-infeed" formato="in-feed" className="my-6" />
           {itens.length > 6 && <AdsSlot id="buscar-horizontal" formato="horizontal" />}
         </div>
       )}
