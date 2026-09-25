@@ -203,13 +203,72 @@ PYEOF_YAML
     )
     ok "${#QUERIES[@]} queries de painel/alerta extraídas"
 
+    # Arquivo com as queries, para os dois testes de Prometheus em Python.
+    # POR QUE UM ARQUIVO: `printf ... | python3 - <<'EOF'` NÃO funciona — o
+    # heredoc redefine o stdin do `python3 -` (que é o próprio programa), e o
+    # `sys.stdin.read()` voltava VAZIO. O teste de métrica inexistente já
+    # passava por isso desde que foi escrito: ele comparava um conjunto de nomes
+    # com um inventário e não encontrava nome nenhum para acusar. Um validador
+    # que não olha nada é pior que nenhum validador (é o que o cabeçalho deste
+    # script diz), então as duas checagens leem o arquivo.
+    printf '%s\n' "${QUERIES[@]:-}" > "$TMP/queries.txt"
+
     # A REGRA que protege o critério "não prometa painel de métrica inexistente":
     # `portal_ingestion_executions_total` é DECLARADA em backend/config/metrics.py
     # e nunca incrementada, então usá-la num painel/alerta vira promessa vazia.
-    if printf '%s\n' "${QUERIES[@]:-}" | grep -q "portal_ingestion_executions_total"; then
+    if grep -q "portal_ingestion_executions_total" "$TMP/queries.txt"; then
         falha "portal_ingestion_executions_total usada em expr de painel/alerta (métrica declarada e nunca incrementada)"
     else
         ok "nenhuma expr usa portal_ingestion_executions_total"
+    fi
+
+    # Gauge ABSOLUTO produzido por OUTRO processo (`config/job_state.py`: o
+    # worker grava, o processo web publica) nunca pode entrar em `sum()`: o
+    # valor é uma idade em segundos, e somar por instância multiplica o mesmo
+    # relógio pelo número de coletores — o alerta passa a medir o tamanho da
+    # topologia em vez do atraso. A regra correta é `max()`/`last()` (e nunca
+    # `rate()`), como os docstrings de `job_state.py`/`metrics.py` prescrevem.
+    # Cada `expr` é conferida SEPARADAMENTE (regra a regra, painel a painel): o
+    # texto agregado de todas as queries junto produziria acusação cruzada entre
+    # uma query com `sum()` e outra que só cita `portal_job_*` no nome do
+    # painel — que foi exatamente o falso positivo da primeira versão.
+    PY_SUM="$(command -v python3 || true)"
+    if [[ -z "$PY_SUM" ]]; then
+        pulado "python3 não instalado: checagem de sum() em gauge de job NÃO executada"
+    else
+        soma_gauge_job="$("$PY_SUM" - <<'PYEOF_SUM'
+import glob, json, re, sys
+try:
+    import yaml
+except ImportError:
+    sys.exit(3)
+padrao = re.compile(r"(^|[^a-z_])sum\s*\(")
+acusos = []
+for arquivo in sorted(glob.glob("infra/observability/alerts/*.yaml")):
+    doc = yaml.safe_load(open(arquivo, encoding="utf-8")) or {}
+    for grupo in doc.get("groups") or []:
+        for regra in grupo.get("rules") or []:
+            expr = str(regra.get("expr") or "")
+            if "portal_job_" in expr and padrao.search(expr):
+                acusos.append(f"{regra.get('alert')} ({arquivo})")
+for arquivo in sorted(glob.glob("infra/observability/grafana/dashboards/*.json")):
+    doc = json.load(open(arquivo, encoding="utf-8"))
+    for painel in doc.get("panels") or []:
+        for alvo in painel.get("targets") or []:
+            expr = str(alvo.get("expr") or "")
+            if "portal_job_" in expr and padrao.search(expr):
+                acusos.append(f"painel {painel.get('title')} ({arquivo})")
+print(" | ".join(acusos))
+PYEOF_SUM
+)"
+        rc_sum=$?
+        if [[ $rc_sum -eq 3 ]]; then
+            falha "checagem de sum() em gauge de job NÃO EXECUTADA (PyYAML não instalado no ambiente de validação)"
+        elif [[ -n "$soma_gauge_job" ]]; then
+            falha "sum() sobre portal_job_* (gauge absoluto de outro processo: use max()/last()): $soma_gauge_job"
+        else
+            ok "nenhuma expr de painel/alerta soma portal_job_* (max()/last() em toda expr de job)"
+        fi
     fi
 
     # Toda métrica usada tem que existir de fato no backend. O inventário vem
@@ -225,10 +284,10 @@ PYEOF_YAML
     # emite as três a partir de uma observação), então basta a base existir. A
     # comparação é feita em Python: `${m%$sufixo}` depende de detalhe de
     # parsing do shell que já enganou esta checagem uma vez.
-    ausentes="$(printf '%s\n' "${QUERIES[@]:-}" | python3 - "${METRICAS_BACKEND[@]}" <<'PYEOF_METRICAS'
+    ausentes="$(python3 - "$TMP/queries.txt" "${METRICAS_BACKEND[@]}" <<'PYEOF_METRICAS'
 import re, sys
-inventario = set(sys.argv[1:])
-consulta = sys.stdin.read()
+inventario = set(sys.argv[2:])
+consulta = open(sys.argv[1], encoding="utf-8").read()
 faltando = []
 for nome in sorted(set(re.findall(r"portal_[a-z_]*", consulta))):
     base = nome
@@ -351,7 +410,48 @@ else
     falha "http-cache.conf perdeu o marcador __OBS_TOKEN_ESPERADO__ (revisar o gate privado)"
 fi
 
-# 4) Validação real com o binário do nginx.
+# 4) `X-Forwarded-For` tem que ser ESCRITO em TODO upstream que fala com o
+#    Django (D2). O leitor (`backend/config/proxies.py::identificar_cliente`)
+#    só considera o header quando quem abriu a conexão é o loopback ou uma rede
+#    declarada, e só usa o ÚLTIMO elemento da cadeia. Sem a diretiva, o header
+#    não existe e o balde de rate limit volta a ser o par do proxy (ou, pior, o
+#    valor cru que o cliente mandou): foi o achado MAJOR-1 da revisão de backend,
+#    que a configuração de infra não fechava.
+#
+#    Valores aceitos: `$proxy_add_x_forwarded_for` (anexa o `$remote_addr` ao
+#    fim) e `$remote_addr` (sobrescreve) — os dois garantem que o último
+#    elemento é o cliente real deste salto, que é a invariante que o módulo do
+#    backend documenta. `$http_x_forwarded_for` é PROIBIDO: repassa o header do
+#    cliente sem tocá-lo e reabriria o bypass.
+xff_ruim=0
+for e in dev homolog prod; do
+    f="infra/nginx/portal-$e.conf"
+    passes="$(grep -c 'proxy_pass ' "$f")"
+    # Uma diretiva por `proxy_pass`: nenhum destes arquivos usa
+    # `proxy_set_header` no nível do `server` (tudo é por location), então a
+    # contagem 1:1 é o que impede um location novo sem a diretiva.
+    xffs="$(grep -c 'proxy_set_header X-Forwarded-For ' "$f")"
+    if [[ "$passes" -ne "$xffs" ]]; then
+        falha "$f: $passes proxy_pass e $xffs X-Forwarded-For (todo upstream precisa da diretiva)"
+        xff_ruim=1
+    fi
+    if grep -nE 'X-Forwarded-For[[:space:]]+\$http_x_forwarded_for' "$f" >/dev/null 2>&1; then
+        falha "$f: X-Forwarded-For repassando \$http_x_forwarded_for (header do cliente)"
+        grep -nE 'X-Forwarded-For[[:space:]]+\$http_x_forwarded_for' "$f" | sed 's/^/          /'
+        xff_ruim=1
+    fi
+    if grep -qE 'X-Forwarded-For[[:space:]]+\$(proxy_add_x_forwarded_for|remote_addr)[[:space:]]*;' "$f"; then
+        ok "$e: X-Forwarded-For escrito nos $passes upstream(s) (valor aceito)"
+    else
+        falha "$f: nenhum X-Forwarded-For com valor aceito"
+        xff_ruim=1
+    fi
+done
+if (( ! xff_ruim )); then
+    ok "X-Forwarded-For presente nos três ambientes com valor aceito"
+fi
+
+# 5) Validação real com o binário do nginx.
 #    `nginx -t` no host: os marcadores de domínio impedem instalar o conf como
 #    está, então renderizamos uma cópia com valores de teste e validamos essa.
 validar_nginx_host() {

@@ -7,7 +7,7 @@ Run `20260925-1020-observabilidade` (critérios 22, 23, 34, 41).
 | Arquivo | Grupo | Cobre |
 |---|---|---|
 | `regras-disponibilidade.yaml` | `portal-disponibilidade` | API inacessível, readiness, taxa de 5xx, latência p95, coletor cego, telemetria ausente |
-| `regras-operacao.yaml` | `portal-operacao` | fila Celery, Celery sem execução, task falhando, dependência crítica/opcional, disco do coletor, Sentry descartando, cardinalidade, acesso privado negado |
+| `regras-operacao.yaml` | `portal-operacao` | fila Celery, Celery sem execução, task falhando, **atraso de job pelo canal durável, task que nunca conclui, check sem sinal próprio**, dependência crítica/opcional, disco do coletor, Sentry descartando, cardinalidade, acesso privado negado |
 
 Nenhuma regra depende de `.github/`, de Terraform ou de provisionamento
 externo para *existir*: são regras Prometheus/Mimir puras, com `expr`,
@@ -25,7 +25,15 @@ deliberadas:
    não três, e o mesmo sintoma em dev e em prod são dois alertas distintos
    (rótulos diferentes) — o que é o comportamento correto, porque a ação é
    diferente.
-2. **`for:` é a deduplicação temporal.** Sem `for`, cada evaluation que
+2. **Quando o problema É POR ITEM, o item entra na identidade.** Três regras
+   (D2) agrupam por `by (ambiente, check)` ou `by (ambiente, task)`:
+   `PortalCheckSemSinal`, `PortalJobAtrasado` e `PortalJobNuncaConcluiu`. São
+   problemas diferentes com ações diferentes — dois checks cegos, ou duas tasks
+   paradas, não são o mesmo incidente — então duas instâncias é o certo, e não
+   ruído. Consequência prática: o `mute timing` de 30 min precisa incluir
+   `check`/`task` além de `runbook` e `ambiente`, senão o mute de uma task
+   silenciaria as outras do mesmo ambiente.
+3. **`for:` é a deduplicação temporal.** Sem `for`, cada evaluation que
    satisfaz a condição gera notificação. Os valores estão justificados em
    cada regra e vêm do comportamento real (ingestão a cada 15 min, scrape a
    cada 30 s, `QUEUE_DEPTH_WARN` = 1000).
@@ -50,7 +58,8 @@ Regras mínimas de Contact Point, para que a tabela acima não seja decorativa:
 
 * `mute timings` de 30 min por `runbook` e `ambiente` — sem isso, um incidente
   que derruba readiness gera uma notificação por minuto e o canal é silenciado
-  por todo mundo;
+  por todo mundo. Nas três regras por item (D2), acrescente `check`/`task` ao
+  critério do mute, pelo motivo exposto na seção de deduplicação;
 * `notification policy` com **continue/repeat** em 4 h para `critical`, porque
   incidente longo precisa lembrar que está em curso;
 * agrupamento por `alertname` + `ambiente` (não por `instance`): a instância

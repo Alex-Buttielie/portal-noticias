@@ -96,6 +96,114 @@ groups:
           runbook_url: "https://runbooks.portal.exemplo.invalid/celery-task-falha.md"
           primeiro_passo: "sum by (task, result) (rate(portal_celery_tasks_total{result!=\"success\"}[15m]))"
 
+      # --- Atraso de job pelo canal durável (D2) -----------------------------
+      # As DUAS séries abaixo vêm do canal durável de
+      # `backend/config/job_state.py`: o worker grava o estado num arquivo e o
+      # processo que serve `/metrics` (o web) o publica. É o mesmo padrão do
+      # heartbeat do beat, e existe pelo mesmo motivo (achado MAJOR-4):
+      # `portal_celery_tasks_total` — o contador que `PortalCelerySemExecucao`
+      # acima consome — vive no registro POR PROCESSO do worker, que não serve
+      # `/metrics`; nesta topologia ele não aparece em nenhum scrape. Estas
+      # séries aparecem.
+      #
+      # AGREGAÇÃO: `max()` e NUNCA `sum()`. O valor é um RELÓGIO ABSOLUTO (idade
+      # em segundos desde o último sucesso) lido de um arquivo, não um contador
+      # incrementado. Com N instâncias do coletor, `sum()` somaria o mesmo
+      # relógio N vezes: o número deixaria de significar "atraso" e viraria um
+      # alerta falso que piora justamente quando a topologia cresce. `rate()`
+      # também não se aplica (o gauge não é monotônico). Os docstrings de
+      # `config/metrics.py` e `config/job_state.py` dizem o mesmo.
+      - alert: PortalJobAtrasado
+        # Âncora: a task de ingestão, a mais frequente do schedule (15 min por
+        # padrão). 45 min = três intervalos perdidos, o mesmo dimensionamento de
+        # `PortalCelerySemExecucao` — e aqui com um sinal que de fato chega a um
+        # scrape. As demais tasks do schedule (07:00, 19:00, 04:17) são
+        # diárias: aplicar 45 min a elas seria alarme falso garantido.
+        expr: |
+          max by (ambiente, task) (portal_job_task_idle_seconds{task="catalogo_noticias.tasks.ingerir_noticias"}) > 2700
+        for: 15m
+        labels:
+          severity: critical
+          servico: portal-api
+          runbook: job-atrasado
+        annotations:
+          summary: "Ingestão sem sucesso há mais de 45 min em {{ $labels.ambiente }}"
+          description: >-
+            `portal_job_task_idle_seconds` da task de ingestão acima de 2700 s: a
+            task roda a cada 15 min por padrão, então três intervalos perdidos.
+            Aqui o produto para de atualizar e NENHUMA requisição falha — o
+            visitante vê a última notícia e não há sintoma no frontend. Causas
+            prováveis, em ordem: beat parado (o check `celery_beat` está
+            `not_configured`?), worker paradoxo, fila com mensagem presa, ou a
+            task morrendo antes de registrar o fim.
+          impacto: "Portal serve conteúdo velho com aparência de normal; ninguém percebe sem este alerta."
+          runbook_url: "https://runbooks.portal.exemplo.invalid/job-atrasado.md"
+          primeiro_passo: "systemctl status 'celery-beat@<amb>' 'celery-worker@<amb>'; ls -l /var/lib/portal-observabilidade/"
+
+      - alert: PortalJobNuncaConcluiu
+        # `-1` é o sentinela de `job_state.publicar_metricas`: a task tem
+        # registro no arquivo (ou seja, RODOU ao menos uma vez) e nunca
+        # terminou com sucesso. Não há falso positivo de task que nunca rodou:
+        # sem execução não há registro, logo não há série publicada.
+        #
+        # Cobre o caso que o contador do worker não alcança (task que falha
+        # sempre ou que o worker perde: `ultimo_sucesso` nunca é preenchido) e
+        # que "45 min sem execução" não pega — aqui a task executa, e falha.
+        expr: |
+          max by (ambiente, task) (portal_job_task_idle_seconds == -1)
+        for: 30m
+        labels:
+          severity: warning
+          servico: portal-api
+          runbook: job-nunca-concluiu
+        annotations:
+          summary: "Task que executa mas nunca conclui em {{ $labels.ambiente }}"
+          description: >-
+            `portal_job_task_idle_seconds == -1` para {{ $labels.task }}: a task
+            já executou (o registro existe) e nenhuma vez terminou com sucesso.
+            Ou ela falha sempre (credencial de fonte RSS, 4xx do provedor), ou o
+            worker morre no meio e o Celery só reagenda. Enquanto o valor ficar
+            em `-1` não existe "último sucesso" para medir, ou seja, o sinal de
+            atraso dessa task não existe.
+          impacto: "O efeito do job nunca acontece e o atraso da task não é observável."
+          runbook_url: "https://runbooks.portal.exemplo.invalid/job-nunca-concluiu.md"
+          primeiro_passo: "journalctl -u 'celery-worker@<amb>' --since 1h | grep -i <task>"
+
+      - alert: PortalCheckSemSinal
+        # `portal_health_check_not_configured{check=...}` vale 1 quando um check
+        # não tem como observar o que deveria (`backend/config/health.py`).
+        # Só `celery_beat` e `celery_jobs` são ponto cego real: estão em
+        # `CHECKS_SEM_SINAL_PROPRIO`, e o agregado trata `not_configured` deles
+        # como degradação (achado MAJOR-3). Nos demais, `not_configured` é
+        # escolha declarada do ambiente (cache local em desenvolvimento, `celery`
+        # desligado) e alertar seria ruído.
+        #
+        # `absent()` NÃO entra aqui, ao contrário de `PortalApiInacessivel`: o
+        # `/metrics` não roda os checks (ele só publica o canal de job), então a
+        # série só existe depois que o processo atendeu uma requisição ou um
+        # `/health-detail`. Ausência quer dizer "processo novo, ninguém sondou" —
+        # alertar sobre ela seria pager a cada restart.
+        expr: |
+          max by (ambiente, check) (portal_health_check_not_configured{check=~"celery_beat|celery_jobs"}) == 1
+        for: 15m
+        labels:
+          severity: warning
+          servico: portal-api
+          runbook: check-sem-sinal
+        annotations:
+          summary: "Check sem sinal próprio em {{ $labels.ambiente }} ({{ $labels.check }})"
+          description: >-
+            O check `{{ $labels.check }}` está `not_configured` há 15 min: não há
+            heartbeat nem arquivo de estado, então não existe o sinal que diria
+            se o beat disparou ou se os jobs rodam. O portal responde `degraded`
+            por desenho (fail-closed) e, sem esta regra, ninguém é avisado. A
+            correção é declarar a variável de ambiente correspondente nos DOIS
+            lados (produtor e consumidor — ver `infra/DEPLOY.md`), nunca desligar
+            o check: desligar apaga o ponto cego em vez de fechá-lo.
+          impacto: "Agendamento e atraso de job sem sinal nenhum; falha silenciosa com o portal no ar."
+          runbook_url: "https://runbooks.portal.exemplo.invalid/check-sem-sinal.md"
+          primeiro_passo: "grep OBSERVABILITY_JOB_STATE_FILE /home/apps/portal-<env>/backend/.env; grep OBSERVABILITY_JOB_STATE_FILE /etc/portal/celery-<env>.env"
+
       - alert: PortalDependenciaCriticaIndisponivel
         # `postgresql` e `migrations` são os obrigatórios. Os opcionais
         # (`redis`, `celery`, `celery_beat`) viram degradação de propósito e

@@ -23,7 +23,7 @@
 # falha precisa consertar o arquivo, não a lista.
 
 # Chave: runbook-url-placeholder
-# O `runbook_url` das 16 regras aponta para runbooks.portal.exemplo.invalid,
+# O `runbook_url` das 19 regras aponta para runbooks.portal.exemplo.invalid,
 # domínio reservado pela RFC 2606 que nunca resolve (deliberado: um endereço
 # inventado parecido com um real seria pior). Resolver depende de o endereço
 # interno de runbook existir, o que é decisão humana — ver

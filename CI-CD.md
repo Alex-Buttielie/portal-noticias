@@ -497,6 +497,73 @@ diretório para o `Path.stat()` — nunca de permissão de leitura no arquivo, c
 conteúdo é irrelevante (só o `st_mtime` é lido). Por isso a unit declara
 `StateDirectoryMode=0755`.
 
+#### O canal de job tem o mesmo formato e as duas pontas (D2)
+
+O canal durável de telemetria de job (`backend/config/job_state.py`, achado
+MAJOR-4 da revisão de backend) reproduz o padrão do heartbeat porque tem
+**exatamente o mesmo defeito estrutural**: quem produz o dado e quem o consome
+são processos diferentes, que leem arquivos de ambiente diferentes.
+
+| Ponta | Quem | De onde |
+|---|---|---|
+| **Produtor** — grava o estado ao fim de cada task (`config/celery.py`, sinais `task_postrun`/`task_retry`) | `celery-worker@<env>` | `/etc/portal/celery-<env>.env` (`OBSERVABILITY_JOB_STATE_FILE`) |
+| **Consumidor** — publica `portal_job_task_idle_seconds` no `/metrics` e roda o check `celery_jobs` | gunicorn do PM2 | `backend/.env` (`OBSERVABILITY_JOB_STATE_FILE`) |
+
+O nome da variável é o mesmo nos dois lados **de propósito**: é o mesmo canal, e
+divergência silenciosa entre produtor e consumidor é o modo de falha que esta
+run existe para eliminar. Com o valor ausente ou divergente, o check fica
+`not_configured` — que conta como degradação (fail-closed), então o portal
+responde `degraded` por desenho e **ninguém é avisado por nada**. O caminho
+também vem da mesma `$SUF`: `/var/lib/portal-observabilidade/jobs-<env>.json`.
+
+O que o deploy passou a fazer (e o que ele deliberadamente **não** faz):
+
+* acrescenta `OBSERVABILITY_JOB_STATE_FILE` ao `/etc/portal/celery-<env>.env`
+  **na criação** do arquivo (nunca sobrescreve, igual ao resto do tuning);
+* acrescenta `OBSERVABILITY_JOB_STATE_FILE` **e**
+  `OBSERVABILITY_JOB_STATE_MAX_AGE_SECONDS` ao `backend/.env` **sem reescrever
+  o arquivo** — se a chave já existir com o caminho certo, nada muda; se existir
+  com **outro** valor, avisa e **preserva** (mesma política do heartbeat: mudar o
+  `.env` do operador em silêncio faria o consumidor ler um arquivo que o produtor
+  não escreve);
+* imprime as duas pontas lado a lado no log do run e no job `validate`, para que
+  a divergência apareça no mesmo lugar onde se olha o resultado do deploy.
+
+`OBSERVABILITY_JOB_STATE_MAX_AGE_SECONDS` (900 s) é lido **só** pelo processo web
+(`health.py::check_celery_jobs` → `job_state.idade_maxima`): é a janela de
+frescor do arquivo, e o stale dela é o que denuncia um canal rompido.
+
+O diretório **não** é criado pelo deploy: a fonte única continua sendo o
+`StateDirectory=` de `celery-beat-heartbeat@.service`. O worker grava dentro dele
+com `ProtectSystem=full` (que trava `/usr` e `/boot`, não `/var`) e o
+`UMask=0027` da unit deixa o arquivo em 0640 do dono do app — que é o mesmo
+usuário que o gunicorn usa para ler. Nenhum afrouxamento de hardening foi
+necessário, e é por isso que a unit do worker não mudou.
+
+**O que continua manual:** com `celery_systemd: false` (sem worker de systemd) ou
+na topologia do `docker-compose.yml`, o caminho tem de chegar ao serviço do
+Celery por fora do bloco do deploy — ver `infra/DEPLOY.md`, seção 9.4.
+
+#### `X-Forwarded-For` na borda: o leitor seguro precisa de algo para ler (D2)
+
+`backend/config/proxies.py` (achado MAJOR-1) só considera o `X-Forwarded-For`
+quando quem abriu a conexão é o loopback ou uma rede declarada, e só usa o
+**último** elemento da cadeia. Os três `infra/nginx/portal-<env>.conf` agora
+escrevem o header em **todos** os 13 upstreams de cada arquivo com
+`proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;`, que anexa o
+`$remote_addr` ao fim da cadeia — o último elemento é sempre o cliente real
+deste salto, e nenhum header enviado pelo cliente se passa por proxy confiável.
+Os três arquivos continuam estruturalmente idênticos, e
+`scripts/observability/validar-infra.sh` (gate do `ci.yml`) passa a **falhar**
+se a diretiva sumir, se aparecer `$http_x_forwarded_for` (que repassaria o
+header do cliente) ou se a contagem de diretivas deixar de ser 1:1 com a de
+`proxy_pass`. O job `validate` do deploy ainda confere o arquivo **instalado**
+(`nginx -T`), porque é ele — e não o repositório — que está no caminho do tráfego.
+
+Cloudflare/CDN continua opcional, mas se um for posto na frente depois, leia a
+seção de XFF de `infra/DEPLOY.md` antes: sem o módulo `realip` com
+`set_real_ip_from`, todo mundo passa a aparecer com o IP do CDN.
+
 #### SSH: chave com fallback, e por que a senha continua lá
 
 `VPS_SSH_KEY` (conteúdo PEM da chave privada) e `VPS_HOST_FINGERPRINT`

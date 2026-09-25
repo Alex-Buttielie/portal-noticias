@@ -1012,6 +1012,117 @@ Para desativar num ambiente sem perder o arquivo: `systemctl disable --now
 'celery-worker@prod' 'celery-beat@prod'` (o deploy seguinte reativa, porque
 `celery_systemd` é `true` por padrão — desative no caller se for preciso).
 
+### 9.4.1 Canal de job: o segundo par de pontas (D2)
+
+O heartbeat tem duas pontas; o **canal durável de job** tem outras duas, com a
+mesma armadilha e com um sintoma pior: sem elas, o sinal de atraso do critério
+14 **não existe** e o portal responde `degraded` por desenho (fail-closed), sem
+que nada acuse nada.
+
+| Ponta | Quem | Arquivo de ambiente |
+|---|---|---|
+| **Produtor** — grava o estado ao fim de cada task | `celery-worker@<env>` | `/etc/portal/celery-<env>.env` |
+| **Consumidor** — publica `portal_job_task_idle_seconds` no `/metrics` e roda o check `celery_jobs` | gunicorn do PM2 | `backend/.env` |
+
+Obrigatório nos **dois** arquivos, com o **mesmo** valor:
+
+```bash
+ENV=prod
+grep -n OBSERVABILITY_JOB_STATE_FILE "/etc/portal/celery-$ENV.env" \
+     "/home/apps/portal-$ENV/backend/.env"   # as duas linhas têm de ser iguais
+# E o arquivo precisa existir (o produtor só grava se o diretório existir):
+ls -l "/var/lib/portal-observabilidade/jobs-$ENV.json"
+# E o canal precisa estar sendo lido pelo processo web:
+curl -sS -H "Authorization: Bearer $TOKEN" http://127.0.0.1:5103/metrics \
+  | grep -E '^portal_job_(task_idle_seconds|state_age_seconds)'
+curl -sS -H "Authorization: Bearer $TOKEN" http://127.0.0.1:5103/health-detail \
+  | python3 -c 'import json,sys; print(json.load(sys.stdin)["checks"]["celery_jobs"])'
+```
+
+Passo a passo para um operador, na ordem, sem atalho:
+
+1. `/etc/portal/celery-<env>.env`: acrescente
+   `OBSERVABILITY_JOB_STATE_FILE=/var/lib/portal-observabilidade/jobs-<env>.json`.
+   O deploy cria esse arquivo **só se ele não existir**; se já existe (ajuste
+   seu), ele **preserva** — nesse caso acrescente a linha à mão.
+2. `backend/.env`: acrescente **a mesma** linha, mais
+   `OBSERVABILITY_JOB_STATE_MAX_AGE_SECONDS=900` (lida só pelo processo web).
+   O deploy acrescenta as linhas se faltarem, sem reescrever o arquivo; se já
+   existirem com outro valor, ele avisa e preserva.
+3. Garanta o diretório: ele é criado pelo `StateDirectory=` da unit
+   `celery-beat-heartbeat@<env>.service` (0755, dono do `User=` da unit). Se o
+   timer nunca rodou, o diretório ainda não existe e a gravação falha com
+   `estado de job não gravado` no journal do worker — sinal que o check
+   `celery_jobs` reporta como `error`, e não como `not_configured`.
+4. Reinicie **os dois** lados: `systemctl restart 'celery-worker@<env>'` e o PM2
+   da API (`pm2 restart portal-api-<env>`). O `.env` é lido no boot do processo:
+   sem restart, a variável nova não existe para aquele processo.
+5. Confirme com os dois `curl` acima. Sem `portal_job_task_idle_seconds` no
+   `/metrics`, o consumidor não está lendo o arquivo.
+
+Com `celery_systemd: false` (sem worker de systemd) ou na topologia do
+`docker-compose.yml`, o bloco do deploy não roda: o caminho tem de chegar ao
+serviço do Celery pelo mecanismo daquele ambiente (`environment:` do compose, ou
+`Environment=` da unit), **com o mesmo valor** do `backend/.env` — senão o canal
+nasce divergente, que é o defeito que estamos fechando.
+
+**Não desligue o check para "resolver" o `degraded`.** `celery_jobs` sem sinal é
+`not_configured` de propósito: sem ele não existe forma de saber se os jobs
+rodam. Declarar a variável nos dois lados é a correção; desligar o check apaga o
+ponto cego e deixa o agendamento sem observabilidade nenhuma.
+
+### 9.4.2 `X-Forwarded-For`: o que o Nginx precisa ter, e como conferir
+
+O leitor do lado Django (`backend/config/proxies.py::identificar_cliente`) só
+usa o `X-Forwarded-For` quando quem abriu a conexão é o loopback ou uma rede
+declarada em `OBSERVABILITY_TRUSTED_PROXY_NETWORKS`, e só usa o **último**
+elemento da cadeia. O Nginx tem de **escrever** o header em cada location que
+fala com o Django. O valor versionado é
+`proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;` (anexa o
+`$remote_addr` ao fim da cadeia); `$remote_addr` (sobrescreve) serve igualmente
+para o leitor. `$http_x_forwarded_for` **nunca**: repassaria o header do
+cliente sem tocá-lo.
+
+```bash
+# 1) O arquivo INSTALADO tem a diretiva? (é ele, não o repositório, que vale)
+sudo nginx -T 2>/dev/null | grep -c 'proxy_set_header X-Forwarded-For'
+#    esperado: 13 por site conf instalado (13 x os ambientes da VPS)
+# 2) O comportamento, não a configuração: um header forjado pelo cliente tem de
+#    ser IGNORADO na escolha do balde. Repetir o MESMO valor forjado tem de
+#    continuar caindo no MESMO balde — se cada POST caísse num balde novo, o
+#    header do cliente ainda está mandando no limite:
+for i in $(seq 1 35); do
+  curl -sS -o /dev/null -w '%{http_code} ' -X POST \
+    -H 'X-Forwarded-For: 10.0.0.1' -H 'Content-Type: application/json' \
+    --data '{"email":"inexistente@example.invalid"}' \
+    https://<host>/api/auth/cadastro/
+done; echo
+# Esperado: 201 (ou 400) até o teto e 429 depois — o limite conta o par real.
+# 201 a cada requisição = o bypass do MAJOR-1 voltou.
+```
+
+**Se um CDN for posto na frente depois disto** (Cloudflare é a opção gratuita
+documentada e continua opcional): com o `X-Forwarded-For` como está, o
+`$remote_addr` do Nginx passa a ser o IP do CDN e **todo mundo cai no mesmo
+balde de rate limit** — 20 POSTs/min no total, não por cliente. Antes de ativar
+o proxy laranja, no `http {}` da VPS:
+
+```nginx
+# SOMENTE os prefixos do CDN: `set_real_ip_from 0.0.0.0/0` ABRE o bypass de
+# volta (qualquer um forja o header de origem e escolhe o próprio balde).
+# Os ranges abaixo são EXEMPLO — confirme os prefixes vigentes na conta.
+set_real_ip_from 103.21.244.0/22;
+set_real_ip_from 173.245.48.0/20;
+real_ip_header CF-Connecting-IP;   # ou X-Forwarded-For, conforme o provedor
+real_ip_recursive on;
+```
+
+Com o `realip`, o `$remote_addr` volta a ser o cliente real e a regra 3 do
+cabeçalho dos `portal-<env>.conf` continua valendo sem alteração. Sem ele, a
+alternativa conservadora é trocar a diretiva por
+`proxy_set_header X-Forwarded-For $remote_addr;` (sobrescreve): o leitor do
+backend dá o mesmo resultado, mas a cadeia de hops some do log de borda.
+
 ### 9.5 SSH por chave, e a remoção da senha
 
 O deploy aceita chave dedicada e impressão digital do host, **além** da senha.
