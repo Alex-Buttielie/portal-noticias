@@ -17,6 +17,9 @@ tag v* ─────────── Deploy PROD ── verify (mesmo ci.yml
 dispatch manual ── Rollback ──────── verify (mesmo ci.yml) ──> reset SHA + PM2 + smoke
 ```
 
+Onde `verify` = os três jobs do `ci.yml` (`backend-tests`, `frontend-build` e
+`infra-validate`): o gate é o CI, e nenhuma conexão SSH começa antes dele.
+
 O CI continua sendo um workflow independente para feedback nos pushes e PRs.
 Ao mesmo tempo, cada deploy chama `ci.yml` por `workflow_call` dentro do
 próprio run; a execução é duplicada de propósito, mas a lógica (pytest, check,
@@ -31,11 +34,11 @@ o `verify` chamado pelo deploy cobre a tag e verifica seu SHA.
 
 ### Ambientes na VPS (inalterados)
 
-| Ambiente | Ref git | Dir VPS | PM2 web/api | Portas |
-|----------|---------|---------|-------------|--------|
-| DEV | `develop` | `/home/apps/portal-dev` | `portal-web-dev` / `portal-api-dev` | 3101 / 5101 |
-| HOMOLOG | head do PR (SHA fixo) | `/home/apps/portal-homolog` | `portal-web-homolog` / `portal-api-homolog` | 3102 / 5102 |
-| PROD | `main` (tag `v*`, SHA fixo) | `/home/apps/portal-prod` | `portal-web-prod` / `portal-api-prod` | 3103 / 5103 |
+| Ambiente | Ref git | Dir VPS | PM2 web/api | systemd Celery | Portas |
+|----------|---------|---------|-------------|-----------------|--------|
+| DEV | `develop` | `/home/apps/portal-dev` | `portal-web-dev` / `portal-api-dev` | `celery-{worker,beat}@dev` | 3101 / 5101 |
+| HOMOLOG | head do PR (SHA fixo) | `/home/apps/portal-homolog` | `portal-web-homolog` / `portal-api-homolog` | `celery-{worker,beat}@homolog` | 3102 / 5102 |
+| PROD | `main` (tag `v*`, SHA fixo) | `/home/apps/portal-prod` | `portal-web-prod` / `portal-api-prod` | `celery-{worker,beat}@prod` | 3103 / 5103 |
 
 Nginx (configuração canônica em `infra/nginx/portal-{dev,homolog,prod}.conf` — idênticas às ativas na VPS; aplicar conforme o cabeçalho dos arquivos):
 `dev.portal-noticias.com.br` (`/`→3101, `/api/`→5101, preservando o path),
@@ -238,7 +241,7 @@ não há promessa de zero downtime.
 
 | Workflow | Arquivo | Trigger / gate |
 |----------|--------|----------------|
-| CI | `.github/workflows/ci.yml` | push/PR em develop e main, ou `workflow_call` pelo deploy; Python 3.12 com runtime+dev, `manage.py check`, pytest cov≥80; Node 20 com check de datas em UTC/Tokyo antes de `tsc`/`next build` |
+| CI | `.github/workflows/ci.yml` | push/PR em develop e main, ou `workflow_call` pelo deploy; Python 3.12 com runtime+dev, `manage.py check`, pytest cov≥80; Node 20 com check de datas em UTC/Tokyo antes de `tsc`/`next build`, mais upload de source maps (fail-open) e o job `infra-validate` (`validar-infra.sh --estrito`) |
 | Deploy DEV | `deploy-dev.yml` | push em develop; `verify` (`ci.yml`) → SSH/PM2 3101/5101 |
 | Deploy HOMOLOG | `deploy-homolog.yml` | PR para main; `verify` do head do PR → SSH/PM2 3102/5102 |
 | Deploy PROD | `deploy-prod.yml` | tag `v*` + Release; `verify` do SHA da tag → SSH/PM2 3103/5103 |
@@ -255,7 +258,9 @@ não há promessa de zero downtime.
   do CI, mas não deve entrar na imagem ou no runtime PM2. O
   `backend/.dockerignore` mantém esse manifesto fora do contexto Docker.
 
-Secrets exigidos (os mesmos de antes): `VPS_HOST`, `VPS_USER`, `VPS_PASSWORD`, `VPS_PORT` — vinculados a cada **GitHub Environment** (`development`/`homolog`/`production`) em Settings → Environments. O job `verify` não recebe secrets; o job de provisionamento roda com `environment: ${{ inputs.environment_name }}` (ver `.github/workflows/deploy.yml`), então só enxerga os secrets daquele Environment, com proteção de branch/tag. A configuração de regras de proteção/approvals do Environment continua sendo uma decisão humana no GitHub; o gate de CI já está no repositório.
+Secrets exigidos (os mesmos de antes): `VPS_HOST`, `VPS_USER`, `VPS_PASSWORD`, `VPS_PORT` — vinculados a cada **GitHub Environment** (`development`/`homolog`/`production`) em Settings → Environments. O job de provisionamento roda com `environment: ${{ inputs.environment_name }}` (ver `.github/workflows/deploy.yml`), então só enxerga os secrets daquele Environment, com proteção de branch/tag. A configuração de regras de proteção/approvals do Environment continua sendo uma decisão humana no GitHub; o gate de CI já está no repositório.
+
+O job `verify` **não recebe secret de VPS**. A única exceção, desde C2.4, são os secrets opcionais do Sentry (`SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, `SENTRY_PROJECT`, `SENTRY_URL`), repassados ao `ci.yml` chamado porque o deploy de PROD sai de uma tag — que não dispara o CI por `push` — e sem eles o source map da release de produção nunca seria enviado. São secrets de baixo valor (upload de mapa de fonte e DSN) e o passo que os usa é fail-open. O inventário completo, com o que fazer em cada ausência, está em [Secrets do repositório](#secrets-do-repositório-inventário-e-o-que-fazer-quando-falta-um).
 
 ### Decisão P1-5 — mitigação conservadora, sem trocar o build ainda
 
@@ -323,6 +328,257 @@ Environments; essas regras complementsam o gate versionado, mas não o
 substituem.
 
 > **Rotação:** se qualquer secret (`VPS_PASSWORD`, `VPS_USER`, host/porta) for exposto em chat, log ou commit, rotacione imediatamente na VPS (`sudo passwd <usuario>` / troca de porta em `/etc/ssh/sshd_config` + `systemctl reload sshd`) e em Settings → Environments, antes do próximo deploy.
+
+### §P1-6 — release atômica, runtime standalone e Celery no systemd (C2)
+
+> Acrescimo seccionado: a §P1-5 acima **não foi reescrita** e continua
+> descrevendo as mitigações que valem. Esta seção registra o que foi
+> executado a partir do plano de release atômica que a própria §P1-5 exigia
+> ("follow-up obrigatório antes do build remoto"), e o que continua
+> exatamente igual.
+
+#### O que mudou, em uma tela
+
+| Antes | Agora | Onde |
+|---|---|---|
+| `npm start` no PM2, `.next/` reescrito embaixo do processo em produção | `node .next/standalone/server.js` com `public/` e `.next/static` no lugar, `HOSTNAME`/`PORT` explícitos | `web_runtime: standalone` (padrão) |
+| deploy in-place: um probe verde era a única barreira | release em `frontend/releases/<id>/`, smoke NELA, e só então o symlink `current` alterna; release anterior preservada em `previous` | `.github/workflows/deploy.yml` |
+| sem retorno automático | se o PM2 não sobe na release nova, `current` volta para a anterior, o processo sobe nela e o deploy **falha** (marker preservado) | `voltar_release_anterior` |
+| Celery inexistente na topologia ativa (achado B4) | `celery-worker@<env>` e `celery-beat@<env>` instaladas e ativadas pelo deploy, com `%i` = ambiente | `ativar_celery_systemd` |
+| SSH por senha, host key não conferida | chave dedicada e impressão digital do host **aceitas como alternativa**, com o caminho por senha intacto | `VPS_SSH_KEY` / `VPS_HOST_FINGERPRINT` |
+| source maps não subiam | `sentry-cli sourcemaps upload` no `frontend-build`, fail-open sem token | `.github/workflows/ci.yml` |
+| config de infra só quebrava na VPS | gate `validar-infra.sh --estrito` no CI, com pendência declarada | job `infra-validate` |
+
+**O que NÃO mudou, deliberadamente:** o build continua compilando **na VPS**
+(heap 1536 MB, três stacks na mesma máquina) — a estratégia de build não foi
+trocada; `concurrency` sem cancelamento; o marker `.deployed-sha` e a sua
+promoção só após os dois probes verdes; `strict_validate`; o caminho
+`git_mode: rollback` usado por `rollback.yml`; e o backend, que continua com
+`git reset --hard` + `migrate` in-place.
+
+#### Release atômica: o desenho e o porquê do escopo
+
+A §P1-5 escrevera "publicar uma release em diretório versionado; trocar symlink
+e reiniciar o PM2 somente após smoke test; manter a release anterior para
+rollback". Feito — com um recorte que vale explicar, porque é a parte em que a
+promessa e o fato divergem se ninguém disser:
+
+**A release é do TIER WEB, não do app inteiro.** O symlink só pode promover o
+que não tem migration e não tem estado. O backend usa `git reset --hard` +
+`migrate` no lugar de propósito: `backend/.env` e `backend/media/` são
+untracked e sobrevivem ao reset, `.venv` é reaproveitado, e trocar o diretório
+do backend exigiria mover as units systemd (`/home/apps/portal-%i/backend`),
+os scripts de backup e a árvore de mídia — centenas de MB por release numa VPS
+de 4 GB, sem ganho de atomicidade. Promover o frontend sozinho é onde a troca
+de versão realmente acontece: era `next build` reescrevendo `.next/` enquanto o
+processo em produção lia essa mesma árvore.
+
+Layout em `$APP_DIR/frontend/releases/`:
+
+```text
+releases/
+  20260925T180000Z-aaaaaaaaaaaa/     release imutável
+    standalone/                        server.js + node_modules + public/ + .next/static
+    .deployed-sha                      o commit desta release (rollback por symlink descobre sem git)
+  20260925T183000Z-bbbbbbbbbbbb/     release anterior
+  current -> 20260925T183000Z-bbbb…   symlink que o PM2 consome (caminho estável)
+  previous -> 20260925T180000Z-aaaa…  alvo do retorno automático
+```
+
+Ordem exata do deploy, e o que cada passo pode quebrar:
+
+1. `npm ci` + `next build` na VPS, como antes;
+2. `preparar_release` copia a árvore standalone para a pasta da release e
+   chama `infra/standalone/run-standalone.sh prepare` (que copia `public/` e
+   `.next/static` — o mesmo padrão do `frontend/Dockerfile`);
+3. `smoke_release` sobe a release em **porta livre** e valida `/robots.txt`, um
+   asset real de `.next/static` e a Home. O smoke **aceita 503** na Home
+   (estado documentado de feed indisponível sem cache) e **reprova 5xx** e
+   asset ausente — comportamento testado, não presumido;
+4. **só depois** `promover_release` grava `previous` com o alvo antigo de
+   `current` e alterna `current` por `ln -s` + `mv -T` (rename(2) sobre o
+   symlink: quem lê o link vê a release antiga ou a nova, nunca um estado
+   quebrado — `ln -sfn` NÃO é atômico);
+5. `restart_or_start` sobe o processo. Se não ficar `online` em 3 tentativas,
+   `current` volta para `previous` e o processo sobe na anterior — e o deploy
+   **termina com erro de qualquer forma**: um exit 0 promoveria no
+   `.deployed-sha` um SHA cuja release não está no ar, e o marker é a
+   fronteira de recuperação;
+6. `podar_releases` mantém as 3 mais recentes por data, **protegendo** os
+   alvos de `current` e `previous` mesmo quando ficaram fora do recorte (o caso
+   de quatro deploys seguidos, em que o alvo do retorno sumiria).
+
+Falha nos passos 2 ou 3 aborta o deploy **antes** de qualquer mudança
+visível: sem `current` novo, sem restart, sem migration, sem promoção do
+marker. É a propriedade que o plano pedia e a que o smoke existia para dar.
+
+**O que isso não é:** não é blue-green e não é zero downtime. Continua havendo
+uma janela em que o processo do frontend é reiniciado no mesmo PM2; o que
+muda é que existe uma versão anterior pronta e um retorno de um comando. A
+§P1-5 e o gatilho de "quando evoluir para blue-green" continuam valendo — o
+ganho aqui é reversibilidade, não disponibilidade.
+
+#### `web_runtime`: o caminho novo tem escape hatch
+
+O input `web_runtime` (`standalone` | `npm`, padrão `standalone`) existe porque
+trocar o runtime do processo em produção sem rede de segurança seria(o) o
+arriscado, e o §P1-5 já mostra o que acontece quando se copia arquivo solto
+por cima de app no ar. Com `npm`, o deploy faz exatamente o que fazia antes
+(build in-place + `npm start`), sem tocar em `releases/`. Está exposto no
+dispatch de `rollback.yml`, que é onde o operador precisa dele durante um
+incidente. **Não remova o caminho `npm` sem antes de um deploy `standalone`
+ter sido validado num ambiente real com probes verdes** — a remoção do escape
+hatch é a última etapa da mudança, não uma parte dela.
+
+#### Celery no systemd: placeholders resolvidos, falha não derruba deploy
+
+As units são **template** (`celery-worker@.service`, com `%i`), porque a mesma
+VPS hospeda os três ambientes e uma unit com `EnvironmentFile` fixo serviria a
+um só — e o ambiente errado é exatamente a falha que produz backup do banco de
+dev em produção. O deploy resolve os dois placeholders: `%i` = `$SUF`
+(`dev`/`homolog`/`prod`) e `User=`/`Group=` = o dono do app (`id -un`), como o
+cabeçalho de cada unit prescreve (root é proibido: o worker tem o mesmo acesso
+a mídia e banco que a aplicação web).
+
+Ele também cria `/etc/portal/celery-<env>.env` **se não existir**, com os
+mesmos valores que o serviço `celery-worker` do `docker-compose.yml` já usa
+(`--concurrency=2 --max-tasks-per-child=100`) mais o
+`BEAT_HEARTBEAT_FILE`/`OBSERVABILITY_BEAT_HEARTBEAT_FILE`. Os dois
+`EnvironmentFile` das units não têm o prefixo `-`, então sem esse arquivo a
+unit **não sobe** (fail-closed proposital): criá-lo aqui é provisionar o que a
+unit exige, não afrouxar a barreira. O arquivo **nunca é sobrescrito** — ajuste
+do operador é preservado. `celery_systemd: false` não toca em nada.
+
+Falha de Celery **não derruba o deploy**: web e API já estão no ar, e o estado
+do worker é degradação visível em `/health-detail` e no alerta
+`PortalFilaCelery`. Um deploy que caísse por causa do Celery seria pior que o
+Celery parado.
+
+Correção mínima em arquivo do Bloco C1: `celery-beat-heartbeat@.service` ganhou
+`StateDirectory=portal-observabilidade`. Com `ProtectSystem=strict` (C1), o
+diretório do heartbeat ficava somente-leitura, o `touch` falharia a cada tick
+e a unit passaria a falhar **com o beat vivo** — o oposto do producers que ela
+existe para ser. `StateDirectory` resolve sem afrouxar o `ProtectSystem`.
+
+#### SSH: chave com fallback, e por que a senha continua lá
+
+`VPS_SSH_KEY` (conteúdo PEM da chave privada) e `VPS_HOST_FINGERPRINT`
+(impressão digital `SHA256:…` do host key) são **opcionais**. Vazias, o
+comportamento é exatamente o de antes — a action simplesmente ignora as entradas
+vazias e autentica por senha. Preenchidas, elas entram como credencial
+alternativa e a impressão digital passa a ser conferida: divergência **derruba
+a conexão** em vez de aceitar qualquer host.
+
+Duas coisas que valem saber antes de mexer nisso:
+
+- **A ordem é do cliente SSH da action, não deste workflow.** Com as duas
+  credenciais presentes, a senha é oferecida primeiro e a chave em seguida;
+  qualquer uma das duas autentica. A chave **não** tem precedência enquanto
+  `VPS_PASSWORD` existir, e isso não é corrigível aqui sem remover a senha — que
+  é justamente o passo adiado.
+- **A impressão digital tem que ser do host key ED25519.** A action compara
+  com a primeira host key que o servidor oferecer, e o ED25519 é o primeiro da
+  lista padrão do cliente Go. `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub`
+  na VPS. Passar a impressão de outro tipo de host key faz a conexão falhar —
+  fail-closed, que é o comportamento desejado, mas confuso se não for esperado.
+
+**A remoção da senha não está nesta mudança.** Ela depende de acesso real à VPS
+e de um deploy que tenha autenticado **só** com a chave. A sequência está em
+`infra/DEPLOY.md` §9.
+
+#### Source maps no CI (fail-open)
+
+Passo no `frontend-build`, depois do `npm run build`, com `sentry-cli`:
+
+- **sem `SENTRY_AUTH_TOKEN` o passo nem roda.** PR de fork e clone local não
+  têm secrets, e um CI que exige segredo para buildar trava o projeto
+  inteiro, inclusive para quem só quer abrir PR. A decisão sai de um passo
+  anterior que publica um output, porque `if:` não pode referenciar `secrets`;
+- **com token, uma falha de upload não reprova o build**
+  (`continue-on-error`). Source map é insumo de diagnóstico: transformar
+  indisponibilidade do Sentry em indisponibilidade de deploy troca um problema
+  pequeno por um grande;
+- **sem nenhum `.map` em `.next`, o upload é pulado com aviso.** Hoje o
+  `next.config.js` (Bloco B2) usa `withSentryConfig` com
+  `deleteSourcemapsAfterUpload: false`, então os mapas **permanecem** e o passo
+  acima é quem os envia. Se essa opção voltar ao default do SDK (apagar depois
+  do upload), o passo vira no-op inofensivo com `::notice::` — não um erro;
+- **`sentry-cli` vem como transitiva do `@sentry/nextjs`** (via
+  `@sentry/bundler-plugin-core`) e a versão usada é a do lockfile, a mesma do
+  `withSentryConfig`. Não tente "usar a versão do @sentry/nextjs": o CLI tem
+  linha de versionamento própria (2.x) e `@sentry/cli@10.x` não existe. Se o
+  binário sumir do `node_modules/.bin`, o passo avisa e pula em vez de buscar
+  versão adivinhada;
+- o `release` enviado é o **commit realmente verificado**
+  (`git rev-parse HEAD`), não `github.sha` — no `workflow_call` o checkout é
+  `inputs.checkout_ref` e em PR o `github.sha` é o merge commit. Source map de
+  outro release não correlaciona stack trace.
+
+#### Gate de validação de infra na CI
+
+Novo job `infra-validate` no `ci.yml`, que roda
+`scripts/observability/validar-infra.sh --estrito`. Instala `pyyaml`
+(requisito do validador; sem ele o script acusa **falha**, o que é correto —
+item que não pôde ser validado não é item validado) e o `ubuntu-latest` já tem
+Docker, `jq` e `shellcheck`.
+
+**A decisão consciente sobre o `--estrito`:** sem tratamento, ele reprova
+para sempre por um `runbook_url` com domínio reservado `.invalid` — pendência
+real que só se resolve com o endereço interno de runbook, que é decisão humana.
+Um gate vermelho permanente acaba sendo ignorado, que é pior que a pendência.
+Então o validador ganhou um terceiro estado, **PENDENTE DECLARADA**, e a lista
+fica em `scripts/observability/pendencias-ci.txt`:
+
+- pendência **declarada** → impressa como `[PENDENTE]`, listada no resumo, **não
+  reprova** o gate;
+- pendência **não declarada** → reprova o gate estrito na hora;
+- chave declarada que **não ocorre mais** → **falha**, porque lista que
+  envelhece em silêncio passa a esconder pendência nova.
+
+Ambas as direções foram testadas com saída real (ver `bloco-c2-notas.md`).
+
+#### Secrets do repositório: inventário e o que fazer quando falta um
+
+Todos no mesmo escopo dos `VPS_*` já existentes (Settings → Environments para
+os de VPS; repositório para os demais).
+
+| Secret | Quem usa | Ausente → |
+|---|---|---|
+| `VPS_HOST`, `VPS_USER`, `VPS_PASSWORD`, `VPS_PORT` | todos os steps SSH | workflow falha no `with:` (`required: true`) — comportamento de sempre |
+| `VPS_SSH_KEY` | `deploy.yml` (deploy + validate) | **sem efeito**: autenticação por senha, como antes |
+| `VPS_HOST_FINGERPRINT` | `deploy.yml` (deploy + validate) | sem efeito, e a host key **não** é conferida (o comportamento atual) |
+| `SENTRY_AUTH_TOKEN` | `ci.yml` (`frontend-build`) | upload de source map **pulado**, com `::notice::`; CI verde |
+| `SENTRY_ORG`, `SENTRY_PROJECT` | `ci.yml` | com token presente e org/projeto ausente: `::warning::` e upload pulado |
+| `SENTRY_URL` | `ci.yml` | sem efeito: assume o SaaS do Sentry |
+
+Secrets que **não** são do repositório, e por quê: `DJANGO_SECRET_KEY`,
+`DJANGO_DB_PASSWORD`, `BACKUP_S3_*` e o bucket ficam em `backend/.env` na VPS
+(gerado uma vez pelo bootstrap do deploy); os tokens do Alloy/ Grafana Cloud
+(`ALLOY_REMOTE_WRITE_TOKEN`, `ALLOY_LOKI_TOKEN`, `ALLOY_BACKEND_METRICS_TOKEN_FILE`)
+ficam em `/etc/portal/alloy-<env>.env` na VPS, em 0640; e
+`OBSERVABILITY_METRICS_TOKEN` precisa ser **o mesmo valor** nos três lugares
+(`backend/.env`, `__OBS_TOKEN_ESPERADO__` no `http-cache.conf` instalado e o
+arquivo de token do Alloy). Detalhes e ordem de instalação em
+`infra/observability/README.md`.
+
+#### Pendências que continuam abertas (não resolvidas aqui)
+
+- **R-1 (caminho PR → VPS)**: `scripts/release/verificar-proveniencia.sh`
+  continua **fora** de qualquer workflow. O risco é aceito e aberto, **não
+  mitigado** e **não coberto pelo gate** por decisão da run de go-live, com
+  assinatura exigida no go/no-go. Registrado aqui como fronteira, sem mudança
+  de status.
+- **R-2 (domínio `.com` × `.com.br`)**: a divergente entre os workflows
+  (`.com`) e os site confs/`host` dos callers (`.com.br`) **não foi corrigida** —
+  é risco registrado da run de go-live. Note que ela agora tem **consequência
+  nova**: com `tls_enabled=true` o `validate` faz o probe em
+  `https://$HOST/…` e um hostname que não resolve falha o probe. O valor
+  efetivo de `HOST` nos três ambientes precisa ser confirmado antes de ativar
+  TLS.
+- **`DJANGO_ALLOWED_HOSTS` com IP fixo** (`deploy.yml`, no `printf` do
+  bootstrap de `backend/.env`): o bootstrap do
+  `.env` grava `108.174.147.50` literalmente. Não foi tocado; registrar como
+  pendência porque fixa um IP em arquivo de configuração gerado.
 
 ### Banco de dados (Postgres na VPS — único pré-requisito novo)
 

@@ -6,8 +6,8 @@
 #   Configuração de Nginx, systemd, Compose, JSON e HCL só quebra quando alguém
 #   a instala — e a instalação acontece na VPS, em produção, no meio de um
 #   deploy. Este script roda a MESMA verificação localmente, antes disso, e é o
-#   mesmo código que o gate de CI vai executar (C2.5, quando as runs forem
-#   reconciliadas).
+#   mesmo código que o gate de CI executa (job `infra-validate` de ci.yml, com
+#   `--estrito`, desde C2.5).
 #
 #   A regra de ouro deste script: ele RELATA o que não conseguiu validar. Item
 #   pulado por falta de binário sai como "PULADO", nunca como "OK" — um
@@ -21,6 +21,17 @@
 #
 # Saída: exit 0 se nada FALHOU (pulados são aceitáveis e listados no resumo);
 # exit 1 se qualquer verificação falhou.
+#
+# PENDÊNCIA DECLARADA (`--estrito`, C2.5): uma pendência real listada em
+# `scripts/observability/pendencias-ci.txt` NÃO reprova o gate estrito — ela é
+# impressa como [PENDENTE], listada no resumo e reprova qualquer pendência que
+# NÃO esteja na lista. A diferença é deliberada: sem a lista, `--estrito`
+# puniria para sempre o CI por algo que só se resolve com acesso ao serviço
+# externo (domínio de runbook, conta, DNS), e um gate vermelho permanente
+# acaba sendo ignorado — que é pior do que a pendência. Com a lista, uma
+# pendência NOVA reprova na hora e a conhecida continua visível. E uma chave
+# declarada que não ocorre mais também falha: sem isso a lista envelheceria em
+# silêncio e passaria a esconder pendência nova.
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -40,6 +51,7 @@ AVISOS=0
 ESTRITO=0
 RAPIDO=0
 FILTRO=""
+PENDENTES_RECONHECIDOS=0
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -47,7 +59,10 @@ while [[ $# -gt 0 ]]; do
         --estrito) ESTRITO=1; shift ;;
         --somente) FILTRO="${2:-}"; shift 2 ;;
         -h|--help)
-            sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'
+            # O bloco de ajuda é o cabeçalho de comentário: recortado pelo
+            # início do código para não depender de contagem de linhas (que
+            # quebraria sozinho na próxima edição do cabeçalho).
+            sed -n '2,/^set -/p' "$0" | sed 's/^# \{0,1\}//' | sed '$d'
             exit 0
             ;;
         *) printf 'opção desconhecida: %s\n' "$1" >&2; exit 64
@@ -55,15 +70,54 @@ while [[ $# -gt 0 ]]; do
 done
 
 declare -a RESUMO=()
+declare -a RESUMO_FALHAS=()
+declare -a RESUMO_PENDENCIAS=()
+declare -a PENDENCIAS_VISTAS=()
+
+# Arquivo de pendências declaradas (C2.5). Ver o cabeçalho.
+PENDENCIAS_FILE="scripts/observability/pendencias-ci.txt"
 
 titulo() { printf '\n\033[1m== %s ==\033[0m\n' "$*"; }
 ok()      { OKS=$((OKS+1));       printf '  [OK]     %s\n' "$*"; }
 pulado()  { PULADOS=$((PULADOS+1)); printf '  [PULADO] %s\n' "$*"; RESUMO+=("PULADO: $*"); }
 aviso()   { AVISOS=$((AVISOS+1)); printf '  [AVISO]  %s\n' "$*"; RESUMO+=("AVISO: $*"); }
-falha()   { FALHAS=$((FALHAS+1)); printf '  [FALHOU] %s\n' "$*"; RESUMO+=("FALHOU: $*"); }
+falha()   { FALHAS=$((FALHAS+1)); printf '  [FALHOU] %s\n' "$*"; RESUMO_FALHAS+=("$*"); }
+
+# Verdadeiro quando a chave está declarada no arquivo de pendências. O
+# casamento é por PREFIXO de linha, então a linha pode trazer o motivo depois
+# da chave; `index` evita qualquer interpretação de metacaractere da chave.
+chave_declarada() {
+    local chave="$1"
+    [[ -r "$PENDENCIAS_FILE" ]] || return 1
+    awk -v k="$chave" '
+        {
+            linha = $0
+            sub(/#.*/, "", linha)
+            gsub(/^[ \t]+|[ \t]+$/, "", linha)
+            if (index(linha, k) == 1) {
+                resto = substr(linha, length(k) + 1)
+                if (resto == "" || resto ~ /^[ \t]/) achou = 1
+            }
+        }
+        END { exit(achou ? 0 : 1) }
+    ' "$PENDENCIAS_FILE"
+}
+
 # Item que é erro no CI e apenas aviso no uso local (configuração que depende
-# de provisionamento externo ainda por vir). `--estrito` transforma em falha.
+# de provisionamento externo ainda por vir). `--estrito` transforma em falha,
+# SALVO quando a pendência está declarada em `pendencias-ci.txt` (aí ela
+# continua impressa e listada no resumo, mas não reprova o gate).
 pendencia() {
+    local chave="$1"
+    shift
+    PENDENCIAS_VISTAS+=("$chave")
+    if chave_declarada "$chave"; then
+        PENDENTES_RECONHECIDOS=$((PENDENTES_RECONHECIDOS+1))
+        printf '  [PENDENTE] %s\n' "$*"
+        printf '             declarada em %s (chave: %s)\n' "$PENDENCIAS_FILE" "$chave"
+        RESUMO_PENDENCIAS+=("$chave — $*")
+        return 0
+    fi
     if (( ESTRITO )); then falha "$*"; else aviso "$*"; fi
 }
 
@@ -249,7 +303,7 @@ PYEOF
         fi
     done
     if grep -q "exemplo.invalid" infra/observability/alerts/*.yaml; then
-        pendencia "runbook_url ainda com o placeholder exemplo.invalid (RFC 2606, nunca resolve): trocar pelo endereço interno ANTES de carregar as regras no Mimir"
+        pendencia runbook-url-placeholder "runbook_url ainda com o placeholder exemplo.invalid (RFC 2606, nunca resolve): trocar pelo endereço interno ANTES de carregar as regras no Mimir"
     else
         ok "nenhum runbook_url de placeholder"
     fi
@@ -573,12 +627,45 @@ fi
 fi
 
 # ---------------------------------------------------------------------------
+# Consistência da lista de pendências declaradas
+# ---------------------------------------------------------------------------
+# Só faz sentido na rodada completa: com `--somente X`, a checagem que produz a
+# pendência pode nem rodar, e "não encontrei" seria mentira.
+if [[ -z "$FILTRO" ]]; then
+    if [[ ! -r "$PENDENCIAS_FILE" ]]; then
+        falha "arquivo de pendências declaradas ausente ou ilegível: $PENDENCIAS_FILE"
+    else
+        while read -r chave _resto; do
+            [[ -n "$chave" ]] || continue
+            declarado=0
+            for vista in ${PENDENCIAS_VISTAS[@]+"${PENDENCIAS_VISTAS[@]}"}; do
+                if [ "$vista" = "$chave" ]; then declarado=1; break; fi
+            done
+            if [ "$declarado" -eq 0 ]; then
+                falha "pendência declarada e não mais existente: $chave — remova a linha de $PENDENCIAS_FILE (a lista envelhecida passaria a esconder pendência nova)"
+            else
+                ok "pendência declarada e ainda real: $chave"
+            fi
+        done < <(sed -e 's/#.*//' -e 's/[[:space:]]*$//' "$PENDENCIAS_FILE" | grep -v '^$')
+    fi
+fi
+
+# ---------------------------------------------------------------------------
 printf '\n\033[1m== Resumo ==\033[0m\n'
-printf '  %d OK, %d AVISO, %d PULADO, %d FALHOU\n' "$OKS" "$AVISOS" "$PULADOS" "$FALHAS"
+printf '  %d OK, %d AVISO, %d PENDENTE DECLARADA, %d PULADO, %d FALHOU\n' \
+    "$OKS" "$AVISOS" "$PENDENTES_RECONHECIDOS" "$PULADOS" "$FALHAS"
+if (( ${#RESUMO_PENDENCIAS[@]} )); then
+    printf '\n  Pendências reais declaradas (não reprovam o gate; não são "OK"):\n'
+    printf '    %s\n' "${RESUMO_PENDENCIAS[@]}"
+fi
 if (( FALHAS )); then
-    printf '\n  Itens que falharam:\n'
-    printf '    %s\n' "${RESUMO[@]}"
-    printf '\n  Um item PULADO NÃO é um item validado: o que não foi executado está acima.\n'
+    printf '\n  Itens que FALHARAM:\n'
+    printf '    %s\n' "${RESUMO_FALHAS[@]}"
+fi
+if (( AVISOS || PULADOS )); then
+    printf '\n  %d aviso(s) e %d pulado(s) — um item PULADO NÃO é um item validado.\n' "$AVISOS" "$PULADOS"
+fi
+if (( FALHAS )); then
     exit 1
 fi
 exit 0

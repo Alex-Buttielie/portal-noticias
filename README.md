@@ -365,7 +365,9 @@ Os endpoints públicos de escrita mais expostos a abuso automatizado (`POST /api
 ## Observabilidade (Sentry opcional)
 
 - **Backend:** `sentry-sdk==2.19.2` já instalado; só inicializa se `SENTRY_DSN` estiver definida (`backend/config/settings.py` + `backend/.env.example`). Sem DSN custo zero.
-- **Frontend:** `frontend/sentry.client.config.ts` e `frontend/sentry.server.config.ts` usam `require("@sentry/nextjs")` dinâmico dentro de `if (dsn)` — build não quebra sem o pacote. Para ativar: `npm i @sentry/nextjs` + `NEXT_PUBLIC_SENTRY_DSN` (ou `SENTRY_DSN` no server) no `.env.local`/Environment. `@sentry/nextjs` é **opcional**, não dependência obrigatória de `frontend/package.json`.
+- **Frontend:** `@sentry/nextjs` está em `frontend/package.json` (versão **fixada**, sem `^`/`~`) desde o Bloco B2 desta run, e `frontend/sentry.client.config.ts` / `frontend/sentry.server.config.ts` o carregam dentro de `if (dsn)`, então o build não quebra sem DSN. Para ativar: `NEXT_PUBLIC_SENTRY_DSN` (ou `SENTRY_DSN` no server) no `.env.local`/Environment. Sem DSN, custo zero.
+- **Source maps:** o job `frontend-build` do CI envia os `.map` com `sentry-cli sourcemaps upload` quando `SENTRY_AUTH_TOKEN`, `SENTRY_ORG` e `SENTRY_PROJECT` existem no repositório. O passo é **fail-open**: sem token (fork, clone local, conta ainda não criada) ele nem roda, e mesmo configurado uma falha de upload não reprova o build. O `next.config.js` mantém `deleteSourcemapsAfterUpload: false` justamente para que os mapas fiquem disponíveis a esse passo; sem nenhum `.map` em `.next` o upload é pulado com aviso. O `release` enviado é o commit verificado (`git rev-parse HEAD`), e não `github.sha`, para o stack trace correlacionar com a release promovida. Detalhes em `CI-CD.md` §P1-6.
+- **Backend também respeita o consentimento técnico:** com `SENTRY_TECHNICAL_CONSENT_DEFAULT` desligado (default), todo evento é descartado e conta em `portal_sentry_events_dropped_total` — Sentry silenciosamente vazio é um falso verde dentro de outro.
 
 ## Design system
 

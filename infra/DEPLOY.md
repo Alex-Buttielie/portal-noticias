@@ -881,3 +881,170 @@ Notas:
   (debug manual pontual, sem valor permanente), as regras Firestore
   (`firestore.rules` — este projeto usa Postgres, não Firestore) e o
   deploy via PM2 (substituído pelo Compose+Caddy aqui).
+
+## 9. Operação da topologia ATIVA depois do deploy (C2): releases, runtime e Celery
+
+> **Acréscimo seccionado.** A §3A (runbook de TLS, mais acima) **não foi
+> reescrita** e continua sendo o caminho do certificado. Esta seção cobre o que
+> o deploy agora deixa na VPS depois de rodar, e o que fazer nela à mão. O
+> desenho e o porquê estão em `CI-CD.md` §P1-6.
+
+### 9.1 As releases do frontend (`releases/`)
+
+O deploy não sobrescreve mais o app em produção: cada deploy cria
+`/home/apps/portal-<env>/frontend/releases/<id>/`, faz smoke nela e só então
+alterna o symlink. O que fica em disco:
+
+```text
+/home/apps/portal-prod/frontend/releases/
+  20260925T180000Z-aaaaaaaaaaaa/
+    standalone/          server.js + node_modules + public/ + .next/static
+    .deployed-sha        o commit desta release
+  current -> …           o que o PM2 serve agora
+  previous -> …          o alvo do retorno automático
+```
+
+Para inspecionar, **sem mudar nada**:
+
+```bash
+cd /home/apps/portal-prod/frontend
+readlink -f releases/current && cat "releases/current/.deployed-sha"
+readlink -f releases/previous || echo "sem release anterior"
+ls -1t releases/ | head
+du -sh releases/
+```
+
+O deploy mantém as 3 mais recentes por data (`PORTAL_RELEASES_TO_KEEP`, padrão
+3) e **nunca remove** o que `current` ou `previous` apontam — mesmo quando
+ficaram fora do recorte. `releases/` é ignorado pelo git, e `git reset --hard`
+não o apaga (são arquivos untracked). **`git clean -fdx` em
+`/home/apps/portal-<env>` apaga as releases**: não rode.
+
+### 9.2 Voltar para a release anterior, à mão
+
+É uma linha e um restart — não precisa de dispatch, nem de rebuild:
+
+```bash
+set -e
+cd /home/apps/portal-prod/frontend
+NOVO="$(readlink -f releases/previous)"
+[ -n "$NOVO" ] && [ -f "$NOVO/standalone/server.js" ] || { echo "sem release anterior utilizável"; exit 1; }
+printf 'vai voltar de %s para %s\n' "$(readlink -f releases/current)" "$NOVO"
+ln -s "$NOVO" "releases/current.tmp.$$" && mv -Tf "releases/current.tmp.$$" releases/current
+cd /home/apps/portal-prod/frontend
+API_INTERNAL_URL=http://127.0.0.1:5103 PORT=3103 HOSTNAME=0.0.0.0 \
+  pm2 delete portal-web-prod >/dev/null 2>&1 || true
+API_INTERNAL_URL=http://127.0.0.1:5103 PORT=3103 HOSTNAME=0.0.0.0 \
+  pm2 start /home/apps/portal-prod/infra/standalone/run-standalone.sh start \
+    --dir /home/apps/portal-prod/frontend/releases/current/standalone \
+    --host 0.0.0.0 --port 3103
+pm2 save
+curl -sS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:3103/   # precisa ser 200
+```
+
+Use `ln -s` + `mv -T` (rename(2)), **nunca** `ln -sfn`: o `-f` remove o link
+antigo antes de criar o novo, e um leitor nesse instante vê `current` inexistente.
+O `pm2 delete` + `start` (e não `restart`) é o mesmo motivo documentado no
+script de deploy: `pm2 restart` reaproveita os argumentos salvos e ignora os
+novos.
+
+Depois de voltar, **corrija o marker**: o `.deployed-sha` em
+`/home/apps/portal-prod/` só é promover pelo job `validate` depois dos dois
+probes verdes, e o `rollback.yml` é o caminho que faz isso com o SHA alvo. Se
+você voltou à mão, confira com `cat /home/apps/portal-prod/.deployed-sha` e, se
+ele estiver com o SHA da release quebrada, rode o **Rollback manual do portal**
+com o SHA de `releases/<id>/.deployed-sha` da release boa — ele reconstrói pelo
+caminho validado e promove o marker corretamente.
+
+### 9.3 Voltar ao `npm start` (o escape hatch)
+
+Se o diagnóstico apontar o **runtime** e não o código da release, o dispatch de
+`Rollback manual do portal` tem o campo `web_runtime`: escolha `npm`. O deploy
+então faz build in-place e sobe `npm start` como fazia antes, sem tocar em
+`releases/`. Para o mesmo efeito no deploy normal (DEV/HOMOLOG), edite o input
+`web_runtime` do caller ou rode o rollback com `npm`.
+
+Este caminho **não** pode ser removido antes de um deploy `standalone` ter sido
+validado num ambiente real com probes verdes.
+
+### 9.4 As units do Celery na VPS
+
+O deploy instala e ativa `celery-worker@<env>` e `celery-beat@<env>` (mais o
+timer de heartbeat), resolvendo `%i` = ambiente e `User=`/`Group=` = o dono do
+app. Para conferir:
+
+```bash
+systemctl status 'celery-worker@prod' 'celery-beat@prod' --no-pager
+systemctl list-timers 'celery-beat-heartbeat@*' --no-pager
+ls -l /var/lib/portal-observabilidade/          # beat-prod.heartbeat deve existir
+```
+
+Ajustes manuais que o deploy **preserva** (ele só cria o que falta):
+
+- `/etc/portal/celery-<env>.env` (0640, `root:<grupo-do-dono-do-app>`):
+  `CELERY_WORKER_CONCURRENCY`, `CELERY_WORKER_MAX_TASKS_PER_CHILD` e
+  `BEAT_HEARTBEAT_FILE`/`OBSERVABILITY_BEAT_HEARTBEAT_FILE`. Os dois
+  `EnvironmentFile` das units **não** têm prefixo `-`: sem este arquivo a unit
+  **não sobe**, de propósito (worker com meia configuração agenda o que não
+  devia).
+- Se o broker não for um serviço chamado `redis.service`, ajuste `Wants=`/`After=`
+  nas units (ou um drop-in) — e só troque por `Requires=` depois de confirmar o
+  nome real.
+- `celery-beat-heartbeat@.service` usa `StateDirectory=portal-observabilidade`:
+  com `ProtectSystem=strict`, sem ele o diretório do heartbeat ficava
+  somente-leitura e a unit falharia **a cada tick com o beat vivo**.
+
+Para desativar num ambiente sem perder o arquivo: `systemctl disable --now
+'celery-worker@prod' 'celery-beat@prod'` (o deploy seguinte reativa, porque
+`celery_systemd` é `true` por padrão — desative no caller se for preciso).
+
+### 9.5 SSH por chave, e a remoção da senha
+
+O deploy aceita chave dedicada e impressão digital do host, **além** da senha.
+Procedimento completo, na ordem, e cada passo verificado antes do seguinte:
+
+```bash
+# 1) Na VPS: criar o par de chaves (NÃO precisa de senha, e a chave privada
+#    nunca entra na VPS)
+ssh-keygen -t ed25519 -N '' -C 'actions-deploy' -f ~/.ssh/portal-actions
+# 2) Autorizar a parte pública no usuário do deploy
+cat ~/.ssh/portal-actions.pub >> ~/.ssh/authorized_keys
+chmod 700 ~/.ssh && chmod 600 ~/.ssh/authorized_keys
+# 3) Testar em fora do Actions, antes de cadastrar qualquer secret
+ssh -i ~/.ssh/portal-actions -o IdentitiesOnly=yes <usuario>@<host> 'echo ok'
+# 4) Guardar a IMPRESSÃO DIGITAL do host key ED25519 (formato SHA256:…)
+ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub
+```
+
+No repositório, em Settings → Environments: `VPS_SSH_KEY` = **conteúdo** de
+`~/.ssh/portal-actions` (o arquivo PEM inteiro, do `-----BEGIN` ao `-----END`),
+e `VPS_HOST_FINGERPRINT` = a saída do passo 4. Ambos opcionais: vazios, o
+deploy autentica por senha como antes.
+
+**Sobre a remoção da senha (ainda não feita):** com os dois secrets
+configurados, a action oferece a **senha primeiro** e a chave em seguida —
+qualquer uma das duas autentica, e a chave não tem precedência. Para que a
+chave seja o único método, `VPS_PASSWORD` precisa ser removido, o que só deve
+acontecer **depois** de um deploy bem-sucedido autenticando só com a chave
+(passo 3 acima prova isso fora do Actions, e um run verde no Actions prova
+dentro). Remova a senha da VPS no mesmo dia (`sudo passwd -l <usuario>` só se
+houver outra forma de entrar; senão troque a porta em `sshd_config` +
+`systemctl reload sshd`).
+
+### 9.6 Validar a configuração de infra na própria VPS
+
+O mesmo script que o CI executa, e ele deve rodar **depois** de instalar
+qualquer coisa aqui:
+
+```bash
+cd /home/apps/portal-prod       # o checkout tem o script versionado
+scripts/observability/validar-infra.sh --estrito
+```
+
+Itens que o script não consegue validar saem como `PULADO`, nunca como `OK` —
+`nginx -t`, `systemd-analyze verify`, `docker compose config`, `alloy validate`
+e a varredura de segredo. Na VPS não há Docker, então compose e Alloy saem como
+pulados: **não** é sinal de problema. Uma pendência real declarada em
+`scripts/observability/pendencias-ci.txt` (hoje: `runbook_url` com domínio
+`.invalid`) sai como `[PENDENTE]` e não reprova — pendência **não declarada**
+reprova.

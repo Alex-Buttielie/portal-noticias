@@ -32,6 +32,17 @@ Type=oneshot
 User=apps
 Group=apps
 EnvironmentFile=/etc/portal/celery-%i.env
+# `StateDirectory` (C2.3): `ProtectSystem=strict` abaixo deixa o sistema de
+# arquivos INTEIRO somente-leitura, exceto as rotas que o systemd declara como
+# graváveis. Sem esta linha, `/var/lib/portal-observabilidade` (o diretório de
+# `BEAT_HEARTBEAT_FILE`) ficaria somente-leitura, o `touch` falharia e a unit
+# passaria a falhar a cada tick — com o beat VIVO e o `check_celery_beat`
+# envelhecendo até `degraded`. Em vez de afrouxar o `ProtectSystem` (que existe
+# para travar o resto do disco), o systemd cria o diretório com o dono certo e
+# o libera para escrita. `celery-beat@` não precisa disto: ele usa
+# `ProtectSystem=full` e só toca o arquivo no ExecStartPost, tolerante a falha.
+StateDirectory=portal-observabilidade
+StateDirectoryMode=0755
 # Se a unit do beat não estiver ativa, a condição falha e o resto do serviço
 # (incluindo o ExecStart) é pulado. `systemctl status` mostra "skipped".
 # `ExecCondition` exige systemd >= 243; em versão antiga este bloco é IGNORADO

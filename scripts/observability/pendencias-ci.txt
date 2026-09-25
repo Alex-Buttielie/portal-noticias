@@ -1,0 +1,34 @@
+# Pendências REAIS conhecidas do validador de infra (scripts/observability/validar-infra.sh).
+#
+# POR QUE ESTE ARQUIVO EXISTE
+#   O gate de CI roda `validar-infra.sh --estrito` (C2.5). Sem esta lista, o
+#   estrito reprovaria para sempre por causa de um placeholder que só se
+#   resolve com acesso a um serviço externo — e um gate vermelho permanente
+#   acaba sendo ignorado, que é pior do que a pendência em si. Com a lista:
+#
+#     * pendência DECLARADA aqui -> impressa como [PENDENTE], listada no
+#       resumo, NÃO reprova o gate;
+#     * pendência NÃO declarada   -> reprova o gate estrito na hora;
+#     * chave declarada aqui que NÃO ocorre mais -> FALHA (a lista não pode
+#       envelhecer em silêncio e passar a esconder pendência nova).
+#
+# COMO USAR
+#   Uma linha por pendência: `<chave-em-hifen>  <motivo>`. A chave casa por
+#   início de linha, então o motivo pode vir depois. Linhas `#` e vazias são
+#   ignoradas. Para declarar uma pendência nova, crie a chave aqui **e** passe
+#   a chamá-la no script; para resolver uma pendência, apague a chave daqui —
+#   o validador passa a reprovar de novo, que é o estado correto.
+#
+# O QUE NÃO ENTRA AQUI: qualquer defeito de configuração. Isso é falha, e
+# falha precisa consertar o arquivo, não a lista.
+
+# Chave: runbook-url-placeholder
+# O `runbook_url` das 16 regras aponta para runbooks.portal.exemplo.invalid,
+# domínio reservado pela RFC 2606 que nunca resolve (deliberado: um endereço
+# inventado parecido com um real seria pior). Resolver depende de o endereço
+# interno de runbook existir, o que é decisão humana — ver
+# infra/observability/alerts/README.md. O alerta aponta para um link que não
+# abre, o que é defeito operacional a corrigir antes de carregar as regras no
+# Mimir, e o alerta de "alerta não tem para onde apontar" é o sinal de que a
+# pendência é real.
+runbook-url-placeholder  runbook_url com domínio reservado .invalid: trocar pelo endereço interno de runbook antes de carregar as regras no Mimir

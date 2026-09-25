@@ -17,6 +17,19 @@ on:
         required: false
         type: string
         default: ""
+    # Secrets OPCIONAIS e só do Sentry (C2.4). Precisam estar declarados aqui
+    # porque o chamador tem que repassá-los um a um; `required: false` é o que
+    # mantém o CI verde em fork, em clone local e antes de a conta existir. O
+    # passo de upload é fail-open justamente por isso (ver `frontend-build`).
+    secrets:
+      SENTRY_AUTH_TOKEN:
+        required: false
+      SENTRY_ORG:
+        required: false
+      SENTRY_PROJECT:
+        required: false
+      SENTRY_URL:
+        required: false
   push:
     branches: [develop, main]
   pull_request:
@@ -102,3 +115,112 @@ jobs:
         env:
           NEXT_PUBLIC_API_BASE_URL: http://localhost:8000
           NEXT_PUBLIC_SITE_URL: http://localhost:3000
+      # --- Source maps no Sentry (C2.4) -------------------------------------
+      # FAIL-OPEN de propósito, em duas camadas:
+      #   1) sem `SENTRY_AUTH_TOKEN` o passo nem roda (PR de fork, clone local,
+      #      repositório sem conta ainda). Um CI que exige segredo para
+      #      buildar trava o projeto inteiro — inclusive quem só quer abrir PR;
+      #   2) mesmo configurado, uma falha de upload NÃO reprova o build
+      #      (`continue-on-error`): source map é insumo de diagnóstico, e
+      #      transformar indisponibilidade do Sentry em indisponibilidade de
+      #      deploy é trocar um problema pequeno por um grande.
+      # `if:` não pode referenciar `secrets` (o GitHub recusa a expressão), por
+      # isso a decisão sai de um passo anterior que publica um output.
+      - name: Verificar configuração do Sentry
+        id: sentry
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
+        run: |
+          set -eu
+          if [ -z "${SENTRY_AUTH_TOKEN:-}" ]; then
+            echo "habilitado=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Sentry sem SENTRY_AUTH_TOKEN: upload de source maps PULADO (fail-open)."
+            exit 0
+          fi
+          if [ -z "${SENTRY_ORG:-}" ] || [ -z "${SENTRY_PROJECT:-}" ]; then
+            echo "habilitado=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::SENTRY_AUTH_TOKEN existe, mas SENTRY_ORG/SENTRY_PROJECT não: upload PULADO. Preencha os três secrets (ver CI-CD.md, seção de secrets)."
+            exit 0
+          fi
+          echo "habilitado=true" >> "$GITHUB_OUTPUT"
+      - name: Enviar source maps ao Sentry
+        if: steps.sentry.outputs.habilitado == 'true'
+        continue-on-error: true
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
+          SENTRY_URL: ${{ secrets.SENTRY_URL }}
+        run: |
+          set -eu
+          # Release = o commit REALMENTE verificado, e não `github.sha`: no
+          # `workflow_call` o checkout é `inputs.checkout_ref`, e em PR o
+          # `github.sha` é o merge commit. Sem source map do mesmo release que
+          # o deploy promovou, a correlação de stack trace não fecha.
+          RELEASE="$(git rev-parse HEAD)"
+          TOTAL="$(find .next -type f -name '*.map' 2>/dev/null | wc -l | tr -d ' ')"
+          if [ "$TOTAL" = "0" ]; then
+            echo "::notice::Nenhum .map em .next: upload PULADO. Se o next.config.js voltar ao default do SDK (apagar os mapas após o upload) ou se nenhum plugin os gerar, nada é enviado — com aviso, não com erro."
+            exit 0
+          fi
+          echo "source maps encontrados: $TOTAL (release $RELEASE)"
+          # O CLI vem como dependência TRANSITIVA do @sentry/nextjs (via
+          # @sentry/bundler-plugin-core) e a versão é a do lockfile — que é a
+          # versão que o próprio `withSentryConfig` usa no build. Instalar
+          # "a versão do @sentry/nextjs" aqui estaria errado: o CLI tem linha
+          # de versionamento própria (2.x), e um `npx @sentry/cli@10.x` pediria
+          # um pacote que não existe.
+          if [ ! -x node_modules/.bin/sentry-cli ]; then
+            echo "::warning::node_modules/.bin/sentry-cli ausente: upload PULADO. O @sentry/nextjs traz o CLI como transitiva; se isso mudar, fixe a versão aqui em vez de adivinhar."
+            exit 0
+          fi
+          node_modules/.bin/sentry-cli sourcemaps upload \
+            --org "$SENTRY_ORG" \
+            --project "$SENTRY_PROJECT" \
+            --release "$RELEASE" \
+            --strip-prefix "$PWD" \
+            --ignore '.next/cache' \
+            --ignore 'node_modules' \
+            --max-src-map-size 20000000 \
+            .next
+          if [ -n "${SENTRY_URL:-}" ]; then
+            echo "::notice::SENTRY_URL configurado (instância self-hosted): o sentry-cli usa SENTRY_URL do ambiente."
+          fi
+
+  # Gate de configuração de infra (C2.5). Configuração de Nginx, systemd,
+  # Compose, JSON e regras de alerta só quebra quando alguém INSTALA, e a
+  # instalação é na VPS em produção. Este job roda a mesma verificação
+  # localmente, antes disso, e é o mesmo script executável fora do CI.
+  #
+  # `--estrito` com pendência DECLARADA em scripts/observability/pendencias-ci.txt:
+  # a pendência real conhecida (runbook_url com domínio reservado) sai como
+  # [PENDENTE] e não reprova; qualquer pendência NOVA reprova na hora. Sem a
+  # lista, o estrito puniria o CI para sempre por algo que só se resolve com
+  # acesso ao serviço externo, e gate vermelho permanente é gate ignorado.
+  infra-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.checkout_ref || github.sha }}
+      # PyYAML é requisito do validador (regras de alerta e extração de expr).
+      # Sem ele o script acusa FALHA — corretamente: item que não pôde ser
+      # validado não é item validado.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --quiet --disable-pip-version-check pyyaml
+      - name: Validar configuração de infra
+        run: scripts/observability/validar-infra.sh --estrito
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: validar-infra-relatorio
+          path: |
+            infra/observability/alerts/*.yaml
+            infra/nginx/*.conf
+            infra/systemd/*
+          retention-days: 7
+          if-no-files-found: ignore

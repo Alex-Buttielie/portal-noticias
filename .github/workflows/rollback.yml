@@ -25,6 +25,19 @@ on:
         required: false
         default: false
         type: boolean
+      web_runtime:
+        description: "Runtime do web. standalone = release atômica (igual ao deploy normal); npm = o npm start anterior. Use npm se a suspeita recair sobre o runtime standalone e não sobre o código (C2.2)"
+        required: false
+        default: standalone
+        type: choice
+        options:
+          - standalone
+          - npm
+      celery_systemd:
+        description: "Reaplica as units do Celery neste rollback (o padrão do deploy é true)"
+        required: false
+        default: true
+        type: boolean
       confirm:
         description: "Confirmo que este rollback foi autorizado e que o SHA é o último bom"
         required: false
@@ -147,8 +160,24 @@ jobs:
       # Um rollback deve falhar se a recuperação não ficar saudável, mesmo em
       # DEV/HOMOLOG; o operador pode repetir o dispatch depois de corrigir a VPS.
       strict_validate: true
+      # O rollback percorre o MESMO caminho do deploy (build na VPS, release
+      # nova a partir do SHA alvo, smoke, promoção do symlink). Não existe
+      # caminho de provisionamento separado: por isso `web_runtime` aparece
+      # aqui também — se o diagnóstico apontar o RUNTIME e não o código, `npm`
+      # volta ao `npm start` sem precisar editar workflow.
+      web_runtime: ${{ inputs.web_runtime }}
+      celery_systemd: ${{ inputs.celery_systemd }}
     secrets:
       VPS_HOST: ${{ secrets.VPS_HOST }}
       VPS_USER: ${{ secrets.VPS_USER }}
       VPS_PASSWORD: ${{ secrets.VPS_PASSWORD }}
       VPS_PORT: ${{ secrets.VPS_PORT }}
+      # Opcionais (C2.6): vazio = caminho por senha, como antes.
+      VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+      VPS_HOST_FINGERPRINT: ${{ secrets.VPS_HOST_FINGERPRINT }}
+      # Sentry (C2.4): opcionais, usados só para o upload de source map do
+      # `verify`. Sem eles, o passo é pulado (fail-open) e o CI segue verde.
+      SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+      SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+      SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
+      SENTRY_URL: ${{ secrets.SENTRY_URL }}

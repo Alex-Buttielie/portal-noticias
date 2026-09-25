@@ -137,23 +137,46 @@ falsos-positivos documentados, credenciamento, moderação, gating). O que
 estava genuinamente ausente — e que esta seção define — é a **arquitetura
 de infraestrutura de produção**, que antes desta mudança não existia.
 
-### 9.2 Topologia ativa (self-hosted, VPS única com PM2 + Nginx)
+### 9.2 Topologia ativa (self-hosted, VPS única com PM2 + Nginx + systemd)
 
-A topologia de produção usa **PM2 + Nginx** na VPS. O Nginx é o reverse proxy
-ativo e, quando a ativação humana for concluída, termina TLS na origem com
-Certbot/Let's Encrypt; até lá, a configuração é preparada, mas a produção
-continua em HTTP. Docker/Caddy é uma variante alternativa/local, não o
-caminho de produção.
+A topologia de produção usa **PM2 + Nginx** na VPS para web e API, e
+**systemd** para o que não é um servidor HTTP (Celery worker/beat, coletor
+Alloy). O Nginx é o reverse proxy ativo e, quando a ativação humana for
+concluída, termina TLS na origem com Certbot/Let's Encrypt; até lá, a
+configuração é preparada, mas a produção continua em HTTP. Docker/Caddy é uma
+variante alternativa/local, não o caminho de produção.
 
 ```
 Internet → Cloudflare (opcional: CDN + WAF + DDoS + TLS na borda)
               → Nginx (reverse proxy; TLS de origem via Certbot/Let's Encrypt quando ativado)
-                  → Next.js (PM2, porta 310x)
+                  → Next.js (PM2, porta 310x, runtime standalone)
                   → Gunicorn/Django (PM2, porta 510x, /api/)
                         → Redis (cache + broker/result do Celery)
                         → PostgreSQL (dados transacionais, backup off-VPS)
-                  → Celery worker + beat (ingestão, e-mails, vencimentos)
+                  → Grafana Alloy (systemd, uma instância por ambiente)
+                  → Celery worker + beat (systemd, uma instância por ambiente)
 ```
+
+**Correção (run `20260925-1020-observabilidade`):** o diagrama anterior listava
+`Celery worker + beat` como se fossem mais um bloco gerenciado pelo PM2, ao
+lado do Next e do Gunicorn. Isso nunca foi verdade: `deploy.yml` só criava
+`portal-web-*` e `portal-api-*`, e o achado B4 do bloco de infra confirmou que
+**worker e beat não existiam em nenhum supervisor** na topologia ativa — a
+ingestão periódica não rodava e o setting `OBSERVABILITY_BEAT_HEARTBEAT_FILE`
+ficava sem produtor. Agora eles são units **systemd template**
+(`infra/systemd/celery-{worker,beat}@.service`, com `%i` = ambiente, porque uma
+VPS hospeda os três) instaladas e ativadas pelo deploy. O PM2 continua
+gerenciando **apenas** web e API.
+
+O frontend em produção é o **Next standalone** (`output: "standalone"`,
+`node .next/standalone/server.js` com `public/` e `.next/static` no lugar e
+`HOSTNAME`/`PORT` explícitos), servido a partir de uma pasta versionada em
+`frontend/releases/<id>/` com o symlink `current` alternado **só após smoke
+verde** — o que impede a mistura de duas versões de `.next/` sob o processo em
+produção. O `npm start` permanece disponível como escape hatch
+(`web_runtime: npm`). O backend segue in-place (`git reset --hard` + `migrate`),
+com `.deployed-sha` como fronteira de recuperação. Detalhes e porquês em
+`CI-CD.md` §P1-6 e `infra/DEPLOY.md` §9.
 
 O deploy ativo é feito pelos workflows em `.github/workflows/` para as
 aplicações PM2 e pelos sites em `infra/nginx/`; `docker compose --env-file
@@ -168,7 +191,7 @@ estão em `infra/DEPLOY.md`.
 | **Custo** | Self-hosted numa VPS já paga; Cloudflare (opcional; CDN/WAF/DDoS) e Sentry/UptimeRobot (opcionais, nos tiers gratuitos); mídia em disco local (não S3) até o volume justificar migração; chamadas ao LLM em lote com teto de tokens (já existente) + teto de gasto diário aplicado de fato: quando o gasto estimado do dia corrente ultrapassa `CATALOGO_NOTICIAS_LLM_TETO_GASTO_DIARIO_USD` (ver `config/settings.py`), a ingestão para de chamar o provedor de LLM pelo restante do dia e os itens novos caem na fila de revisão humana já existente — a ingestão em si nunca é interrompida (`catalogo_noticias/services/orcamento.py`). |
 | **Performance** | Cache Redis de aplicação (`CACHES` em `config/settings.py`, inexistente antes desta mudança); cache de borda opcional via Cloudflare para conteúdo público, quando essa camada for ativada; WhiteNoise comprimido para estático; `CONN_MAX_AGE` para reuso de conexão com o Postgres. Na ingestão RSS, validators HTTP persistidos (`ETag`/`Last-Modified`) permitem respostas 304 sem download nem parse; a reconciliação sem headers a cada 6 horas protege contra 304 falso ou perda local. |
 | **Segurança** | Settings de produção reais (HSTS, cookies seguros, `SECURE_PROXY_SSL_HEADER`, `X_FRAME_OPTIONS`); trava que impede rodar com SQLite ou `SECRET_KEY` fraca quando `DEBUG=False`; firewall (ufw) + fail2ban + atualizações automáticas na VPS (`infra/DEPLOY.md`); na topologia ativa, o Nginx é o reverse proxy público e Redis/PostgreSQL permanecem serviços internos; containers rodando com usuário não-root e rede Docker isolada são exigências da variante alternativa, não da esteira PM2 ativa. |
-| **Confiabilidade** | Healthcheck real (`/healthz`, checa conectividade com o banco) usado pelo Nginx (healthz HTTP somente em loopback e healthz HTTPS público) e por um monitor de uptime externo via HTTPS; o healthcheck Docker/Caddy pertence à variante alternativa; CI (`.github/workflows/ci.yml`) roda a suíte completa antes de qualquer deploy; Sentry opcional para captura de erro em produção (mitiga a lacuna de validação registrada durante a implementação inicial). |
+| **Confiabilidade** | Healthcheck real (`/healthz`, checa conectividade com o banco) usado pelo Nginx (healthz HTTP somente em loopback e healthz HTTPS público) e por um monitor de uptime externo via HTTPS; par canônico `/livez` (liveness) + `/readyz` (dependências obrigatórias) para probes que precisam separar "processo vivo" de "pode receber tráfego", com `/health-detail` e `/metrics` privados por origem/token; o healthcheck Docker/Caddy pertence à variante alternativa; CI (`.github/workflows/ci.yml`) roda a suíte completa **e** a validação de configuração de infra (`scripts/observability/validar-infra.sh --estrito`) antes de qualquer deploy, e o job `verify` do deploy é o mesmo `ci.yml`; release do frontend versionada com smoke antes da promoção por symlink e retorno à release anterior; Sentry (backend e frontend) para captura de erro em produção, com source maps enviados no build e consentimento técnico fail-closed. |
 | **Persistência dos dados** | Backup diário automatizado (Postgres + mídia) enviado para storage externo compatível com S3; na topologia PM2, usar `infra/backup/pg_backup_pm2.sh` e o procedimento de restore correspondente; `pg_backup.sh`/`infra/backup/RESTORE.md` documentam a variante Docker/Caddy. Volume local sozinho não é backup. |
 
 ### 9.4 Limites conscientes (não overengineering)

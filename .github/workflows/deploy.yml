@@ -8,7 +8,8 @@ name: Deploy portal (reutilizável)
 #
 # Invariantes preservadas dos workflows antigos (não mudar sem motivo):
 # - o job verify chama o MESMO ci.yml usado no push/PR; deploy só começa
-#   depois que backend-tests e frontend-build terminam com sucesso;
+#   depois que backend-tests, frontend-build e infra-validate terminam com
+#   sucesso;
 # - o runner de CI é o gate; o build de produção continua na VPS, sem
 #   repetir npm/pip/check sem cache;
 # - .env criado UMA vez (nunca sobrescrito) com SECRET aleatória;
@@ -19,7 +20,31 @@ name: Deploy portal (reutilizável)
 #   o novo SHA; um workflow manual reutiliza este mesmo caminho para rollback;
 # - frontend rebuild com NEXT_PUBLIC_* do ambiente, cache npm persistente
 #   no home da VPS e heap Node limitado (decisão conservadora P1-5);
-# - validate: DEV/HOMOLOG avisam (warn), PROD falha (exit 1).
+# - validate: DEV/HOMOLOG avisam (warn), PROD falha (exit 1);
+# - `git_mode: rollback` continua sendo o caminho de recuperação, com o mesmo
+#   verify e o mesmo script (rollback.yml) — não existe um segundo script de
+#   provisionamento.
+#
+# C2 (run 20260925-1020-observabilidade) — o que mudou e por quê:
+# - RELEASE ATÔMICA DO TIER WEB: cada deploy copia a árvore standalone para
+#   `frontend/releases/<id>/`, faz smoke NELA, e só então alterna o symlink
+#   `releases/current` e reinicia o PM2. A release anterior é preservada em
+#   `releases/previous` e é o alvo do retorno automático quando o PM2 não
+#   sobe. O backend NÃO mudou de estratégia: continua `git reset --hard` +
+#   migrate in-place, com `.deployed-sha` como fronteira de recuperação. A
+#   release é do runtime web porque é o único artefato que pode ser promovido
+#   e revertido sem tocar em migration.
+# - `web_runtime` é o caminho de escape: `standalone` (padrão) ou `npm`
+#   (o `npm start` anterior, mantido intacto). O caminho novo não substitui o
+#   antigo sem ter sido validado num deploy real; o operador pode voltar ao
+#   antigo com um dispatch, sem editar código.
+# - Units systemd do Celery são instaladas e ativadas por ambiente (`%i`), sem
+#   tocar em nenhum processo que o PM2 já gerencia. Falha de Celery NUNCA
+#   derruba o deploy: o portal está no ar, e o `/health-detail` reporta.
+# - SSH: chave dedicada e impressão digital do host são aceitas
+#   (`VPS_SSH_KEY`/`VPS_HOST_FINGERPRINT`, ambas opcionais). Vazio = caminho
+#   por senha, idêntico ao de antes. A SENHA NÃO FOI REMOVIDA: a troca é
+#   operacional e depende de acesso real à VPS.
 
 on:
   workflow_call:
@@ -92,6 +117,16 @@ on:
         required: false
         type: boolean
         default: false
+      web_runtime:
+        description: "standalone = runtime Next standalone com release atômica (padrão); npm = npm start, o caminho anterior, como escape"
+        required: false
+        type: string
+        default: standalone
+      celery_systemd:
+        description: "true = instala/ativa as units do Celery do ambiente (padrão); false = não toca em systemd"
+        required: false
+        type: boolean
+        default: true
     secrets:
       VPS_HOST:
         required: true
@@ -101,6 +136,33 @@ on:
         required: true
       VPS_PORT:
         required: true
+      # C2.6 — chave dedicada e `known_hosts` pinado. AMBAS OPCIONAIS de
+      # propósito: vazio = o caminho por senha, exatamente como antes. A chave
+      # é o CONTEÚDO PEM da chave privada de um par de chaves criado só para a
+      # esteira (`ssh-keygen -t ed25519 -N '' -C actions-deploy`), instalado no
+      # `authorized_keys` do usuário da VPS. A impressão digital é a do
+      # host key ED25519 no formato `SHA256:...` que o `ssh-keygen -lf` imprime;
+      # quando ela não bate, a conexão FALHA (fail-closed) em vez de aceitar
+      # qualquer host. Enquanto `VPS_PASSWORD` existir, as duas credenciais são
+      # enviadas e qualquer uma das duas autentica — a ordem é do cliente SSH
+      # da action (senha primeiro), não uma decisão deste workflow. A senha só
+      # é removida depois de um deploy validado com a chave (ver CI-CD.md).
+      VPS_SSH_KEY:
+        required: false
+      VPS_HOST_FINGERPRINT:
+        required: false
+      # Sentry (C2.4): repassados ao `verify` para o upload de source map da
+      # release EXATA que vai ser implantada. PROD sai de uma tag, que não
+      # dispara o CI por `push` — sem isto o mapa da release de produção nunca
+      # seria enviado. Todos opcionais; o upload é fail-open.
+      SENTRY_AUTH_TOKEN:
+        required: false
+      SENTRY_ORG:
+        required: false
+      SENTRY_PROJECT:
+        required: false
+      SENTRY_URL:
+        required: false
 
 # Impede que dois deploys do mesmo ambiente alterem o PM2 ao mesmo tempo. Um
 # run já em andamento nunca é cancelado; uma atualização mais nova espera sua
@@ -118,6 +180,16 @@ jobs:
     uses: ./.github/workflows/ci.yml
     with:
       checkout_ref: ${{ inputs.verify_ref }}
+    # O job verify NÃO recebe secret de VPS (quem provisiona é o job `deploy`,
+    # com `environment:`). Repassa APENAS os do Sentry, todos opcionais: o
+    # deploy de PROD sai de uma tag, que não dispara o CI por `push`, então sem
+    # isto o source map da release de produção nunca seria enviado. São
+    # secrets de baixo valor (upload de mapa e DSN) e o passo é fail-open.
+    secrets:
+      SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+      SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+      SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
+      SENTRY_URL: ${{ secrets.SENTRY_URL }}
     permissions:
       contents: read
 
@@ -132,6 +204,12 @@ jobs:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           password: ${{ secrets.VPS_PASSWORD }}
+          # Vazio = a action ignora a entrada e usa o caminho por senha, que é
+          # o comportamento de antes. Preenchido, a chave entra como método
+          # alternativo; preenchida a impressão digital, a host key é conferida
+          # e uma divergência derruba a conexão em vez de confiar no host.
+          key: ${{ secrets.VPS_SSH_KEY }}
+          fingerprint: ${{ secrets.VPS_HOST_FINGERPRINT }}
           port: ${{ secrets.VPS_PORT }}
           script: |
             set -e
@@ -146,12 +224,42 @@ jobs:
             PM2_ONLINE_CHECKS=10
             PM2_ONLINE_DELAY=2
             PM2_ONLINE_CONFIRMATIONS=2
+            WEB_RUNTIME="${{ inputs.web_runtime }}"
+            CELERY_SYSTEMD="${{ inputs.celery_systemd }}"
+            # Release atômica do tier web (C2.1/C2.2). `releases/` fica dentro
+            # de `frontend/` porque o symlink `current` é relativo ao checkout
+            # e o PM2 recebe um caminho estável: trocar o alvo do symlink troca a
+            # versão servida sem reescrever caminho nenhum no dump do PM2.
+            RELEASES_DIR="$APP_DIR/frontend/releases"
+            CURRENT_LINK="$RELEASES_DIR/current"
+            PREVIOUS_LINK="$RELEASES_DIR/previous"
+            STANDALONE_RUNNER="$APP_DIR/infra/standalone/run-standalone.sh"
+            # Preservação: quantas releases antigas ficam em disco. 3 = a
+            # anterior, a anterior da anterior e uma margem. O corte nunca
+            # remove `current` nem `previous` (ver podar_releases).
+            RELEASES_TO_KEEP="${PORTAL_RELEASES_TO_KEEP:-3}"
+            # 0.0.0.0 preserva o alcance de hoje (`npm start` escuta em todas as
+            # interfaces) e o Nginx/validate falam com 127.0.0.1. Fica EXPLÍCITO
+            # porque o Next standalone sem HOSTNAME escuta no hostname do host,
+            # que nem sempre é o que o proxy espera.
+            WEB_BIND_HOST=0.0.0.0
             TLS_ENABLED="${{ inputs.tls_enabled }}"
             TLS_ENABLED=$(printf '%s' "$TLS_ENABLED" | tr '[:upper:]' '[:lower:]')
             case "$TLS_ENABLED" in
               true|false) ;;
               *) echo "ERRO: tls_enabled deve ser true ou false"; exit 1 ;;
             esac
+            case "$WEB_RUNTIME" in
+              standalone|npm) ;;
+              *) echo "ERRO: web_runtime inválido: $WEB_RUNTIME (use standalone ou npm)"; exit 1 ;;
+            esac
+            case "$CELERY_SYSTEMD" in
+              true|false) ;;
+              *) echo "ERRO: celery_systemd deve ser true ou false"; exit 1 ;;
+            esac
+            if ! printf '%s' "$RELEASES_TO_KEEP" | grep -Eq '^[1-9][0-9]*$'; then
+              echo "ERRO: PORTAL_RELEASES_TO_KEEP deve ser um inteiro >= 1 (recebido: $RELEASES_TO_KEEP)"; exit 1
+            fi
             case "$GIT_MODE" in
               branch|pr|tag|rollback) ;;
               *) echo "ERRO: git_mode inválido: $GIT_MODE"; exit 1 ;;
@@ -174,6 +282,130 @@ jobs:
                 rm -f -- "$marker_tmp" || true
                 return 1
               fi
+            }
+            # ---- release atômica do tier web (C2.1) ------------------------
+            # Por que release do WEB e não do app inteiro: a promoção tem de
+            # ser um symlink, e symlink só é seguro para o que NÃO tem estado
+            # nem migration. O backend usa `git reset --hard` + migrate no lugar,
+            # `.env` e `media/` são untracked e sobrevivem ao reset, e trocar o
+            # diretório do backend exigiria mover as units systemd, os scripts
+            # de backup e o `.venv` (centenas de MB por release) sem ganho. A
+            # atomicidade do tier web é onde a troca de versão do frontend
+            # acontece de verdade, e ela é a que mixava `.next/` embaixo do
+            # processo em produção.
+            #
+            # `ln -sfn` NÃO é atômico (remove o antigo e cria o novo, com uma
+            # janela em que `current` não existe). O par `ln -s` + `mv -T` usa
+            # rename(2) sobre o symlink: quem lê o link em qualquer instante vê
+            # a release antiga OU a nova, nunca um estado quebrado.
+            apontar_symlink() {
+              local link="$1" alvo="$2" tmp
+              tmp="$link.tmp.$$"
+              if [ ! -e "$alvo" ]; then
+                echo "ERRO: alvo do symlink não existe: $alvo" >&2
+                return 1
+              fi
+              rm -f -- "$tmp"
+              if ! ln -s -- "$alvo" "$tmp"; then return 1; fi
+              if ! mv -Tf -- "$tmp" "$link"; then
+                rm -f -- "$tmp"
+                return 1
+              fi
+            }
+            # Copia a árvore standalone do build para uma pasta versionada. A
+            # cópia é o que torna a release INDEPENDENTE do `.next/` que o
+            # próximo deploy reescreve por cima: sem ela, a release "anterior"
+            # deixaria de existir no meio da operação seguinte.
+            preparar_release() {
+              local standalone_src="$APP_DIR/frontend/.next/standalone"
+              if [ ! -f "$standalone_src/server.js" ]; then
+                echo "ERRO: $standalone_src/server.js não existe; o build não gerou a árvore standalone (confira output: \"standalone\" em frontend/next.config.js)"
+                return 1
+              fi
+              if [ ! -x "$STANDALONE_RUNNER" ]; then
+                echo "ERRO: $STANDALONE_RUNNER ausente ou sem permissão de execução (o arquivo é do próprio checkout)"
+                return 1
+              fi
+              rm -rf -- "$RELEASE_DIR"
+              mkdir -p -- "$RELEASE_DIR"
+              if ! cp -a -- "$standalone_src/." "$RELEASE_DIR/standalone/"; then return 1; fi
+              # SHA da release DENTRO dela: o rollback por symlink descobre o
+              # commit sem depender do `.deployed-sha` global nem do git.
+              if ! (umask 027; printf '%s\n' "$ACTUAL_COMMIT" > "$RELEASE_DIR/.deployed-sha"); then
+                echo "ERRO: não foi possível gravar o SHA da release em $RELEASE_DIR/.deployed-sha" >&2
+                return 1
+              fi
+              # `prepare` copia `public/` e `.next/static` para dentro da
+              # árvore (mesmo padrão do frontend/Dockerfile). Sem o
+              # `.next/static`, o smoke reprova a release — o portal subir sem
+              # nenhum asset é o tipo de falha que parece sucesso.
+              "$STANDALONE_RUNNER" prepare \
+                --dir "$RELEASE_DIR/standalone" \
+                --public "$APP_DIR/frontend/public" \
+                --static "$APP_DIR/frontend/.next/static"
+            }
+            # O smoke roda na release, em porta livre, ANTES de qualquer troca
+            # de symlink ou restart: enquanto ele não passa, o PM2 continua
+            # servindo a release anterior e ninguém sente nada.
+            smoke_release() {
+              "$STANDALONE_RUNNER" smoke \
+                --dir "$RELEASE_DIR/standalone" \
+                --timeout 90
+            }
+            promover_release() {
+              local anterior=""
+              if [ -L "$CURRENT_LINK" ]; then anterior="$(readlink -f "$CURRENT_LINK" 2>/dev/null || true)"; fi
+              if [ -n "$anterior" ] && [ -d "$anterior" ] && [ "$anterior" != "$RELEASE_DIR" ]; then
+                if ! apontar_symlink "$PREVIOUS_LINK" "$anterior"; then
+                  echo "ERRO: não foi possível preservar a release anterior em $PREVIOUS_LINK" >&2
+                  return 1
+                fi
+                echo "release anterior preservada: $anterior"
+              fi
+              if ! apontar_symlink "$CURRENT_LINK" "$RELEASE_DIR"; then
+                echo "ERRO: não foi possível apontar $CURRENT_LINK para $RELEASE_DIR" >&2
+                return 1
+              fi
+              echo "current -> $RELEASE_DIR (promovido SÓ DEPOIS do smoke verde)"
+            }
+            voltar_release_anterior() {
+              local alvo=""
+              if [ ! -L "$PREVIOUS_LINK" ]; then
+                echo "não há release anterior registrada em $PREVIOUS_LINK" >&2
+                return 1
+              fi
+              alvo="$(readlink -f "$PREVIOUS_LINK" 2>/dev/null || true)"
+              if [ -z "$alvo" ] || [ ! -f "$alvo/standalone/server.js" ]; then
+                echo "a release anterior ($PREVIOUS_LINK) não tem árvore standalone utilizável" >&2
+                return 1
+              fi
+              if ! apontar_symlink "$CURRENT_LINK" "$alvo"; then return 1; fi
+              echo "current -> $alvo (release anterior)"
+            }
+            # Poda por data, PROTEGENDO o que `current` e `previous` apontam —
+            # inclusive quando a release anterior ficou fora do recorte, o que
+            # aconteceria com quatro deploys em sequência: sem essa proteção o
+            # alvo do rollback sumiria e o retorno automático não teria para onde
+            # ir. Nunca usa `rm -rf` em caminho construido por variável sem
+            # `${...:?}`.
+            podar_releases() {
+              local nome cont=0 alvo_atual alvo_anterior dir
+              alvo_atual="$(readlink -f "$CURRENT_LINK" 2>/dev/null || true)"
+              alvo_anterior="$(readlink -f "$PREVIOUS_LINK" 2>/dev/null || true)"
+              for nome in $(cd "$RELEASES_DIR" && ls -1dt */ 2>/dev/null | sed 's#/$##'); do
+                [ -n "$nome" ] || continue
+                case "$nome" in current|previous) continue ;; esac
+                dir="$RELEASES_DIR/$nome"
+                [ "$dir" = "$alvo_atual" ] && continue
+                [ "$dir" = "$alvo_anterior" ] && continue
+                cont=$((cont + 1))
+                if [ "$cont" -le "$RELEASES_TO_KEEP" ]; then continue; fi
+                if rm -rf -- "${dir:?}"; then
+                  echo "release podada (fora do recorte de $RELEASES_TO_KEEP): $dir"
+                else
+                  echo "AVISO: não foi possível podar $dir"
+                fi
+              done
             }
             SSL_REDIRECT=false
             SESSION_COOKIE_SECURE=false
@@ -310,6 +542,34 @@ jobs:
             NODE_OPTIONS="--max-old-space-size=1536" \
               NEXT_PUBLIC_API_BASE_URL="$API_ORIGIN" NEXT_PUBLIC_SITE_URL="$WEB_ORIGIN" \
               npm run build
+            # --- release do tier web: preparar e fumegar ANTES de qualquer
+            # mudança visível (C2.1). Continua compilando NA VPS (heap 1536 MB,
+            # três stacks na mesma máquina): a estratégia de build não muda, o
+            # que muda é ONDE o build vira uma release versionada.
+            if [ "$WEB_RUNTIME" = "standalone" ]; then
+              # Id com timestamp UTC + SHA: ordenável por data e identificável
+              # por human no `ls`, sem depender de `git describe`.
+              RELEASE_ID="$(date -u +%Y%m%dT%H%M%SZ)-$(printf '%s' "$ACTUAL_COMMIT" | cut -c1-12)"
+              RELEASE_DIR="$RELEASES_DIR/$RELEASE_ID"
+              mkdir -p -- "$RELEASES_DIR"
+              echo "=== release web $RELEASE_ID (commit $ACTUAL_COMMIT) ==="
+              if ! preparar_release; then
+                echo "ERRO: preparação da release falhou; o symlink current e o PM2 NÃO foram tocados (o portal segue na release anterior)"
+                exit 1
+              fi
+              # FALHA AQUI = deploy abortado antes de tocar em `current`, no PM2,
+              # no `.deployed-sha` e antes das migrations do backend. O smoke
+              # aceita 503 na Home (estado documentado de feed indisponível) e
+              # reprova 5xx e asset estático ausente.
+              if ! smoke_release; then
+                echo "ERRO: smoke da release $RELEASE_ID reprovou; o symlink current e o PM2 NÃO foram tocados (o portal segue na release anterior)"
+                rm -rf -- "${RELEASE_DIR:?}"
+                exit 1
+              fi
+              echo "=== release $RELEASE_ID aprovada no smoke ==="
+            else
+              echo "web_runtime=npm: build in-place e PM2 com \`npm start\` (caminho anterior, mantido como escape)"
+            fi
             cd "$APP_DIR/backend"
             python3 -m venv .venv 2>/dev/null || true
             . .venv/bin/activate
@@ -425,8 +685,63 @@ jobs:
             # API_INTERNAL_URL (runtime, não bake): alimenta o rewrite /api/*
             # do next.config.js — proxy mesma-origem para acesso direto por
             # IP:porta (sem passar pelo Nginx).
-            API_INTERNAL_URL="http://127.0.0.1:$API_PORT" PORT="$WEB_PORT" \
-              restart_or_start "portal-web-$SUF" npm --name "portal-web-$SUF" -- start
+            if [ "$WEB_RUNTIME" = "standalone" ]; then
+              # A promoção acontece AQUI, e só aqui: o smoke já passou, então o
+              # symlink `current` passa a apontar para a release nova e o PM2
+              # entra com o caminho estável `current/standalone`. A release que
+              # estava em `current` acabou de virar `previous`.
+              if ! promover_release; then
+                echo "ERRO: promoção do symlink current falhou; o PM2 NÃO foi reiniciado"
+                exit 1
+              fi
+              CURRENT_STANDALONE="$CURRENT_LINK/standalone"
+              if [ ! -f "$CURRENT_STANDALONE/server.js" ]; then
+                echo "ERRO: $CURRENT_STANDALONE/server.js não existe após a promoção"
+                exit 1
+              fi
+              # O standalone roda `node server.js` e o PM2 executa o binário
+              # com o ambiente do daemon, que pode não ter o node do nvm no
+              # PATH (o `npm start` resolvia o node por dentro do npm). Fixar o
+              # PATH no start elimina essa diferença em vez de confiar nela.
+              NODE_BIN="$(command -v node || true)"
+              if [ -z "$NODE_BIN" ]; then
+                echo "ERRO: node não encontrado no PATH depois de \`nvm use 20\`; o runtime standalone exige Node 20"
+                exit 1
+              fi
+              echo "web: runtime standalone em $CURRENT_STANDALONE (node $NODE_BIN, bind $WEB_BIND_HOST:$WEB_PORT)"
+              if PATH="$(dirname "$NODE_BIN"):$PATH" HOSTNAME="$WEB_BIND_HOST" PORT="$WEB_PORT" \
+                   API_INTERNAL_URL="http://127.0.0.1:$API_PORT" \
+                 restart_or_start "portal-web-$SUF" "$STANDALONE_RUNNER" start \
+                   --dir "$CURRENT_STANDALONE" --host "$WEB_BIND_HOST" --port "$WEB_PORT"; then
+                :
+              else
+                # O processo NÃO subiu, então a release nova não está no ar.
+                # Devolver `current` para a release anterior e tentar de novo
+                # nela é seguro aqui: o anterior já estava no ar antes deste
+                # deploy, e o que está em jogo é a versão do frontend, não
+                # dado nem migration. O marker NÃO é promovido (o job
+                # validate só promove com `deploy.result == success`).
+                if voltar_release_anterior; then
+                  echo "PM2 não subiu na release nova; current devolvido para a release anterior. Subindo nela."
+                  if PATH="$(dirname "$NODE_BIN"):$PATH" HOSTNAME="$WEB_BIND_HOST" PORT="$WEB_PORT" \
+                       API_INTERNAL_URL="http://127.0.0.1:$API_PORT" \
+                     restart_or_start "portal-web-$SUF" "$STANDALONE_RUNNER" start \
+                       --dir "$PREVIOUS_LINK/standalone" --host "$WEB_BIND_HOST" --port "$WEB_PORT"; then
+                    # Deploy ABORTADO de propósito mesmo com o portal de volta:
+                    # um exit 0 aqui promoveria um SHA cuja release web não está
+                    # no ar, e o marker é a fronteira de recuperação.
+                    echo "ERRO: portal voltou para a release anterior, mas a release nova NÃO foi promovida; o marker .deployed-sha será preservado"
+                  fi
+                else
+                  echo "AVISO: não há release anterior para voltar; o portal web pode estar fora do ar"
+                fi
+                echo "Recuperação: rode o workflow 'Rollback manual do portal' com o SHA de $RELEASE_DIR/.deployed-sha, ou web_runtime=npm no dispatch."
+                exit 1
+              fi
+            else
+              API_INTERNAL_URL="http://127.0.0.1:$API_PORT" PORT="$WEB_PORT" \
+                restart_or_start "portal-web-$SUF" npm --name "portal-web-$SUF" -- start
+            fi
             cd "$APP_DIR/backend"
             # Binário + args separados: pm2 não resolve string única citada
             # como executável. --interpreter explícito: o binário gunicorn não
@@ -446,6 +761,110 @@ jobs:
               --config "$APP_DIR/backend/gunicorn.conf.py" config.wsgi:application \
               --bind "0.0.0.0:$API_PORT" --chdir "$APP_DIR/backend"
             pm2 save
+            # --- Celery no systemd, por ambiente (C2.3) --------------------
+            # As units são TEMPLATE (`celery-worker@.service`), e `%i` é o
+            # ambiente: uma VPS com três diretórios precisa de três instâncias,
+            # e o ambiente errado é a falha que faz backup de dev em produção.
+            # NADA que o PM2 gerencia é tocado aqui — o worker e o beat não
+            # existiam na topologia ativa (achado B4), então isto ADICIONA o
+            # que faltava, sem remover caminho nenhum.
+            #
+            # Falha aqui NUNCA derruba o deploy: web e API já estão no ar, e o
+            # estado do worker é degradação visível em `/health-detail` e no
+            # alerta `PortalFilaCelery`. Um deploy que caísse por causa do
+            # Celery seria pior que o Celery parado.
+            ativar_celery_systemd() {
+              local f src tmp unit deploy_user deploy_group tuning
+              if [ "$CELERY_SYSTEMD" != "true" ]; then
+                echo "Celery: celery_systemd=false; systemd não tocado"
+                return 0
+              fi
+              if ! command -v systemctl >/dev/null 2>&1; then
+                echo "Celery: systemctl ausente nesta máquina; units não instaladas"
+                return 0
+              fi
+              if ! sudo -n true 2>/dev/null; then
+                echo "Celery: sem sudo sem senha; units NÃO instaladas. Instale à mão (infra/DEPLOY.md, seção 9)"
+                return 0
+              fi
+              deploy_user="$(id -un)"
+              deploy_group="$(id -gn)"
+              for f in celery-worker@.service celery-beat@.service \
+                       celery-beat-heartbeat@.service celery-beat-heartbeat@.timer; do
+                src="$APP_DIR/infra/systemd/$f"
+                if [ ! -f "$src" ]; then
+                  echo "Celery: $src ausente; pulei $f"
+                  continue
+                fi
+                # Placeholder do template resolvido: `User`/`Group` são o dono do
+                # app (o mesmo do PM2). O cabeçalho da unit proíbe root — o
+                # worker tem o mesmo acesso a mídia e banco que a aplicação web.
+                tmp="$(mktemp)"
+                sed -e "s|^User=.*|User=$deploy_user|" -e "s|^Group=.*|Group=$deploy_group|" "$src" > "$tmp"
+                if sudo install -m 0644 -o root -g root "$tmp" "/etc/systemd/system/$f"; then
+                  echo "Celery: unit instalada $f (User=$deploy_user)"
+                else
+                  echo "Celery: FALHA ao instalar $f"
+                fi
+                rm -f -- "$tmp"
+              done
+              if ! sudo systemctl daemon-reload; then
+                echo "Celery: FALHA no daemon-reload; unidades não ativas"
+                return 0
+              fi
+              # `/etc/portal/celery-<env>.env`: os dois `EnvironmentFile` das
+              # units NÃO têm o prefixo `-`, então sem este arquivo a unit não
+              # sobe (fail-closed, de propósito). Criá-lo aqui é
+              # PROVISIONAR o que a unit exige — com os mesmos valores que o
+              # `docker-compose.yml` já usa para o `celery-worker`, não
+              # inventados. Nunca sobrescreve: ajuste do operador é preservado.
+              tuning="/etc/portal/celery-$SUF.env"
+              if sudo test -f "$tuning"; then
+                echo "Celery: $tuning já existe; preservado"
+              else
+                tmp="$(mktemp)"
+                cat > "$tmp" <<EOF
+            # Gerado pelo deploy (C2.3) e nunca sobrescrito por deploys seguintes.
+            # CELERY_WORKER_CONCURRENCY / MAX_TASKS_PER_CHILD: mesmos valores do serviço
+            # celery-worker do docker-compose.yml. A VPS tem 4 GB divididas entre as três
+            # stacks, Postgres, Redis e o Nginx: meça o pico antes de aumentar.
+            CELERY_WORKER_CONCURRENCY=2
+            CELERY_WORKER_MAX_TASKS_PER_CHILD=100
+            # Produtor e consumidor do heartbeat do beat (celery-beat-heartbeat@$SUF.timer e
+            # backend/config/health.py::check_celery_beat).
+            BEAT_HEARTBEAT_FILE=/var/lib/portal-observabilidade/beat-$SUF.heartbeat
+            OBSERVABILITY_BEAT_HEARTBEAT_FILE=/var/lib/portal-observabilidade/beat-$SUF.heartbeat
+            EOF
+                if sudo install -d -m 0755 -o "$deploy_user" -g "$deploy_group" /var/lib/portal-observabilidade \
+                   && sudo install -m 0640 -o root -g "$deploy_group" "$tmp" "$tuning"; then
+                  echo "Celery: criado $tuning (0640 root:$deploy_group)"
+                else
+                  echo "Celery: FALHA ao criar $tuning; as units vão recusar subir (fail-closed)"
+                fi
+                rm -f -- "$tmp"
+              fi
+              for unit in "celery-worker@$SUF" "celery-beat@$SUF"; do
+                if sudo systemctl enable --now "$unit.service" >/dev/null 2>&1; then
+                  echo "Celery: $unit ativo e habilitado"
+                else
+                  echo "Celery: FALHA ao ativar $unit (o portal NÃO para por isso)"
+                  sudo systemctl --no-pager --lines 15 status "$unit.service" 2>&1 | sed 's/^/    /' || true
+                fi
+              done
+              if sudo systemctl is-active --quiet "celery-beat-heartbeat@$SUF.timer"; then
+                echo "Celery: timer de heartbeat ativo (produtor de BEAT_HEARTBEAT_FILE)"
+              else
+                echo "Celery: timer de heartbeat NÃO ativo; o check do beat vai ficar degradado por idade"
+              fi
+            }
+            if ! ativar_celery_systemd; then
+              echo "AVISO: ativação do Celery terminou com erro; web e API estão no ar. Diagnose com \`systemctl status celery-worker@$SUF\`"
+            fi
+            if [ "$WEB_RUNTIME" = "standalone" ]; then
+              if ! podar_releases; then
+                echo "AVISO: poda das releases antigas falhou; disco pode encher (RELEASES_TO_KEEP=$RELEASES_TO_KEEP)"
+              fi
+            fi
             echo "=== $LABEL deployed $WEB_PORT(web) $API_PORT(api) ==="
 
   # Mesmo quando o deploy falha depois de um restart, o probe é executado para
@@ -463,6 +882,8 @@ jobs:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           password: ${{ secrets.VPS_PASSWORD }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          fingerprint: ${{ secrets.VPS_HOST_FINGERPRINT }}
           port: ${{ secrets.VPS_PORT }}
           script: |
             set -e
@@ -575,5 +996,18 @@ jobs:
               fi
             else
               echo "Marker anterior preservado: pelo menos um probe não retornou rc=0 e HTTP 200; não promova um deploy parcial."
+            fi
+            # Diagnóstico de release no fim do probe: os probes acima dizem que
+            # o web responde, mas NÃO dizem de qual release — e a resposta muda
+            # a ação (release ruim = trocar o symlink; API ruim = olhar o
+            # gunicorn). Imprimir o alvo do `current` e o `previous` torna a
+            # informação disponível no run, sem custo e sem mudar o comportamento do probe.
+            RELEASES_DIR="$APP_DIR/frontend/releases"
+            if [ -d "$RELEASES_DIR" ]; then
+              echo "release em andamento: current -> $(readlink -f "$RELEASES_DIR/current" 2>/dev/null || echo '(ausente)')"
+              echo "release anterior:     previous -> $(readlink -f "$RELEASES_DIR/previous" 2>/dev/null || echo '(ausente)')"
+              if [ -f "$RELEASES_DIR/current/.deployed-sha" ]; then
+                echo "release servida: $(tr -d '[:space:]' < "$RELEASES_DIR/current/.deployed-sha") (esperado $EXPECTED_SHA)"
+              fi
             fi
             pm2 status | grep portal || pm2 status
