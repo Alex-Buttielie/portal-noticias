@@ -22,7 +22,7 @@
       "execution_mode": "delegated",
       "started_at": "2026-09-25T10:24:00-03:00",
       "finished_at": null,
-      "notes": "Implementação delegada em branch dedicada; preservadas alterações existentes do working tree."
+      "notes": "Retomada em 2026-09-25T16:38. WIP órfão do executor anterior recuperado do working tree de develop para a branch observability-20260925-1020 e versionado em 672ffba (config/observability.py, health.py, metrics.py, middleware.py, settings.py). Diagnóstico do WIP: endpoints /livez, /readyz e /health-detail não ligados em config/urls.py; metricas.tasks.expurar_analytics agendado no beat mas inexistente; nenhum teste; frontend, infra, deploy e documentação do contrato ainda não iniciados. Bloco A (backend) em execução delegada. WIP de outras runs preservado e intocado no working tree."
     },
     "testing": {
       "status": "pending",
@@ -80,8 +80,12 @@
   "follow_ups": [
     "Aguardar acesso seguro à VPS, GitHub e contas externas no momento do provisionamento.",
     "Obter responsáveis, contatos de alerta, URLs reais e janela de produção.",
-    "Executar soak assíncrono de 48 horas após o deploy."
+    "Executar soak assíncrono de 48 horas após o deploy.",
+    "Reconciliar formalmente a run 20260924-2136-ingestao-noticias antes de lotes que toquem backend/feed/views.py, backend/catalogo_noticias/services/deduplicacao.py ou backend/feed/tests/test_p1_feed_cache_indices.py (WIP estrangeiro ainda não commitado no working tree).",
+    "Reconciliar com a run 20260925-1433-go-live-producao: o lote P0-1 daquela run declarou backend/config/{health,metrics,observability}.py e middleware.py como protegidos e pertencentes a esta run; nenhum arquivo de .github/ pode ser tocado aqui sem acordo entre as duas runs.",
+    "Contenção de ownership (2026-09-25T16:45): o lote P0-1 da run 20260925-1433-go-live-producao escreveu, sem commit, no mesmo working tree, scripts/release/verificar-proveniencia.sh, lote-p0-1-evidencias.md, implementation-history.md, e deixou modificações em CI-CD.md, PROD_DECISOES.md e infra/DEPLOY.md. Enquanto esse diff estiver aberto, .github/ e os três docs ficam bloqueados para esta run. O Bloco C foi dividido em C1 (executável agora) e C2 (adiado); ver bloco-c-plano.md.",
+    "WIP estrangeiro que continua no working tree e nunca deve ser commitado nesta branch: backend/feed/views.py, backend/catalogo_noticias/services/deduplicacao.py, backend/feed/tests/test_p1_feed_cache_indices.py, backend/catalogo_noticias/management/commands/agendar_ingestao.py, subir-localhost.sh, agentic-framework/state/run-20260924-2136-ingestao-noticias/ e agentic-framework/state/run-20260924-1535-arquivar-ingestao/."
   ],
   "created_at": "2026-09-25T10:20:17-03:00",
-  "updated_at": "2026-09-25T10:20:17-03:00"
+  "updated_at": "2026-09-25T16:38:04-03:00"
 }
