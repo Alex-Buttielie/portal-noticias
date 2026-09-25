@@ -20,6 +20,7 @@ testes.
 from __future__ import annotations
 
 import importlib
+from unittest.mock import patch
 
 import pytest
 from django.core.cache import cache
@@ -32,6 +33,7 @@ from catalogo_noticias.models import NewsCluster, NewsItem
 from catalogo_noticias.providers.news_source import ItemBruto
 from catalogo_noticias.providers.summarization import ResultadoResumo
 from catalogo_noticias.services.ingestao import _persistir_grupo, _persistir_grupo_mesclado
+from feed import views as feed_views
 from gating.models import ConfiguracaoSistema, FeatureLimit
 from painel_admin.models import RegraCuradoria
 
@@ -238,6 +240,60 @@ class TestFeedQueriesCacheContrato:
             segunda = client.get("/api/feed/")
         assert segunda.status_code == 200
         assert segunda.data == primeira.data
+
+    def test_cutover_feed_v2_ignora_payload_remoto_v1_e_preserva_ttl(self):
+        item_local = _item_feed(
+            "Notícia local após o arquivamento",
+            "Fonte local",
+            "https://local.test/feed-v2",
+        )
+        chave_v1 = "feed:v1:lista:uanon:categoria=cidades&page_size=20"
+        payload_remoto = {
+            "count": 1,
+            "next": None,
+            "previous": None,
+            "results": [
+                {
+                    "tipo": "item",
+                    "id": 987654321,
+                    "titulo": "PAYLOAD REMOTO ARQUIVADO",
+                }
+            ],
+        }
+        cache.set(chave_v1, payload_remoto, 45)
+
+        cliente = APIClient()
+        with override_settings(FEED_CACHE_TTL_SEGUNDOS=45), patch.object(
+            feed_views, "cache", wraps=cache
+        ) as cache_spy:
+            resposta = cliente.get(
+                "/api/feed/",
+                {"categoria": "cidades", "page_size": 20},
+            )
+
+        assert resposta.status_code == 200
+        assert resposta.data["count"] == 1
+        assert resposta.data["results"][0]["id"] == item_local.pk
+        assert resposta.data["results"][0]["titulo"] == item_local.titulo
+
+        # O cutover não apaga nem consulta a chave antiga: apenas deixa de
+        # usá-la. A resposta nova fica em feed:v2, com o TTL configurado.
+        leituras_v1 = [
+            chamada
+            for chamada in cache_spy.get.call_args_list
+            if chamada.args and chamada.args[0] == chave_v1
+        ]
+        assert leituras_v1 == []
+        chave_v2 = "feed:v2:lista:uanon:categoria=cidades&page_size=20"
+        assert cache.get(chave_v1) == payload_remoto
+        assert cache.get(chave_v2) == resposta.data
+        chamadas_v2 = [
+            chamada
+            for chamada in cache_spy.set.call_args_list
+            if chamada.args and chamada.args[0] == chave_v2
+        ]
+        assert len(chamadas_v2) == 1
+        assert chamadas_v2[0].args[2] == 45
 
     def test_nenhum_endpoint_do_feed_expoe_publicidade(self):
         # Crit. 6: breaking controlado — ads via GET /api/gating/status.
