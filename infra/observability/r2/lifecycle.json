@@ -1,0 +1,84 @@
+{
+  "$schema": "https://developers.cloudflare.com/r2/api/lifecycle/lifecycle-configuration/",
+  "_meta": {
+    "run": "20260925-1020-observabilidade",
+    "criterio": "34 — o dump é enviado ao Cloudflare R2, o exit code é zero somente após validação e há alerta de atraso",
+    "destino": "Cloudflare R2 (API compatível com S3). O mesmo JSON serve para Backblaze B2 ou qualquer S3, ajustando o `abort_incomplete_multipart_upload` de vendor para vendor.",
+    "como_aplicar": [
+      "1. Criar a conta/bucket no R2 com MFA no console (ação humana; nada de credencial por chat).",
+      "2. Aplicar a política pelo console do R2 (Bucket -> Settings -> Object lifecycle rules) ou pela API, usando a credencial de provisionamento do CI.",
+      "3. A bucket é PRIVADA por definição no R2: nenhum objeto é público, e o acesso é por credencial com somente s3:PutObject e s3:GetObject no prefixo de backup. Nunca conceda s3:DeleteObject — a remoção é por lifecycle, não por chamada da aplicação.",
+      "4. Depois de aplicar, rode o teste de.restore: o pg_backup_pm2.sh faz head-object justamente para provar que o upload e a leitura funcionam; se a lifecycle derrubar o objeto antes do restore, o teste falha e é isso que queremos ver."
+    ],
+    "avisos": [
+      "A retenção de 90 dias é uma ESCOLHA de negócio ainda não ratificada pelo responsável (o plano de recuperação de desastre é decisão humana). O número está parametrizado aqui e em infra/backup/pg_backup_pm2.sh pela retenção LOCAL de 7 dias; a remota precisa de aval antes de prod.",
+      "A cópia do bucket NÃO é a única defesa: a retenção local de 7 dias no disco da VPS é suspensa quando não há upload confirmado (ver pg_backup_pm2.sh). Se alguém configurar o R2 e a lifecycle local, os dois caminhos coexistem sem que um apague o que o outro ainda precisa."
+    ]
+  },
+  "bucket_declarado": {
+    "nome": "<NOME_DO_BUCKET_DE_BACKUP>",
+    "regiao": "auto",
+    "acesso_publico": false,
+    "object_lock": false,
+    "cifragem_em_repouso": "gerenciada pelo provedor (AES-256 no R2)",
+    "nota": "object_lock fica desligado de propósito: um bucket imutável protege contra ransomware, mas também contra o próprio operador que precisa limpar um dump corrompido. É decisão humana; se ligar, o `delete` manual deixa de existir e o custo de armazenamento só cresce."
+  },
+  "rules": [
+    {
+      "id": "expira-dump-e-midia-apos-90-dias",
+      "descricao": "Backup diário: 90 dias de janela. Cobre um mês de erro humano (restore errado) mais a janela típica de erro de descoberta.",
+      "enabled": true,
+      "rules": [
+        {
+          "id": "expirar-90-dias",
+          "enabled": true,
+          "type": "expiration",
+          "prefix": "",
+          "delete_after": { "days": 90 },
+          "notes": "Aplica-se a db/ e media/ porque o prefixo é vazio. Se um dia existir objeto que NÃO é backup neste bucket (ex.: export ad-hoc), mover para um prefixo próprio antes — esta regra o apagaria junto."
+        }
+      ]
+    },
+    {
+      "id": "nao-apaga-nada-antes-de-30-dias",
+      "descricao": "Floor de 30 dias: mesmo que alguém ajuste a regra de 90 para menos, o backup dos últimos 30 dias não é removido.",
+      "enabled": true,
+      "rules": [
+        {
+          "id": "piso-de-30-dias",
+          "enabled": true,
+          "type": "noncurrent_version_expiration",
+          "prefix": "",
+          "delete_after": { "days": 30 },
+          "notes": "Só age em VERSÕES não atuais. Como o pg_backup_pm2.sh sobe o objeto com o nome do timestamp (sem sobrescrever), cada backup é uma versão distinta; a proteção é contra alguém ajustar a expiração para 7 dias num impulso e ficar sem histórico útil."
+        }
+      ]
+    },
+    {
+      "id": "limpa-mpu-incompleto",
+      "descricao": "Upload interrompido (rede caiu no meio) deixa multipart órfão ocupando espaço e sendo cobrado.",
+      "enabled": true,
+      "rules": [
+        {
+          "id": "abortar-mpu-incompleto",
+          "enabled": true,
+          "type": "abort_incomplete_multipart_upload",
+          "prefix": "",
+          "delete_after": { "days": 7 },
+          "notes": "O pg_backup_pm2.sh usa `aws s3 cp`, que faz multipart para arquivos grandes. Um upload cortado no meio NÃO é backup — o script não faz o ping do cron monitor porque o exit code foi diferente de zero, e o objeto incompleto nunca é contido por validação. Este é o item que transforma 'custo de storage' em 'custo de storage' sem backup nenhum'."
+        }
+      ]
+    }
+  ],
+  "verificacao_pos_deploy": {
+    "o_que_checar": [
+      "A lifecycle está aplicada: o console mostra as 3 regras, ou a API responde 200 no GET do lifecycle.",
+      "O primeiro backup real aparece no bucket com o tamanho esperado (comparar com o ls -lh local).",
+      "head-object responde: é o que o script usa para liberar a retenção local, então se isso falhar a retenção local fica suspensa (por desenho).",
+      "O cron monitor do Better Stack recebeu o ping depois do primeiro backup bem-sucedido. Sem ping, o monitor só vai avisar quando o atraso bater — e o operador precisa saber que o caminho do alerta funciona antes de precisar dele."
+    ],
+    "o_que_nao_fazer": [
+      "Não baixar a lifecycle para 7 dias só porque o storage está caro: a retenção local de 7 dias (pg_backup_pm2.sh) e a remota têm DOCUMENTOS diferentes. Barato e sem restore testado é o pior estado possível."
+    ]
+  }
+}

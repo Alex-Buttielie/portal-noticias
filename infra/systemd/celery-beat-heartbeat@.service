@@ -1,0 +1,65 @@
+# Heartbeat do Celery beat — oneshot, disparado por
+# `celery-beat-heartbeat@.timer` (não habilitar esta unit sozinha).
+#
+# POR QUE ISTO EXISTE: o backend não tem (e não pode ter) introspecção confiável
+# de "o beat está vivo" pelo broker — o beat não tem identidade de worker e nada
+# no Redis prova que ele disparou o agendamento
+# (backend/config/health.py::check_celery_beat). Inventar um "ok" ali seria o
+# falso verde que a run 20260925-1020-observabilidade existe para eliminar.
+# O que sobra é o arquivo de heartbeat, e ele precisa de um produtor.
+#
+# A ARMADILHA (e o motivo do ExecCondition): um timer que tocasse o arquivo
+# sozinho manteria o check verde para sempre, inclusive com o beat MORRIDO —
+# seria exatamente o healthcheck "sempre verde" que o achado B11 apontou no
+# compose. Por isso o ExecCondition consulta a unit do beat antes de escrever:
+# beat parado => unit é SKIPPED (não falha, não escreve) => o arquivo envelhece
+# => `check_celery_beat` vira `degraded` com a idade => alerta.
+#
+# O que ISTO ainda NÃO prova: que o agendador está disparando, e não apenas
+# que o processo existe. Um beat travado com o processo vivo continuaria
+# produzindo heartbeat. Esse residuo é coberto por outro sinal, o da própria
+# ingestão: `portal_ingestion_executions_total` (alerta `PortalIngestaoParada`).
+# Os dois juntos fecham o diagnóstico, e a limitação está escrita no
+# `infra/observability/README.md` em vez de escondida.
+
+[Unit]
+Description=Portal %i — heartbeat do Celery beat (produtor de %h)
+Documentation=file:///home/apps/portal-%i/infra/observability/README.md
+After=celery-beat@%i.service
+
+[Service]
+Type=oneshot
+User=apps
+Group=apps
+EnvironmentFile=/etc/portal/celery-%i.env
+# Se a unit do beat não estiver ativa, a condição falha e o resto do serviço
+# (incluindo o ExecStart) é pulado. `systemctl status` mostra "skipped".
+# `ExecCondition` exige systemd >= 243; em versão antiga este bloco é IGNORADO
+# (chave desconhecida, sem erro) e a unit tocaria o arquivo sem consultar o
+# beat — exatamente o falso verde que o ExecCondition evita. Confira a versão
+# antes de instalar: `systemctl --version | head -1`.
+ExecCondition=/bin/sh -c 'systemctl is-active --quiet "celery-beat@%i.service"'
+# O beat pode estar em `activating`/`deactivating` durante um restart; nesse
+# intervalo o heartbeat envelhece alguns minutos, e
+# `OBSERVABILITY_BEAT_MAX_AGE_SECONDS` (900s por padrão) absorve. Não aumente a
+# sensibilidade sem medir o tempo de restart real do beat.
+# `touch -m` (e não `>`) atualiza só o mtime: o conteúdo do arquivo é
+# irrelevante e o backend só olha a idade (Path.stat().st_mtime).
+#
+# Sem `BEAT_HEARTBEAT_FILE` no env, `${...}` expande para vazio, o `touch` é
+# chamado sem alvo e a unit FALHA — de propósito. Um producer de heartbeat sem
+# caminho definido é falha de configuração, não motivo para ficar verde.
+ExecStart=/usr/bin/touch -m ${BEAT_HEARTBEAT_FILE}
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=false
+ProtectKernelTunables=true
+ProtectKernelModules=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+AmbientCapabilities=
+UMask=0027

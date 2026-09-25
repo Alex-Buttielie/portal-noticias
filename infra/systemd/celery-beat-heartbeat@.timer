@@ -1,0 +1,32 @@
+# Timer do heartbeat do Celery beat (um por ambiente, via `%i`).
+#
+# Instalar junto com `celery-beat-heartbeat@.service`:
+#   sudo cp infra/systemd/celery-beat-heartbeat@.timer \
+#          /etc/systemd/system/celery-beat-heartbeat@.timer
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now celery-beat-heartbeat@prod.timer
+#
+# `BEAT_MAX_AGE_SECONDS=900` (15 min) é o padrão de
+# `OBSERVABILITY_BEAT_MAX_AGE_SECONDS`, então o intervalo precisa ser bem menor
+# que o limite: 5 min deixa margem para dois ticks perdidos ( reboots, timer
+# atrasado por I/O) antes de o check entrar em `degraded`. AUMENTAR o intervalo
+# sem aumentar o limite troca um alerta sensível por um alerta atrasado.
+
+[Unit]
+Description=Portal %i — timer do heartbeat do Celery beat (a cada 5 min)
+Documentation=file:///home/apps/portal-%i/infra/observability/README.md
+
+[Timer]
+Unit=celery-beat-heartbeat@%i.service
+# Não dispara no boot: com `OnBootSec` o primeiro toque viria antes do beat
+# subir e o ExecCondition marcaria a unit como skipped (comportamento correto,
+# mas um "skipped" no journal logo após todo boot parece defeito).
+OnBootSec=5min
+OnUnitActiveSec=5min
+# `AccuracySec` grande deixaria o tick coincidir com o pico de uso.
+AccuracySec=30s
+# Unprivileged=false não se aplica a timer (são sempre de sistema).
+Persistent=false
+
+[Install]
+WantedBy=timers.target

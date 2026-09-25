@@ -1,0 +1,172 @@
+{
+  "$schema": "https://uptime.betterstack.com/schemas/checks.v2.json",
+  "_meta": {
+    "run": "20260925-1020-observabilidade",
+    "criterio": "23 — o check externo e o alerta correspondente são acionados sem depender da própria VPS",
+    "formato": "definição declarativa dos checks a criar no painel do Better Stack (plano Free). NÃO é um payload pronto para POST na API: os campos de autenticação, os IDs de notification_channel e o team_id são de cada conta e vêm do painel/API depois do provisionamento. Nada aqui é segredo e nenhuma URL real foi inventada.",
+    "como_usar": [
+      "1. Criar a conta e o time no Better Stack e configurar MFA (ação humana).",
+      "2. Criar os Contact Pools e associar aos canais reais (e-mail, Telegram, Slack).",
+      "3. Traduzir cada objeto abaixo para um check no painel, preenchendo url/domains com os domínios REAIS de dev, homolog e prod — eles ainda divergem entre si no repositório e a decisão do domínio canônico é humana (ver agentic-framework/state/run-20260925-1020-observabilidade/bloco-c-plano.md, seção 4).",
+      "4. Cadastrar o CRON MONITOR de backup (ver 'cron_monitor_backup') e colocar a URL de heartbeat em BACKUP_HEARTBEAT_URL no ambiente da aplicação.",
+      "5. Testar cada check com um disparo real e confirmar a entrega nos canais (critério 41); encerrar/acknowledge depois."
+    ],
+    "placeholders": {
+      "<DOMAINO_DE_PRODUCAO>": "hostname real de produção (o mesmo dos site confs portal-prod.conf)",
+      "<DOMINIO_DE_HOMOLOG>": "hostname real de homolog",
+      "<DOMINIO_DE_DEV>": "hostname real de dev",
+      "<URL_HEARTBEAT_DO_CRON_MONITOR>": "URL de heartbeat gerada pelo Better Stack para o cron monitor; É SEGREDO (quem a tiver consegue fingir um backup) e nunca vai para o repositório"
+    }
+  },
+  "checks": [
+    {
+      "id": "readiness-producao",
+      "url": "https://<DOMINIO_DE_PRODUCAO>/readyz",
+      "check_type": "http",
+      "frequency": 60,
+      "timeout": 20,
+      "method": "GET",
+      "expected_status": "200",
+      "team_id": "<TEAM_ID>",
+      "notification_channels": ["<CP_CRITICO_PRINCIPAL>"],
+      "priority": "critical",
+      "incident_severity": "critical",
+      "tags": ["portal", "producao", "readiness"],
+      "meta": {
+        "porque": "Endpoint NOVO desta run. Antes, o único check possível era /healthz; /readyz separa liveness de readiness e devolve 503 quando PostgreSQL ou as migrations estão indisponíveis, que é o sinal que o time precisa.",
+        "expect_body_contains": "\"ready\": true",
+        "expect_body_not_contains": "detail",
+        "porque_body_not_contains": "O corpo público do /readyz é genérico por contrato (backend/config/health.py::public_snapshot). Se aparecer 'detail', host de banco ou nome de tabela, alguém quebrou essa regra de não vazar operação — e isso é um incidente de exposição, não um check quebrado.",
+        "sem_credencial": "A rota /readyz é pública de propósito (é o que o monitor externo consegue consultar); o diagnóstico fica em /health-detail, bloqueado no Nginx por origem."
+      }
+    },
+    {
+      "id": "liveness-producao",
+      "url": "https://<DOMINIO_DE_PRODUCAO>/livez",
+      "check_type": "http",
+      "frequency": 60,
+      "timeout": 15,
+      "method": "GET",
+      "expected_status": "200",
+      "team_id": "<TEAM_ID>",
+      "notification_channels": ["<CP_CRITICO_PRINCIPAL>"],
+      "priority": "critical",
+      "incident_severity": "critical",
+      "tags": ["portal", "producao", "liveness"],
+      "meta": {
+        "porque": "Prova que o PROCESSO responde, sem tocar dependência. Distingue 'a API caiu' de 'o banco caiu': com os dois checks, o operador sabe em um minuto qual dos dois aconteceu, e não precisa de acesso ao servidor para descobrir."
+      }
+    },
+    {
+      "id": "home-producao",
+      "url": "https://<DOMINIO_DE_PRODUCAO>/",
+      "check_type": "http",
+      "frequency": 300,
+      "timeout": 45,
+      "method": "GET",
+      "expected_status": "200,301,302,503",
+      "team_id": "<TEAM_ID>",
+      "notification_channels": ["<CP_WARNING>"],
+      "priority": "normal",
+      "incident_severity": "warning",
+      "tags": ["portal", "producao", "front"],
+      "meta": {
+        "porque": "Os dois checks acima cobrem a API. Este cobre a OUTRA metade da resposta: o frontend Next.js atrás do mesmo Nginx (topologia PM2: frontend e API dividem o host). /readyz verde com Home em 500 é exatamente o incidente que os endpoints de saúde não enxergam.",
+        "por_que_aceita_503": "503 na Home é a resposta DOCUMENTADA para feed indisponível sem cache válido (critério 11: nunca conteúdo fictício). Reprovar o check por um 503 correto seria trocar um problema real por um falso — e treinar o time a ignorar o monitor.",
+        "por_que_aceita_3xx": "301/302 é o comportamento normal de qualquer mudança de host/canonical pendiente."
+      }
+    },
+    {
+      "id": "api-feed-producao",
+      "url": "https://<DOMINIO_DE_PRODUCAO>/api/feed/",
+      "check_type": "http",
+      "frequency": 300,
+      "timeout": 30,
+      "method": "GET",
+      "expected_status": "200,503",
+      "team_id": "<TEAM_ID>",
+      "notification_channels": ["<CP_WARNING>"],
+      "priority": "normal",
+      "incident_severity": "warning",
+      "tags": ["portal", "producao", "api", "feed"],
+      "meta": {
+        "porque": "Exercita o caminho de dados real (Postgres + cache de 45 s + serialização), que /readyz não toca: readiness só faz SELECT 1 e checa migrations.",
+        "por_que_aceita_503": "Feed real fora do ar com cache válido é degradação (200 com X-Operational-State: degraded); sem cache, é 503 por decisão de projeto. Nos dois casos o frontend sabe o que exibir; o que não é aceitável é erro 5xx, que reprova."
+      }
+    },
+    {
+      "id": "tls-producao",
+      "url": "https://<DOMINIO_DE_PRODUCAO>/livez",
+      "check_type": "tls",
+      "frequency": 43200,
+      "timeout": 20,
+      "team_id": "<TEAM_ID>",
+      "notification_channels": ["<CP_CRITICO_PRINCIPAL>"],
+      "priority": "critical",
+      "incident_severity": "critical",
+      "tags": ["portal", "producao", "tls"],
+      "meta": {
+        "porque": "Critério 33: alerta de expiração de TLS. O check de TLS do Better Stack valida cadeia e validade do certificado que o mundo enxerga — não o arquivo do lineage local, que pode estar renewed sem o Nginx ter recarregado.",
+        "regua_de_intervencao": "alertar em 21 dias de validade restante é o que dá tempo de rodar o certbot renew sem janela de indisponibilidade (ver infra/DEPLOY.md, seção 3A, que já é o runbook).",
+        "por_que_e_externo": "Se o certificado expira, a monitoria interna via HTTPS também falha — o monitor que avisa tem de ser capaz de falar HTTP quando o TLS cai."
+      }
+    },
+    {
+      "id": "homolog-readiness",
+      "url": "https://<DOMINIO_DE_HOMOLOG>/readyz",
+      "check_type": "http",
+      "frequency": 300,
+      "timeout": 20,
+      "method": "GET",
+      "expected_status": "200",
+      "team_id": "<TEAM_ID>",
+      "notification_channels": ["<CP_WARNING>"],
+      "priority": "low",
+      "incident_severity": "warning",
+      "tags": ["portal", "homolog", "readiness"],
+      "meta": {
+        "porque": "Homolog é onde o deploy é exercitado antes de produção. Um /readyz vermelho em homolog significa que o próximo deploy está Promotingo um estado quebrado."
+      }
+    },
+    {
+      "id": "dev-readiness",
+      "url": "https://<DOMINIO_DE_DEV>/readyz",
+      "check_type": "http",
+      "frequency": 1800,
+      "timeout": 20,
+      "method": "GET",
+      "expected_status": "200",
+      "team_id": "<TEAM_ID>",
+      "notification_channels": ["<CP_WARNING>"],
+      "priority": "low",
+      "incident_severity": "info",
+      "tags": ["portal", "dev", "readiness"],
+      "meta": {
+        "porque": "Dev é o ambiente mais descartável; a frequência baixa evita cansaço de alerta. Serve para pegar 'a VPS inteira caiu' (ninguém mais está ativo) e para dar ao smoke pós-deploy um contra o que comparar.",
+        "nota_ambiente": "Se a política do projeto for não monitorar dev, remova este objeto — a decisão é humana, e o arquivo não impõe."
+      }
+    }
+  ],
+  "cron_monitor_backup": {
+    "id": "backup-diario-pm2",
+    "kind": "cron_monitor",
+    "expect_period_seconds": 93600,
+    "grace_seconds": 7200,
+    "team_id": "<TEAM_ID>",
+    "notification_channels": ["<CP_CRITICO_PRINCIPAL>", "<CP_CRITICO_SUPLENTE>"],
+    "incident_severity": "critical",
+    "heartbeat_url_env_var": "BACKUP_HEARTBEAT_URL",
+    "meta": {
+      "porque": "Critério 34 ('alerta de atraso') e 35, com a propriedade que importa: um watchdog que roda NA VPS não avisa quando a VPS morre. Este monitor é externo e avisa justamente por ausência de sinal.",
+      "periodo": "26 h = 24 h de backup diário + 2 h de margem. O mesmo número de BACKUP_MAX_AGE_HOURS no watchdog local; se os dois divergirem, o alerta chega na hora errada.",
+      "grace": "2 h de tolerância cobrem o caso do dump demorando mais que o normal (restore de validação em banco descartável antes de publicar).",
+      "quem_pinge": "infra/backup/pg_backup_pm2.sh, DEPOIS de validar o dump, o restore em banco descartável e o head-object no bucket. Ping de backup que só confia no dump local não serve: a cópia que importa é a remota.",
+      "segredo": "A URL de heartbeat é credencial — quem a tiver consegue anunciar um backup que não houve. Fica em BACKUP_HEARTBEAT_URL no env da aplicação e nunca no repositório."
+    }
+  },
+  "nao_monitorado_de_propósito": [
+    "PostgreSQL 5432 e Redis 6379 por TCP: não estão expostos à internet (por desenho — o Nginx é a única entrada), e um check externo não conseguiria alcançá-los. A saúde do banco é observada por /readyz e por portal_dependency_checks_total.",
+    "/health-detail e /metrics: privados por contrato e bloqueados no Nginx (loopback ou Bearer). Um check externo deles seria uma rota autenticada com segredo de terceiro — risco de exposição maior que o valor.",
+    "Sentry: tem o próprio sistema de detecção de issue; duplicar em uptime monitor gera alerta duplicado sem informação nova."
+  ]
+}

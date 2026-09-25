@@ -1,0 +1,99 @@
+# Celery beat do portal — unidade MODELO (systemd template).
+#
+# Instale UM arquivo por ambiente, com o nome da instância = ambiente:
+#   sudo cp infra/systemd/celery-beat@.service /etc/systemd/system/celery-beat@.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now celery-beat@prod
+# Instâncias: celery-beat@dev, celery-beat@homolog, celery-beat@prod.
+#
+# Ver o cabeçalho de `celery-worker@.service` para o porquê do template e para o
+# ajuste obrigatório de `User=`/`Group=` antes de instalar.
+#
+# O beat é o ÚNICO processo que dispara as tarefas periódicas (ingestão RSS,
+# reconciliação de segurança, expurgo de analytics). Se ele morre, o portal
+# continua no ar, o feed continua servido e NADA falha de forma visível: é a
+# forma mais silenciosa de perder o produto inteiro. Por isso esta unit vem
+# acompanhada de `celery-beat-heartbeat@.timer`, que é o produtor do arquivo
+# que `OBSERVABILITY_BEAT_HEARTBEAT_FILE` espera (achado B4: o setting existia
+# sem produtor, e o check ficaria `not_configured` para sempre).
+#
+# Fail-closed: os dois `EnvironmentFile` NÃO têm o prefixo `-`; sem o env da
+# aplicação ou sem `/etc/portal/celery-%i.env`, a unit não sobe. É intencional:
+# um beat com metade da configuração é um beat que não agenda o que devia.
+
+[Unit]
+Description=Portal %i — Celery beat (agendador das tarefas periódicas)
+Documentation=file:///home/apps/portal-%i/infra/observability/README.md
+# Ver o comentário de Wants/After em `celery-worker@.service`: `Requires=` de
+# uma unit de broker com nome incerto derrubaria o beat no start.
+Wants=redis.service
+After=network-online.target redis.service
+PartOf=celery-worker.target
+# O agendamento é o que garante que a ingestão volte a rodar depois de uma
+# queda: o beat sobe junto com o worker do MESMO ambiente. Sem isto, um worker
+# que subiu depois do beat ficaria sem nada agendado (e o health check
+# reportaria "ok" com a fila parada — o falso verde que esta run elimina).
+Wants=celery-beat-heartbeat@%i.timer
+After=celery-beat-heartbeat@%i.timer
+
+[Service]
+Type=simple
+User=apps
+Group=apps
+WorkingDirectory=/home/apps/portal-%i/backend
+EnvironmentFile=/home/apps/portal-%i/backend/.env
+EnvironmentFile=/etc/portal/celery-%i.env
+Environment=DJANGO_SETTINGS_MODULE=config.settings
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+# Diretório gerenciado pelo systemd (StateDirectory) para o schedule file: o
+# beat registra o último disparo de cada tarefa e, sem persistência, um restart
+# reprocessa a janela inteira. O nome é por ambiente — dois beats no mesmo
+# arquivo se sobrescrevem.
+StateDirectory=celery
+StateDirectoryMode=0750
+ExecStartPre=/bin/sh -c 'test -x "/home/apps/portal-%i/backend/.venv/bin/celery" || { echo "celery-beat@%i: venv ausente em /home/apps/portal-%i/backend/.venv/bin/celery ( rode o bootstrap do deploy )" >&2; exit 1; }'
+ExecStart=/home/apps/portal-%i/backend/.venv/bin/celery -A config beat \
+    --loglevel=info \
+    --schedule=/var/lib/celery/beat-schedule-%i \
+    --pidfile=/run/celery/beat-%i.pid
+# Primeira escrita do heartbeat, tolerante a falha (`-`): o sinal que o health
+# check consome é o do timer (escrita contínua enquanto o beat estiver vivo),
+# e uma falha aqui não pode impedir o beat de subir. O ponto de partida do
+# arquivo é apenas para não esperar o primeiro tick do timer.
+ExecStartPost=-/usr/bin/touch -m ${BEAT_HEARTBEAT_FILE}
+KillSignal=SIGTERM
+TimeoutStopSec=60
+TimeoutStartSec=60
+Restart=on-failure
+RestartSec=10
+MemoryHigh=192M
+MemoryMax=256M
+CPUWeight=20
+TasksMax=64
+LimitNOFILE=1024
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=full
+ProtectHome=false
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+ProtectProc=invisible
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
+LockPersonality=true
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+AmbientCapabilities=
+UMask=0027
+
+[Install]
+WantedBy=multi-user.target

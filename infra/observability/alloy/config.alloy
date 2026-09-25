@@ -1,0 +1,261 @@
+// Grafana Alloy — coletor de telemetria técnica do portal.
+// Run 20260925-1020-observabilidade (critérios 18, 21, 22, 40).
+//
+// O QUE ESTE ARQUIVO FAZ
+//   1. raspa `/metrics` da API do ambiente (exposição Prometheus do Django);
+//   2. faz tail do log de acesso JSON do Nginx e dos logs JSON do backend/PM2;
+//   3. lê o journal do systemd (Celery worker/beat, nginx) com allowlist;
+//   4. envia métricas para o Mimir e logs para o Loki do Grafana Cloud.
+//
+// UMA INSTÂNCIA POR AMBIENTE. A VPS hospeda dev, homolog e prod; um coletor
+// único misturaria os três e uma falha de scrape em prod poderia ser
+// "explicada" pelos dados de dev. O `ambiente` entra como label no Loki e como
+// external label no Mimir, então os três convizem no mesmo Grafana Cloud sem se
+// confundirem. Instale com `EnvironmentFile=/etc/portal/alloy-<env>.env`.
+//
+// TUDO PARAMETRIZADO POR AMBIENTE (`sys.env`): nenhum endpoint, token ou path
+// real está neste arquivo. O exemplo de env é
+// `infra/observability/alloy/alloy.env.example`.
+//
+// FAIL-CLOSED, EM DUAS CAMADAS
+//   (a) `verificar-env.sh` roda no `ExecStartPre` da unit e no
+//       `scripts/observability/validar-infra.sh`: sem endpoint, sem token, sem
+//       arquivo de token legível ou sem permissão de journal, o coletor NÃO
+//       É INICIADO. Um coletor no ar sem exportar nada é pior que um coletor
+//       parado, porque produz "zero erros" que parece saúde.
+//   (b) Nenhum valor deste arquivo é inventado: onde um campo vazio
+//       significaria "colecionar TUDO" (o caso do journal), o config usa
+//       allowlist com regex ancorada, e string vazia faz a allowlist não
+//       casar com nada. Vazio nunca vira "coleta demais".
+//
+// ARMADILHA CONHECIDA: o `loki.source.journal` só coleta se o usuário do
+// Alloy estiver nos grupos `adm` e `systemd-journal`. Sem isso o componente
+// "inicia sem erro e não coleta nada" — silencioso e verde. `verificar-env.sh`
+// checa os dois grupos e falha se faltarem.
+
+logging {
+    level  = sys.env("ALLOY_LOG_LEVEL")
+    format = "logfmt"
+}
+
+// ---------------------------------------------------------------------------
+// 1) Métricas da API
+// ---------------------------------------------------------------------------
+// `/metrics` é privado por contrato do backend (loopback ou
+// `Authorization: Bearer`), e o Nginx também barra a origem externa
+// (`infra/nginx/portal-*.conf`, location `^/(health-detail|metrics)$`). O
+// token é enviado SEMPRE, mesmo com o coletor na mesma máquina: é o que
+// exercita o mesmo caminho de autenticação do resto da malha, e o valor é o
+// mesmo de `OBSERVABILITY_METRICS_TOKEN` no ambiente da aplicação.
+// O label `ambiente` NÃO é posto aqui (o `prometheus.scrape` do Alloy não tem
+// `relabel_configs`): ele vai em `external_labels` do remote_write, que é onde
+// ele pertence — uma instância do coletor por ambiente. A API não conhece o
+// ambiente (só o publica no header `X-Environment`, que não é métrica), e sem
+// essa etiqueta as séries dos três ambientes colidem no Mimir e um painel de
+// produção mostra a soma dos três.
+prometheus.scrape "portal_api" {
+    targets = [{
+        __address__ = sys.env("ALLOY_BACKEND_METRICS_ADDR"),
+    }]
+    // `job` precisa ser explícito: o padrão é o nome do componente
+    // (`prometheus.scrape.portal_api`), e são as regras de alerta e os painéis
+    // que referenciam `job="portal-api"`.
+    job_name        = "portal-api"
+    metrics_path    = "/metrics"
+    scheme          = "http"
+    scrape_interval = "30s"
+    scrape_timeout  = "10s"
+    honor_labels    = false
+
+    authorization {
+        type             = "Bearer"
+        credentials_file = sys.env("ALLOY_BACKEND_METRICS_TOKEN_FILE")
+    }
+
+    forward_to = [prometheus.remote_write.grafana.receiver]
+}
+
+// Métricas do próprio coletor. Sem este job não existe sinal de "o coletor
+// parou" — e um coletor parado é indistinguível de uma semana sem incidente.
+prometheus.scrape "alloy" {
+    targets         = [{__address__ = sys.env("ALLOY_SELF_ADDR")}]
+    job_name        = "alloy"
+    scrape_interval = "30s"
+    forward_to      = [prometheus.remote_write.grafana.receiver]
+}
+
+prometheus.remote_write "grafana" {
+    external_labels = {
+        ambiente = sys.env("ALLOY_AMBIENTE"),
+    }
+    endpoint {
+        url            = sys.env("ALLOY_REMOTE_WRITE_URL")
+        remote_timeout = "30s"
+        basic_auth {
+            username = sys.env("ALLOY_REMOTE_WRITE_USER")
+            password = sys.env("ALLOY_REMOTE_WRITE_TOKEN")
+        }
+        // 429 do Mimir é "esticou o limite de ingestão", não "endpoint
+        // quebrado": reenviar com backoff e honrar o `Retry-After` é o
+        // comportamento certo. A fila é por endpoint, então o bloco é daqui.
+        queue_config {
+            retry_on_http_429 = true
+            max_backoff       = "30s"
+        }
+    }
+    // WAL de 1 h: uma queda de rede de minutos não pode virar buraco nos
+    // gráficos logo depois de um incidente, e o disco da VPS é pequeno.
+    wal {
+        truncate_frequency = "1h"
+        min_keepalive_time  = "5m"
+        max_keepalive_time  = "1h"
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 2) Logs: borda (Nginx) e aplicação (Django/PM2)
+// ---------------------------------------------------------------------------
+// `stage.json` NÃO cria label: os campos extraídos (request_id, uri, nível)
+// ficam na linha e viram pesquisáveis no LogQL, sem estourar cardinalidade
+// do índice. Só o que é de baixa cardinalidade vira label.
+loki.source.file "edge" {
+    targets = [
+        {
+            __path__   = sys.env("ALLOY_EDGE_LOG_GLOB"),
+            componente = "portal-edge",
+        },
+    ]
+    file_match {
+        enabled = true
+        // Só o log corrente: o logrotate mantém `.1`/`.gz`, e re-tailar um
+        // arquivo já rotacionado duplica linha no índice.
+        ignore_older_than = "6h"
+        sync_period       = "30s"
+    }
+    forward_to = [loki.process.edge.receiver]
+}
+
+loki.process "edge" {
+    forward_to = [loki.write.grafana.receiver]
+    stage.json {
+        expressions = {
+            request_id = "request_id",
+            status     = "status",
+            uri        = "uri",
+            method     = "method",
+            release    = "upstream_release",
+            estado     = "upstream_operational_state",
+            tempo      = "request_time",
+        }
+    }
+    // Nível: o log de acesso não tem `levelname`; 5xx é o que o operador
+    // filtra primeiro num incidente de disponibilidade. O status é string no
+    // log de borda (todos os valores do `log_format` são quoted, para o JSON
+    // nunca quebrar em resposta sem upstream), daí a comparação como texto.
+    stage.match {
+        selector = "{componente=\"portal-edge\"} | json | status >= \"500\" | status < \"600\""
+        stage.static_labels {
+            values = { nivel = "error" }
+        }
+    }
+    stage.static_labels {
+        values = {
+            ambiente = sys.env("ALLOY_AMBIENTE"),
+            servico  = "portal-edge",
+            tipo     = "acesso",
+        }
+    }
+}
+
+loki.source.file "app" {
+    targets = [
+        {
+            __path__   = sys.env("ALLOY_PM2_LOG_GLOB"),
+            componente = "portal-api",
+        },
+    ]
+    file_match {
+        enabled           = true
+        ignore_older_than = "6h"
+        sync_period       = "30s"
+    }
+    forward_to = [loki.process.app.receiver]
+}
+
+loki.process "app" {
+    forward_to = [loki.write.grafana.receiver]
+    stage.json {
+        // Campos do `RedactingJsonFormatter` (backend/config/observability.py):
+        // a correlação de log técnico está garantida por contrato, e é o que
+        // permite seguir um `request_id` do navegador até o traceback.
+        expressions = {
+            request_id = "request_id",
+            task_id    = "task_id",
+            nivel      = "levelname",
+            servico    = "service",
+            release    = "release",
+            ambiente   = "environment",
+        }
+    }
+    stage.static_labels {
+        values = {
+            ambiente = sys.env("ALLOY_AMBIENTE"),
+            servico  = "portal-api",
+            tipo     = "aplicacao",
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 3) Journal do systemd (celery worker/beat, nginx)
+// ---------------------------------------------------------------------------
+// Allowlist por unit, com regex ancorada em `loki.relabel`. Deliberadamente
+// NÃO usamos `matches` do `loki.source.journal`: `matches` vazio significa
+// "todo o journal" (a opção `alloy` viraria um coletor de tudo, com custo e
+// ruído). Com a allowlist, valor ausente/vazio faz a regex não casar com nada
+// e o resultado é "não coleta" — que é o comportamento seguro. E o
+// `verificar-env.sh` exige a variável de qualquer forma.
+loki.relabel "journal" {
+    forward_to = []
+    rule {
+        source_labels = ["__journal__systemd_unit"]
+        regex         = "^(" + sys.env("ALLOY_JOURNAL_UNITS") + ")$"
+        action        = "keep"
+    }
+}
+
+loki.source.journal "sistema" {
+    forward_to     = [loki.process.sistema.receiver]
+    relabel_rules  = loki.relabel.journal.rules
+    format_as_json = true
+    max_age        = "12h"
+    labels         = { componente = "systemd" }
+}
+
+loki.process "sistema" {
+    forward_to = [loki.write.grafana.receiver]
+    stage.json {
+        expressions = {
+            request_id = "request_id",
+            task_id    = "task_id",
+            nivel      = "levelname",
+            unidade    = "_SYSTEMD_UNIT",
+        }
+    }
+    stage.static_labels {
+        values = {
+            ambiente = sys.env("ALLOY_AMBIENTE"),
+            tipo     = "sistema",
+        }
+    }
+}
+
+loki.write "grafana" {
+    endpoint {
+        url = sys.env("ALLOY_LOKI_WRITE_URL")
+        basic_auth {
+            username = sys.env("ALLOY_LOKI_USER")
+            password = sys.env("ALLOY_LOKI_TOKEN")
+        }
+    }
+}

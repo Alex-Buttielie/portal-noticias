@@ -13,6 +13,19 @@
 # ainda é lido integralmente por pg_restore, mas o restore em banco descartável
 # e a contagem de linhas ficam desligados. O padrão é 1; desligar a validação
 # exige registrar explicitamente o risco no log.
+#
+# Run 20260925-1020-observabilidade — fail-closed de destino (achado B7):
+#   * SEM BACKUP_S3_BUCKET o script agora termina com código 20 (antes: dois
+#     AVISOs e exit 0, isto é, "verde sem destino"). A retenção local continua
+#     suspensa e nenhum arquivo é apagado.
+#   * BACKUP_REQUIRE_REMOTE=0 é o escape explícito da janela de bootstrap.
+#   * O backup bem-sucedido grava `$BACKUP_DIR/.ultimo-backup-ok` (modo 600),
+#     que é o que `verificar_backup.sh` lê.
+#   * BACKUP_HEARTBEAT_URL (URL de heartbeat do cron monitor do Better Stack) é
+#     pingado só depois de dump + mídia + upload + verificação remota. Falha no
+#     ping é código 21; BACKUP_HEARTBEAT_REQUIRED=0 é o escape de bootstrap.
+# Códigos relevantes: 20 = sem destino remoto; 21 = canal de alerta de atraso
+# indisponível. Os demais (1..19) são inalterados.
 set -euo pipefail
 umask 077
 
@@ -36,6 +49,29 @@ log() {
 
 erro() {
     printf '[pg_backup_pm2] ERRO: %s\n' "$*" >&2
+}
+
+# Confirma o backup para o monitor EXTERNO de atraso (cron monitor do Better
+# Stack). Só é chamada depois de dump, mídia, upload e verificação remota
+# terem dado certo — o ponto é anunciar "existe backup recuperável fora
+# desta máquina", e um ping no meio do processo seria mentira.
+#
+# Sem `curl`, a ausência de heartbeat vira erro de configuração (fail-closed)
+# em vez de um "não deu pra avisar" silencioso.
+ping_alerta() {
+    local url="${BACKUP_HEARTBEAT_URL:-}"
+    if ! command -v curl >/dev/null 2>&1; then
+        erro "dependência ausente: curl (necessária para o ping em BACKUP_HEARTBEAT_URL)"
+        return 1
+    fi
+    # Sem imprimir a URL: ela é credencial de quem consegue anunciar um backup
+    # que não aconteceu.
+    if curl --fail --silent --show-error --max-time 20 --output /dev/null "$url"; then
+        log "ping de confirmação de backup enviado ao monitor externo"
+        return 0
+    fi
+    erro "o monitor externo de atraso não confirmou o ping (HTTP != 2xx, timeout ou DNS)"
+    return 1
 }
 
 # A validação cria um banco no mesmo cluster. Em qualquer saída — inclusive
@@ -108,6 +144,13 @@ if [[ -n "$ENV_FILE" ]]; then
     ENV_BACKUP_S3_ACCESS_KEY="${BACKUP_S3_ACCESS_KEY-}"
     ENV_BACKUP_S3_SECRET_KEY="${BACKUP_S3_SECRET_KEY-}"
     ENV_BACKUP_VALIDATE_RESTORE="${BACKUP_VALIDATE_RESTORE-}"
+    # Fail-closed de destino (esta run): estas três também são "configuração
+    # externa preservada", pelo mesmo motivo das BACKUP_S3_*: um `.env`
+    # copiado do exemplo, com a linha vazia, não pode apagar uma decisão tomada
+    # no crontab ou no ambiente do processo.
+    ENV_BACKUP_REQUIRE_REMOTE="${BACKUP_REQUIRE_REMOTE-}"
+    ENV_BACKUP_HEARTBEAT_URL="${BACKUP_HEARTBEAT_URL-}"
+    ENV_BACKUP_HEARTBEAT_REQUIRED="${BACKUP_HEARTBEAT_REQUIRED-}"
 
     log "carregando credenciais de $ENV_FILE"
     set -a
@@ -126,6 +169,9 @@ if [[ -n "$ENV_FILE" ]]; then
     [[ -z "$ENV_BACKUP_S3_ACCESS_KEY" ]] || BACKUP_S3_ACCESS_KEY="$ENV_BACKUP_S3_ACCESS_KEY"
     [[ -z "$ENV_BACKUP_S3_SECRET_KEY" ]] || BACKUP_S3_SECRET_KEY="$ENV_BACKUP_S3_SECRET_KEY"
     [[ -z "$ENV_BACKUP_VALIDATE_RESTORE" ]] || BACKUP_VALIDATE_RESTORE="$ENV_BACKUP_VALIDATE_RESTORE"
+    [[ -z "$ENV_BACKUP_REQUIRE_REMOTE" ]] || BACKUP_REQUIRE_REMOTE="$ENV_BACKUP_REQUIRE_REMOTE"
+    [[ -z "$ENV_BACKUP_HEARTBEAT_URL" ]] || BACKUP_HEARTBEAT_URL="$ENV_BACKUP_HEARTBEAT_URL"
+    [[ -z "$ENV_BACKUP_HEARTBEAT_REQUIRED" ]] || BACKUP_HEARTBEAT_REQUIRED="$ENV_BACKUP_HEARTBEAT_REQUIRED"
 fi
 
 # Variáveis PG* têm precedência sobre os aliases Django quando ambas estão
@@ -441,8 +487,79 @@ if (( S3_REMOTE_ENABLED )); then
     find "$BACKUP_DIR" -maxdepth 1 -type f -name 'pm2-media-*.tar.gz' \
         -mtime "+$RETENCAO_LOCAL_DIAS" -print -delete
 else
-    log "AVISO: BACKUP_S3_BUCKET não configurado — o backup ficará SOMENTE nesta VPS; a retenção local fica suspensa e NENHUM backup será apagado."
-    log "AVISO: configure R2/B2/S3 e uma lifecycle rule remota; esta cópia local não sobrevive à perda do host."
+    # Fail-closed (critério 34, achado B7). Antes desta run, a ausência de
+    # destino remoto era um par de AVISO e exit 0: o cron ficava verde, o
+    # painel de backup ficava verde, e ninguém descobria que a única cópia do
+    # banco estava no mesmo disco que a VPS até o dia da perda. Um backup que
+    # termina verde sem destino é pior que um backup que falha, porque o
+    # primeiro é o que se sente seguro.
+    #
+    # O dump e a mídia JÁ estão validados e no disco neste ponto. A retenção
+    # local continua suspensa (nada é apagado) e o exit code é o de falha, com
+    # código próprio (20) para o watchdog e para o cron distinguirem "sem
+    # destino" de "backup quebrado".
+    #
+    # `BACKUP_REQUIRE_REMOTE=0` é o escape para a janela de bootstrap (antes
+    # de provisionar o bucket). Ele NÃO esconde nada: imprime aviso em stderr,
+    # mantém a retenção suspensa e é registrado aqui para que a decisão de
+    # deixar o backup sem destino exista em um arquivo, e não na memória de
+    # quem configurou o cron.
+    if [[ "${BACKUP_REQUIRE_REMOTE:-1}" == "0" ]]; then
+        log "AVISO: BACKUP_REQUIRE_REMOTE=0 — backup aceito SEM cópia externa (escape explícito de bootstrap)."
+        log "AVISO: retenção local suspensa e NENHUM arquivo apagado; esta cópia não sobrevive à perda da VPS."
+        log "AVISO: remova BACKUP_REQUIRE_REMOTE=0 assim que o bucket existir: com o escape ligado, o exit 0 deste backup NÃO significa que existe cópia remota."
+    else
+        erro "BACKUP_S3_BUCKET não configurado: o backup foi gerado e validado localmente, mas NÃO houve cópia externa."
+        erro "a retenção local fica suspensa (nada é apagado) e o exit code é de FALHA por decisão, não por acidente."
+        erro "configure BACKUP_S3_BUCKET + BACKUP_S3_ENDPOINT + as credenciais, ou defina BACKUP_REQUIRE_REMOTE=0 enquanto o bucket não existir."
+        exit 20
+    fi
+fi
+
+# --- Confirmação de backup para o canal de alerta externo -------------------
+# O watchdog local (`verificar_backup.sh`) detecta atraso enquanto a VPS está
+# de pé; o que detecta atraso com a VPS MORTA é o cron monitor do Better Stack,
+# que precisa deste ping. Sem ele, "a VPS caiu" e "o backup parou" viram o mesmo
+# silêncio — e o primeiro é bem mais provável que o segundo.
+#
+# Grava o marcador que o watchdog lê (`.ultimo-backup-ok`), com `umask 077` já
+# no topo do script: nada de caminho de bucket ou credencial é impresso.
+marcador="$BACKUP_DIR/.ultimo-backup-ok"
+{
+    printf 'timestamp_utc=%s\n' "$TIMESTAMP"
+    printf 'epoch=%s\n' "$(date -u +%s)"
+    printf 'dump=%s\n' "$(basename "$DUMP_FILE")"
+    printf 'dump_bytes=%s\n' "$(stat -c '%s' "$DUMP_FILE")"
+    printf 'media=%s\n' "$(basename "$MEDIA_FILE")"
+    printf 'media_bytes=%s\n' "$(stat -c '%s' "$MEDIA_FILE")"
+    printf 'remoto=%s\n' "$( (( S3_REMOTE_ENABLED )) && printf 'confirmado' || printf 'ausente' )"
+} > "$marcador.tmp.$$"
+mv -f -- "$marcador.tmp.$$" "$marcador"
+chmod 0600 -- "$marcador" 2>/dev/null || true
+log "marcador de sucesso atualizado: $marcador"
+
+# O ping é OBRIGATÓRIO por padrão. A alternativa seria aceitar backup "verde"
+# cujo canal de alerta está quebrado — e aí ninguém descobre o atraso do
+# próximo backup. `BACKUP_HEARTBEAT_REQUIRED=0` existe para a janela de
+# bootstrap, com o mesmo custo de visibilidade de `BACKUP_REQUIRE_REMOTE=0`.
+if [[ -n "${BACKUP_HEARTBEAT_URL:-}" ]]; then
+    if ! ping_alerta; then
+        if [[ "${BACKUP_HEARTBEAT_REQUIRED:-1}" == "0" ]]; then
+            log "AVISO: ping do monitor de backup falhou e BACKUP_HEARTBEAT_REQUIRED=0; o backup está íntegro, mas o alerta de atraso NÃO está garantido"
+        else
+            erro "backup íntegro e enviado, mas o ping em BACKUP_HEARTBEAT_URL falhou"
+            erro "sem esse ping o cron monitor do Better Stack vai declarar atraso no próximo ciclo sem que ninguém tenha notado a falha de canal"
+            exit 21
+        fi
+    fi
+else
+    if [[ "${BACKUP_HEARTBEAT_REQUIRED:-1}" == "0" ]]; then
+        log "AVISO: BACKUP_HEARTBEAT_URL ausente e BACKUP_HEARTBEAT_REQUIRED=0; não há alerta de atraso ativo"
+    else
+        erro "BACKUP_HEARTBEAT_URL ausente: não existe canal para alertar atraso de backup"
+        erro "defina BACKUP_HEARTBEAT_URL com a URL de heartbeat do cron monitor, ou BACKUP_HEARTBEAT_REQUIRED=0 durante o bootstrap"
+        exit 21
+    fi
 fi
 
 log "backup concluído: $DUMP_FILE + $MEDIA_FILE"

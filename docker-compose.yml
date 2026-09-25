@@ -85,12 +85,29 @@ services:
     # Dockerfile/lista de dependências entre API e worker (são o mesmo
     # código, só o processo de entrada muda).
     # Desativa o HEALTHCHECK do Dockerfile (curl :8000) — celery não expõe HTTP.
+    #
+    # Run 20260925-1020-observabilidade (achado B11): o healthcheck anterior era
+    #   celery ... inspect ping --destination celery@$${HOSTNAME} | grep -q pong || exit 0
+    # O `|| exit 0` garantia "healthy" com o worker MORTO ou com o broker fora
+    # do ar — o pior tipo de healthcheck, porque transforma falha em cor verde.
+    # Agora o código de saída É o resultado do ping, sem `grep` e sem parsing de
+    # texto. O ping usa o app Celery do projeto (portanto o broker configurado
+    # no ambiente) e `timeout=5` impede que o check vire um check de 30 s.
     healthcheck:
-      test: ["CMD-SHELL", "celery -A config inspect ping --destination celery@$${HOSTNAME} 2>&1 | grep -q pong || exit 0"]
+      test:
+        - CMD-SHELL
+        - >-
+          python -c "import sys, django; django.setup();
+          from config.celery import app;
+          resp = app.control.inspect(timeout=5).ping() or {};
+          sys.stderr.write('celery-worker: %d worker(s) respondeu ao ping\n' % len(resp));
+          sys.exit(0 if resp else 1)"
       interval: 30s
-      timeout: 10s
+      timeout: 15s
       retries: 3
-      start_period: 60s
+      # Um worker que está subindo importa as tasks e conecta no broker; antes
+      # disso o ping é necessariamente negativo e `unhealthy` seria mentira.
+      start_period: 90s
     entrypoint: []
     command: celery -A config worker --loglevel=info --concurrency=2 --max-tasks-per-child=100
     env_file:
@@ -117,14 +134,56 @@ services:
     restart: unless-stopped
     logging: *default-logging
     # Desativa o HEALTHCHECK do Dockerfile — celery-beat não expõe HTTP.
+    #
+    # Run 20260925-1020-observabilidade (achado B11): o healthcheck anterior era
+    #   celery ... inspect ping 2>&1 | head -1 | grep -q -v error || exit 0
+    # dois problemas, um pior que o outro:
+    #   * `|| exit 0` — verde garantido em qualquer falha;
+    #   * `inspect ping` responde a partir dos WORKERS, não do beat. Este
+    #     healthcheck media o serviço errado: o beat podia estar morto e o
+    #     container ficar "healthy" porque outro processo (o worker) respondeu.
+    #
+    # O beat não tem introspecção confiável (mesma razão de
+    # `check_celery_beat` no backend). O que este check afirma, e é tudo que ele
+    # pode afirmar honestamente:
+    #   1. o processo principal do container É o beat (é o PID 1, porque
+    #      `entrypoint: []` deixa o `command` como PID 1) — logo não há beat
+    #      morto com container "healthy";
+    #   2. o arquivo de schedule avança: se existe e está mais velho que o
+    #      limite, o agendador parou de gravar. Se ainda não existe, o check se
+    #      apoia só no processo (o arquivo nasce no primeiro ciclo) — é
+    #      deliberadamente leniente no boot para não produzir `unhealthy`
+    #      falso.
+    # O sinal DEFINITIVO de que o agendamento está acontecendo é outro e está em
+    # `portal_celery_tasks_total` (alerta `PortalCelerySemExecucao`).
+    #
+    # Escrito em Python, e não em shell com variáveis: dentro de
+    # `healthcheck.test` o Compose NÃO expande `$$` (ao contrário de `command`),
+    # então um `$$(ls ...)` chega ao `/bin/sh` como PID seguido de parêntese —
+    # erro de sintaxe garantido. Sem variável de shell, não há o que escapar.
     healthcheck:
-      test: ["CMD-SHELL", "celery -A config inspect ping 2>&1 | head -1 | grep -q -v error || exit 0"]
-      interval: 30s
+      test:
+        - CMD-SHELL
+        - >-
+          python -c "import os, sys, time, glob;
+          cmdline = open('/proc/1/cmdline', 'rb').read().replace(bytes([0]), b' ').decode('utf-8', 'replace');
+          sys.exit(1) if ' beat ' not in cmdline else None;
+          arquivos = glob.glob(os.environ.get('BEAT_HEALTH_SCHEDULE_FILE', '/tmp/celerybeat-schedule*'));
+          sys.exit(0) if not arquivos else None;
+          idade = time.time() - max(os.path.getmtime(a) for a in arquivos);
+          limite = float(os.environ.get('BEAT_HEALTH_MAX_AGE_SECONDS', '3600'));
+          sys.stderr.write('celery-beat: schedule sem avanco ha %ds (limite %ds)\n' % (idade, limite)) and sys.exit(1) if idade > limite else sys.exit(0);"
+      interval: 60s
       timeout: 10s
       retries: 3
-      start_period: 60s
+      start_period: 90s
     entrypoint: []
-    command: celery -A config beat --loglevel=info
+    # `--schedule` explícito: o default é `celerybeat-schedule` no diretório de
+    # trabalho, e o healthcheck precisa de um caminho previsível. `/tmp` porque
+    # o beat é o único consumidor e o container é recriável — a diretiva
+    # `celery-beat@.service` do topology systemd é que faz o schedule
+    # persistente (ver infra/systemd/celery-beat@.service).
+    command: celery -A config beat --loglevel=info --schedule=/tmp/celerybeat-schedule
     env_file:
       - path: .env.production
         required: false

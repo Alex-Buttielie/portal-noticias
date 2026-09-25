@@ -1,0 +1,213 @@
+# Regras de alerta — operação: filas, Celery, dependências e integridade da
+# própria telemetria (critérios 16, 22, 34).
+#
+# Mesmas convenções de `regras-disponibilidade.yaml`: uma regra com uma
+# instância por ambiente (o rótulo `ambiente` faz parte da identidade do
+# alerta), `for:` dimensionado pelo intervalo real do sinal, `severity` +
+# `runbook_url` + `primeiro_passo` em toda regra.
+#
+# O QUE NÃO É ALERTA DE MÉTRICA (e por quê) — está no `README.md` deste
+# diretório junto com o canal correto de cada um:
+#   * atraso de backup          -> cron monitor do Better Stack + watchdog local
+#   * expiração de TLS          -> check HTTP do Better Stack
+#   * "a VPS está no ar?"      -> check HTTP do Better Stack
+# Nenhum dos três pode depender da VPS estar de pé para o alerta existir, e
+# nenhum deles é métrica — por isso não há (e não deve haver) painel de Grafana
+# fingindo cobri-los.
+groups:
+  - name: portal-operacao
+    interval: 30s
+    rules:
+      - alert: PortalFilaAcumulada
+        # Referência: OBSERVABILITY_QUEUE_DEPTH_WARN = 1000 (o check privado
+        # já entra em `degraded` acima disso). O alerta usa a métrica — e não o
+        # check — porque o check só é consultado por alguém que abriu o
+        # endpoint privado, e ninguém abre durante o acúmulo.
+        expr: max by (ambiente) (portal_celery_queue_depth) > 1000
+        for: 15m
+        labels:
+          severity: warning
+          servico: portal-api
+          runbook: fila-acumulada
+        annotations:
+          summary: "Fila Celery acima de 1000 mensagens em {{ $labels.ambiente }}"
+          description: >-
+            Profundidade de fila sustentada acima do limiar configurado
+            (`OBSERVABILITY_QUEUE_DEPTH_WARN`). Fila que cresce e não volta é
+            worker que não está consumindo (ou broker lento), não "dia cheio".
+          impacto: "Ingestão e jobs atrasados; TTL de conteúdo estoura."
+          runbook_url: "https://runbooks.portal.exemplo.invalid/fila-acumulada.md"
+          primeiro_passo: "celery -A config inspect active; systemctl status celery-worker@<amb>"
+
+      - alert: PortalFilaCritica
+        expr: max by (ambiente) (portal_celery_queue_depth) > 5000
+        for: 10m
+        labels:
+          severity: critical
+          servico: portal-api
+          runbook: fila-acumulada
+        annotations:
+          summary: "Fila Celery acima de 5000 mensagens em {{ $labels.ambiente }}"
+          description: >-
+            Acúmulo de 5x o limiar. Com um worker de 2 slots, este volume
+            leva horas para escoar mesmo depois de resolver a causa.
+          impacto: "Portal serve conteúdo velho; jobs de e-mail atrasados em horas."
+          runbook_url: "https://runbooks.portal.exemplo.invalid/fila-acumulada.md"
+          primeiro_passo: "mesmo da regra de warning, com escalate imediato"
+
+      - alert: PortalCelerySemExecucao
+        # Sinais de efeito, e o único jeito honesto de provar que o
+        # agendamento está acontecendo: `catalogo_noticias.tasks.ingerir_noticias`
+        # roda a cada 15 min por padrão, então 45 min sem nenhuma execução é
+        # três intervalos perdidos. A task mais frequente do schedule é a
+        # âncora; as demais (07:00, 19:00, 04:17) não servem para isso.
+        expr: |
+          sum by (ambiente) (increase(portal_celery_tasks_total{task="catalogo_noticias.tasks.ingerir_noticias"}[45m])) == 0
+        for: 15m
+        labels:
+          severity: critical
+          servico: portal-api
+          runbook: celery-sem-execucao
+        annotations:
+          summary: "Nenhuma execução de task Celery em 45 min em {{ $labels.ambiente }}"
+          description: >-
+            A task de ingestão (15 min por padrão) não executou nenhuma vez em
+            45 minutos. Causas prováveis, em ordem: beat parado, worker
+            paradoxo, broker indisponível, ou a task falhando antes de contar
+            (nesse caso veja `PortalCeleryTaskFalha`).
+          impacto: "O produto para de atualizar sem nenhum erro visível para o usuário."
+          runbook_url: "https://runbooks.portal.exemplo.invalid/celery-sem-execucao.md"
+          primeiro_passo: "systemctl status celery-beat@<amb> celery-worker@<amb>"
+
+      - alert: PortalCeleryTaskFalha
+        expr: sum by (ambiente) (rate(portal_celery_tasks_total{result!="success"}[15m])) > 0
+        for: 15m
+        labels:
+          severity: warning
+          servico: portal-api
+          runbook: celery-task-falha
+        annotations:
+          summary: "Tasks Celery falhando em {{ $labels.ambiente }}"
+          description: >-
+            Tarefas com resultado diferente de `success` há 15 minutos. A task
+            mais comum em falha é a de ingestion, quase sempre por credencial
+            de fonte RSS ou por 4xx do provedor.
+          impacto: "Conteúdo desatualizado, e-mails de assinatura não enviados."
+          runbook_url: "https://runbooks.portal.exemplo.invalid/celery-task-falha.md"
+          primeiro_passo: "sum by (task, result) (rate(portal_celery_tasks_total{result!=\"success\"}[15m]))"
+
+      - alert: PortalDependenciaCriticaIndisponivel
+        # `postgresql` e `migrations` são os obrigatórios. Os opcionais
+        # (`redis`, `celery`, `celery_beat`) viram degradação de propósito e
+        # têm regra própria — alerta de optional seria ruído que ensina o
+        # operador a ignorar alerta.
+        expr: sum by (ambiente) (increase(portal_dependency_checks_total{dependency=~"postgresql|migrations", result="error"}[10m])) > 0
+        for: 10m
+        labels:
+          severity: critical
+          servico: portal-api
+          runbook: dependencia-critica
+        annotations:
+          summary: "Dependência obrigatória com erro em {{ $labels.ambiente }}"
+          description: >-
+            Checks de `postgresql` ou `migrations` falhando há 10 minutos. É o
+            mesmo estado que `PortalReadinessFalha` visto pelo lado do
+            diagnóstico: este alerta traz a dependência nomeada.
+          impacto: "Portal sem escrita; readiness em 503."
+          runbook_url: "https://runbooks.portal.exemplo.invalid/dependencia-critica.md"
+          primeiro_passo: "curl -sS -H \"Authorization: Bearer $TOKEN\" http://127.0.0.1:5103/health-detail | jq"
+
+      - alert: PortalDependenciaOpcionalIndisponivel
+        expr: sum by (ambiente) (increase(portal_dependency_checks_total{dependency=~"redis|celery|celery_beat", result=~"error|degraded"}[15m])) > 3
+        for: 15m
+        labels:
+          severity: warning
+          servico: portal-api
+          runbook: dependencia-opcional
+        annotations:
+          summary: "Dependência opcional degradada em {{ $labels.ambiente }}"
+          description: >-
+            Redis, worker Celery ou beat degradados por mais de 15 minutos. O
+            portal continua no ar (é degradação, não queda), mas a resiliência
+            está sendo consumida: sem cache, cada visita vai ao Postgres.
+          impacto: "Latência e carga no banco; ingestão e jobs parados."
+          runbook_url: "https://runbooks.portal.exemplo.invalid/dependencia-opcional.md"
+          primeiro_passo: "systemctl status redis; systemctl status celery-worker@<amb>"
+
+      - alert: PortalDiscoColetorBaixo
+        # `portal_collector_disk_free_ratio` é o disco onde o coletor escreve.
+        # Abaixo do mínimo configurado (`OBSERVABILITY_DISK_MIN_FREE_RATIO`,
+        # 5% por padrão) o alerta de indisponibilidade deixa de ser gravável —
+        # por isso o limite do alerta é o mesmo, e não um número arbitrário.
+        expr: min by (ambiente) (portal_collector_disk_free_ratio) < 0.05
+        for: 15m
+        labels:
+          severity: warning
+          servico: portal-alloy
+          runbook: disco-coletor-baixo
+        annotations:
+          summary: "Disco do coletor abaixo de 5% livre em {{ $labels.ambiente }}"
+          description: >-
+            Espaço livre no filesystem do coletor de telemetria. Sem espaço o
+            coletor para de escrever e a ausência de alerta deixa de ser
+            observável — a falha fica invisível justamente quando importa.
+          impacto: "Telemetria cega sem nenhum sinal."
+          runbook_url: "https://runbooks.portal.exemplo.invalid/disco-coletor-baixo.md"
+          primeiro_passo: "du -sh /var/log/nginx /var/lib/celery e journalctl --disk-usage"
+
+      - alert: PortalSentryDescartandoErros
+        # O backend é fail-closed no Sentry: sem consentimento técnico o evento
+        # é descartado e CONTABILIZADO aqui. Um volume constante e alto
+        # significa que o Sentry está receive nada — e o painel de erros fica
+        # vazio sem nenhum erro.
+        expr: sum by (ambiente) (rate(portal_sentry_events_dropped_total{reason="no_technical_consent"}[30m])) > 0
+        for: 30m
+        labels:
+          severity: warning
+          servico: portal-api
+          runbook: sentry-descartando
+        annotations:
+          summary: "Sentry descartando erros há 30 min em {{ $labels.ambiente }}"
+          description: >-
+            `portal_sentry_events_dropped_total{reason="no_technical_consent"}`
+            crescendo: existem exceções e NENHUMA está indo para o Sentry.
+            Decisão de produto (fail-closed) ou de configuração
+            (`SENTRY_TECHNICAL_CONSENT_DEFAULT`), mas precisa ser intencional.
+          impacto: "Erros de produção invisíveis no Sentry; o alerta de erro pode não existir."
+          runbook_url: "https://runbooks.portal.exemplo.invalid/sentry-descartando.md"
+          primeiro_passo: "conferir SENTRY_DSN e SENTRY_TECHNICAL_CONSENT_DEFAULT no env do ambiente"
+
+      - alert: PortalMetricasDescartadas
+        expr: sum by (ambiente) (rate(portal_metrics_series_dropped_total[30m])) > 0
+        for: 30m
+        labels:
+          severity: warning
+          servico: portal-api
+          runbook: metricas-descartadas
+        annotations:
+          summary: "Teto de cardinalidade de métricas atingido em {{ $labels.ambiente }}"
+          description: >-
+            O registry do processo recusou séries novas (`MAX_SERIES` = 5000).
+            A partir daí os painéis ficam incompletos sem erro visível: o que
+            falta é exatamente o que não coube.
+          impacto: "Painéis e alertas incompletos."
+          runbook_url: "https://runbooks.portal.exemplo.invalid/metricas-descartadas.md"
+          primeiro_passo: "count by (route) (portal_http_requests_total) no painel de disponibilidade"
+
+      - alert: PortalAcessoPrivadoSendoSondado
+        expr: sum by (ambiente) (rate(portal_observability_access_denied_total[15m])) > 0.1
+        for: 15m
+        labels:
+          severity: warning
+          servico: portal-api
+          runbook: acesso-privado-negado
+        annotations:
+          summary: "Acessos negados a /metrics ou /health-detail em {{ $labels.ambiente }}"
+          description: >-
+            O endpoint privado recebeu tentativas negadas. A primeira hipótese é
+            o próprio coletor com token divergente do ambiente; a segunda é
+            sondagem externa (que o Nginx já bloqueia antes do app — se chegou
+            até aqui, o gate de borda não está no caminho dessa rota).
+          impacto: "Metricas do ambiente podem estar cegas; possível reconhecimento externo."
+          runbook_url: "https://runbooks.portal.exemplo.invalid/acesso-privado-negado.md"
+          primeiro_passo: "comparar ALLOY_BACKEND_METRICS_TOKEN_FILE com OBSERVABILITY_METRICS_TOKEN"

@@ -1,0 +1,130 @@
+# Celery worker do portal — unidade MODELO (systemd template).
+#
+# Instale UM arquivo por ambiente, com o nome da instância = ambiente:
+#   sudo cp infra/systemd/celery-worker@.service \
+#          /etc/systemd/system/celery-worker@.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now celery-worker@prod
+# Instâncias: celery-worker@dev, celery-worker@homolog, celery-worker@prod.
+#
+# POR QUE TEMPLATE E NÃO "celery-worker.service": a MESMA VPS hospeda os três
+# ambientes (`/home/apps/portal-{dev,homolog,prod}`, portas 310x/510x, e três
+# site confs do Nginx). Uma unit única com um `EnvironmentFile` fixo serviria a
+# um ambiente só — e o ambiente errado é exatamente a falha que produz backup
+# do banco de dev em produção. O nome da instância (`%i`) é o ambiente e aparece
+# no `systemctl status`, no journal e no alerta.
+#
+# ESTA RUN (20260925-1020-observabilidade) corrigiu um vazio real: o worker e o
+# beat NÃO existiam na topologia ativa (achado B4 do bloco C), e
+# `OBSERVABILITY_CHECK_CELERY`/`OBSERVABILITY_BEAT_HEARTBEAT_FILE` ficavam sem
+# produtor. Sem esta unit, o check de Celery no `/health-detail` é degradado e a
+# ingestão periódica não roda em nenhum ambiente.
+#
+# ⚠️ AJUSTE OBRIGATÓRIO ANTES DE INSTALAR (`User=`/`Group=`):
+#    o repositório não conhece o usuário do deploy. Use o dono do app, que é o
+#    mesmo do PM2:
+#      DEPLOY_USER="$(stat -c %U /home/apps/portal-prod)"
+#      sudo sed -i "s/^User=.*/User=$DEPLOY_USER/;s/^Group=.*/Group=$DEPLOY_USER/" \
+#        /etc/systemd/system/celery-worker@.service
+#    Rodar como root "funciona" e é proibido: o worker tem o mesmo acesso a
+#    mídia e banco que a aplicação web.
+#
+# Fail-closed por construção: os dois `EnvironmentFile` NÃO têm o prefixo `-`,
+# então, sem o env da aplicação ou sem o arquivo de tuning, a unit NÃO SOBRE
+# (o systemd falha no start com "Failed to load environment files") em vez de
+# subir com configuração pela metade. Não adicione o prefixo.
+
+[Unit]
+Description=Portal %i — Celery worker (ingestão de notícias e jobs agendados)
+Documentation=file:///home/apps/portal-%i/infra/observability/README.md
+# `After=redis.service` + `Wants=`: o worker só deve começar a consumir depois
+# que o broker responde. `Wants` e NÃO `Requires` de propósito — `Requires` de
+# uma unit inexistente FAZ a unit falhar no start, e o nome da unit do broker
+# varia (serviço nativo, container com nome próprio, systemd do host com outro
+# alias). Uma unit que não sobe é pior do que uma unit que sobe e espera o
+# broker: o Celery já reconecta, e o `/health-detail` reporta o broker fora do
+# ar em segundos. Ajuste Wants/After (ou um drop-in) se o broker tiver outro
+# nome — e TROQUE por `Requires=` somente depois de confirmar o nome real.
+Wants=redis.service
+After=network-online.target redis.service
+# Compartilha o destino com `systemctl stop celery-worker.target`: parar o
+# worker de um ambiente não derruba os outros dois. `PartOf` (e não `Requires`)
+# porque a dependência aqui é de ciclo de vida, e `Requires` entre units de
+# ambiente transformaria uma parada de manutenção em queda dos três.
+PartOf=celery-worker.target
+
+[Service]
+Type=simple
+User=apps
+Group=apps
+# O app fica sob /home/apps: é o layout documentado em CI-CD.md (API em
+# `backend/`, venv em `backend/.venv`). Por isso ProtectHome NÃO pode ser
+# true (esconderia /home e o worker nem leria o código) e ProtectSystem é
+# `full`, que trava só /usr e /boot.
+WorkingDirectory=/home/apps/portal-%i/backend
+EnvironmentFile=/home/apps/portal-%i/backend/.env
+EnvironmentFile=/etc/portal/celery-%i.env
+Environment=DJANGO_SETTINGS_MODULE=config.settings
+# Log de job sem buffer: sem isto, um worker que fica semanas sem task não
+# escreve NADA no journal e o alerta de "worker não roda" perde a evidência.
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+# Concorrência e teto de tasks por filho vêm do arquivo de tuning do ambiente
+# (mesmos nomes já usados no PM2/compose), e não daqui: mudá-los não deve exigir
+# editar unit.
+#
+# O `ExecStartPre` é a barreira fail-closed do ajuste: sem binário, sem
+# concorrência ou sem teto de tasks, a unit NÃO SOBE com mensagem explícita.
+# Sem ele, `--concurrency=` (vazio) faria o Celery cair em um default silencioso
+# — o tipo de divergência entre o que foi pedido e o que está rodando que só
+# aparece semanas depois, no incidente.
+ExecStartPre=/bin/sh -c 'test -x "/home/apps/portal-%i/backend/.venv/bin/celery" || { echo "celery-worker@%i: venv ausente em /home/apps/portal-%i/backend/.venv/bin/celery ( rode o bootstrap do deploy )" >&2; exit 1; }; test -n "$${CELERY_WORKER_CONCURRENCY:-}" || { echo "celery-worker@%i: defina CELERY_WORKER_CONCURRENCY em /etc/portal/celery-%i.env" >&2; exit 1; }; test -n "$${CELERY_WORKER_MAX_TASKS_PER_CHILD:-}" || { echo "celery-worker@%i: defina CELERY_WORKER_MAX_TASKS_PER_CHILD em /etc/portal/celery-%i.env" >&2; exit 1; }'
+ExecStart=/home/apps/portal-%i/backend/.venv/bin/celery -A config worker \
+    --loglevel=info \
+    --concurrency=${CELERY_WORKER_CONCURRENCY} \
+    --max-tasks-per-child=${CELERY_WORKER_MAX_TASKS_PER_CHILD} \
+    --without-gossip --without-mingle
+# `SIGTERM` no Celery é shutdown QUENTE: o worker para de puxar tarefa nova e
+# termina a que está em mãos. Por isso o TimeoutStopSec é generoso — com 30s o
+# restart de um deploy derrubaria no meio uma tarefa de ingestão já em curso e o
+# registro de execução ficaria "failed" sem causa.
+KillSignal=SIGTERM
+TimeoutStopSec=300
+TimeoutStartSec=180
+Restart=on-failure
+RestartSec=10
+# Teto de memória por worker. A VPS tem 4 GB divididas entre três stacks,
+# Postgres, Redis e o Nginx (ver CI-CD.md, decisão P1-5): o valor é
+# deliberadamente conservador e deve ser medido antes de aumentar.
+MemoryHigh=384M
+MemoryMax=512M
+CPUWeight=50
+TasksMax=256
+LimitNOFILE=4096
+# Hardening. O worker só lê código, fala com Postgres/Redis e escreve em
+# MEDIA_ROOT: não precisa de nada disso ligado.
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=full
+ProtectHome=false
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+ProtectProc=invisible
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
+LockPersonality=true
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+AmbientCapabilities=
+UMask=0027
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,162 @@
+# Regras de alerta — disponibilidade e latência (critérios 22 e 34).
+#
+# Como estas regras funcionam (e por que NÃO há uma cópia por ambiente):
+#   * o rótulo `ambiente` entra no Mimir como external label do coletor
+#     (`infra/observability/alloy/config.alloy`), então cada série já sabe de
+#     que ambiente é;
+#   * as expressões usam `by (ambiente)` e NÃO filtram `ambiente="..."`. Isso
+#     dá UMA regra com uma instância por ambiente — a identidade do alerta é o
+#     conjunto de rótulos, e o rótulo `ambiente` faz parte dele. É isso que é
+#     deduplicação: o mesmo sintoma em dev e em prod são dois alertas distintos,
+#     e o mesmo sintoma repetindo a cada minuto é UM alerta só;
+#   * `for:` é o que separa "acidente" de "pico". Os valores vêm do
+#     comportamento real do portal (API com 2 workers Gunicorn, leitura com
+#     cache de borda de 45 s) e estão justificados em cada anotação.
+#
+# Carregar no Grafana Cloud (Mimir -> Alerting -> Provisioning, ou o ruler da
+# stack). Ver `infra/observability/alerts/README.md` para o comando e para a
+# tabela de Contact Points — o destino do alerta (e-mail/Slack/Telegram) é
+# configuração do Grafana e de canal humano, não deste arquivo.
+#
+# `runbook_url` usa o domínio reservado `.invalid` (RFC 2606), que NUNCA
+# resolve: é um placeholder impossível de confundir com um runbook real. Troque
+# pelo endereço interno antes de carregar as regras — `validar-infra.sh` falha
+# se o placeholder continuar no arquivo.
+groups:
+  - name: portal-disponibilidade
+    interval: 30s
+    rules:
+      - alert: PortalApiInacessivel
+        # `up == 0` cobre "não respondeu"; o `absent` cobre "deixou de existir
+        # de vez" (target removido, collector caiu). Os dois são falha, e
+        # silenciar o segundo é o que faz um check de uptime "verde" sem alvo.
+        expr: |
+          max by (ambiente) (up{job="portal-api"}) == 0
+          or
+          absent(up{job="portal-api"})
+        for: 2m
+        labels:
+          severity: critical
+          servico: portal-api
+          runbook: api-inacessivel
+        annotations:
+          summary: "API não expõe /metrics em {{ $labels.ambiente }}"
+          description: >-
+            O scrape de /metrics em {{ $labels.instance }} está falhando há mais
+            de 2 minutos. Ou a API está fora do ar, ou o Nginx está negando o
+            scrape, ou o token de {{ $labels.job }} divergiu do ambiente
+            (OBSERVABILITY_METRICS_TOKEN). Verifique com
+            `curl -H "Authorization: Bearer $TOKEN" http://127.0.0.1:5103/metrics`.
+          impacto: "Sem métricas não há painel nem alerta correto; o diagnóstico de incidente perde a telemetria."
+          runbook_url: "https://runbooks.portal.exemplo.invalid/api-inacessivel.md"
+          primeiro_passo: "curl na /metrics a partir do loopback da VPS"
+
+      - alert: PortalReadinessFalha
+        # `portal_ready` é gauge publicado por /readyz e /health-detail: banco
+        # ou migrations indisponíveis. NÃO é liveness — a API pode estar viva
+        # e mesmo assim não SHOULD estar recebendo tráfego novo.
+        expr: min by (ambiente) (portal_ready) == 0
+        for: 3m
+        labels:
+          severity: critical
+          servico: portal-api
+          runbook: readiness-falha
+        annotations:
+          summary: "Dependência obrigatória fora do ar em {{ $labels.ambiente }}"
+          description: >-
+            /readyz responde indisponível há mais de 3 minutos: PostgreSQL ou
+            migrations pendentes. O portal continua no ar para quem já tem
+            página/cache, mas nada novo é salvo.
+          impacto: "Escritas e login indisponíveis; o portal fica só-leitura."
+          runbook_url: "https://runbooks.portal.exemplo.invalid/readiness-falha.md"
+          primeiro_passo: "curl -sS http://127.0.0.1:5103/readyz e conferir o journal do gunicorn"
+
+      - alert: PortalTaxaErros5xx
+        # Regra de burn-rate simplificada: proporção de 5xx acima de 5% por
+        # 10 minutos. O `clamp_min` no denominador evita divisão por zero em
+        # janela de baixo tráfego, onde 0,5 erro por segundo seria a mesma
+        # proporção de um pico isolado.
+        expr: |
+          (
+            sum by (ambiente) (rate(portal_http_requests_total{status=~"5.."}[5m]))
+            /
+            clamp_min(sum by (ambiente) (rate(portal_http_requests_total[5m])), 0.001)
+          ) > 0.05
+          and
+          sum by (ambiente) (rate(portal_http_requests_total{status=~"5.."}[5m])) > 0.5
+        for: 10m
+        labels:
+          severity: critical
+          servico: portal-api
+          runbook: taxa-erros-5xx
+        annotations:
+          summary: "5% das requisições em erro 5xx em {{ $labels.ambiente }}"
+          description: >-
+            Proporção de 5xx acima de 5% (e acima de 0,5/s para não reagir a
+            tráfego minúsculo) durante 10 minutos. Procurar a rota e o status
+            mais comum com
+            `sum by (route, status) (rate(portal_http_requests_total{status=~"5.."}[5m]))`
+            e seguir um `request_id` do log de borda até o traceback no Loki.
+          impacto: "Usuários vendo erro; possível perda de escrita."
+          runbook_url: "https://runbooks.portal.exemplo.invalid/taxa-erros-5xx.md"
+          primeiro_passo: "topk(5, sum by (route, status) (rate(portal_http_requests_total{status=~\"5..\"}[5m])))"
+
+      - alert: PortalLatenciaAlta
+        expr: |
+          histogram_quantile(0.95, sum by (ambiente, le) (rate(portal_http_request_duration_seconds_bucket[10m]))) > 1.5
+        for: 15m
+        labels:
+          severity: warning
+          servico: portal-api
+          runbook: latencia-alta
+        annotations:
+          summary: "p95 de requisição acima de 1,5 s em {{ $labels.ambiente }}"
+          description: >-
+            Latência p95 de 1,5 s por 15 minutos. Com o cache de borda de 45 s,
+            uma latência alta pode ser fila no Postgres, Gunicorn sem worker
+            livre, ou o cache de borda não renovando (veja `cache_status` no log
+            de acesso).
+          impacto: "Abandono de página e queda de conversão."
+          runbook_url: "https://runbooks.portal.exemplo.invalid/latencia-alta.md"
+          primeiro_passo: "comparar p95 por rota no painel de disponibilidade"
+
+      - alert: PortalColetorIndisponivel
+        # `absent` e não `== 0`: se o processo do coletor morre, a série `up`
+        # fica stale e uma comparação com 0 RESOLVERIA o alerta — que é
+        # exatamente o "alerta que se autossilencia".
+        expr: absent(up{job="alloy"})
+        for: 10m
+        labels:
+          severity: critical
+          servico: portal-alloy
+          runbook: coletor-indisponivel
+        annotations:
+          summary: "Coletor Grafana Alloy sem telemetria própria há 10 min"
+          description: >-
+            Nenhuma métrica do coletor chega ao Mimir. Todo painel fica vazio
+            e todo alerta de métrica SILENCIA — que é o pior estado possível,
+            porque parece "sem incidente". Cheque a unit, o `verificar-env.sh` e
+            o remote-write.
+          impacto: "Observabilidade cega; alertas de métrica param de funcionar."
+          runbook_url: "https://runbooks.portal.exemplo.invalid/coletor-indisponivel.md"
+          primeiro_passo: "systemctl status alloy-<ambiente> e journalctl -u alloy-<ambiente> -n 100"
+
+      - alert: PortalTelemetriaAusente
+        # A telemetria do ambiente parou de chegar. DIFFERENÇA de
+        # PortalColetorIndisponivel: aqui o coletor pode estar saudável e o
+        # que falhou foi o envio de um ambiente específico (token/endpoint).
+        expr: absent(up{ambiente="production", job="portal-api"})
+        for: 15m
+        labels:
+          severity: critical
+          servico: portal-alloy
+          runbook: telemetria-ausente
+        annotations:
+          summary: "Sem série do ambiente production há 15 min"
+          description: >-
+            Nenhuma série de `up{ambiente="production", job="portal-api"}` no
+            Mimir. Ou o coletor de produção parou, ou o remote-write está
+            falhando (401 por token trocado, 429 por cota de ingestão).
+          impacto: "Produção sem alerta de erro, latência ou fila."
+          runbook_url: "https://runbooks.portal.exemplo.invalid/telemetria-ausente.md"
+          primeiro_passo: "conferir `prometheus_remote_storage_samples_failed_total` no painel do coletor"
