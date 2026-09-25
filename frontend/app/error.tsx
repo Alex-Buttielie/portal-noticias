@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { ApiError } from "@/lib/api";
 import { consentimentoTecnico } from "@/lib/cookie-consent";
+import { capturarErroTecnico } from "@/lib/sentry-cliente";
 
 /**
  * Error boundary da rota (critério 4).
@@ -32,7 +33,8 @@ export default function ErroDeRota({
 }) {
   useEffect(() => {
     // `console.error` aqui é intencional: é o único caminho de diagnóstico que
-    // existe antes do Sentry (Bloco B2). Não leva o erro cru com dados de
+    // existe sem o Sentry carregado (e continua sendo o que funciona quando o
+    // visitante não autorizou diagnóstico). Não leva o erro cru com dados de
     // usuário — só nome, mensagem e código de correlação.
     console.error("[erro-de-rota]", {
       nome: error?.name,
@@ -40,10 +42,21 @@ export default function ErroDeRota({
       digest: error?.digest ?? null,
       requestId: error instanceof ApiError ? error.requestId : null,
     });
+    // Envio ao Sentry **somente** com consentimento técnico
+    // (`capturarErroTecnico` é fail-closed e devolve `false` quando nada foi
+    // enviado). O `requestId` viaja como tag, o que amarra o erro do browser ao
+    // mesmo id que está no log do Django e na borda.
+    void capturarErroTecnico(error, { origem: "error.tsx" });
   }, [error]);
 
   const ehApi = error instanceof ApiError;
   const requestId = ehApi ? error.requestId : null;
+  // O texto abaixo precisa refletir o que ACONTECEU, não o que existe em
+  // teoria: `enviado` é o retorno de `capturarErroTecnico` na prática? Não —
+  // o envio é assíncrono e happen depois do render. O que decide o texto é a
+  // mesma condição que decide o envio (o consentimento), então a frase continua
+  // verdadeira, e `capturarErroTecnico` é quem garante que a afirmação não
+  // vire promessa vazia.
   // O `digest` é o hash do erro no servidor, não um request id: só é exibido
   // como código de suporte quando existe e quando NÃO há id de requisição
   // melhor, para não sugerir uma correlação que não existe.

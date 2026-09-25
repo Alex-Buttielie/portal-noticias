@@ -1594,3 +1594,49 @@ export function adminAtualizarRegra(token: string, id: number, dados: Record<str
 export function adminExcluirRegra(token: string, id: number): Promise<void> {
   return request(`/api/admin/regras/${id}/`, { method: "DELETE" }, token);
 }
+
+// ---------------------------------------------------------------------------
+// metricas/consent/ — emissão do token de consentimento assinado (run
+// 20260925-1020-observabilidade, critérios 25 e 26).
+//
+// O backend passou a exigir token assinado em `POST /api/metricas/eventos/`
+// (`backend/metricas/consent.py`). Sem este emissor, a coleta de analytics
+// está PARADA: o evento é recusado com `consent_ausente` e não é persistido.
+// A assinatura é do backend e nunca chega ao navegador — o cliente só obtém o
+// token e o apresenta.
+//
+// O tipo espelha o que a view devolve (`backend/metricas/views.py`:
+// `ConsentimentoTokenView.post`), conferido por leitura direta: `201` com
+// `{token, categoria, sub, exp, ttl_segundos}`.
+// ---------------------------------------------------------------------------
+
+export interface RespostaTokenConsentimento {
+  token: string;
+  categoria: string;
+  sub: string;
+  /** Epoch em SEGUNDOS (o backend usa `int(claims["exp"])`), não milissegundos. */
+  exp: number;
+  ttl_segundos: number;
+}
+
+/**
+ * `POST /api/metricas/consent/` — pedido de token para a sessão anônima.
+ *
+ * Só deve ser chamada DEPOIS do gesto de consentimento de analytics e
+ * quando o `exp` em mãos está perto de passar (o backend é o emissor e o
+ * verificador; ver `lib/consent-token.ts` para a janela de renovação).
+ *
+ * A chamada vai por `request()` de propósito: assim ela carrega `X-Request-ID`
+ * e, se a categoria técnica estiver concedida, `X-Technical-Consent` — o mesmo
+ * caminho das demais chamadas, com o mesmo log de falha redigido. Um `fetch`
+ * avulso aqui seria a única requisição do portal sem id de correlação.
+ *
+ * Erros são propagados como `ApiError` (o chamador decide o que fazer; o
+ * evento simplesmente não é enviado — fail-closed, nunca envio sem token).
+ */
+export function pedirTokenConsentimento(sessao: string): Promise<RespostaTokenConsentimento> {
+  return request("/api/metricas/consent/", {
+    method: "POST",
+    body: JSON.stringify({ categoria: "analytics", sessao }),
+  });
+}

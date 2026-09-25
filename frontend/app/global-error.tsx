@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { capturarErroTecnico } from "@/lib/sentry-cliente";
 
 /**
  * Error boundary da RAIZ (critério 4).
@@ -29,6 +30,12 @@ export default function ErroGlobal({
       mensagem: error?.message,
       digest: error?.digest ?? null,
     });
+    // Fail-closed: sem consentimento técnico nada sai daqui. Este boundary
+    // roda quando o layout raiz quebrou, então o `<Providers>` (e portanto o
+    // React Query, o tema e o listener de consentimento) já pode ter caído —
+    // `capturarErroTecnico` lê o registro do `localStorage` diretamente e não
+    // depende de nenhum contexto do React.
+    void capturarErroTecnico(error, { origem: "global-error.tsx" });
   }, [error]);
 
   return (

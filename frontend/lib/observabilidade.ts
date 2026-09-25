@@ -136,7 +136,9 @@ export function caminhoSeguro(valor: string, limite = 300): string {
   const semQuery = semHash.split("?")[0];
   // `https://user:pass@host/x` — userinfo é credencial.
   base = semQuery.replace(/^([a-z][a-z0-9+.-]*:\/\/)[^/@]*@/i, "$1");
-  const limitado = base.slice(0, Math.max(0, limite));
+  // O `…` conta para o teto: cortar em `limite` e depois anexar o marcador
+  // devolvia `limite + 1` caracteres, ou seja, um teto que não era teto.
+  const limitado = base.slice(0, Math.max(0, limite - 1));
   return limitado.length < base.length ? `${limitado}…` : limitado;
 }
 
@@ -159,28 +161,175 @@ const CHAVE_SENSIVEL =
 const EMAIL =
   /(^|[^\w.+-])[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}(?![A-Za-z0-9.-])/g;
 const BEARER = /\bBearer\s+[A-Za-z0-9._~+/=-]+/gi;
+/**
+ * `Token <valor>` — o esquema do DRF, que é o token de sessão deste portal
+ * (`rest_framework.authtoken`: header `Authorization: Token <key>`).
+ *
+ * A regra existe por causa de um teste, não por-speculação: sem ela, o texto
+ * `Authorization: Token abc123` era redigido só até a palavra `Token` e o
+ * **valor ficava no texto** (o `ATRIBUICAO_SEGREDO` casa `[^\s,;&]+`, que para
+ * no espaço). O mesmo formato é o que o `api.ts` monta em toda chamada
+ * autenticada, então a forma tem que estar coberta.
+ */
+const TOKEN_ESPACADO = /\bToken\s+[A-Za-z0-9._~+/=-]{8,}/gi;
 const JWT = /\beyJ[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{4,}/g;
+/**
+ * Token DRF **solto**, sem rótulo: exatamente 40 hex em minúsculas
+ * (`binascii.hexlify(os.urandom(20))`, `rest_framework/authtoken/models.py`).
+ *
+ * É a regra que fecha o último buraco do critério 6: um valor com a forma do
+ * token que apareça num breadcrumb, num `context` ou na mensagem de uma
+ * exceção é redigido mesmo quando o **nome** do campo não diz nada de
+ * sensível (`sessao`, `valor`, `arg0`...). As bordas `(?<![0-9a-f])`/`(?![0-9a-f])`
+ * evitam mascarar um hex maior que contenha um bloco de 40.
+ *
+ * Falso positivo conhecido e aceito: um SHA de commit (também 40 hex) escrito
+ * dentro de uma mensagem vira `[REDACTED]`. O campo `release`/`tags.release` do
+ * evento NÃO passa por esta regra, então a release continua legível — o que se
+ * perde é o SHA citado no corpo de um texto, que ninguém usa para achar coisa
+ * nenhuma num evento do Sentry.
+ */
+const TOKEN_DRF = /(?<![0-9a-f])[0-9a-f]{40}(?![0-9a-f])/g;
 const ATRIBUICAO_SEGREDO =
   /\b(authorization|proxy-authorization|cookie|set-cookie|token|auth|api[_-]?key|access[_-]?key|secret|client[_-]?secret|passwd|password|pass|pwd|senha|chave|segredo|session[_-]?id|access[_-]?token|refresh[_-]?token|id[_-]?token|private[_-]?key)\s*[:=]\s*[^\s,;&]+/gi;
+/**
+ * Cabeçalho de autorização com valor que ocupa o resto da linha.
+ *
+ * roda ANTES de `ATRIBUICAO_SEGREDO` e consome o valor inteiro (inclusive o
+ * `Token abc` de duas palavras), que é o formato real do header que o
+ * `api.ts` envia.
+ */
+const CABECALHO_AUTORIZACAO =
+  /\b(authorization|proxy-authorization)\s*[:=]\s*[^\n,;&]+/gi;
 
 export const REDIGIDO = "[REDACTED]";
 
 /** Redige texto livre (mensagem de exceção, motivo, header) para log/evento. */
 export function redigirTexto(valor: unknown, limite = 300): string {
   let texto = valor == null ? "" : String(valor);
+  texto = texto.replace(CABECALHO_AUTORIZACAO, (m) => `${m.split(/[:=]/)[0]}=${REDIGIDO}`);
   texto = texto.replace(ATRIBUICAO_SEGREDO, (m) => `${m.split(/[:=]/)[0]}=${REDIGIDO}`);
   texto = texto.replace(BEARER, `Bearer ${REDIGIDO}`);
+  texto = texto.replace(TOKEN_ESPACADO, `Token ${REDIGIDO}`);
   texto = texto.replace(JWT, REDIGIDO);
+  texto = texto.replace(TOKEN_DRF, REDIGIDO);
   texto = texto.replace(EMAIL, `$1[REDACTED_EMAIL]`);
-  // Query string dentro de URL que apareça em texto de log.
-  texto = texto.replace(/(https?:\/\/[^\s?]+)\?[^\s#]+/g, `$1?${REDIGIDO}`);
+  // Query string dentro de URL que apareça em texto de log. O caminho
+  // RELATIVO também conta: o portal é same-origin, então o breadcrumb de
+  // `fetch` do navegador é `/api/x?token=...`, nunca uma URL absoluta.
+  texto = texto.replace(/((?:https?:\/\/|\/)[^\s?#]+)\?[^\s#]*/g, `$1?${REDIGIDO}`);
   if (texto.length > limite) return `${texto.slice(0, Math.max(0, limite - 1))}…`;
   return texto;
 }
 
-/** Remove caracteres de controle — nenhum pode chegar a log/JSON/header. */
+/**
+ * Remove caracteres de controle — nenhum pode chegar a log/JSON/header.
+ *
+ * Inclui o bloco C1 (`0x80`-`0x9f`), que é o mesmo conjunto que
+ * `normalizarRequestId` considera inválido: são caracteres de controle
+ * Unicode, e um log que os carrega não é parseável por metade das ferramentas
+ * que o leem.
+ */
 export function semControle(valor: unknown): string {
-  return String(valor ?? "").replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "");
+  return String(valor ?? "").replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]/g, "");
+}
+
+// ---------------------------------------------------------------------------
+// Redação de estrutura (espelha `redact_payload` do backend,
+// `backend/config/observability.py`)
+// ---------------------------------------------------------------------------
+
+/**
+ * Profundidade máxima de recursão na redação estrutural, igual a
+ * `MAX_REDACT_DEPTH` do backend. Um payload de erro aninhado além disso vira
+ * `[TRUNCATED_DEPTH]` em vez de custo de CPU sem limite: o redator nunca pode
+ * ser o que derruba o processo que ele existe para diagnosticar.
+ */
+export const MAX_REDITACAO_PROFUNDIDADE = 6;
+
+/** Teto de itens por lista/objeto, igual a `MAX_REDACT_ITEMS` do backend. */
+export const MAX_REDITACAO_ITENS = 100;
+
+/** Teto de texto livre já redigido, igual a `MAX_LOG_TEXT` do backend. */
+export const MAX_REDITACAO_TEXTO = 1000;
+
+/**
+ * `true` quando a CHAVE nomeia algo que nunca pode aparecer em telemetria.
+ *
+ * Mesma política por TOKEN do backend (`is_sensitive_key`), nunca por
+ * sub-string: a versão por sub-string redigia campos inocente como `description`
+ * ("descrip-tion" contém "ip") e `clip`, escondendo diagnóstico real.
+ */
+export function chaveSensivel(chave: unknown): boolean {
+  return CHAVE_SENSIVEL.test(String(chave ?? ""));
+}
+
+/**
+ * Reduz uma estrutura recursivamente para uma forma segura de log/evento.
+ *
+ * Réplica de `redact_payload` (`backend/config/observability.py`): chave
+ * sensível vira `[REDACTED]`, texto livre passa por `redigirTexto` (e-mail,
+ * JWT, Bearer, `token=...` e query string de URL somem), listas/objetos são
+ * limitados e `unknown` cai no tipo. É também a **cópia**: a função devolve
+ * sempre uma estrutura nova, então quem chama pode usá-la para sanitizar um
+ * evento do Sentry sem mutar o objeto original do SDK.
+ */
+export function redigirPayload(
+  valor: unknown,
+  profundidade = 0,
+  chave?: unknown
+): unknown {
+  if (chave !== undefined && chaveSensivel(chave)) return REDIGIDO;
+  if (profundidade >= MAX_REDITACAO_PROFUNDIDADE) return "[TRUNCATED_DEPTH]";
+  if (valor === null || valor === undefined) return valor;
+  const tipo = typeof valor;
+  if (tipo === "boolean" || tipo === "number") return valor;
+  if (tipo === "string") return redigirTexto(valor, MAX_REDITACAO_TEXTO);
+  if (tipo === "bigint") return valor.toString();
+  if (tipo === "function" || tipo === "symbol") return `[${tipo}]`;
+  if (valor instanceof Date) return valor.toISOString();
+  if (valor instanceof Error) {
+    // Mensagem de exceção sem stack e sem credencial: o stack é diagnóstico e
+    // já vem no campo próprio do evento do Sentry.
+    return redigirTexto(`${valor.name}: ${valor.message}`, MAX_REDITACAO_TEXTO);
+  }
+  if (Array.isArray(valor)) {
+    const itens = valor.slice(0, MAX_REDITACAO_ITENS).map((item) =>
+      redigirPayload(item, profundidade + 1)
+    );
+    if (valor.length > MAX_REDITACAO_ITENS) itens.push("[TRUNCATED_ITEMS]");
+    return itens;
+  }
+  if (tipo === "object") {
+    const entrada = valor as Record<string, unknown>;
+    const saida: Record<string, unknown> = {};
+    let indice = 0;
+    for (const chaveAtual of Object.keys(entrada)) {
+      if (indice >= MAX_REDITACAO_ITENS) {
+        saida._truncated = true;
+        break;
+      }
+      indice += 1;
+      saida[redigirTexto(chaveAtual, 120)] = redigirPayload(
+        entrada[chaveAtual],
+        profundidade + 1,
+        chaveAtual
+      );
+    }
+    return saida;
+  }
+  return `[${tipo}]`;
+}
+
+/** Redige um valor já serializado em JSON, para uso em tag/contexto do Sentry. */
+export function redigirJson(valor: unknown, limite = MAX_REDITACAO_TEXTO): string {
+  try {
+    const seguro = redigirPayload(valor);
+    const texto = JSON.stringify(seguro) ?? "";
+    return texto.length > limite ? `${texto.slice(0, Math.max(0, limite - 1))}…` : texto;
+  } catch {
+    return "[REDACTED]";
+  }
 }
 
 /**

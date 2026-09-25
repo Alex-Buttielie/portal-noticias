@@ -28,6 +28,14 @@
 import { API_BASE_URL } from "./api";
 import { permiteCategoria } from "./cookie-consent";
 import { caminhoSeguro } from "./observabilidade";
+import {
+  cabecalhoConsentimento,
+  garantirToken,
+  observarConsentimentoAnalytics,
+  tokenEmMaos,
+  tokenUtilizavel,
+  type TokenEmMaos,
+} from "./consent-token";
 
 export const TIPOS_EVENTO = [
   "page_view",
@@ -136,33 +144,114 @@ export function consentido(): boolean {
   }
 }
 
+/**
+ * Corpo do evento já normalizado, sem token. Separado de `enviarEvento` para
+ * que a forma do payload seja testável sem rede, sem `window` e sem beacon.
+ */
+export function montarCorpoEvento(payload: PayloadEvento, sessao: string, pathNavegador: string): Record<string, unknown> {
+  // `caminhoSeguro` remove query string, fragment e userinfo do path. Vale
+  // para o `path` explícito também: nenhum chamador deve conseguir reintroduzir
+  // dado sensível no evento por passes `path` à mão.
+  const pathInformado = payload.path ? caminhoSeguro(payload.path) : "";
+  return {
+    ...payload,
+    path: pathInformado || caminhoSeguro(pathNavegador),
+    sessao,
+    dispositivo: payload.dispositivo ?? detectarDispositivo(),
+    origem: payload.origem ?? detectarOrigem(),
+  };
+}
+
+/**
+ * Decide se o evento pode ir agora.
+ *
+ * Um evento SEM token válido não é enviado — o backend não persiste e o
+ * `sendBeacon` sem token é desperdício de uma requisição pública. Com token,
+ * vai por `fetch` + header `X-Consent-Token` (caminho preferido: o token não
+ * entra no corpo, e corpo é o que um log de proxy poderia guardar).
+ *
+ * O beacon permanece como caminho de último recurso para quando `fetch` não
+ * existe — e, nesse caso, sem token: perder um evento é melhor que enviar
+ * um pedido recusado.
+ */
+export function enviarEvento(corpo: Record<string, unknown>, token: string | null): boolean {
+  try {
+    if (token) {
+      void fetch(`${API_BASE_URL}/api/metricas/eventos/`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...cabecalhoConsentimento(token),
+        },
+        body: JSON.stringify(corpo),
+        keepalive: true,
+      }).catch(() => undefined);
+      return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Fila de eventos aguardando token.
+ *
+ * Teto de 50: um visitante que nunca concede consentimento de analytics não
+ * pode acumular memória com eventos que jamais serão enviados (e o token nunca
+ * virá, porque sem consentimento o emissor não é chamado). Descartar o mais
+ * antigo é preferível a crescer sem limite — o pior evento é um visitante com
+ * o tracker ligado e a categoria de analytics desligada.
+ */
+const MAX_EVENTOS_NA_FILA = 50;
+const fila: { corpo: Record<string, unknown>; sessao: string }[] = [];
+
+/** Ordena a emissão para não perder evento quando a emissão em voo falhar. */
+async function drenarFila(): Promise<void> {
+  while (fila.length > 0) {
+    const proximo = fila[0];
+    let token: string | null = null;
+    try {
+      token = await garantirToken(proximo.sessao);
+    } catch {
+      token = null;
+    }
+    if (!token) {
+      // Fail-closed: sem token válido o evento NÃO é enviado. Sai da fila
+      // para não bloquear os que viriam depois.
+      fila.shift();
+      continue;
+    }
+    enviarEvento(proximo.corpo, token);
+    fila.shift();
+  }
+}
+
+function enfileirar(corpo: Record<string, unknown>, sessao: string): void {
+  if (fila.length >= MAX_EVENTOS_NA_FILA) fila.shift();
+  fila.push({ corpo, sessao });
+  void drenarFila();
+}
+
 export function track(payload: PayloadEvento): boolean {
   if (typeof window === "undefined") return false;
   if (!consentido()) return false;
   try {
-    // `caminhoSeguro` remove query string, fragment e userinfo do path. Vale
-    // para o `path` explícito também: nenhum chamador deve conseguir reintroduzir
-    // dado sensível no evento por passes `path` à mão.
-    const pathInformado = payload.path ? caminhoSeguro(payload.path) : "";
-    const corpo = {
-      ...payload,
-      path: pathInformado || caminhoSeguro(window.location.pathname),
-      sessao: payload.sessao ?? obterSessao(),
-      dispositivo: payload.dispositivo ?? detectarDispositivo(),
-      origem: payload.origem ?? detectarOrigem(),
-    };
-    const dados = JSON.stringify(corpo);
-    if (navigator.sendBeacon) {
-      const blob = new Blob([dados], { type: "application/json" });
-      navigator.sendBeacon(`${API_BASE_URL}/api/metricas/eventos/`, blob);
-    } else {
-      void fetch(`${API_BASE_URL}/api/metricas/eventos/`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: dados,
-        keepalive: true,
-      }).catch(() => undefined);
+    const sessao = payload.sessao ?? obterSessao();
+    const corpo = montarCorpoEvento(payload, sessao, window.location.pathname);
+    if (!sessao) return false;
+
+    // Caminho rápido: token válido em mãos (típico de toda visita a partir da
+    // segunda, já que o token é cacheado em `sessionStorage`).
+    const emMaos = tokenEmMaos(sessao);
+    if (tokenUtilizavel(emMaos, Math.floor(Date.now() / 1000))) {
+      enviarEvento(corpo, (emMaos as TokenEmMaos).token);
+      return true;
     }
+    // Primeiro evento da sessão (ou token expirado): o evento entra na fila e
+    // é despachado assim que o token chegar. Preferimos perder o evento a
+    // enviá-lo sem prova de consentimento.
+    enfileirar(corpo, sessao);
     return true;
   } catch {
     return false;
@@ -257,4 +346,9 @@ declare global {
 
 if (typeof window !== "undefined") {
   window.__portalTrack = track;
+  // Revogação do consentimento de analytics precisa esquecer o token em mãos
+  // **no instante** em que a pessoa desliga, e não no próximo `track()`: o
+  // backend continuaria aceitando aquele token até o `exp`, porque a
+  // assinatura é válida. A chamada é idempotente e sem custo.
+  observarConsentimentoAnalytics();
 }

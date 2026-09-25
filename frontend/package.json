@@ -7,9 +7,13 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "test:conteudo-ficticio": "node scripts/verificar-conteudo-ficticio.mjs",
     "test:query-client": "node scripts/verificar-query-client.mjs",
-    "test:datas-tz": "node scripts/verificar-datas-tz.mjs"
+    "test:datas-tz": "node scripts/verificar-datas-tz.mjs",
+    "verificar": "npm run typecheck && npm run test && npm run test:conteudo-ficticio && npm run test:query-client && npm run test:datas-tz"
   },
   "dependencies": {
     "@radix-ui/react-accordion": "^1.2.20",
@@ -35,6 +39,7 @@
     "@radix-ui/react-tabs": "^1.1.21",
     "@radix-ui/react-toast": "^1.2.23",
     "@radix-ui/react-tooltip": "^1.2.16",
+    "@sentry/nextjs": "10.75.3",
     "@tanstack/react-query": "^5.102.8",
     "autoprefixer": "^10.4.20",
     "class-variance-authority": "^0.7.1",
@@ -55,6 +60,11 @@
     "@types/node": "20.14.15",
     "@types/react": "18.3.3",
     "@types/react-dom": "18.3.0",
-    "typescript": "5.5.4"
+    "typescript": "5.5.4",
+    "vitest": "3.2.4"
+  },
+  "allowScripts": {
+    "@sentry/cli": true,
+    "esbuild": true
   }
 }
