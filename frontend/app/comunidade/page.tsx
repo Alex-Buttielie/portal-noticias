@@ -43,10 +43,15 @@ const LS_SEGUINDO = "brd_autores_seguindo";
 function readLS(key: string): string[] { try { const v = localStorage.getItem(key); return v ? JSON.parse(v) as string[] : []; } catch { return []; } }
 function writeLS(key: string, v: string[]) { try { localStorage.setItem(key, JSON.stringify(v)); } catch { } }
 
-const MOCK_PUBS: api.Publicacao[] = [
-  { id: 901, autor: 1, autor_nome: "Ana Política", titulo: "Opinião: reforma e cidades", conteudo: "Análise curta sobre impacto urbano.", tipo: "opiniao", status: "publicado", categoria: "politica", tags: ["exemplo", "cidades"], news_cluster: 1, news_item: null, destaque: true, numero_comentarios: 12, criado_em: new Date().toISOString(), publicado_em: new Date().toISOString() },
-  { id: 902, autor: 2, autor_nome: "Bruno Tech", titulo: "Análise: IA no jornalismo", conteudo: "Como IA reorganiza redação e checagem.", tipo: "analise", status: "publicado", categoria: "tecnologia", tags: ["ia", "exemplo"], news_cluster: null, news_item: null, destaque: false, numero_comentarios: 4, criado_em: new Date().toISOString(), publicado_em: new Date().toISOString() },
-];
+/**
+ * Sem fallback sintético (run 20260925-1020-observabilidade, critérios 11 e
+ * 12). Havia `MOCK_PUBS` — duas publicações fictícias ("Ana Política",
+ * "Bruno Tech") ligadas a `/comunidade/901` e `/comunidade/902` — mostradas
+ * quando o feed da comunidade falhava, com o aviso "mostrando conteúdo local".
+ * Além de publicar pessoas que não existem, o botão "Seguir autor" e o
+ * contador de comentários dessa lista levavam a ações reais sobre registros
+ * inexistentes.
+ */
 
 /** Link de notícia relacionada (ecossistema): cluster > item > editoria. */
 function linkNoticiaRelacionada(p: api.Publicacao): { href: string; rotulo: string } | null {
@@ -113,20 +118,10 @@ export default function Page() {
   };
   const { data: pubsData, isLoading, isError, error, refetch } = useQueryPublicacoesComunidade(filtros);
 
-  // Fallback local (modo offline): filtro client-side sobre o mock quando a API falha.
-  const pubs = useMemo(() => {
-    if (isError) {
-      return MOCK_PUBS.filter((p) => {
-        if (tipoFiltro !== "todos" && p.tipo !== tipoFiltro) return false;
-        const cat = grupoFiltro || (catFiltro !== "todas" ? catFiltro : null);
-        if (cat && p.categoria !== cat) return false;
-        if (tab === "destaques" && !p.destaque) return false;
-        if (buscaDeb && !`${p.titulo} ${p.autor_nome}`.toLowerCase().includes(buscaDeb.toLowerCase())) return false;
-        return true;
-      });
-    }
-    return pubsData ?? [];
-  }, [isError, pubsData, tipoFiltro, grupoFiltro, catFiltro, tab, buscaDeb]);
+  // Em erro de API a lista é VAZIA de propósito: os filtros continuam valendo
+  // (o backend já devolve o recorte) e a tela abaixo mostra o estado de erro
+  // com botão de tentar de novo. Um array local aqui pareceria conteúdo real.
+  const pubs = useMemo(() => pubsData ?? [], [pubsData]);
 
   const carregar = useCallback(async () => {
     const cat = grupoFiltro || (catFiltro !== "todas" ? catFiltro : undefined);
@@ -358,15 +353,28 @@ export default function Page() {
               </Card>
 
               {isError && (
-                <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900" role="alert">
-                  <span>{error?.message || "Não foi possível carregar o feed ao vivo — mostrando conteúdo local."}</span>
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-[var(--cor-erro)] bg-[var(--cor-erro-suave)] px-3 py-2 text-sm text-[var(--cor-texto)]" role="alert">
+                  <span>
+                    {error?.message || "Não foi possível carregar o feed da comunidade."}
+                    {error instanceof api.ApiError && error.requestId ? ` Código de suporte: ${error.requestId}.` : ""}
+                  </span>
                   <Button size="sm" variant="outline" className="gap-1" onClick={carregar}><RotateCcw className="h-3.5 w-3.5" aria-hidden />Tentar de novo</Button>
                 </div>
               )}
 
               <div aria-live="polite" aria-busy={isLoading}>
                 {isLoading ? <EsqueletoFeed />
-                  : pubs.length === 0 ? (
+                  : isError ? (
+                    <Card className="border-[var(--cor-borda)] bg-[var(--cor-fundo-card)]">
+                      <CardContent className="p-6 text-center">
+                        <MessagesSquare className="mx-auto h-8 w-8 text-[var(--cor-texto-suave)]" aria-hidden />
+                        <p className="mt-2 text-sm font-medium text-[var(--cor-texto)]">Feed indisponível</p>
+                        <p className="text-sm text-[var(--cor-texto-suave)]">
+                          Não exibimos publicações de exemplo. Tente carregar de novo.
+                        </p>
+                      </CardContent>
+                    </Card>
+                  ) : pubs.length === 0 ? (
                     <Card className="border-[var(--cor-borda)] bg-[var(--cor-fundo-card)]">
                       <CardContent className="p-6 text-center">
                         <MessagesSquare className="mx-auto h-8 w-8 text-[var(--cor-texto-suave)]" aria-hidden />
@@ -416,7 +424,6 @@ export default function Page() {
               <div className="grid gap-3 sm:grid-cols-2">
                 {GRUPOS.map((g) => {
                   const countPubs = pubs.filter((p) => p.categoria === g.slug).length;
-                  const membrosMock = 80 + g.slug.length * 37 + countPubs * 7;
                   const isMembro = membros.includes(g.slug);
                   return (
                     <Card key={g.slug} className={cn("border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] flex flex-col", isMembro && "ring-1 ring-[var(--cor-primaria)]")}>
@@ -430,8 +437,11 @@ export default function Page() {
                       </CardHeader>
                       <CardContent className="mt-auto space-y-3">
                         <div className="flex gap-3 text-xs text-[var(--cor-texto-suave)]">
-                          <span className="flex items-center gap-1"><Users className="h-3.5 w-3.5" aria-hidden />{membrosMock} membros</span>
-                          <span className="flex items-center gap-1"><Newspaper className="h-3.5 w-3.5" aria-hidden />{countPubs} pubs</span>
+                          {/* O backend não expõe contagem de membros por grupo;
+                              o número que existia aqui era calculado a partir
+                              do slug e não representava ninguém. Mostramos só
+                              o que a API devolveu. */}
+                          <span className="flex items-center gap-1"><Newspaper className="h-3.5 w-3.5" aria-hidden />{countPubs} pubs neste recorte</span>
                         </div>
                         <div className="flex gap-2">
                           <Button size="sm" className={cn("flex-1 min-h-[36px] gap-1", isMembro ? "bg-[var(--cor-fundo-elevado)] text-[var(--cor-texto)] border border-[var(--cor-borda)] hover:bg-[var(--cor-borda)]" : "bg-[var(--cor-primaria)] text-[var(--cor-texto-invertido)]")} onClick={() => toggleGrupo(g.slug)}>

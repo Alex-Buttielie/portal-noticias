@@ -30,12 +30,16 @@ function timeAgo(iso:string){
   return `${Math.floor(h/24)}d`;
 }
 
-const MOCK: Item[] = [
-  { tipo: "item", id: 1, titulo: "Reforma tributária entra em fase de regulamentação", categoria: "economia", status_revisao: "pendente", nome_fonte: "Fonte Exemplo", url_fonte_original: "https://example.com/a", urgente: false, cluster: null, cluster_titulo: "", timestamp_ingestao: new Date().toISOString() },
-  { tipo: "cluster", id: 2, titulo: "Frente fria avança pelo Sudeste", categoria: "cidades", status_revisao: "pendente", nome_fonte: "G1", url_fonte_original: "https://example.com/b", urgente: true, cluster: 10, cluster_titulo: "Frente fria no Sudeste", timestamp_ingestao: new Date(Date.now()-3600000*2).toISOString() },
-  { tipo: "item", id: 3, titulo: "Vacina nacional entra em testes finais", categoria: "saúde", status_revisao: "pendente", nome_fonte: "CNN", url_fonte_original: "https://example.com/c", urgente: false, cluster: null, cluster_titulo: "", timestamp_ingestao: new Date(Date.now()-3600000*5).toISOString() },
-];
-
+/**
+ * Fila de curadoria — tela de decisão editorial.
+ *
+ * Sem `MOCK`. A fila de exemplo (três itens com `id` 1, 2 e 3) vinha com
+ * "Aprovar"/"Rejeitar" ativos: `adminDecidirFila(token, id)` escreve no
+ * registro real de id correspondente. Aprovar uma notícia que não existe é
+ * decisão operacional sobre dado fictício, e o pior caso (rejeitar) apaga
+ * conteúdo de alguém. Com a API indisponível, a fila fica vazia e nenhuma ação
+ * é executável.
+ */
 export default function Page(){
   const { usuario, token } = useAuth();
   const tk = token||"";
@@ -65,8 +69,8 @@ export default function Page(){
     page,
     intervaloMs: auto ? 30_000 : 0,
   });
-  const itens = consultaFila.isError ? MOCK : (consultaFila.data?.results ?? []);
-  const total = consultaFila.isError ? MOCK.length : (consultaFila.data?.count ?? 0);
+  const itens = consultaFila.isError ? [] : (consultaFila.data?.results ?? []);
+  const total = consultaFila.isError ? 0 : (consultaFila.data?.count ?? 0);
   const loading = consultaFila.isFetching;
   const err = consultaFila.isError
     ? (consultaFila.error instanceof Error ? consultaFila.error.message : "Falha ao carregar fila — tente novamente em instantes")
@@ -178,7 +182,8 @@ export default function Page(){
             {totalSel>0&&<Badge className="bg-[var(--cor-primaria)] text-[var(--cor-texto-invertido)]">{totalSel} selecionados</Badge>}
             {!tk&&<Badge variant="outline" className="border-[var(--cor-erro)] text-[var(--cor-erro)]">Login admin requerido</Badge>}
           </div>
-          {err&&<p className="rounded-md border border-[var(--cor-erro)] bg-[var(--cor-erro-suave)] px-3 py-2 text-sm text-[var(--cor-erro)]">{err}</p>}
+          {err&&<p role="alert" className="rounded-md border border-[var(--cor-erro)] bg-[var(--cor-erro-suave)] px-3 py-2 text-sm text-[var(--cor-texto)]">{err}</p>}
+          {consultaFila.isError&&<p role="status" className="rounded-md border border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] px-3 py-2 text-sm text-[var(--cor-texto-suave)]">API indisponível — a fila não foi carregada, nenhuma decisão foi aplicada e nenhum item de exemplo é listado. Aprovar/Rejeitar só fica disponível com a fila real na tela.</p>}
           {ok&&<p className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-300">{ok}</p>}
         </CardContent>
       </Card>

@@ -10,25 +10,33 @@ import { CampoBusca, ListaResultados } from "./BuscaClient";
 export const metadata: Metadata = { title: `Buscar — ${SITE_NAME}`, description: `Busca no ${SITE_NAME}.` };
 export const revalidate = 0;
 
-const MOCK: ResultadoBusca[] = [
-  { tipo: "item", id: 201, titulo: "Resultados — busque por política, economia...", resumo: "Conteúdo de exemplo.", categoria: "geral", urgente: false, numero_fontes: 1, timestamp: new Date().toISOString() },
-];
-
+/**
+ * Busca.
+ *
+ * Havia um `MOCK` com um resultado "Resultados — busque por política,
+ * economia..." que substituía a busca real quando a chamada lançava. O efeito
+ * era pior do que "parece um resultado": o título continha a query do usuário e
+ * o resultado NÃO vinha do índice, então uma busca por termo técnico ou por
+ * cidade retornava uma "notícia" que não existe, com link para `/noticia/201`.
+ * Falha de busca agora é falha de busca, com o código de correlação.
+ */
 export default async function Page({ searchParams }: { searchParams: { q?: string } }) {
   const q = (searchParams.q || "").trim();
   let itens: ResultadoBusca[] = [];
   let sugestao: string | undefined;
   let populares: { termo: string; total: number }[] = [];
   let historico: string[] = [];
+  let buscaFalhou = false;
+  let requestId: string | null = null;
 
   if (q) {
     try {
       const r = await buscarNoticias({ q });
       itens = r.results || [];
       sugestao = r.sugestao;
-    } catch {
-      itens = MOCK.filter((x) => x.titulo.toLowerCase().includes(q.toLowerCase()) || !q);
-      if (!itens.length) itens = MOCK;
+    } catch (erro) {
+      buscaFalhou = true;
+      if (erro instanceof Error) requestId = (erro as { requestId?: string | null }).requestId ?? null;
     }
   } else {
     try {
@@ -107,29 +115,41 @@ export default async function Page({ searchParams }: { searchParams: { q?: strin
 
       {q && (
         <div className="space-y-3">
-          <p className="text-sm text-[var(--cor-texto-suave)]">
-            {itens.length} resultado(s) para <span className="font-semibold text-[var(--cor-texto)]">“{q}”</span>
-          </p>
-          {sugestao && (
-            <p className="text-sm text-[var(--cor-texto-suave)]">
-              Você quis dizer{" "}
-              <Link href={`/buscar?q=${encodeURIComponent(sugestao)}`} className="font-medium text-[var(--cor-primaria)] underline">
-                {sugestao}
-              </Link>
-              ?
-            </p>
-          )}
-          {itens.length === 0 ? (
-            <Card className="border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)]">
-              <CardContent className="p-6 text-center text-sm text-[var(--cor-texto-suave)]">
-                Nenhum resultado para “{q}”. <Link href="/arquivo" className="font-medium text-[var(--cor-primaria)] underline">Ver arquivo</Link> •{" "}
-                <Link href="/" className="font-medium text-[var(--cor-primaria)] underline">Voltar ao início</Link>
-              </CardContent>
-            </Card>
+          {buscaFalhou ? (
+            <div role="alert" className="rounded-[var(--raio-lg)] border border-[var(--cor-erro)] bg-[var(--cor-erro-suave)] p-4">
+              <p className="text-sm font-semibold text-[var(--cor-texto)]">A busca está indisponível.</p>
+              <p className="mt-1 text-sm text-[var(--cor-texto-suave)]">
+                Não conseguimos consultar o índice agora. Não mostramos resultados de exemplo para a sua busca.
+              </p>
+              {requestId ? <p className="mt-2 text-xs text-[var(--cor-texto-suave)]">Código de suporte: {requestId}</p> : null}
+            </div>
           ) : (
-            <ListaResultados itens={itens} termo={q} />
+            <>
+              <p className="text-sm text-[var(--cor-texto-suave)]">
+                {itens.length} resultado(s) para <span className="font-semibold text-[var(--cor-texto)]">“{q}”</span>
+              </p>
+              {sugestao && (
+                <p className="text-sm text-[var(--cor-texto-suave)]">
+                  Você quis dizer{" "}
+                  <Link href={`/buscar?q=${encodeURIComponent(sugestao)}`} className="font-medium text-[var(--cor-primaria)] underline">
+                    {sugestao}
+                  </Link>
+                  ?
+                </p>
+              )}
+              {itens.length === 0 ? (
+                <Card className="border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)]">
+                  <CardContent className="p-6 text-center text-sm text-[var(--cor-texto-suave)]">
+                    Nenhum resultado para “{q}”. <Link href="/arquivo" className="font-medium text-[var(--cor-primaria)] underline">Ver arquivo</Link> •{" "}
+                    <Link href="/" className="font-medium text-[var(--cor-primaria)] underline">Voltar ao início</Link>
+                  </CardContent>
+                </Card>
+              ) : (
+                <ListaResultados itens={itens} termo={q} />
+              )}
+            </>
           )}
-          <AdsSlot id="buscar-infeed" formato="in-feed" className="my-6" />
+          {itens.length > 0 && <AdsSlot id="buscar-infeed" formato="in-feed" className="my-6" />}
           {itens.length > 6 && <AdsSlot id="buscar-horizontal" formato="horizontal" />}
         </div>
       )}

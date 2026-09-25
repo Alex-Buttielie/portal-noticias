@@ -12,10 +12,16 @@ import * as api from "@/lib/api";
 import { useQueryAdminDenuncias } from "@/lib/queries";
 import { queryKeys } from "@/lib/query-keys";
 
-const MOCK: any[] = [
-  { id: 1, motivo: "spam", detalhe: "Conteúdo de exemplo", status: "pendente", denunciante_email: "denunciante@exemplo.com", criado_em: new Date().toISOString(), alvo_repr: "Publicacao #1" },
-];
-
+/**
+ * Sem `MOCK` — e aqui a remoção é obrigatória, não cosmética: a lista de
+ * exemplo (uma denúncia "pendente" com `id: 1`) vinha com os botões
+ * "Remover"/"Ignorar" funcionais. Um clique em "Remover" chamava
+ * `POST /api/admin/moderacao/denuncias/1/acao/`, ou seja, a tela de moderação
+ * aplicava uma decisão real sobre o registro de id 1 — que é uma denúncia
+ * real de alguém. Decisão de moderação nunca pode ser apoiada em dado
+ * fictício; com a API fora do ar a tela fica explicitamente indisponível e não
+ * há botão de ação.
+ */
 export default function Page(){
   const { usuario, token } = useAuth();
   const cliente = useQueryClient();
@@ -24,7 +30,7 @@ export default function Page(){
   const [erroMutacao,setErroMutacao]=useState<string|null>(null);
   // A tela só carrega após o clique em "Carregar denuncias".
   const consulta=useQueryAdminDenuncias({ token, usuarioId: usuario?.id ?? 0, filtros: { status: null }, habilitada: consultou });
-  const itens=consulta.isError?MOCK:((consulta.data?.results ?? []) as any[]);
+  const itens=consulta.isError?[]:((consulta.data?.results ?? []) as any[]);
   const loading=consulta.isFetching;
   const err=consulta.isError
     ? (consulta.error instanceof Error ? consulta.error.message : "Falha ao carregar — tente novamente")
@@ -33,7 +39,9 @@ export default function Page(){
   const agir=async(id:number,tipo:string)=>{ try{ await api.adminAplicarAcaoDenuncia(token||"",id,{tipo,motivo: motivo||"acao administrativa"}); await cliente.invalidateQueries({ queryKey: queryKeys.admin.denunciasRaiz() }); setMotivo("");}catch(e:any){ setErroMutacao(e?.message||"Falha na acao."); } };
   return (<div className="space-y-4"><Card className="bento border-[var(--cor-borda)] bg-[var(--cor-fundo-card)]"><CardHeader><CardTitle>Moderacao - Denuncias</CardTitle></CardHeader><CardContent className="space-y-3">
     <Button onClick={carregar} disabled={loading} className="bg-[var(--cor-primaria)] text-[var(--cor-texto-invertido)] min-h-[44px]">{loading?"Carregando...":"Carregar denuncias"}</Button>
-    {err&&<p className="rounded-md border border-[var(--cor-erro)] bg-[var(--cor-erro-suave)] px-3 py-2 text-sm text-[var(--cor-erro)]">{err}</p>}
+    {err&&<p role="alert" className="rounded-md border border-[var(--cor-erro)] bg-[var(--cor-erro-suave)] px-3 py-2 text-sm text-[var(--cor-texto)]">{err}</p>}
+    {consulta.isError&&<p role="status" className="rounded-md border border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] px-3 py-2 text-sm text-[var(--cor-texto-suave)]">API indisponível — denúncias não carregadas. Ações de moderação estão desabilitadas até a API responder; nenhuma denúncia de exemplo é listada.</p>}
+    {consulta.isSuccess&&!loading&&!consulta.isError&&!itens.length&&<p className="text-sm text-[var(--cor-texto-suave)]">Nenhuma denúncia carregada.</p>}
     <div className="space-y-2"><Label htmlFor="motivo">Motivo da acao</Label><Textarea id="motivo" value={motivo} onChange={e=>setMotivo(e.target.value)} placeholder="Justificativa..." rows={2} /></div>
     <div className="grid gap-2">{itens.map((d)=> (<div key={d.id} className="rounded-md border border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] p-3"><div className="flex items-center gap-2"><Badge variant="outline" className="border-[var(--cor-borda)]">{d.status}</Badge><span className="text-xs text-[var(--cor-texto-suave)]">{d.motivo} - {d.denunciante_email}</span></div><p className="mt-1 text-sm text-[var(--cor-texto)]">{d.detalhe}</p><p className="text-xs text-[var(--cor-texto-suave)]">{d.alvo_repr}</p><div className="mt-2 flex gap-2"><Button size="sm" onClick={()=>agir(d.id,"remover")} className="bg-[var(--cor-erro)] text-[var(--cor-texto-invertido)]">Remover</Button><Button size="sm" variant="outline" onClick={()=>agir(d.id,"ignorar")}>Ignorar</Button></div></div>))}</div>
   </CardContent></Card></div>);

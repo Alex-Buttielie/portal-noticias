@@ -7,32 +7,86 @@ import { obterFeed, type FeedEntrada } from "@/lib/api";
 import { formatarDataHoraCompacta } from "@/lib/datas";
 import { AdsSlot } from "@/components/AdsSlot";
 import { ImagemNoticia } from "@/components/ImagemNoticia";
+
 export const metadata: Metadata = { title: `Arquivo — ${SITE_NAME}`, description: `Arquivo de notícias do ${SITE_NAME}.` };
 export const revalidate = 60;
-const MOCK: FeedEntrada[] = Array.from({ length: 12 }, (_, i) => ({ tipo: i % 3 === 0 ? "cluster" : "item", id: 300 + i, titulo: `Arquivo #${300 + i} — manchete demonstrativa`, resumo: "Conteúdo de exemplo para demonstração.", categoria: ["política", "economia", "tecnologia", "cidades"][i % 4], urgente: i === 0, numero_fontes: 2 + (i % 3), timestamp: new Date(Date.now() - i * 3600000 * 6).toISOString() }));
+
+/**
+ * Arquivo cronológico. Sem array de demonstração: quando o feed não responde, a
+ * página diz que o arquivo está indisponível (com o código de correlação) em
+ * vez de listar "manchete demonstrativa" com `id` inventado — que levava a
+ * links `/noticia/301`..`/noticia/312` que não existem.
+ */
 export default async function Page({ searchParams }: { searchParams: { page?: string } }) {
   const page = Math.max(1, Number(searchParams.page) || 1);
   let itens: FeedEntrada[] = [];
-  try { const r = await obterFeed({ page }); itens = r.results?.length ? r.results : MOCK; } catch { itens = MOCK; }
+  let estado: "real" | "vazio" | "erro" = "real";
+  let requestId: string | null = null;
+  let mensagemErro: string | null = null;
+
+  try {
+    const r = await obterFeed({ page });
+    itens = r.results ?? [];
+    if (!itens.length && page > 1) estado = "vazio";
+  } catch (erro) {
+    estado = "erro";
+    if (erro instanceof Error) {
+      requestId = (erro as { requestId?: string | null }).requestId ?? null;
+      mensagemErro = erro.message;
+    }
+  }
+
   return (
     <div className="space-y-4">
-      <div className="rounded-[var(--raio-lg)] border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] p-5"><div className="hud-line mb-3" aria-hidden /><h1 className="text-2xl font-bold text-[var(--cor-texto)]">Arquivo</h1><p className="text-sm text-[var(--cor-texto-suave)]">Página {page} — arquivo cronológico</p></div>
-      <div className="grid gap-3">
-        {itens.map((n)=>(
-          <Link key={`${n.tipo}-${n.id}`} href={`/noticia/${n.id}`} className="flex gap-3 rounded-[var(--raio-lg)] border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] p-3 hover:bg-[var(--cor-primaria-suave)]">
-            <span className="hidden aspect-[16/9] h-14 w-24 shrink-0 overflow-hidden rounded-md border border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] md:block" aria-hidden>
-              <ImagemNoticia src={n.imagem_url} seed={`${n.categoria || "geral"}-${n.id}`} alt="" sizes="192px" className="h-full w-full object-cover" />
-            </span>
-            <div className="min-w-0 flex-1"><div className="flex items-center gap-2"><Badge variant="outline" className="border-[var(--cor-borda)] capitalize text-xs">{n.categoria}</Badge>{n.urgente&&<Badge className="bg-[var(--cor-sinal)] text-[var(--cor-texto-invertido)] text-xs">urgente</Badge>}<span className="ml-auto text-xs text-[var(--cor-texto-suave)]">{formatarDataHoraCompacta(n.timestamp)}</span></div><p className="mt-1 line-clamp-2 font-semibold text-[var(--cor-texto)]">{n.titulo}</p><p className="line-clamp-1 text-sm text-[var(--cor-texto-suave)]">{n.resumo}</p></div>
-          </Link>
-        ))}
+      <div className="rounded-[var(--raio-lg)] border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] p-5">
+        <div className="hud-line mb-3" aria-hidden />
+        <h1 className="text-2xl font-bold text-[var(--cor-texto)]">Arquivo</h1>
+        <p className="text-sm text-[var(--cor-texto-suave)]">Página {page} — arquivo cronológico</p>
       </div>
-      <AdsSlot id="arquivo-infeed" formato="in-feed" />
+
+      {estado === "erro" && (
+        <div role="alert" className="rounded-[var(--raio-lg)] border border-[var(--cor-erro)] bg-[var(--cor-erro-suave)] p-4">
+          <p className="text-sm font-semibold text-[var(--cor-texto)]">Arquivo indisponível no momento.</p>
+          <p className="mt-1 text-sm text-[var(--cor-texto-suave)]">
+            {mensagemErro ?? "Não foi possível consultar o arquivo. Não exibimos itens de exemplo."}
+          </p>
+          {requestId ? <p className="mt-2 text-xs text-[var(--cor-texto-suave)]">Código de suporte: {requestId}</p> : null}
+        </div>
+      )}
+
+      {estado === "vazio" && (
+        <Card className="border-[var(--cor-borda)] bg-[var(--cor-fundo-card)]">
+          <CardContent className="p-6 text-center">
+            <p className="text-sm font-medium text-[var(--cor-texto)]">Fim do arquivo.</p>
+            <p className="mt-1 text-sm text-[var(--cor-texto-suave)]">
+              Não há notícias anteriores a esta página.{" "}
+              <Link href="/arquivo" className="font-medium text-[var(--cor-primaria)] underline">Voltar à primeira página</Link>.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      {itens.length > 0 && (
+        <div className="grid gap-3">
+          {itens.map((n)=>(
+            <Link key={`${n.tipo}-${n.id}`} href={`/noticia/${n.id}`} className="flex gap-3 rounded-[var(--raio-lg)] border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] p-3 hover:bg-[var(--cor-primaria-suave)]">
+              <span className="hidden aspect-[16/9] h-14 w-24 shrink-0 overflow-hidden rounded-md border border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] md:block" aria-hidden>
+                <ImagemNoticia src={n.imagem_url} seed={`${n.categoria || "geral"}-${n.id}`} alt="" sizes="192px" className="h-full w-full object-cover" />
+              </span>
+              <div className="min-w-0 flex-1"><div className="flex items-center gap-2"><Badge variant="outline" className="border-[var(--cor-borda)] capitalize text-xs">{n.categoria}</Badge>{n.urgente&&<Badge className="bg-[var(--cor-sinal)] text-[var(--cor-texto-invertido)] text-xs">urgente</Badge>}<span className="ml-auto text-xs text-[var(--cor-texto-suave)]">{formatarDataHoraCompacta(n.timestamp)}</span></div><p className="mt-1 line-clamp-2 font-semibold text-[var(--cor-texto)]">{n.titulo}</p><p className="line-clamp-1 text-sm text-[var(--cor-texto-suave)]">{n.resumo}</p></div>
+            </Link>
+          ))}
+        </div>
+      )}
+
+      {itens.length > 0 && <AdsSlot id="arquivo-infeed" formato="in-feed" />}
       {itens.length > 6 && <AdsSlot id="arquivo-horizontal" formato="horizontal" className="my-6" />}
-      <div className="flex gap-2">
-        {page > 1 && <Link href={`/arquivo?page=${page - 1}`} className="rounded-md border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] px-3 py-2 text-sm text-[var(--cor-texto)] hover:bg-[var(--cor-borda)]">← Anterior</Link>}
-        <Link href={`/arquivo?page=${page + 1}`} className="rounded-md border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] px-3 py-2 text-sm text-[var(--cor-texto)] hover:bg-[var(--cor-borda)]">Próxima →</Link>
-      </div>
+      {itens.length > 0 && (
+        <div className="flex gap-2">
+          {page > 1 && <Link href={`/arquivo?page=${page - 1}`} className="rounded-md border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] px-3 py-2 text-sm text-[var(--cor-texto)] hover:bg-[var(--cor-borda)]">← Anterior</Link>}
+          <Link href={`/arquivo?page=${page + 1}`} className="rounded-md border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] px-3 py-2 text-sm text-[var(--cor-texto)] hover:bg-[var(--cor-borda)]">Próxima →</Link>
+        </div>
+      )}
     </div>
   );
 }

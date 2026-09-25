@@ -3,7 +3,7 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth-context";
-import { salvarLocalidade, removerLocalidade, ApiError, type RadarTendencias, type RadarEvolucao, type LocalidadeSalva } from "@/lib/api";
+import { salvarLocalidade, removerLocalidade, ApiError, type LocalidadeSalva } from "@/lib/api";
 import { useQueryTendenciasRadar, useQueryRadarEvolucao, useQueryRadarLocalidadesSalvas, invalidarQueriesRadarLocalidades } from "@/lib/queries";
 import { queryKeys } from "@/lib/query-keys";
 import { usePremiumAtivo } from "@/lib/premium";
@@ -22,8 +22,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { RefreshCw, MapPin, TrendingUp, BarChart3, BookmarkPlus, Bookmark, X, AlertCircle, Loader2, ExternalLink, Crown } from "lucide-react";
 
-const MOCK_T: RadarTendencias = { aviso_metodologia: "Dados de exemplo", localidade: { pais: null, estado: null, cidade: null }, assuntos_em_alta: [{ categoria: "politica", numero_noticias: 12, numero_fontes: 4, cluster_id: 1, item_id: null }, { categoria: "tecnologia", numero_noticias: 8, numero_fontes: 3, cluster_id: null, item_id: 2 }, { categoria: "economia", numero_noticias: 5, numero_fontes: 2, cluster_id: 3, item_id: null }] };
-function mockSerie(): RadarEvolucao { const hoje = new Date(); const serie = Array.from({ length: 7 }, (_, i) => { const d = new Date(hoje); d.setDate(hoje.getDate() - (6 - i)); return { dia: d.toISOString().slice(0, 10), numero_noticias: Math.floor(2 + Math.random() * 8) }; }); return { aviso_metodologia: "Dados de exemplo", categoria: null, serie }; }
+// Sem fallback sintético. A tela do Radar mostra o que o backend respondeu
+// (run 20260925-1020-observabilidade, critérios 11 e 12):
+//   - `tendenciasQuery` em erro  -> estado de erro explícito, sem lista;
+//   - `evolucaoQuery` em erro 403 -> o gate Premium é REAL (o backend respondeu
+//     403), e mesmo assim a prévia de 7 dias só existe se o backend a mandou.
+// Antes havia `MOCK_T` (três "assuntos em alta" fixos) e `mockSerie()` com
+// `Math.random()` a CADA render: o gráfico de evolução mudava de valor a cada
+// re-render, sem nenhuma leitura do backend, e ainda era rotulado "Dados de
+// exemplo" — ou seja, um número de notícias inventado e instável.
 const CATS = ["", "politica", "economia", "tecnologia", "cidades", "esportes", "cultura", "geral"];
 
 function locLabel(l: { pais?: string | null; estado?: string | null; cidade?: string | null }) { const p = [l.pais, l.estado, l.cidade].filter(Boolean).join(" · "); return p || "Recorte nacional"; }
@@ -64,34 +71,15 @@ export default function RadarClient() {
     usuarioId,
   });
 
-  const fallbackTendencias = useMemo<RadarTendencias | null>(() => {
-    if (!tendenciasQuery.isError) return null;
-    return {
-      ...MOCK_T,
-      localidade: {
-        pais: filtros.pais || null,
-        estado: filtros.estado || null,
-        cidade: filtros.cidade || null,
-      },
-    };
-  }, [filtros, tendenciasQuery.isError]);
-  const tend = tendenciasQuery.data ?? fallbackTendencias;
+  // Sem dado sintético: `data` é a única fonte. Erro é erro, e a tela abaixo
+  // mostra o motivo real (status + código de correlação) em vez de um gráfico.
+  const tend = tendenciasQuery.data ?? null;
   const loadingT = tendenciasQuery.isFetching;
-
-  const fallbackEvolucao = useMemo<RadarEvolucao | null>(() => {
-    if (!evolucaoQuery.isError) return null;
-    if (evolucaoQuery.error instanceof ApiError && evolucaoQuery.error.status === 403) {
-      return {
-        aviso_metodologia: "Prévia de 7 dias — seja Premium para ver a série completa, sem limites.",
-        categoria: evoCat || null,
-        serie: mockSerie().serie,
-      };
-    }
-    return { ...mockSerie(), categoria: evoCat || null };
-  }, [evoCat, evolucaoQuery.error, evolucaoQuery.isError]);
-  const evo = evolucaoQuery.data ?? fallbackEvolucao;
+  const evo = evolucaoQuery.data ?? null;
   const loadingE = Boolean(token) && evolucaoQuery.isFetching;
   const salvas = localidadesQuery.data ?? [];
+  const erroTendencias = tendenciasQuery.isError ? tendenciasQuery.error : null;
+  const erroEvolucao = evolucaoQuery.isError ? evolucaoQuery.error : null;
 
   const salvarMutation = useMutation({
     mutationFn: (dados: Parameters<typeof salvarLocalidade>[1]) => {
@@ -155,6 +143,18 @@ export default function RadarClient() {
         <Button variant="outline" size="sm" onClick={() => { void tendenciasQuery.refetch(); if (token) void evolucaoQuery.refetch(); void localidadesQuery.refetch(); }} className="border-[var(--cor-borda)] bg-[var(--cor-fundo-card)]"><RefreshCw className="h-4 w-4" />Atualizar</Button>
       </div>
 
+      {erroTendencias && (
+        <Alert variant="destructive" className="border-[var(--cor-erro)]/40 bg-[var(--cor-erro-suave)]">
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle className="text-sm">Não foi possível carregar as tendências</AlertTitle>
+          <AlertDescription className="text-xs">
+            {erroTendencias instanceof Error ? erroTendencias.message : "Falha inesperada."}
+            {erroTendencias instanceof ApiError && erroTendencias.requestId
+              ? ` Código de suporte: ${erroTendencias.requestId}.`
+              : ""}
+          </AlertDescription>
+        </Alert>
+      )}
       {tend?.aviso_metodologia && <Alert className="border-[var(--cor-neon-ciano)]/30 bg-[var(--cor-destaque-suave)]"><AlertCircle className="h-4 w-4 text-[var(--cor-neon-ciano)]" /><AlertTitle className="text-[var(--cor-texto)] text-sm">Metodologia</AlertTitle><AlertDescription className="text-[var(--cor-texto-suave)] text-xs">{tend.aviso_metodologia}</AlertDescription></Alert>}
       {msg && <Alert className="border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)]"><AlertDescription className="text-sm text-[var(--cor-texto)]">{msg}</AlertDescription></Alert>}
 
@@ -184,7 +184,7 @@ export default function RadarClient() {
           <Card className="bento border-[var(--cor-borda)] bg-[var(--cor-fundo-card)]">
             <CardHeader className="pb-2"><CardTitle className="text-base">Assuntos em alta</CardTitle><CardDescription className="text-[var(--cor-texto-suave)]">{assuntos.length ? `${assuntos.length} categorias no recorte` : "Sem dados para este recorte"}</CardDescription></CardHeader>
             <CardContent>
-              {loadingT ? <div className="grid gap-3">{Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-16 animate-pulse rounded-[var(--raio-md)] bg-[var(--cor-borda)]" />)}</div> : assuntos.length === 0 ? <div className="rounded-[var(--raio-md)] border border-dashed border-[var(--cor-borda)] p-8 text-center"><p className="text-sm text-[var(--cor-texto-suave)]">Nenhum assunto em alta para este recorte.</p><p className="text-xs text-[var(--cor-texto-suave)] mt-1">Tente limpar filtros ou escolher outro recorte.</p></div> : <div className="grid gap-3">{assuntos.map((a, i) => {
+              {loadingT ? <div className="grid gap-3">{Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-16 animate-pulse rounded-[var(--raio-md)] bg-[var(--cor-borda)]" />)}</div> : erroTendencias ? <div role="alert" className="rounded-[var(--raio-md)] border border-dashed border-[var(--cor-erro)] p-8 text-center"><p className="text-sm font-medium text-[var(--cor-texto)]">Tendências indisponíveis</p><p className="text-xs text-[var(--cor-texto-suave)] mt-1">Não mostramos assuntos em alta de exemplo. Tente recarregar a página.</p></div> : assuntos.length === 0 ? <div className="rounded-[var(--raio-md)] border border-dashed border-[var(--cor-borda)] p-8 text-center"><p className="text-sm text-[var(--cor-texto-suave)]">Nenhum assunto em alta para este recorte.</p><p className="text-xs text-[var(--cor-texto-suave)] mt-1">Tente limpar filtros ou escolher outro recorte.</p></div> : <div className="grid gap-3">{assuntos.map((a, i) => {
                 const href = a.cluster_id ? `/noticia/cluster/${a.cluster_id}` : a.item_id ? `/noticia/item/${a.item_id}` : `/noticia/${a.item_id ?? a.cluster_id ?? ""}`;
                 const hasLink = !!(a.cluster_id || a.item_id);
                 return (
@@ -219,7 +219,7 @@ export default function RadarClient() {
                   </div>
                    <div className="flex items-center gap-2">{!premiumGeral && evo && <Badge variant="outline" className="border-[var(--cor-premium)] text-[var(--cor-premium)]"><Crown className="mr-1 h-3 w-3" /> 7 dias no Free</Badge>}</div>
                   {evoExibido?.aviso_metodologia && <p className="text-xs text-[var(--cor-texto-suave)] border-l-2 border-[var(--cor-neon-ciano)] pl-2">{evoExibido.aviso_metodologia}</p>}
-                  {loadingE ? <div className="h-40 animate-pulse rounded-[var(--raio-md)] bg-[var(--cor-borda)]" /> : !evoExibido || evoExibido.serie.length === 0 ? <div className="rounded-[var(--raio-md)] border border-dashed border-[var(--cor-borda)] p-8 text-center text-sm text-[var(--cor-texto-suave)]">Sem dados para esta categoria/recorte.</div> : (
+                  {loadingE ? <div className="h-40 animate-pulse rounded-[var(--raio-md)] bg-[var(--cor-borda)]" /> : erroEvolucao ? <div role="alert" className="rounded-[var(--raio-md)] border border-dashed border-[var(--cor-erro)] p-8 text-center"><p className="text-sm font-medium text-[var(--cor-texto)]">Evolução indisponível</p><p className="mt-1 text-xs text-[var(--cor-texto-suave)]">{erroEvolucao instanceof Error ? erroEvolucao.message : "Falha inesperada."}</p>{erroEvolucao instanceof ApiError && erroEvolucao.requestId ? <p className="mt-1 text-xs text-[var(--cor-texto-suave)]">Código de suporte: {erroEvolucao.requestId}</p> : null}<p className="mt-1 text-xs text-[var(--cor-texto-suave)]">Não exibimos uma série de exemplo: gráfico inventado seria indistinguível de dado real.</p></div> : !evoExibido || evoExibido.serie.length === 0 ? <div className="rounded-[var(--raio-md)] border border-dashed border-[var(--cor-borda)] p-8 text-center text-sm text-[var(--cor-texto-suave)]">Sem dados para esta categoria/recorte.</div> : (
                     <>
                       <div className="rounded-[var(--raio-md)] border border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] p-3">
                         <div className="flex items-end gap-1 h-40">

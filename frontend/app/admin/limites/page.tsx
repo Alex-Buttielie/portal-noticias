@@ -38,13 +38,14 @@ function isRecente(iso?: string | null) {
   return Date.now() - d < 24 * 60 * 60 * 1000;
 }
 
-const MOCK: Lim[] = [
-  { id: 1, chave: "feed_max_itens", plano: "free", valor: "20", descricao: "Exemplo — limite de itens no feed (free)", atualizado_em: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString() },
-  { id: 2, chave: "feed_max_itens", plano: "premium", valor: "ilimitado", descricao: "Exemplo — sem limite no premium", atualizado_em: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString() },
-  { id: 3, chave: "radar_credito", plano: "free", valor: "3", descricao: "Exemplo — créditos diários do radar", atualizado_em: new Date(Date.now() - 30 * 60 * 1000).toISOString() },
-  { id: 4, chave: "radar_credito", plano: "premium", valor: "ilimitado", descricao: "Exemplo — radar ilimitado", atualizado_em: new Date().toISOString() },
-  { id: 5, chave: "feed_sem_anuncios", plano: "premium", valor: "1", descricao: "Exemplo — feed sem anúncios ativo", atualizado_em: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString() },
-];
+/**
+ * Sem `MOCK`. Limites de plano decidem o que o usuário free/premium pode
+ * fazer; apresentar um valor de exemplo como se fosse o configurado (com um
+ * botão "Editar" que gravaria o exemplo com o id do exemplo) é decisão
+ * operacional sobre dado fictício. A lista vazia da API é um estado legítimo
+ * e é dito como tal — antes ela aciona o mesmo gatilho de erro que a API fora
+ * do ar e imprimia "API offline — exibindo dados de exemplo".
+ */
 
 export default function Page() {
   const { usuario, token } = useAuth();
@@ -60,13 +61,13 @@ export default function Page() {
 
   const brutas = ((consulta.data?.results as unknown as Lim[]) || []);
   const vazia = consulta.isSuccess && !brutas.length;
-  const itens = consulta.isError ? MOCK : (vazia ? MOCK : brutas);
+  const itens = consulta.isError ? [] : brutas;
   const loading = consulta.isFetching;
   const err = consulta.isError
-    ? ((consulta.error instanceof Error ? consulta.error.message : "Falha — API offline") + " — exibindo dados de exemplo.")
-    : vazia
-      ? "API offline — exibindo dados de exemplo."
-      : null;
+    ? (consulta.error instanceof Error
+        ? `${consulta.error.message} — os limites não foram carregados. Nenhum limite foi alterado.`
+        : "Falha ao carregar — os limites não foram carregados. Nenhum limite foi alterado.")
+    : null;
 
   const chaves = useMemo(() => Array.from(new Set(itens.map((i) => i.chave))), [itens]);
   const agrupado = useMemo(() => {
@@ -114,7 +115,8 @@ export default function Page() {
             <Button onClick={() => void consulta.refetch()} disabled={loading} className="min-h-[44px] bg-[var(--cor-primaria)] text-[var(--cor-texto-invertido)]"><RefreshCw className="mr-2 h-4 w-4" />{loading ? "Carregando..." : "Recarregar"}</Button>
             <Badge variant="outline" className="border-[var(--cor-borda)] self-center">{itens.length} registros · {chaves.length} chaves</Badge>
           </div>
-          {err && <p role="alert" className="rounded-md border border-[var(--cor-alerta)] bg-[var(--cor-alerta-suave)] px-3 py-2 text-sm text-[var(--cor-texto)]">{err}</p>}
+          {err && <p role="alert" className="rounded-md border border-[var(--cor-erro)] bg-[var(--cor-erro-suave)] px-3 py-2 text-sm text-[var(--cor-texto)]">{err}</p>}
+          {vazia && !loading && <p role="status" className="rounded-md border border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] px-3 py-2 text-sm text-[var(--cor-texto-suave)]">A API respondeu normalmente e não há nenhum limite cadastrado.</p>}
 
           <div className="grid gap-3 md:grid-cols-2">
             {chaves.map((c) => {

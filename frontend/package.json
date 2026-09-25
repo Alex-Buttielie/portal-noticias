@@ -6,7 +6,10 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test:conteudo-ficticio": "node scripts/verificar-conteudo-ficticio.mjs",
+    "test:query-client": "node scripts/verificar-query-client.mjs",
+    "test:datas-tz": "node scripts/verificar-datas-tz.mjs"
   },
   "dependencies": {
     "@radix-ui/react-accordion": "^1.2.20",

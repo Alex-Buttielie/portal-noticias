@@ -441,51 +441,27 @@ export default function Page() {
               </Badge>
             </div>
             <Separator className="my-4 bg-[var(--cor-borda)]" />
-            <div className="relative ml-3 border-l border-[var(--cor-borda)] pl-6">
-              <div className="space-y-5">
-                <div className="relative">
-                  <span className="absolute -left-[31px] top-1 flex h-5 w-5 items-center justify-center rounded-full border-2 border-[var(--cor-fundo-card)]" style={{ background: "var(--cor-primaria)" }}>
-                    <CheckCircle2 className="h-3 w-3 text-white" />
-                  </span>
-                  <p className="text-sm font-medium text-[var(--cor-texto)]">“Mercado em alta: bolsa fecha em novo recorde” aprovado</p>
-                  <p className="text-xs text-[var(--cor-texto-suave)]">Fila • por admin@brd.com • há 12 min</p>
-                </div>
-                <div className="relative">
-                  <span className="absolute -left-[31px] top-1 flex h-5 w-5 items-center justify-center rounded-full border-2 border-[var(--cor-fundo-card)]" style={{ background: "var(--cor-neon-violeta)" }}>
-                    <UserPlus className="h-3 w-3 text-white" />
-                  </span>
-                  <p className="text-sm font-medium text-[var(--cor-texto)]">Novo cadastro — marina.oliveira@exemplo.com</p>
-                  <p className="text-xs text-[var(--cor-texto-suave)]">Usuários • plano free • há 34 min</p>
-                </div>
-                <div className="relative">
-                  <span className="absolute -left-[31px] top-1 flex h-5 w-5 items-center justify-center rounded-full border-2 border-[var(--cor-fundo-card)]" style={{ background: "var(--cor-neon-ciano)" }}>
-                    <Bot className="h-3 w-3 text-white" />
-                  </span>
-                  <p className="text-sm font-medium text-[var(--cor-texto)]">Robôs executados — 14 itens ingeridos, 3 grupos formados</p>
-                  <p className="text-xs text-[var(--cor-texto-suave)]">Ingestão • sem erros • há 1 h</p>
-                </div>
-                <div className="relative">
-                  <span className="absolute -left-[31px] top-1 flex h-5 w-5 items-center justify-center rounded-full border-2 border-[var(--cor-fundo-card)]" style={{ background: "var(--cor-alerta)" }}>
-                    <Crown className="h-3 w-3 text-white" />
-                  </span>
-                  <p className="text-sm font-medium text-[var(--cor-texto)]">Assinatura Premium renovada — 2 pagamentos aprovados</p>
-                  <p className="text-xs text-[var(--cor-texto-suave)]">Receita • R$ 59,80 • há 2 h</p>
-                </div>
-                <div className="relative">
-                  <span className="absolute -left-[31px] top-1 flex h-5 w-5 items-center justify-center rounded-full border-2 border-[var(--cor-fundo-card)]" style={{ background: "var(--cor-erro)" }}>
-                    <ShieldAlert className="h-3 w-3 text-white" />
-                  </span>
-                  <p className="text-sm font-medium text-[var(--cor-texto)]">Denúncia resolvida — spam removido e autor notificado</p>
-                  <p className="text-xs text-[var(--cor-texto-suave)]">Moderação • há 3 h</p>
-                </div>
-                <div className="relative">
-                  <span className="absolute -left-[31px] top-1 flex h-5 w-5 items-center justify-center rounded-full border-2 border-[var(--cor-fundo-card)]" style={{ background: "var(--cor-texto-suave)" }}>
-                    <FileText className="h-3 w-3 text-white" />
-                  </span>
-                  <p className="text-sm font-medium text-[var(--cor-texto)]">Plano “Premium Anual” atualizado — duração 365 dias</p>
-                  <p className="text-xs text-[var(--cor-texto-suave)]">Planos • há 5 h</p>
-                </div>
-              </div>
+            {/*
+              A linha do tempo de "Atividade recente" era um HTML estático com
+              seis eventos inventados — inclusive uma manchete aprovada, dois
+              cadastros e uma renovação de assinatura com valor em reais, todos
+              com horário relativo inventado. Numa tela de admin isso é
+              GuidanceShape: o operador lê "Fila • por admin@brd.com • há 12
+              min" e acredita que viu um evento real. Não existe endpoint de
+              feed de auditoria no backend, então a informação honesta é dizer
+              que ela não está disponível e apontar para as telas que SÃO
+              reais (critérios 11 e 12).
+            */}
+            <div className="rounded-md border border-dashed border-[var(--cor-borda)] p-6 text-center">
+              <Clock className="mx-auto h-6 w-6 text-[var(--cor-texto-suave)]" aria-hidden />
+              <p className="mt-2 text-sm font-medium text-[var(--cor-texto)]">
+                Feed de atividade indisponível
+              </p>
+              <p className="mx-auto mt-1 max-w-md text-sm text-[var(--cor-texto-suave)]">
+                Ainda não existe um histórico de eventos administrativos na API. Em vez de
+                mostrar um resumo inventado, use as telas abaixo — elas sempre mostram o estado
+                real do sistema.
+              </p>
             </div>
             <div className="mt-5 flex gap-2">
               <Button asChild variant="outline" size="sm" className="border-[var(--cor-borda)]">

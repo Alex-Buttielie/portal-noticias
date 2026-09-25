@@ -5,7 +5,26 @@
  * serializers do backend (identidade/serializers.py, feed/serializers.py,
  * assinatura/serializers.py) — conferidos por leitura direta desses
  * arquivos antes de escrever este cliente, não adivinhados.
+ *
+ * Correlação ponta a ponta (run 20260925-1020-observabilidade, critérios 1, 2,
+ * 3, 28): cada requisição carrega um `X-Request-ID` gerado com WebCrypto, o
+ * valor aceito volta no header de resposta e é o que o `ApiError` carrega para
+ * ser exibido como código de suporte. FALHAS SÃO LOGADAS DE FORMA ESTRUTURADA E
+ * REDIGIDA (ver `registrarFalhaApi`): request id, rota sem query string,
+ * método, status e motivo — nunca token, e-mail, corpo da resposta nem o erro
+ * cru despejado no console.
  */
+
+// Importações deliberadamente limitadas ao que NÃO importa este arquivo: manter
+// este módulo livre de arestas para `lib/cookie-consent.ts` é o que permite
+// ler o consentimento técnico aqui sem criar ciclo de módulos.
+import { consentimentoTecnicoConcedido } from "./consento-local";
+import {
+  caminhoSeguro,
+  gerarRequestId,
+  normalizarRequestId,
+  registrarFalhaApi,
+} from "./observabilidade";
 
 // Navegador em produção usa a MESMA ORIGEM (`/api/...`): o Nginx de cada
 // ambiente (`infra/nginx/portal-{dev,homolog,prod}.conf`) já roteia `/api/`
@@ -18,24 +37,98 @@ export const API_BASE_URL =
     ? ""
     : process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
+/**
+ * Timeout padrão das chamadas de API. Antes não havia nenhum: uma requisição
+ * pendurada em `fetch` no SSR prendia a revalidação da Home até o watchdog do
+ * orquestrador matar o processo. 15 s é folgado para leitura de feed e
+ * apertado para não segurar uma requisição web por mais de um ciclo de
+ * revalidação (`revalidate = 60` na Home).
+ */
+export const TIMEOUT_PADRAO_MS = 15_000;
+
+/** Origem do erro, para a UI não confundir "não respondeu" com "rejeitou". */
+export type MotivoErroApi = "http" | "timeout" | "conexao" | "abort";
+
 export class ApiError extends Error {
   status: number;
   detail: unknown;
+  /**
+   * `X-Request-ID` COMPLETO e normalizado, pronto para ser exibido como código
+   * de suporte (critério 2).
+   *
+   * Antes vinha só do corpo (`request_id`), que o backend só preenche no 500
+   * custom do middleware — 400/401/403/404/429/502 ficavam SEM código de
+   * suporte, que é justamente o caso em que o usuário precisa falar com o
+   * suporte. Agora a fonte autoritativa é o HEADER de resposta, propagado pelo
+   * proxy do Next; o corpo só é usado como último recurso.
+   */
+  requestId: string | null;
+  motivo: MotivoErroApi;
+  /** Estado operacional declarado pelo backend/proxy (`X-Operational-State`). */
+  operacional: "ok" | "degraded" | null;
 
-  constructor(status: number, detail: unknown, message: string) {
+  constructor(
+    status: number,
+    detail: unknown,
+    message: string,
+    extras: {
+      requestId?: string | null;
+      motivo?: MotivoErroApi;
+      operacional?: "ok" | "degraded" | null;
+    } = {}
+  ) {
     super(message);
     this.name = "ApiError";
     this.status = status;
     this.detail = detail;
+    this.requestId = extras.requestId ?? null;
+    this.motivo = extras.motivo ?? "http";
+    this.operacional = extras.operacional ?? null;
   }
+}
+
+/** Opções de transporte que não fazem parte de `RequestInit`. */
+export interface OpcoesRequisicao {
+  /** Sobrescreve `TIMEOUT_PADRAO_MS` nesta chamada. */
+  timeoutMs?: number;
+  /**
+   * Abort externo (TanStack Query/colunistas). Composto com o timeout.
+   * Aceita `null` porque `RequestInit["signal"]` aceita, e as duas funções que
+   * já passavam `signal` declaram o objeto como `RequestInit`.
+   */
+  signal?: AbortSignal | null;
+  /** Recebe os metadados de resposta (correlação/estado operacional). */
+  onResposta?: (metadados: MetadadosResposta) => void;
+}
+
+export interface MetadadosResposta {
+  requestId: string | null;
+  operacional: "ok" | "degraded" | null;
+  ambiente: string | null;
+  release: string | null;
+}
+
+function lerMetadados(resposta: Response, fallbackRequestId: string): MetadadosResposta {
+  const cabecalho = resposta.headers;
+  const bruto = cabecalho.get("X-Request-ID");
+  const operacionalBruto = (cabecalho.get("X-Operational-State") || "").trim().toLowerCase();
+  return {
+    // O header é a fonte autoritativa: o middleware do Django normaliza o que
+    // chegou e devolve o valor efetivo. Ausente ou inválido, o id gerado
+    // localmente é o melhor que existe — é o mesmo valor que o proxy
+    // propagou, desde que o Django o tenha aceitado.
+    requestId: bruto ? normalizarRequestId(bruto) : fallbackRequestId,
+    operacional: operacionalBruto === "degraded" ? "degraded" : operacionalBruto === "ok" ? "ok" : null,
+    ambiente: cabecalho.get("X-Environment"),
+    release: cabecalho.get("X-Release"),
+  };
 }
 
 function extrairMensagemDeErro(corpo: unknown, status: number): string {
   if (corpo && typeof corpo === "object") {
     const objeto = corpo as Record<string, unknown>;
     if (typeof objeto.detail === "string" && objeto.detail.trim().length > 0) {
-      const extra = typeof objeto.request_id === "string" && objeto.request_id ? ` (id: ${String(objeto.request_id).slice(0, 8)})` : "";
-      return objeto.detail + extra;
+      return objeto.detail;
     }
     // DRF costuma devolver erros de validação como {campo: ["mensagem"]}
     const primeiraChave = Object.keys(objeto)[0];
@@ -52,15 +145,42 @@ function extrairMensagemDeErro(corpo: unknown, status: number): string {
   return `Erro inesperado (status ${status}).`;
 }
 
+/**
+ * Compõe o signal externo com o timeout interno.
+ *
+ * `AbortSignal.any` não existe nas versões de runtime em que este bundle roda
+ * (e `AbortSignal.timeout` é só o Chromium 103+/Node 17.3+ com semântica
+ * própria), então a composição é feita à mão. O controller externo continua
+ * funcionando: abortar `signal` aborta a requisição, que é o que
+ * `obterPublicacoes`/`obterPerfilAutor` esperam do TanStack Query.
+ */
+function composingSignal(
+  externo: AbortSignal | null | undefined,
+  controller: AbortController
+): () => void {
+  if (!externo) return () => undefined;
+  if (externo.aborted) {
+    controller.abort(externo.reason);
+    return () => undefined;
+  }
+  const aoAbortar = () => controller.abort(externo.reason);
+  externo.addEventListener("abort", aoAbortar, { once: true });
+  return () => externo.removeEventListener("abort", aoAbortar);
+}
+
 async function request<T>(
   path: string,
-  options: RequestInit = {},
+  options: (RequestInit & OpcoesRequisicao) = {},
   token?: string | null
 ): Promise<T> {
   // Upload de arquivo (ex.: credenciamento/solicitar/) usa FormData — nunca
   // definir Content-Type manualmente nesse caso, o navegador precisa gerar o
   // boundary do multipart sozinho.
   const ehFormData = typeof FormData !== "undefined" && options.body instanceof FormData;
+  // `timeoutMs` e `onResposta` não fazem parte de `RequestInit`: saem do objeto
+  // antes de chegar ao `fetch` (o fetch ignora chaves extras, mas mandá-las é
+  // pedir para algum dia quebrarem de forma silenciosa).
+  const { timeoutMs, onResposta, ...initRequest } = options;
   const headers: Record<string, string> = {
     ...(ehFormData ? {} : { "Content-Type": "application/json" }),
     ...((options.headers as Record<string, string>) || {}),
@@ -69,16 +189,71 @@ async function request<T>(
     headers["Authorization"] = `Token ${token}`;
   }
 
+  // Critério 1: o browser não manda `X-Request-ID`; geramos um UUID seguro por
+  // requisição para que o Django possa correlacionar log, métrica e o 500.
+  const requestId = gerarRequestId();
+  headers["X-Request-ID"] = requestId;
+  // Critérios 5/27: fail-closed. Sem esta categoria concedida, o header NÃO é
+  // enviado e o backend descarta qualquer evento técnico da requisição. Só no
+  // navegador: no SSR não há localStorage, e consentimento é decisão de quem
+  // está com a aba aberta.
+  if (consentimentoTecnicoConcedido()) {
+    headers["X-Technical-Consent"] = "1";
+  }
+
+  const metodo = (initRequest.method || "GET").toUpperCase();
+  const rota = caminhoSeguro(path);
+  const inicio = Date.now();
+  const controller = new AbortController();
+  const removerAbortExterno = composingSignal(initRequest.signal, controller);
+  const limite = Number.isFinite(timeoutMs) && (timeoutMs as number) > 0
+    ? (timeoutMs as number)
+    : TIMEOUT_PADRAO_MS;
+  let expirou = false;
+  const temporizador = setTimeout(() => {
+    expirou = true;
+    controller.abort();
+  }, limite);
+
   let resposta: Response;
   try {
-    resposta = await fetch(`${API_BASE_URL}${path}`, { ...options, headers });
-  } catch (err) {
-    console.error("[api] fetch falhou", err);
+    resposta = await fetch(`${API_BASE_URL}${path}`, { ...initRequest, headers, signal: controller.signal });
+  } catch (erro) {
+    const abortadoExternamente = Boolean(initRequest.signal?.aborted) && !expirou;
+    const motivo: MotivoErroApi = expirou ? "timeout" : abortadoExternamente ? "abort" : "conexao";
+    registrarFalhaApi({
+      origem: "cliente",
+      requestId,
+      metodo,
+      rota,
+      status: null,
+      motivo,
+      duracaoMs: Date.now() - inicio,
+    });
+    if (motivo === "timeout") {
+      throw new ApiError(504, null, `A requisição demorou demais e foi cancelada após ${Math.round(limite / 1000)} s. Tente novamente.`, { requestId, motivo, operacional: null });
+    }
+    if (motivo === "abort") {
+      throw new ApiError(0, null, "Requisição cancelada.", { requestId, motivo, operacional: null });
+    }
     throw new ApiError(
       0,
       null,
-      "Não foi possível conectar ao servidor. Verifique sua conexão e tente novamente."
+      "Não foi possível conectar ao servidor. Verifique sua conexão e tente novamente.",
+      { requestId, motivo, operacional: null }
     );
+  } finally {
+    clearTimeout(temporizador);
+    removerAbortExterno();
+  }
+
+  const metadados = lerMetadados(resposta, requestId);
+  if (onResposta) {
+    try {
+      onResposta(metadados);
+    } catch {
+      // Observador não pode derrubar a requisição.
+    }
   }
 
   let corpo: unknown = null;
@@ -92,7 +267,29 @@ async function request<T>(
   }
 
   if (!resposta.ok) {
-    throw new ApiError(resposta.status, corpo, extrairMensagemDeErro(corpo, resposta.status));
+    registrarFalhaApi({
+      origem: "cliente",
+      requestId: metadados.requestId,
+      metodo,
+      rota,
+      status: resposta.status,
+      motivo: "http",
+      duracaoMs: Date.now() - inicio,
+    });
+    // Prioridade: header > corpo. O corpo só tem `request_id` no 500 custom do
+    // middleware; o header é preenchido em TODA resposta pelo
+    // `RequestIdMiddleware`.
+    const doCorpo = corpo && typeof corpo === "object"
+      ? (corpo as Record<string, unknown>).request_id
+      : undefined;
+    const idFinal =
+      metadados.requestId ||
+      (typeof doCorpo === "string" && doCorpo ? normalizarRequestId(doCorpo) : null);
+    throw new ApiError(resposta.status, corpo, extrairMensagemDeErro(corpo, resposta.status), {
+      requestId: idFinal,
+      motivo: "http",
+      operacional: metadados.operacional,
+    });
   }
 
   return corpo as T;
@@ -355,34 +552,40 @@ export interface HomeSecoesResposta extends SecoesHome {
   // Usar `obterStatusSistema()` (`GET /api/gating/status`, ver lib/premium.ts).
 }
 
-export function obterHomeSecoes(params: {
-  limite?: number;
-  pais?: string;
-  estado?: string;
-  cidade?: string;
-} = {}): Promise<HomeSecoesResposta> {
+export function obterHomeSecoes(
+  params: {
+    limite?: number;
+    pais?: string;
+    estado?: string;
+    cidade?: string;
+  } = {},
+  opcoes: OpcoesRequisicao = {}
+): Promise<HomeSecoesResposta> {
   const query = new URLSearchParams();
   if (params.limite) query.set("limite", String(params.limite));
   if (params.pais) query.set("pais", params.pais);
   if (params.estado) query.set("estado", params.estado);
   if (params.cidade) query.set("cidade", params.cidade);
   const qs = query.toString();
-  return request(`/api/feed/home/${qs ? `?${qs}` : ""}`, { method: "GET" });
+  return request(`/api/feed/home/${qs ? `?${qs}` : ""}`, { method: "GET", ...opcoes });
 }
 
-export function obterDestaquesDia(params: {
-  limite?: number;
-  pais?: string;
-  estado?: string;
-  cidade?: string;
-} = {}): Promise<EntradaRanqueda[]> {
+export function obterDestaquesDia(
+  params: {
+    limite?: number;
+    pais?: string;
+    estado?: string;
+    cidade?: string;
+  } = {},
+  opcoes: OpcoesRequisicao = {}
+): Promise<EntradaRanqueda[]> {
   const query = new URLSearchParams();
   if (params.limite) query.set("limite", String(params.limite));
   if (params.pais) query.set("pais", params.pais);
   if (params.estado) query.set("estado", params.estado);
   if (params.cidade) query.set("cidade", params.cidade);
   const qs = query.toString();
-  return request(`/api/feed/destaques/${qs ? `?${qs}` : ""}`, { method: "GET" });
+  return request(`/api/feed/destaques/${qs ? `?${qs}` : ""}`, { method: "GET", ...opcoes });
 }
 
 export interface ResultadoBusca extends EntradaRanqueda {

@@ -13,10 +13,21 @@
  * vai junto quando o usuário permitiu/selecionou região. Sem IP, sem
  * user-agent bruto. `window.__portalTrack` expõe o tracker para qualquer
  * frente instrumentar declarativamente, sem importar este módulo.
+ *
+ * REDAÇÃO (run 20260925-1020-observabilidade, critério 28): `payload.path` era
+ * preenchido com `location.pathname + location.search`, ou seja, a query string
+ * COMPLETA ia para um evento de produto a cada `page_view`. Isso colocava
+ * Things que o usuário digitou (termos de busca, e-mail em Invite, token de
+ * convite) dentro de um evento analítico, com retenção de 12 meses no backend.
+ * Agora o `path` é sempre só o pathname — query string e fragmento nunca saem
+ * daqui, nem quando o chamador passa `path` explicitamente. O termo da busca
+ * continua indo no campo `termo`/`query` do evento de busca, que é o contrato
+ * de produto já existente e é redigido no backend.
  */
 
 import { API_BASE_URL } from "./api";
 import { permiteCategoria } from "./cookie-consent";
+import { caminhoSeguro } from "./observabilidade";
 
 export const TIPOS_EVENTO = [
   "page_view",
@@ -129,9 +140,13 @@ export function track(payload: PayloadEvento): boolean {
   if (typeof window === "undefined") return false;
   if (!consentido()) return false;
   try {
+    // `caminhoSeguro` remove query string, fragment e userinfo do path. Vale
+    // para o `path` explícito também: nenhum chamador deve conseguir reintroduzir
+    // dado sensível no evento por passes `path` à mão.
+    const pathInformado = payload.path ? caminhoSeguro(payload.path) : "";
     const corpo = {
       ...payload,
-      path: payload.path ?? window.location.pathname + window.location.search,
+      path: pathInformado || caminhoSeguro(window.location.pathname),
       sessao: payload.sessao ?? obterSessao(),
       dispositivo: payload.dispositivo ?? detectarDispositivo(),
       origem: payload.origem ?? detectarOrigem(),

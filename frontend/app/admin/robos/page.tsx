@@ -29,12 +29,16 @@ type Fonte = api.FonteRobo;
 type Cfg = api.ConfigRobo;
 type Exec = api.ExecucaoRobo;
 
-/** Fallback mock de fontes quando a API falha (comportamento original preservado). */
-const FONTES_MOCK: Fonte[] = [
-  { id: 1, nome: "G1", url: "https://g1.globo.com/rss/g1/", ativo: true, categoria_padrao: "geral", criado_em: new Date().toISOString(), atualizado_em: new Date().toISOString() },
-  { id: 2, nome: "UOL", url: "https://rss.uol.com.br/feed/noticias.xml", ativo: true, categoria_padrao: "geral", criado_em: new Date().toISOString(), atualizado_em: new Date().toISOString() },
-];
-
+/**
+ * Sem `FONTES_MOCK`.
+ *
+ * As duas fontes de exemplo ("G1" e "UOL" com `id` 1 e 2) apareciam na tela
+ * quando a API falhava, e os botões de remover/editar seguiam ativos: they'd
+ * emitir `DELETE /api/admin/robos/fontes/1/`, que é a fonte REAL de id 1. Num
+ * robô de ingestão, desativar ou apagar a fonte errada significa parar de
+ * coletar de um veículo real sem que ninguém tenha decidido isso. Estado
+ * explícito de "API indisponível" é o único desfecho aceitável.
+ */
 function rel(iso: string) {
   const d = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
   if (d < 60) return `há ${d}s`;
@@ -96,13 +100,18 @@ const loadingF = fontesQuery.isLoading;
 const loadingC = cfgQuery.isLoading;
 const loadingE = execsQuery.isLoading;
 
-// Sincroniza dados da query ao estado local; em erro, aplica o fallback mock.
+// Sincroniza dados da query ao estado local. Em erro a lista de fontes é
+// ESVAZIADA (antes recebia o fallback fictício): uma lista vazia com a tela
+// avisando "API indisponível" impede que um `id` de exemplo vire um
+// DELETE/PATCH numa fonte real.
 useEffect(() => {
+  if (fontesQuery.isError) {
+    setFontes([]);
+    return;
+  }
   if (fontesQuery.data) {
     setFontes(fontesQuery.data);
     if (fontesQuery.data.length === 0) setOk("Nenhuma fonte cadastrada — crie a primeira abaixo.");
-  } else if (fontesQuery.isError) {
-    setFontes(FONTES_MOCK);
   }
   if (cfgQuery.data) { setCfg(cfgQuery.data); setCfgOrig(cfgQuery.data); }
   if (execsQuery.data) setExecs(execsQuery.data);
@@ -335,7 +344,7 @@ const erroCarregamento = fontesQuery.isError
                 <Button size="sm" variant="outline" onClick={carregarFontes} disabled={loadingF} className="min-h-[36px] border-[var(--cor-borda)]"><RefreshCw className="mr-1 h-3 w-3" />{loadingF ? "Carregando..." : "Atualizar"}</Button>
                 <Badge variant="outline" className="border-[var(--cor-borda)]">{fontesFiltradas.length} / {fontes.length}</Badge>
               </div>
-              {loadingF ? <div className="space-y-2"><Skeleton className="h-20 w-full" /><Skeleton className="h-20 w-full" /></div> : fontesFiltradas.length === 0 ? <div className="rounded-md border border-dashed border-[var(--cor-borda)] p-8 text-center"><Database className="mx-auto h-8 w-8 text-[var(--cor-texto-suave)]" /><p className="mt-2 text-sm font-medium text-[var(--cor-texto)]">{fontes.length === 0 ? "Nenhuma fonte cadastrada" : "Nenhum resultado para o filtro"}</p><p className="text-xs text-[var(--cor-texto-suave)]">Crie a primeira fonte no formulário abaixo.</p></div> : <div className="grid gap-2">
+              {loadingF ? <div className="space-y-2"><Skeleton className="h-20 w-full" /><Skeleton className="h-20 w-full" /></div> : fontesQuery.isError ? <div role="alert" className="rounded-md border border-dashed border-[var(--cor-erro)] p-8 text-center"><Database className="mx-auto h-8 w-8 text-[var(--cor-texto-suave)]" /><p className="mt-2 text-sm font-medium text-[var(--cor-texto)]">Fontes indisponíveis</p><p className="mt-1 text-xs text-[var(--cor-texto-suave)]">A API não respondeu, então nenhuma fonte real foi carregada. Nenhuma fonte de exemplo é listada e nenhuma ação de remoção/edição fica disponível — ativar ou apagar a fonte errada pararia a coleta de um veículo real.</p></div> : fontesFiltradas.length === 0 ? <div className="rounded-md border border-dashed border-[var(--cor-borda)] p-8 text-center"><Database className="mx-auto h-8 w-8 text-[var(--cor-texto-suave)]" /><p className="mt-2 text-sm font-medium text-[var(--cor-texto)]">{fontes.length === 0 ? "Nenhuma fonte cadastrada" : "Nenhum resultado para o filtro"}</p><p className="text-xs text-[var(--cor-texto-suave)]">Crie a primeira fonte no formulário abaixo.</p></div> : <div className="grid gap-2">
                 {fontesFiltradas.map((f) => {
                   const hasErr = !!healthPorFonte[f.nome] || !!healthPorFonte[f.url];
                   return <div key={f.id} className={`rounded-md border p-3 ${hasErr ? "border-[var(--cor-erro)] bg-[var(--cor-erro-suave)]" : "border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)]"}`}>

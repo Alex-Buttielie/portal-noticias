@@ -19,11 +19,6 @@ import { BadgeCheck, Crown, Pencil, Plus, RefreshCw, ShieldAlert, Trash2 } from 
 
 type Plano = api.Plano;
 
-const MOCK: Plano[] = [
-  { id: 1, nome: "Free", preco: "0.00", duracao_dias: 0, ativo: true },
-  { id: 2, nome: "Premium", preco: "29.90", duracao_dias: 30, ativo: true },
-];
-
 function precoValido(v: string) { return /^\d+(\.\d{1,2})?$/.test(v.trim()); }
 
 export default function Page() {
@@ -55,13 +50,22 @@ export default function Page() {
     : [];
   const lista = Array.isArray(brutasRaw) ? brutasRaw : [];
   const vazia = consulta.isSuccess && !lista.length;
-  const planos = consulta.isError ? MOCK : (vazia ? MOCK : lista);
+
+  // Sem `MOCK`. Esta é uma TELA DE DECISÃO: preço e disponibilidade de planos
+  // alimentam cobrança. O código anterior tratava os dois casos como o mesmo
+  // evento — `isError` E `isSuccess && lista vazia` caíam no array de exemplo —
+  // e o texto "API offline — exibindo dados de exemplo" aparecia inclusive
+  // quando a API respondia 200 com zero planos, ou seja, accuseando a API de
+  // estar fora do ar num estado perfeitamente saudável. Além disso, os botões
+  // "Editar"/"Excluir" ficavam apontando para os ids 1 e 2 do exemplo, então
+  // um clique em "Excluir" num erro de rede podia mirar num plano real.
+  const planos = lista;
   const loading = consulta.isFetching;
   const err = consulta.isError
-    ? ((consulta.error instanceof Error ? consulta.error.message : "Falha ao carregar — tentaremos novamente") + " — exibindo dados de exemplo.")
-    : vazia
-      ? "API offline — exibindo dados de exemplo."
-      : null;
+    ? (consulta.error instanceof Error
+        ? `${consulta.error.message} — a lista de planos não foi carregada. Nenhum plano foi alterado.`
+        : "Falha ao carregar — a lista de planos não foi carregada. Nenhum plano foi alterado.")
+    : null;
 
   function validar(nomeV: string, precoV: string, diasV: string): string | null {
     if (!nomeV.trim()) return "Nome é obrigatório.";
@@ -133,7 +137,8 @@ export default function Page() {
             <Button onClick={() => void consulta.refetch()} disabled={loading} className="min-h-[44px] bg-[var(--cor-primaria)] text-[var(--cor-texto-invertido)]"><RefreshCw className="mr-2 h-4 w-4" />{loading ? "Carregando..." : "Recarregar"}</Button>
             <Badge variant="outline" className="border-[var(--cor-borda)] self-center">{planos.length} planos</Badge>
           </div>
-          {err && <p role="alert" className="rounded-md border border-[var(--cor-alerta)] bg-[var(--cor-alerta-suave)] px-3 py-2 text-sm text-[var(--cor-texto)]">{err}</p>}
+          {err && <p role="alert" className="rounded-md border border-[var(--cor-erro)] bg-[var(--cor-erro-suave)] px-3 py-2 text-sm text-[var(--cor-texto)]">{err}</p>}
+          {vazia && !loading && <p role="status" className="rounded-md border border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] px-3 py-2 text-sm text-[var(--cor-texto-suave)]">A API respondeu normalmente e não há nenhum plano cadastrado. Crie o primeiro abaixo.</p>}
 
           <div className="rounded-md border border-[var(--cor-alerta)] bg-[var(--cor-alerta-suave)] px-3 py-2 flex gap-2 text-xs text-[var(--cor-texto)]"><ShieldAlert className="h-4 w-4 shrink-0 text-[var(--cor-alerta)]" /> Exclusão protegida se houver assinaturas vinculadas — o servidor retorna 409 e a ação é bloqueada.</div>
 
