@@ -1,5 +1,6 @@
 "use client";
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -11,6 +12,8 @@ import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth-context";
 import * as api from "@/lib/api";
+import { useQueryAdminPlanos } from "@/lib/queries";
+import { queryKeys } from "@/lib/query-keys";
 import { formatarDataHoraCompleta } from "@/lib/datas";
 import { BadgeCheck, Crown, Pencil, Plus, RefreshCw, ShieldAlert, Trash2 } from "lucide-react";
 
@@ -24,10 +27,9 @@ const MOCK: Plano[] = [
 function precoValido(v: string) { return /^\d+(\.\d{1,2})?$/.test(v.trim()); }
 
 export default function Page() {
-  const { token } = useAuth();
-  const [planos, setPlanos] = useState<Plano[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
+  const { usuario, token } = useAuth();
+  const cliente = useQueryClient();
+  const consulta = useQueryAdminPlanos({ token, usuarioId: usuario?.id ?? 0 });
   const [log, setLog] = useState<string[]>([]);
 
   const [nome, setNome] = useState("");
@@ -48,21 +50,18 @@ export default function Page() {
   const [excluir, setExcluir] = useState<Plano | null>(null);
   const [excluindo, setExcluindo] = useState(false);
 
-  const carregar = useCallback(async () => {
-    setErr(null); setLoading(true);
-    try {
-      const r = await api.adminListarPlanos(token || "");
-      const arr = (r as unknown as { results?: Plano[] })?.results ?? (r as unknown as Plano[]);
-      const lista = Array.isArray(arr) ? arr : [];
-      if (!lista.length) { setPlanos(MOCK); setErr("API offline — exibindo dados de exemplo."); }
-      else setPlanos(lista);
-    } catch (e: unknown) {
-      const m = e instanceof Error ? e.message : "Falha ao carregar — tentaremos novamente";
-      setErr(m + " — exibindo dados de exemplo."); setPlanos(MOCK);
-    } finally { setLoading(false); }
-  }, [token]);
-
-  useEffect(() => { void carregar(); }, [carregar]);
+  const brutasRaw = consulta.data
+    ? ((consulta.data as unknown as { results?: Plano[] })?.results ?? (consulta.data as unknown as Plano[]))
+    : [];
+  const lista = Array.isArray(brutasRaw) ? brutasRaw : [];
+  const vazia = consulta.isSuccess && !lista.length;
+  const planos = consulta.isError ? MOCK : (vazia ? MOCK : lista);
+  const loading = consulta.isFetching;
+  const err = consulta.isError
+    ? ((consulta.error instanceof Error ? consulta.error.message : "Falha ao carregar — tentaremos novamente") + " — exibindo dados de exemplo.")
+    : vazia
+      ? "API offline — exibindo dados de exemplo."
+      : null;
 
   function validar(nomeV: string, precoV: string, diasV: string): string | null {
     if (!nomeV.trim()) return "Nome é obrigatório.";
@@ -82,7 +81,7 @@ export default function Page() {
       toast.success("Plano criado");
       setLog((p) => [`${formatarDataHoraCompleta(new Date())} — criar ${nome.trim()} R$ ${preco.trim()} ${dias}d ativo=${ativo}`].concat(p).slice(0, 20));
       setNome(""); setPreco(""); setDias("30"); setAtivo(true);
-      await carregar();
+      await cliente.invalidateQueries({ queryKey: queryKeys.admin.planosAdmin() });
     } catch (e: unknown) { const m = e instanceof Error ? e.message : "Falha ao criar"; setErrForm(m); toast.error(m); }
     finally { setCriando(false); }
   }
@@ -100,7 +99,8 @@ export default function Page() {
       await api.adminAtualizarPlano(token || "", edit.id, { nome: eNome.trim(), preco: ePreco.trim(), duracao_dias: Number(eDias), ativo: eAtivo });
       toast.success("Plano atualizado");
       setLog((p) => [`${formatarDataHoraCompleta(new Date())} — editar #${edit.id} → ${eNome.trim()} R$ ${ePreco.trim()} ${eDias}d ativo=${eAtivo}`].concat(p).slice(0, 20));
-      setEdit(null); await carregar();
+      setEdit(null);
+      await cliente.invalidateQueries({ queryKey: queryKeys.admin.planosAdmin() });
     } catch (e: unknown) { const m = e instanceof Error ? e.message : "Falha ao atualizar"; setEErr(m); toast.error(m); }
     finally { setSaving(false); }
   }
@@ -112,11 +112,12 @@ export default function Page() {
       await api.adminExcluirPlano(token || "", excluir.id);
       toast.success("Plano excluído");
       setLog((p) => [`${formatarDataHoraCompleta(new Date())} — excluir #${excluir.id} ${excluir.nome}`].concat(p).slice(0, 20));
-      setExcluir(null); await carregar();
+      setExcluir(null);
+      await cliente.invalidateQueries({ queryKey: queryKeys.admin.planosAdmin() });
     } catch (e: unknown) {
-      const err = e as { status?: number; message?: string };
-      const msg = err?.status === 409 ? "Exclusão protegida: existem assinaturas vinculadas a este plano (409)." : (err?.message || "Falha ao excluir.");
-      toast.error(msg); setErr(msg);
+      const erro = e as { status?: number; message?: string };
+      const msg = erro?.status === 409 ? "Exclusão protegida: existem assinaturas vinculadas a este plano (409)." : (erro?.message || "Falha ao excluir.");
+      toast.error(msg); setEErr(msg);
     } finally { setExcluindo(false); }
   }
 
@@ -129,7 +130,7 @@ export default function Page() {
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex flex-wrap gap-2">
-            <Button onClick={carregar} disabled={loading} className="min-h-[44px] bg-[var(--cor-primaria)] text-[var(--cor-texto-invertido)]"><RefreshCw className="mr-2 h-4 w-4" />{loading ? "Carregando..." : "Recarregar"}</Button>
+            <Button onClick={() => void consulta.refetch()} disabled={loading} className="min-h-[44px] bg-[var(--cor-primaria)] text-[var(--cor-texto-invertido)]"><RefreshCw className="mr-2 h-4 w-4" />{loading ? "Carregando..." : "Recarregar"}</Button>
             <Badge variant="outline" className="border-[var(--cor-borda)] self-center">{planos.length} planos</Badge>
           </div>
           {err && <p role="alert" className="rounded-md border border-[var(--cor-alerta)] bg-[var(--cor-alerta-suave)] px-3 py-2 text-sm text-[var(--cor-texto)]">{err}</p>}

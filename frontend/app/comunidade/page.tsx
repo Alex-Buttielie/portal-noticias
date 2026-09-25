@@ -13,6 +13,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { AdsSlot } from "@/components/AdsSlot";
 import { SeloFormato, barraPorFormato, formatoDaPublicacao } from "@/components/comunidade/TipoSelo";
 import { useAuth } from "@/lib/auth-context";
+import { useQueryPublicacoesComunidade, invalidarQueriesComunidade } from "@/lib/queries";
+import type { FiltrosPublicacoesComunidade } from "@/lib/query-keys";
+import { useQueryClient } from "@tanstack/react-query";
 import * as api from "@/lib/api";
 import { registrarEventoComunidade } from "@/lib/interacoes-comunidade";
 import { formatarDataCurta } from "@/lib/datas";
@@ -69,9 +72,7 @@ function EsqueletoFeed() {
 
 export default function Page() {
   const { token } = useAuth();
-  const [pubs, setPubs] = useState<api.Publicacao[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [erroFeed, setErroFeed] = useState<string | null>(null);
+  const queryClient = useQueryClient();
   const [tab, setTab] = useState("feed");
   const [tipoFiltro, setTipoFiltro] = useState<string>("todos");
   const [catFiltro, setCatFiltro] = useState<string>("todas");
@@ -101,22 +102,21 @@ export default function Page() {
   const ordenar: "recentes" | "discutidos" | "destaques" =
     tab === "discutidos" ? "discutidos" : tab === "destaques" ? "destaques" : "recentes";
 
-  const carregar = useCallback(async () => {
-    setLoading(true);
-    setErroFeed(null);
-    try {
-      const params: Parameters<typeof api.obterPublicacoes>[0] = { ordenar };
-      const cat = grupoFiltro || (catFiltro !== "todas" ? catFiltro : undefined);
-      if (cat) params.categoria = cat;
-      if (tipoFiltro !== "todos") params.tipo = tipoFiltro;
-      if (buscaDeb) params.busca = buscaDeb;
-      if (tab === "destaques") params.destaque = true;
-      const r = await api.obterPublicacoes(params);
-      setPubs(r?.length ? r : MOCK_PUBS);
-      registrarEventoComunidade("ver_feed", { categoria: cat });
-    } catch {
-      // Fallback local (modo offline) + filtro client-side sobre o mock.
-      const fb = MOCK_PUBS.filter((p) => {
+  // --- Migração TanStack Query: filtros dinâmicos na query key.
+  // Quando tab/categoria/tipo/busca mudam, a chave muda e a query refetch sozinha.
+  const filtros: FiltrosPublicacoesComunidade = {
+    ordenar,
+    categoria: grupoFiltro || (catFiltro !== "todas" ? catFiltro : undefined),
+    tipo: tipoFiltro !== "todos" ? tipoFiltro : undefined,
+    busca: buscaDeb || undefined,
+    destaque: tab === "destaques" ? true : undefined,
+  };
+  const { data: pubsData, isLoading, isError, error, refetch } = useQueryPublicacoesComunidade(filtros);
+
+  // Fallback local (modo offline): filtro client-side sobre o mock quando a API falha.
+  const pubs = useMemo(() => {
+    if (isError) {
+      return MOCK_PUBS.filter((p) => {
         if (tipoFiltro !== "todos" && p.tipo !== tipoFiltro) return false;
         const cat = grupoFiltro || (catFiltro !== "todas" ? catFiltro : null);
         if (cat && p.categoria !== cat) return false;
@@ -124,14 +124,15 @@ export default function Page() {
         if (buscaDeb && !`${p.titulo} ${p.autor_nome}`.toLowerCase().includes(buscaDeb.toLowerCase())) return false;
         return true;
       });
-      setPubs(fb);
-      setErroFeed("Não foi possível carregar o feed ao vivo — mostrando conteúdo local.");
-    } finally {
-      setLoading(false);
     }
-  }, [ordenar, grupoFiltro, catFiltro, tipoFiltro, buscaDeb, tab]);
+    return pubsData ?? [];
+  }, [isError, pubsData, tipoFiltro, grupoFiltro, catFiltro, tab, buscaDeb]);
 
-  useEffect(() => { carregar(); }, [carregar]);
+  const carregar = useCallback(async () => {
+    const cat = grupoFiltro || (catFiltro !== "todas" ? catFiltro : undefined);
+    await refetch();
+    registrarEventoComunidade("ver_feed", { categoria: cat });
+  }, [refetch, grupoFiltro, catFiltro]);
 
   // Assuntos em alta (radar) — ecossistema; fallback silencioso p/ tags locais.
   useEffect(() => {
@@ -190,7 +191,7 @@ export default function Page() {
       const tags = criar.tags.split(",").map((t) => t.trim()).filter(Boolean);
       const rasc = await api.criarRascunhoPublicacao(token, { titulo: criar.titulo.trim(), conteudo: criar.conteudo.trim(), tipo: criar.tipo, categoria: criar.categoria || undefined, tags: tags.length ? tags : undefined });
       await api.enviarPublicacao(token, rasc.id);
-      setPubs((prev) => [{ ...rasc, status: "publicado", publicado_em: new Date().toISOString() }, ...prev]);
+      await invalidarQueriesComunidade(queryClient, { publicacaoId: rasc.id, usuarioId: null });
       setOpenCriar(false); setCriar({ titulo: "", conteudo: "", tipo: "opiniao", categoria: "geral", tags: "" }); setMsg("Publicação enviada!");
       registrarEventoComunidade("publicar", { categoria: criar.categoria });
     } catch (e: unknown) { setErr(e instanceof Error ? e.message : "Falha ao publicar"); }
@@ -200,7 +201,7 @@ export default function Page() {
     if (comentarioTxt.trim().length < 2) { setErr("Comentário muito curto."); return; }
     try {
       await api.comentar(token, { conteudo: comentarioTxt.trim(), publicacao: openComentar.pubId });
-      setPubs((prev) => prev.map((p) => p.id === openComentar.pubId ? { ...p, numero_comentarios: (p.numero_comentarios ?? 0) + 1 } : p));
+      await invalidarQueriesComunidade(queryClient, { publicacaoId: openComentar.pubId, usuarioId: null });
       setOpenComentar({ open: false }); setComentarioTxt(""); setMsg("Comentário enviado!");
       registrarEventoComunidade("comentar", { publicacaoId: openComentar.pubId });
     } catch (e: unknown) { setErr(e instanceof Error ? e.message : "Falha ao comentar"); }
@@ -356,15 +357,15 @@ export default function Page() {
                 </CardContent>
               </Card>
 
-              {erroFeed && (
+              {isError && (
                 <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900" role="alert">
-                  <span>{erroFeed}</span>
+                  <span>{error?.message || "Não foi possível carregar o feed ao vivo — mostrando conteúdo local."}</span>
                   <Button size="sm" variant="outline" className="gap-1" onClick={carregar}><RotateCcw className="h-3.5 w-3.5" aria-hidden />Tentar de novo</Button>
                 </div>
               )}
 
-              <div aria-live="polite" aria-busy={loading}>
-                {loading ? <EsqueletoFeed />
+              <div aria-live="polite" aria-busy={isLoading}>
+                {isLoading ? <EsqueletoFeed />
                   : pubs.length === 0 ? (
                     <Card className="border-[var(--cor-borda)] bg-[var(--cor-fundo-card)]">
                       <CardContent className="p-6 text-center">
@@ -386,8 +387,8 @@ export default function Page() {
             </TabsContent>
 
             <TabsContent value="destaques" className="space-y-3">
-              <div aria-live="polite" aria-busy={loading}>
-                {loading ? <EsqueletoFeed /> : destaques.length === 0 ? (
+              <div aria-live="polite" aria-busy={isLoading}>
+                {isLoading ? <EsqueletoFeed /> : destaques.length === 0 ? (
                   <Card className="border-[var(--cor-borda)] bg-[var(--cor-fundo-card)]"><CardContent className="p-6 text-center text-sm text-[var(--cor-texto-suave)]">Sem destaques da curadoria por enquanto — o Feed segue aberto.</CardContent></Card>
                 ) : (
                   <div className="grid gap-3">
@@ -399,8 +400,8 @@ export default function Page() {
             </TabsContent>
 
             <TabsContent value="discutidos" className="space-y-3">
-              <div aria-live="polite" aria-busy={loading}>
-                {loading ? <EsqueletoFeed /> : pubs.length === 0 ? (
+              <div aria-live="polite" aria-busy={isLoading}>
+                {isLoading ? <EsqueletoFeed /> : pubs.length === 0 ? (
                   <Card className="border-[var(--cor-borda)] bg-[var(--cor-fundo-card)]"><CardContent className="p-6 text-center text-sm text-[var(--cor-texto-suave)]">Ainda sem termômetro — seja a primeira voz.</CardContent></Card>
                 ) : (
                   <div className="grid gap-3">

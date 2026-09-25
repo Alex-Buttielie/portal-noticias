@@ -1,5 +1,6 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,6 +15,12 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
 import { useAuth } from "@/lib/auth-context";
+import {
+  useQueryAdminFontes,
+  useQueryAdminRoboConfig,
+  useQueryAdminRoboExecucoes,
+} from "@/lib/queries";
+import { queryKeys } from "@/lib/query-keys";
 import * as api from "@/lib/api";
 import { formatarDataHoraCompleta, formatarHoraComSegundos } from "@/lib/datas";
 import { Bot, Play, Settings, History, AlertTriangle, CheckCircle2, XCircle, Activity, Clock, DollarSign, Database, Search, Trash2, Pencil, Plus, RefreshCw, ExternalLink, Power, Timer, Layers, Cpu, SlidersHorizontal, Shield } from "lucide-react";
@@ -21,6 +28,12 @@ import { Bot, Play, Settings, History, AlertTriangle, CheckCircle2, XCircle, Act
 type Fonte = api.FonteRobo;
 type Cfg = api.ConfigRobo;
 type Exec = api.ExecucaoRobo;
+
+/** Fallback mock de fontes quando a API falha (comportamento original preservado). */
+const FONTES_MOCK: Fonte[] = [
+  { id: 1, nome: "G1", url: "https://g1.globo.com/rss/g1/", ativo: true, categoria_padrao: "geral", criado_em: new Date().toISOString(), atualizado_em: new Date().toISOString() },
+  { id: 2, nome: "UOL", url: "https://rss.uol.com.br/feed/noticias.xml", ativo: true, categoria_padrao: "geral", criado_em: new Date().toISOString(), atualizado_em: new Date().toISOString() },
+];
 
 function rel(iso: string) {
   const d = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
@@ -38,14 +51,15 @@ function fmtUSD(v: number | null | undefined) {
 }
 
 export default function Page() {
-  const { token } = useAuth();
+  const { token, usuario } = useAuth();
   const tk = token || "";
+  const usuarioId = usuario?.id ?? 0;
+  const queryClient = useQueryClient();
   const [tab, setTab] = useState("visao");
   const [err, setErr] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
 
   const [fontes, setFontes] = useState<Fonte[]>([]);
-  const [loadingF, setLoadingF] = useState(false);
   const [busca, setBusca] = useState("");
   const [filtroAtivo, setFiltroAtivo] = useState<"todos" | "ativo" | "inativo">("todos");
   const [nome, setNome] = useState("");
@@ -61,11 +75,9 @@ export default function Page() {
 
   const [cfg, setCfg] = useState<Cfg | null>(null);
   const [cfgOrig, setCfgOrig] = useState<Cfg | null>(null);
-  const [loadingC, setLoadingC] = useState(false);
   const [savingC, setSavingC] = useState(false);
 
   const [execs, setExecs] = useState<Exec[]>([]);
-  const [loadingE, setLoadingE] = useState(false);
   const [execLoading, setExecLoading] = useState(false);
   const [confirmExec, setConfirmExec] = useState(false);
   const [execLog, setExecLog] = useState<string[]>([]);
@@ -73,31 +85,57 @@ export default function Page() {
   const [expandErr, setExpandErr] = useState<number | null>(null);
   const perPage = 10;
 
-  const carregarFontes = async () => {
-    setLoadingF(true); setErr(null);
-    try {
-      const r = await api.robosListarFontes(tk);
-      setFontes(r);
-      if (!r.length) setOk("Nenhuma fonte cadastrada — crie a primeira abaixo.");
-    } catch (e: unknown) {
-      const m = e instanceof Error ? e.message : "Falha ao listar fontes";
-      setErr(m);
-      setFontes([{ id: 1, nome: "G1", url: "https://g1.globo.com/rss/g1/", ativo: true, categoria_padrao: "geral", criado_em: new Date().toISOString(), atualizado_em: new Date().toISOString() }, { id: 2, nome: "UOL", url: "https://rss.uol.com.br/feed/noticias.xml", ativo: true, categoria_padrao: "geral", criado_em: new Date().toISOString(), atualizado_em: new Date().toISOString() }]);
-    } finally { setLoadingF(false); }
-  };
-  const carregarCfg = async () => {
-    setLoadingC(true); setErr(null);
-    try { const r = await api.robosObterConfig(tk); setCfg(r); setCfgOrig(r); }
-    catch (e: unknown) { setErr(e instanceof Error ? e.message : "Falha ao carregar configuração"); }
-    finally { setLoadingC(false); }
-  };
-  const carregarExecs = async () => {
-    setLoadingE(true); setErr(null);
-    try { const r = await api.robosListarExecucoes(tk); setExecs(r); }
-    catch (e: unknown) { setErr(e instanceof Error ? e.message : "Falha ao listar execuções"); setExecs([]); }
-    finally { setLoadingE(false); }
-  };
-  useEffect(() => { if (tk) { carregarFontes(); carregarCfg(); carregarExecs(); } }, [tk]);
+  // --- Migração TanStack Query: fontes, config e execuções do robô
+// (staleTime 0 — telas de decisão). O fallback mock de fontes em erro é
+// preservado; o estado local permite updates otimistas nas mutations.
+const fontesQuery = useQueryAdminFontes({ token: tk || null, usuarioId });
+const cfgQuery = useQueryAdminRoboConfig({ token: tk || null, usuarioId });
+const execsQuery = useQueryAdminRoboExecucoes({ token: tk || null, usuarioId });
+
+const loadingF = fontesQuery.isLoading;
+const loadingC = cfgQuery.isLoading;
+const loadingE = execsQuery.isLoading;
+
+// Sincroniza dados da query ao estado local; em erro, aplica o fallback mock.
+useEffect(() => {
+  if (fontesQuery.data) {
+    setFontes(fontesQuery.data);
+    if (fontesQuery.data.length === 0) setOk("Nenhuma fonte cadastrada — crie a primeira abaixo.");
+  } else if (fontesQuery.isError) {
+    setFontes(FONTES_MOCK);
+  }
+  if (cfgQuery.data) { setCfg(cfgQuery.data); setCfgOrig(cfgQuery.data); }
+  if (execsQuery.data) setExecs(execsQuery.data);
+}, [fontesQuery.data, fontesQuery.isError, cfgQuery.data, execsQuery.data]);
+
+const recarregar = useCallback(async () => {
+  await Promise.all([
+    queryClient.invalidateQueries({ queryKey: queryKeys.admin.fontes() }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.admin.roboConfig() }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.admin.roboExecucoes() }),
+  ]);
+}, [queryClient]);
+
+// Wrappers de invalidação com os nomes originais — mutations e botões de
+// recarregar continuam chamando as mesmas funções; a query refetch sozinha.
+const carregarFontes = useCallback(async () => {
+  await queryClient.invalidateQueries({ queryKey: queryKeys.admin.fontes() });
+}, [queryClient]);
+const carregarCfg = useCallback(async () => {
+  await queryClient.invalidateQueries({ queryKey: queryKeys.admin.roboConfig() });
+}, [queryClient]);
+const carregarExecs = useCallback(async () => {
+  await queryClient.invalidateQueries({ queryKey: queryKeys.admin.roboExecucoes() });
+}, [queryClient]);
+
+// Erro de carregamento das queries (mutação usa o estado local `err`).
+const erroCarregamento = fontesQuery.isError
+  ? (fontesQuery.error?.message || "Falha ao listar fontes")
+  : cfgQuery.isError
+    ? (cfgQuery.error?.message || "Falha ao carregar configuração")
+    : execsQuery.isError
+      ? (execsQuery.error?.message || "Falha ao listar execuções")
+      : null;
 
   const fontesFiltradas = useMemo(() => {
     return fontes.filter((f) => {
@@ -226,11 +264,11 @@ export default function Page() {
             </div>
             <div className="flex flex-wrap gap-2">
               <Button onClick={() => setConfirmExec(true)} disabled={execLoading || !tk} className="min-h-[44px] bg-[var(--cor-primaria)] text-[var(--cor-texto-invertido)]"><Play className="mr-2 h-4 w-4" />{execLoading ? "Executando..." : "Executar agora"}</Button>
-              <Button variant="outline" onClick={() => { carregarFontes(); carregarCfg(); carregarExecs(); }} className="min-h-[44px] border-[var(--cor-borda)]"><RefreshCw className="mr-2 h-4 w-4" />Recarregar</Button>
+              <Button variant="outline" onClick={recarregar} className="min-h-[44px] border-[var(--cor-borda)]"><RefreshCw className="mr-2 h-4 w-4" />Recarregar</Button>
             </div>
           </div>
           {!tk && <Badge variant="outline" className="border-[var(--cor-erro)] text-[var(--cor-erro)]">Faça login como admin</Badge>}
-          {err && <div className="flex items-start gap-2 rounded-md border border-[var(--cor-erro)] bg-[var(--cor-erro-suave)] px-3 py-2 text-sm text-[var(--cor-erro)]"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /><span className="flex-1">{err}</span><Button size="sm" variant="ghost" onClick={() => { carregarFontes(); carregarCfg(); carregarExecs(); }}>Tentar novamente</Button></div>}
+          {(err || erroCarregamento) && <div className="flex items-start gap-2 rounded-md border border-[var(--cor-erro)] bg-[var(--cor-erro-suave)] px-3 py-2 text-sm text-[var(--cor-erro)]"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /><span className="flex-1">{err || erroCarregamento}</span><Button size="sm" variant="ghost" onClick={recarregar}>Tentar novamente</Button></div>}
           {ok && <div className="flex items-center gap-2 rounded-md border border-[var(--cor-sucesso)] bg-[var(--cor-sucesso-suave)] px-3 py-2 text-sm text-[var(--cor-sucesso)]"><CheckCircle2 className="h-4 w-4" />{ok}</div>}
         </CardHeader>
         <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">

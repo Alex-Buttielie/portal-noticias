@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,10 +9,28 @@ import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/lib/auth-context";
 import * as api from "@/lib/api";
+import { useQueryAdminDenuncias } from "@/lib/queries";
+import { queryKeys } from "@/lib/query-keys";
+
+const MOCK: any[] = [
+  { id: 1, motivo: "spam", detalhe: "Conteúdo de exemplo", status: "pendente", denunciante_email: "denunciante@exemplo.com", criado_em: new Date().toISOString(), alvo_repr: "Publicacao #1" },
+];
+
 export default function Page(){
-  const { token } = useAuth(); const [itens,setItens]=useState<any[]>([]); const [motivo,setMotivo]=useState(""); const [loading,setLoading]=useState(false); const [err,setErr]=useState<string|null>(null);
-  const carregar=async()=>{ setErr(null); setLoading(true); try{ const r=await api.adminListarDenuncias(token||""); setItens((r as any).results||[]);}catch(e:any){ setErr(e?.message||"Falha ao carregar — tente novamente"); setItens([{id:1,motivo:"spam",detalhe:"Conteúdo de exemplo",status:"pendente",denunciante_email:"denunciante@exemplo.com",criado_em:new Date().toISOString(),alvo_repr:"Publicacao #1"}]);} finally{ setLoading(false); } };
-  const agir=async(id:number,tipo:string)=>{ try{ await api.adminAplicarAcaoDenuncia(token||"",id,{tipo,motivo: motivo||"acao administrativa"}); await carregar(); setMotivo("");}catch(e:any){ setErr(e?.message||"Falha na acao."); } };
+  const { usuario, token } = useAuth();
+  const cliente = useQueryClient();
+  const [motivo,setMotivo]=useState("");
+  const [consultou,setConsultou]=useState(false);
+  const [erroMutacao,setErroMutacao]=useState<string|null>(null);
+  // A tela só carrega após o clique em "Carregar denuncias".
+  const consulta=useQueryAdminDenuncias({ token, usuarioId: usuario?.id ?? 0, filtros: { status: null }, habilitada: consultou });
+  const itens=consulta.isError?MOCK:((consulta.data?.results ?? []) as any[]);
+  const loading=consulta.isFetching;
+  const err=consulta.isError
+    ? (consulta.error instanceof Error ? consulta.error.message : "Falha ao carregar — tente novamente")
+    : erroMutacao;
+  const carregar=()=>{ setErroMutacao(null); setConsultou(true); void consulta.refetch(); };
+  const agir=async(id:number,tipo:string)=>{ try{ await api.adminAplicarAcaoDenuncia(token||"",id,{tipo,motivo: motivo||"acao administrativa"}); await cliente.invalidateQueries({ queryKey: queryKeys.admin.denunciasRaiz() }); setMotivo("");}catch(e:any){ setErroMutacao(e?.message||"Falha na acao."); } };
   return (<div className="space-y-4"><Card className="bento border-[var(--cor-borda)] bg-[var(--cor-fundo-card)]"><CardHeader><CardTitle>Moderacao - Denuncias</CardTitle></CardHeader><CardContent className="space-y-3">
     <Button onClick={carregar} disabled={loading} className="bg-[var(--cor-primaria)] text-[var(--cor-texto-invertido)] min-h-[44px]">{loading?"Carregando...":"Carregar denuncias"}</Button>
     {err&&<p className="rounded-md border border-[var(--cor-erro)] bg-[var(--cor-erro-suave)] px-3 py-2 text-sm text-[var(--cor-erro)]">{err}</p>}

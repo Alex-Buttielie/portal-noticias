@@ -1,5 +1,6 @@
 "use client";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -11,6 +12,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth-context";
 import * as api from "@/lib/api";
+import { useQueryAdminLimites } from "@/lib/queries";
+import { queryKeys } from "@/lib/query-keys";
 import { formatarDataHoraCompleta } from "@/lib/datas";
 import { Clock3, Layers, Pencil, RefreshCw, Settings2, ShieldCheck, Sparkles, Zap } from "lucide-react";
 
@@ -44,10 +47,9 @@ const MOCK: Lim[] = [
 ];
 
 export default function Page() {
-  const { token } = useAuth();
-  const [itens, setItens] = useState<Lim[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
+  const { usuario, token } = useAuth();
+  const cliente = useQueryClient();
+  const consulta = useQueryAdminLimites({ token, usuarioId: usuario?.id ?? 0 });
   const [log, setLog] = useState<string[]>([]);
   const [filtro, setFiltro] = useState("todas");
   const [edit, setEdit] = useState<Lim | null>(null);
@@ -56,22 +58,15 @@ export default function Page() {
   const [saving, setSaving] = useState(false);
   const [erroVal, setErroVal] = useState<string | null>(null);
 
-  const carregar = useCallback(async () => {
-    setErr(null);
-    setLoading(true);
-    try {
-      const r = await api.adminListarLimites(token || "");
-      const arr = (r.results as unknown as Lim[]) || [];
-      if (!arr.length) { setItens(MOCK); setErr("API offline — exibindo dados de exemplo."); }
-      else setItens(arr);
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : "Falha — API offline";
-      setErr(msg + " — exibindo dados de exemplo.");
-      setItens(MOCK);
-    } finally { setLoading(false); }
-  }, [token]);
-
-  useEffect(() => { void carregar(); }, [carregar]);
+  const brutas = ((consulta.data?.results as unknown as Lim[]) || []);
+  const vazia = consulta.isSuccess && !brutas.length;
+  const itens = consulta.isError ? MOCK : (vazia ? MOCK : brutas);
+  const loading = consulta.isFetching;
+  const err = consulta.isError
+    ? ((consulta.error instanceof Error ? consulta.error.message : "Falha — API offline") + " — exibindo dados de exemplo.")
+    : vazia
+      ? "API offline — exibindo dados de exemplo."
+      : null;
 
   const chaves = useMemo(() => Array.from(new Set(itens.map((i) => i.chave))), [itens]);
   const agrupado = useMemo(() => {
@@ -94,7 +89,7 @@ export default function Page() {
       toast.success("Limite atualizado");
       setLog((p) => [`${formatarDataHoraCompleta(new Date())} — ${edit.chave}/${edit.plano} → ${valor.trim()} — ${desc.trim() || "sem descrição"}`].concat(p).slice(0, 20));
       setEdit(null);
-      await carregar();
+      await cliente.invalidateQueries({ queryKey: queryKeys.admin.limites() });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Falha ao salvar";
       setErroVal(msg);
@@ -116,7 +111,7 @@ export default function Page() {
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex flex-wrap gap-2">
-            <Button onClick={carregar} disabled={loading} className="min-h-[44px] bg-[var(--cor-primaria)] text-[var(--cor-texto-invertido)]"><RefreshCw className="mr-2 h-4 w-4" />{loading ? "Carregando..." : "Recarregar"}</Button>
+            <Button onClick={() => void consulta.refetch()} disabled={loading} className="min-h-[44px] bg-[var(--cor-primaria)] text-[var(--cor-texto-invertido)]"><RefreshCw className="mr-2 h-4 w-4" />{loading ? "Carregando..." : "Recarregar"}</Button>
             <Badge variant="outline" className="border-[var(--cor-borda)] self-center">{itens.length} registros · {chaves.length} chaves</Badge>
           </div>
           {err && <p role="alert" className="rounded-md border border-[var(--cor-alerta)] bg-[var(--cor-alerta-suave)] px-3 py-2 text-sm text-[var(--cor-texto)]">{err}</p>}

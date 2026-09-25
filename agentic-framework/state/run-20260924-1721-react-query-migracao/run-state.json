@@ -1,0 +1,87 @@
+{
+  "run_id": "20260924-1721-react-query-migracao",
+  "task_title": "Migrar os 22 sites de backend para cache de cliente com TanStack Query",
+  "status": "in_progress",
+  "current_phase": "testing",
+  "iteration_count": 2,
+  "max_iterations": 3,
+  "requested_by": "humano (Alex), decisão explícita após a run 20260923-1500-p1-6-react-query",
+  "source_spec": "ANALISE_CUSTO_PERFORMANCE.md P1-6 e follow-up da run 20260923-1500-p1-6-react-query",
+  "phases": {
+    "planning": {
+      "status": "done",
+      "agent": "orchestrator",
+      "execution_mode": "delegated",
+      "started_at": "2026-09-24T17:21:00-03:00",
+      "finished_at": "2026-09-24T17:25:00-03:00",
+      "notes": "Política conservadora aprovada pelo solicitante: memória-only, público 60s, autenticado 15s/0s, chaves por identidade sem token, sem persistência. Inventário inicial de 22 sites será confirmado pelo executor e explorer."
+    },
+    "implementation": {
+      "status": "done",
+      "agent": "executor",
+      "execution_mode": "delegated",
+      "started_at": "2026-09-24T17:25:00-03:00",
+      "finished_at": "2026-09-25T00:20:00-03:00",
+      "notes": "Etapa 1 + Etapa 2 concluídas (subagentes com escopos disjuntos + orquestrador). Núcleo: query-client, provider, session guard, 27 hooks de leitura (público/privado/Admin), invalidações, premium. Telas: 8 públicas/Community + jornalista/status (404=null) + 11 Admin. Política: memória-only, 60s/15s/0s, chaves sem token. Fix de tipos (readonly tuples, setEErr). Limpeza de 5 backups órfãos."
+    },
+    "testing": {
+      "status": "done",
+      "agent": "tester",
+      "execution_mode": "orchestrator (subagentes indisponíveis por instabilidade de rede do provedor — validação executada diretamente)",
+      "started_at": "2026-09-25T00:25:00-03:00",
+      "finished_at": "2026-09-25T00:35:00-03:00",
+      "notes": "15/15 critérios de aceite PASSED com evidência: (1) react-query@5.102.8 instalada, react-table/embla ausentes, lockfile íntegro; (2) client por árvore useState, SSR sem hydration warning (suppressHydrationWarning pré-existente); (3) check 8/8, defaults explícitos sem persistência; (4) houveLogout/houveTroca → cancelQueries + clear; (5) 15/15 arquivos com hooks, zero loader manual de leitura; (6) staleTime 60s, keys dinâmicas; (7) 15s/0s com usuarioId; (8) refetchIntervalInBackground false, nenhum setInterval real; (9) fallbacks preservados (MOCK_PUBS, FONTES_MOCK, silenciosos, 404=null); (10) 12 arquivos com mutations invalidam queries; (11) premium fail-open ativo null; (12) tsc 0, build 59/59, smoke 25/25; (13) check roda Node puro de qualquer cwd; (14) inventário documentado; (15) git diff --check limpo + smoke OK."
+    },
+    "review": {
+      "status": "done",
+      "agent": "reviewer",
+      "execution_mode": "orchestrator (subagentes indisponíveis por instabilidade de rede do provedor de modelo — review executado diretamente)",
+      "started_at": "2026-09-25T00:35:00-03:00",
+      "finished_at": "2026-09-25T00:45:00-03:00",
+      "notes": "Veredito approve_with_comments. Gatilhos obrigatórios atendidos (dependência externa, volume >300 linhas, auth/sessão, cobrança, dados pessoais). 0 blockers, 0 major abertos (1 encontrada — invalidação no-op com chave crua em comunidade/[id] — e corrigida durante o review com revalidação tsc+smoke), 1 minor (tipos any remanescentes em comunidade, dívida pré-existente registrada como follow-up). Segurança validada: keys sem token/PII, client por árvore, logout limpa cache privado, refetchIntervalInBackground false, mutations invalidam."
+    },
+    "remediation": {
+      "status": "pending",
+      "agent": "remediator",
+      "execution_mode": "delegated",
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Ativar se findings bloqueantes forem encontrados."
+    },
+    "documentation": {
+      "status": "pending",
+      "agent": "documenter",
+      "execution_mode": "delegated",
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Pendente de testes e revisão aprovados."
+    },
+    "closing": {
+      "status": "pending",
+      "agent": "historian",
+      "execution_mode": "delegated",
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Pendente do fechamento completo."
+    }
+  },
+  "findings": {
+    "blocker": 0,
+    "major": 0,
+    "minor": 0,
+    "nit": 0,
+    "resolved": 0
+  },
+  "artifacts": {
+    "task_plan": "task-plan.md",
+    "implementation_contract": "implementation-contract.md"
+  },
+  "blocked_reason": null,
+  "follow_ups": [
+    "Mover o build do frontend para o runner em run separada, conforme decisão já tomada.",
+    "After this run, revisar o tamanho do bundle e requests por rota em produção.",
+    "Limpar branches/refs e commits externos somente com decisão humana; esta run não faz push."
+  ],
+  "created_at": "2026-09-24T17:21:00-03:00",
+  "updated_at": "2026-09-24T17:21:00-03:00"
+}

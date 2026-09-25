@@ -15,12 +15,19 @@
  * (categoria/colunista/ordem/selos, aplicada no feed geral).
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/lib/auth-context";
+import {
+  useQueryAdminCentralInteligencia,
+  useQueryAdminDestaques,
+  useQueryAdminRegras,
+} from "@/lib/queries";
+import { queryKeys } from "@/lib/query-keys";
 import * as api from "@/lib/api";
 import type { CentralInteligencia, PeriodoInteligencia } from "@/lib/api";
 import { formatarNumeroPtBR } from "@/lib/datas";
@@ -202,40 +209,36 @@ const TIPO_INSIGHT_ROTULO: Record<string, string> = {
 };
 
 export default function Page() {
-  const { token } = useAuth();
+  const { token, usuario } = useAuth();
+  const usuarioId = usuario?.id ?? 0;
+  const queryClient = useQueryClient();
   const [periodo, setPeriodo] = useState<PeriodoInteligencia>("30d");
   const [inicio, setInicio] = useState("");
   const [fim, setFim] = useState("");
-  const [data, setData] = useState<CentralInteligencia | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
 
-  const [destaques, setDestaques] = useState<api.DestaqueEditorial[]>([]);
-  const [regras, setRegras] = useState<api.RegraCuradoria[]>([]);
   const [novoDestaque, setNovoDestaque] = useState({ tipo: "manchete", entry_tipo: "item", entry_id: "", motivo: "" });
   const [novaRegra, setNovaRegra] = useState({ tipo: "boost_categoria", alvo: "", entry_tipo: "item", entry_id: "", ordem: "0", motivo: "" });
   const [msgOverride, setMsgOverride] = useState<string | null>(null);
 
-  const carregar = useCallback(async () => {
-    if (!token) return;
-    setErr(null);
-    setLoading(true);
-    try {
-      const r = await api.obterCentralInteligencia(token, { periodo, inicio: inicio || undefined, fim: fim || undefined });
-      setData(r);
-      const [d, rg] = await Promise.all([api.adminListarDestaques(token).catch(() => []), api.adminListarRegras(token).catch(() => [])]);
-      setDestaques(d);
-      setRegras(rg);
-    } catch (e: unknown) {
-      setErr(e instanceof Error ? e.message : "Falha ao carregar a Central.");
-    } finally {
-      setLoading(false);
-    }
-  }, [token, periodo, inicio, fim]);
+  // --- Migração TanStack Query: Central, destaques e regras (staleTime 0 — decisão).
+  const centralQuery = useQueryAdminCentralInteligencia({ token, usuarioId, periodo, inicio: inicio || null, fim: fim || null });
+  const destaquesQuery = useQueryAdminDestaques({ token, usuarioId });
+  const regrasQuery = useQueryAdminRegras({ token, usuarioId });
 
-  useEffect(() => {
-    if (token) void carregar();
-  }, [token, carregar]);
+  // Fallback silencioso preservado: erro de destaques/regras não exibe falha
+  // (comportamento original `.catch(() => [])`); só a Central mostra erro.
+  const destaques = destaquesQuery.data ?? [];
+  const regras = regrasQuery.data ?? [];
+  const data = centralQuery.data ?? null;
+  const loading = centralQuery.isLoading || destaquesQuery.isLoading || regrasQuery.isLoading;
+  const err = centralQuery.isError
+    ? (centralQuery.error?.message || "Falha ao carregar a Central.")
+    : null;
+
+  const carregar = useCallback(async () => {
+    await Promise.all([centralQuery.refetch(), destaquesQuery.refetch(), regrasQuery.refetch()]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [centralQuery.refetch, destaquesQuery.refetch, regrasQuery.refetch]);
 
   const comp = data?.comparativo;
   const series = useMemo(() => {
@@ -250,8 +253,8 @@ export default function Page() {
   async function alternarDestaque(d: api.DestaqueEditorial) {
     if (!token) return;
     try {
-      const atualizado = await api.adminAtualizarDestaque(token, d.id, { ativo: !d.ativo });
-      setDestaques((atual) => atual.map((x) => (x.id === d.id ? atualizado : x)));
+      await api.adminAtualizarDestaque(token, d.id, { ativo: !d.ativo });
+      await queryClient.invalidateQueries({ queryKey: queryKeys.admin.destaques() });
     } catch (e: unknown) {
       setMsgOverride(e instanceof Error ? e.message : "Falha ao atualizar.");
     }
@@ -261,7 +264,7 @@ export default function Page() {
     if (!token) return;
     try {
       await api.adminExcluirDestaque(token, id);
-      setDestaques((atual) => atual.filter((x) => x.id !== id));
+      await queryClient.invalidateQueries({ queryKey: queryKeys.admin.destaques() });
     } catch (e: unknown) {
       setMsgOverride(e instanceof Error ? e.message : "Falha ao excluir.");
     }
@@ -281,7 +284,7 @@ export default function Page() {
         entry_id: entryId,
         motivo: novoDestaque.motivo,
       });
-      setDestaques((atual) => [criado, ...atual]);
+      await queryClient.invalidateQueries({ queryKey: queryKeys.admin.destaques() });
       setNovoDestaque({ tipo: "manchete", entry_tipo: "item", entry_id: "", motivo: "" });
       setMsgOverride(null);
     } catch (e: unknown) {
@@ -301,7 +304,7 @@ export default function Page() {
         ordem: Number(novaRegra.ordem) || 0,
         motivo: novaRegra.motivo,
       });
-      setRegras((atual) => [criado, ...atual]);
+      await queryClient.invalidateQueries({ queryKey: queryKeys.admin.regras() });
       setNovaRegra({ tipo: "boost_categoria", alvo: "", entry_tipo: "item", entry_id: "", ordem: "0", motivo: "" });
       setMsgOverride(null);
     } catch (e: unknown) {
@@ -312,8 +315,8 @@ export default function Page() {
   async function alternarRegra(r: api.RegraCuradoria) {
     if (!token) return;
     try {
-      const atualizado = await api.adminAtualizarRegra(token, r.id, { ativo: !r.ativo });
-      setRegras((atual) => atual.map((x) => (x.id === r.id ? atualizado : x)));
+      await api.adminAtualizarRegra(token, r.id, { ativo: !r.ativo });
+      await queryClient.invalidateQueries({ queryKey: queryKeys.admin.regras() });
     } catch (e: unknown) {
       setMsgOverride(e instanceof Error ? e.message : "Falha ao atualizar.");
     }
@@ -323,7 +326,7 @@ export default function Page() {
     if (!token) return;
     try {
       await api.adminExcluirRegra(token, id);
-      setRegras((atual) => atual.filter((x) => x.id !== id));
+      await queryClient.invalidateQueries({ queryKey: queryKeys.admin.regras() });
     } catch (e: unknown) {
       setMsgOverride(e instanceof Error ? e.message : "Falha ao excluir.");
     }

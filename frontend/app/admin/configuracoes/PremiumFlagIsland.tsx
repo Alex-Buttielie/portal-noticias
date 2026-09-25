@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -13,47 +14,36 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useAuth } from "@/lib/auth-context";
-import {
-  obterConfigSistemaAdmin,
-  atualizarConfigSistemaAdmin,
-} from "@/lib/api";
-import { invalidarCachePremium } from "@/lib/premium";
+import { atualizarConfigSistemaAdmin } from "@/lib/api";
+import { useQueryAdminSistema } from "@/lib/queries";
+import { queryKeys } from "@/lib/query-keys";
 import { Crown, Loader2 } from "lucide-react";
 
 export function PremiumFlagIsland() {
-  const { token } = useAuth();
+  const { usuario, token } = useAuth();
   const tk = token || "";
-  const [atual, setAtual] = useState<boolean | null>(null);
+  const cliente = useQueryClient();
+  const consulta = useQueryAdminSistema({ token, usuarioId: usuario?.id ?? 0 });
+  const atual = consulta.data ? consulta.data.premium_ativo === true : null;
+  const carregando = consulta.isFetching;
   const [pendente, setPendente] = useState(false);
-  const [carregando, setCarregando] = useState(false);
   const [salvando, setSalvando] = useState(false);
-  const [erro, setErro] = useState<string | null>(null);
+  const [erroSalvar, setErro] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
   const [confirmaAbrir, setConfirmaAbrir] = useState(false);
 
+  const erroCarregamento = consulta.isError
+    ? (consulta.error instanceof Error
+      ? consulta.error.message
+      : "Não foi possível carregar a configuração.")
+    : null;
+  const erro = erroSalvar ?? erroCarregamento;
+
+  // Sincroniza a intenção do toggle com o estado salvo no servidor
+  // (após o carregamento e após cada resposta de atualização).
   useEffect(() => {
-    if (!tk) return;
-    let vivo = true;
-    setCarregando(true);
-    setErro(null);
-    obterConfigSistemaAdmin(tk)
-      .then((cfg) => {
-        if (!vivo) return;
-        const v = cfg.premium_ativo === true;
-        setAtual(v);
-        setPendente(v);
-      })
-      .catch((e: unknown) => {
-        if (!vivo) return;
-        setErro(e instanceof Error ? e.message : "Não foi possível carregar a configuração.");
-      })
-      .finally(() => {
-        if (vivo) setCarregando(false);
-      });
-    return () => {
-      vivo = false;
-    };
-  }, [tk]);
+    if (consulta.data) setPendente(consulta.data.premium_ativo === true);
+  }, [consulta.data]);
 
   async function salvar(valor: boolean) {
     if (!tk) {
@@ -65,13 +55,13 @@ export function PremiumFlagIsland() {
     setOk(null);
     try {
       const cfg = await atualizarConfigSistemaAdmin(tk, { premium_ativo: valor });
-      const v = cfg.premium_ativo === true;
-      setAtual(v);
-      setPendente(v);
-      invalidarCachePremium();
+      // Aplica a resposta no cache da query e propaga a nova flag Premium
+      // para as telas públicas (lib/premium usa queryKeys.premium.status()).
+      cliente.setQueryData(queryKeys.admin.sistema(), cfg);
+      void cliente.invalidateQueries({ queryKey: queryKeys.premium.status() });
       setConfirmaAbrir(false);
       setOk(
-        v
+        valor
           ? "Premium ativado. Plano Free limitado, Premium pago."
           : "Premium desligado. Tudo liberado, assinaturas pausadas."
       );

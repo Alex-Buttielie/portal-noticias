@@ -1,5 +1,6 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -8,7 +9,9 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Check, X, Crown, ShieldCheck, Sparkles, Zap, Newspaper, Bell, Archive, Users, HelpCircle } from "lucide-react";
-import { obterPlanos, assinarPlano, type Plano } from "@/lib/api";
+import { assinarPlano, type Plano } from "@/lib/api";
+import { useQueryPlanos } from "@/lib/queries";
+import { queryKeys } from "@/lib/query-keys";
 import { usePremiumAtivo } from "@/lib/premium";
 import { useAuth } from "@/lib/auth-context";
 import { toast } from "sonner";
@@ -52,17 +55,24 @@ export default function Page() {
   const isPremium = usuario?.papel === "premium" || usuario?.papel === "admin";
   const isFree = usuario?.papel === "free";
   const { liberado } = usePremiumAtivo();
-  const [planos, setPlanos] = useState<Plano[]>([]);
+  const queryClient = useQueryClient();
+  const planosQuery = useQueryPlanos();
   const [sel, setSel] = useState<Plano | null>(null);
   const [open, setOpen] = useState(false);
-  const [loading, setLoading] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const [ok, setOk] = useState(false);
 
-  useEffect(() => {
-    obterPlanos().then((p) => setPlanos(p?.length ? p : FALLBACK)).catch(() => setPlanos(FALLBACK));
-  }, []);
+  const assinarMutation = useMutation({
+    mutationFn: (planId: number) => {
+      if (!token) throw new Error("Entre para assinar.");
+      return assinarPlano(token, planId);
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.planos.publicos() });
+    },
+  });
 
+  const planos = planosQuery.data?.length ? planosQuery.data : FALLBACK;
   const premium = planos.find((p) => p.nome.toLowerCase().includes("premium")) ?? planos[1] ?? FALLBACK[1];
   const free = planos.find((p) => p.nome.toLowerCase().includes("free")) ?? planos[0] ?? FALLBACK[0];
 
@@ -72,9 +82,9 @@ export default function Page() {
     if (!sel) return;
     if (liberado) { setErro("Assinaturas pausadas — todos os recursos Premium estão liberados para você."); return; }
     if (!token) { setOpen(false); router.push("/login"); return; }
-    setLoading(true); setErro(null);
+    setErro(null);
     try {
-      const assinatura = await assinarPlano(token, sel.id);
+      const assinatura = await assinarMutation.mutateAsync(sel.id);
       if (assinatura.checkout_url) {
         toast.success("Abrindo o checkout seguro…");
         window.location.href = assinatura.checkout_url;
@@ -83,7 +93,6 @@ export default function Page() {
       setOk(true); toast.success("Assinatura confirmada");
     }
     catch (e: unknown) { const m = e instanceof Error ? e.message : "Não foi possível assinar."; setErro(m); toast.error(m); }
-    finally { setLoading(false); }
   }
 
   return (
@@ -95,6 +104,12 @@ export default function Page() {
         <p className="mt-2 max-w-2xl text-sm text-[var(--cor-texto-suave)]">Sem jargão: conta gratuita para começar. <strong className="font-semibold text-[var(--cor-texto)]">Premium</strong> tira anúncios, libera radar e alertas sem limite, arquivo completo e suporte prioritário.</p>
         <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-[var(--cor-texto-suave)]"><Badge variant="outline" className="border-[var(--cor-borda)]"><Users className="mr-1 h-3 w-3" /> +12.000 assinantes</Badge><span>·</span><span>Cancele quando quiser</span></div>
       </div>
+
+      {planosQuery.isError && (
+        <p role="status" className="rounded-[var(--raio-lg)] border border-[var(--cor-alerta)] bg-[var(--cor-alerta-suave)] px-4 py-3 text-sm text-[var(--cor-texto)]">
+          Não foi possível atualizar os planos — exibindo a oferta local.
+        </p>
+      )}
 
       {liberado && (
         <div role="status" className="rounded-[var(--raio-lg)] border border-[var(--cor-sucesso)] bg-[var(--cor-sucesso-suave)] px-4 py-3 text-sm text-[var(--cor-sucesso)]">
@@ -181,7 +196,7 @@ export default function Page() {
                 </div>
               )}
               <DialogFooter className="flex-col gap-2 sm:flex-col">
-                <Button onClick={confirmar} disabled={loading || !sel || liberado} className="w-full min-h-[44px] bg-[var(--cor-premium)] text-[var(--cor-texto-invertido)] hover:bg-[var(--cor-premium-hover)]">{liberado ? "Pausado" : loading ? "Confirmando…" : token ? "Confirmar assinatura" : "Entrar e assinar"}</Button>
+                <Button onClick={confirmar} disabled={assinarMutation.isPending || !sel || liberado} className="w-full min-h-[44px] bg-[var(--cor-premium)] text-[var(--cor-texto-invertido)] hover:bg-[var(--cor-premium-hover)]">{liberado ? "Pausado" : assinarMutation.isPending ? "Confirmando…" : token ? "Confirmar assinatura" : "Entrar e assinar"}</Button>
                 <Button variant="outline" onClick={() => setOpen(false)} className="w-full min-h-[44px] border-[var(--cor-borda)]">Voltar</Button>
               </DialogFooter>
             </>

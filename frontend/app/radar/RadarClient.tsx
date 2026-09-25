@@ -1,8 +1,11 @@
 "use client";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth-context";
-import { obterTendenciasRadar, obterEvolucaoRadar, obterLocalidadesSalvas, salvarLocalidade, removerLocalidade, type RadarTendencias, type RadarEvolucao, type LocalidadeSalva } from "@/lib/api";
+import { salvarLocalidade, removerLocalidade, ApiError, type RadarTendencias, type RadarEvolucao, type LocalidadeSalva } from "@/lib/api";
+import { useQueryTendenciasRadar, useQueryRadarEvolucao, useQueryRadarLocalidadesSalvas, invalidarQueriesRadarLocalidades } from "@/lib/queries";
+import { queryKeys } from "@/lib/query-keys";
 import { usePremiumAtivo } from "@/lib/premium";
 import { AdsSlot } from "@/components/AdsSlot";
 import RadarLocalSimples from "@/components/RadarLocalSimples";
@@ -37,8 +40,6 @@ export default function RadarClient() {
     estado: regiao?.estado || undefined,
     cidade: regiao?.cidade || undefined,
   }), [regiao]);
-  const [tend, setTend] = useState<RadarTendencias | null>(null);
-  const [loadingT, setLoadingT] = useState(true);
   const [evoCat, setEvoCat] = useState("");
   const evoFiltros = useMemo(() => ({
     categoria: evoCat || undefined,
@@ -46,59 +47,99 @@ export default function RadarClient() {
     estado: regiao?.estado || undefined,
     cidade: regiao?.cidade || undefined,
   }), [evoCat, regiao]);
-  const [evo, setEvo] = useState<RadarEvolucao | null>(null);
-  const [loadingE, setLoadingE] = useState(false);
-  const [salvas, setSalvas] = useState<LocalidadeSalva[]>([]);
   const [msg, setMsg] = useState<string | null>(null);
   const [tab, setTab] = useState("tendencias");
   const [upsellOpen, setUpsellOpen] = useState(false);
+  const queryClient = useQueryClient();
+  const usuarioId = usuario?.id ?? 0;
 
-  const fetchTend = useCallback(async (f = filtros) => {
-    setLoadingT(true);
-    try {
-      const d = await obterTendenciasRadar({ pais: f.pais || undefined, estado: f.estado || undefined, cidade: f.cidade || undefined });
-      setTend(d);
-    } catch { setTend({ ...MOCK_T, localidade: { pais: f.pais || null, estado: f.estado || null, cidade: f.cidade || null } }); }
-    setLoadingT(false);
-  }, [filtros]);
+  const tendenciasQuery = useQueryTendenciasRadar(filtros, true);
+  const evolucaoQuery = useQueryRadarEvolucao({
+    token,
+    usuarioId,
+    filtros: evoFiltros,
+  });
+  const localidadesQuery = useQueryRadarLocalidadesSalvas({
+    token,
+    usuarioId,
+  });
 
-  const fetchEvo = useCallback(async (ef = evoFiltros) => {
-    if (!token) { setEvo(null); return; }
-    setLoadingE(true);
-    try {
-      const d = await obterEvolucaoRadar(token, { categoria: ef.categoria || undefined, pais: ef.pais || undefined, estado: ef.estado || undefined, cidade: ef.cidade || undefined });
-      setEvo(d);
-    } catch (e: unknown) {
-      const err = e as { status?: number };
-      if (err?.status === 403) setEvo({ aviso_metodologia: "Prévia de 7 dias — seja Premium para ver a série completa, sem limites.", categoria: ef.categoria || null, serie: mockSerie().serie });
-      else setEvo({ ...mockSerie(), categoria: ef.categoria || null });
+  const fallbackTendencias = useMemo<RadarTendencias | null>(() => {
+    if (!tendenciasQuery.isError) return null;
+    return {
+      ...MOCK_T,
+      localidade: {
+        pais: filtros.pais || null,
+        estado: filtros.estado || null,
+        cidade: filtros.cidade || null,
+      },
+    };
+  }, [filtros, tendenciasQuery.isError]);
+  const tend = tendenciasQuery.data ?? fallbackTendencias;
+  const loadingT = tendenciasQuery.isFetching;
+
+  const fallbackEvolucao = useMemo<RadarEvolucao | null>(() => {
+    if (!evolucaoQuery.isError) return null;
+    if (evolucaoQuery.error instanceof ApiError && evolucaoQuery.error.status === 403) {
+      return {
+        aviso_metodologia: "Prévia de 7 dias — seja Premium para ver a série completa, sem limites.",
+        categoria: evoCat || null,
+        serie: mockSerie().serie,
+      };
     }
-    setLoadingE(false);
-  }, [evoFiltros, token]);
+    return { ...mockSerie(), categoria: evoCat || null };
+  }, [evoCat, evolucaoQuery.error, evolucaoQuery.isError]);
+  const evo = evolucaoQuery.data ?? fallbackEvolucao;
+  const loadingE = Boolean(token) && evolucaoQuery.isFetching;
+  const salvas = localidadesQuery.data ?? [];
 
-  const fetchSalvas = useCallback(async () => {
-    if (!token) { setSalvas([]); return; }
-    try { setSalvas(await obterLocalidadesSalvas(token)); } catch { setSalvas([]); }
-  }, [token]);
+  const salvarMutation = useMutation({
+    mutationFn: (dados: Parameters<typeof salvarLocalidade>[1]) => {
+      if (!token) throw new Error("Faça login para salvar localidades.");
+      return salvarLocalidade(token, dados);
+    },
+    onSuccess: () => {
+      setMsg("Localidade salva.");
+      void invalidarQueriesRadarLocalidades(queryClient, usuarioId);
+    },
+    onError: (error: unknown) => {
+      setMsg(error instanceof Error ? error.message : "Erro ao salvar.");
+    },
+  });
+  const removerMutation = useMutation({
+    mutationFn: (localidade: LocalidadeSalva) => {
+      if (!token) throw new Error("Faça login para gerenciar localidades.");
+      return removerLocalidade(token, {
+        pais: localidade.pais || undefined,
+        estado: localidade.estado || undefined,
+        cidade: localidade.cidade || undefined,
+      });
+    },
+    onSuccess: (_result, localidade) => {
+      queryClient.setQueryData<LocalidadeSalva[]>(
+        queryKeys.radar.localidadesSalvas(usuarioId),
+        (atuais) => (atuais ?? []).filter(
+          (item) => !(
+            item.pais === localidade.pais &&
+            item.estado === localidade.estado &&
+            item.cidade === localidade.cidade
+          )
+        )
+      );
+      void invalidarQueriesRadarLocalidades(queryClient, usuarioId);
+    },
+  });
 
-  useEffect(() => { fetchTend(filtros); }, [filtros, fetchTend]);
-  useEffect(() => { fetchEvo(evoFiltros); }, [evoFiltros, fetchEvo]);
-  useEffect(() => { fetchSalvas(); }, [fetchSalvas]);
-  useEffect(() => {
-    const id = setInterval(() => fetchTend(filtros), 60000);
-    return () => clearInterval(id);
-  }, [fetchTend, filtros]);
-
-  async function handleSalvar() {
+  function handleSalvar() {
     if (!token) { setMsg("Faça login para salvar localidades."); setTimeout(() => setMsg(null), 3000); return; }
     const p = regiao?.pais || ""; const e = regiao?.estado || ""; const c = regiao?.cidade || "";
     if (!p && !e && !c) { setMsg("Escolha um local acima para salvar."); setTimeout(() => setMsg(null), 3000); return; }
-    try { await salvarLocalidade(token, { pais: p || undefined, estado: e || undefined, cidade: c || undefined }); setMsg("Localidade salva."); await fetchSalvas(); } catch (err: unknown) { setMsg((err as Error)?.message || "Erro ao salvar."); }
+    salvarMutation.mutate({ pais: p || undefined, estado: e || undefined, cidade: c || undefined });
     setTimeout(() => setMsg(null), 3000);
   }
-  async function handleRemover(l: LocalidadeSalva) {
+  function handleRemover(localidade: LocalidadeSalva) {
     if (!token) return;
-    try { await removerLocalidade(token, { pais: l.pais || undefined, estado: l.estado || undefined, cidade: l.cidade || undefined }); setSalvas((s) => s.filter((x) => !(x.pais === l.pais && x.estado === l.estado && x.cidade === l.cidade))); } catch {}
+    removerMutation.mutate(localidade);
   }
   function usarSalva(l: LocalidadeSalva) { setRegiao({ cidade: l.cidade || "", estado: l.estado || "", pais: l.pais || "Brasil" }); }
 
@@ -111,7 +152,7 @@ export default function RadarClient() {
       <div className="hud-line" aria-hidden />
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div><h1 className="text-2xl font-bold text-[var(--cor-texto)] flex items-center gap-2"><TrendingUp className="h-6 w-6 text-[var(--cor-neon-ciano)]" />Radar de tendências</h1><p className="text-sm text-[var(--cor-texto-suave)] flex items-center gap-1 mt-1"><MapPin className="h-3.5 w-3.5" />{tend ? locLabel(tend.localidade) : locLabel(filtros)}</p></div>
-        <Button variant="outline" size="sm" onClick={() => { fetchTend(filtros); if (token) fetchEvo(evoFiltros); fetchSalvas(); }} className="border-[var(--cor-borda)] bg-[var(--cor-fundo-card)]"><RefreshCw className="h-4 w-4" />Atualizar</Button>
+        <Button variant="outline" size="sm" onClick={() => { void tendenciasQuery.refetch(); if (token) void evolucaoQuery.refetch(); void localidadesQuery.refetch(); }} className="border-[var(--cor-borda)] bg-[var(--cor-fundo-card)]"><RefreshCw className="h-4 w-4" />Atualizar</Button>
       </div>
 
       {tend?.aviso_metodologia && <Alert className="border-[var(--cor-neon-ciano)]/30 bg-[var(--cor-destaque-suave)]"><AlertCircle className="h-4 w-4 text-[var(--cor-neon-ciano)]" /><AlertTitle className="text-[var(--cor-texto)] text-sm">Metodologia</AlertTitle><AlertDescription className="text-[var(--cor-texto-suave)] text-xs">{tend.aviso_metodologia}</AlertDescription></Alert>}

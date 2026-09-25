@@ -6,10 +6,25 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/lib/auth-context";
 import * as api from "@/lib/api";
+import { useQueryAdminAssinaturas } from "@/lib/queries";
 import { formatarDataCurta } from "@/lib/datas";
+
+const MOCK: api.AdminAssinatura[] = [
+  { id: 1, user_email: "user@exemplo.com", user_nome: "Usuário Exemplo", plan: { id: 2, nome: "Premium", preco: "29.90", duracao_dias: 30 }, status: "ativa", preco_cobrado: "29.90", criado_em: new Date().toISOString() },
+];
+
 export default function Page(){
-  const { token } = useAuth(); const [itens,setItens]=useState<api.AdminAssinatura[]>([]); const [busca,setBusca]=useState(""); const [loading,setLoading]=useState(false); const [err,setErr]=useState<string|null>(null);
-  const carregar=async()=>{ setErr(null); setLoading(true); try{ const r=await api.adminListarAssinaturas(token||"",{search:busca||undefined}); setItens(r.results||[]);}catch(e:any){ setErr(e?.message||"Falha ao carregar — tente novamente"); setItens([{id:1,user_email:"user@exemplo.com",user_nome:"Usuário Exemplo",plan:{id:2,nome:"Premium",preco:"29.90",duracao_dias:30},status:"ativa",preco_cobrado:"29.90",criado_em:new Date().toISOString()}]);} finally{ setLoading(false); } };
+  const { usuario, token } = useAuth();
+  const [busca,setBusca]=useState("");
+  const [buscaAplicada,setBuscaAplicada]=useState<string|null>(null);
+  // A tela só carrega após o clique em "Buscar" (buscaAplicada sai de null).
+  const consulta=useQueryAdminAssinaturas({ token, usuarioId: usuario?.id ?? 0, filtros: { busca: buscaAplicada }, habilitada: buscaAplicada !== null });
+  const itens=consulta.isError?MOCK:(consulta.data?.results ?? []);
+  const loading=consulta.isFetching;
+  const err=consulta.isError
+    ? (consulta.error instanceof Error ? consulta.error.message : "Falha ao carregar — tente novamente")
+    : null;
+  const carregar=()=>{ setBuscaAplicada(busca || ""); void consulta.refetch(); };
   return (<div className="space-y-4"><Card className="bento border-[var(--cor-borda)] bg-[var(--cor-fundo-card)]"><CardHeader><CardTitle>Assinaturas</CardTitle></CardHeader><CardContent className="space-y-3">
     <div className="flex gap-2"><Input placeholder="Buscar por email..." value={busca} onChange={e=>setBusca(e.target.value)} className="bg-[var(--cor-fundo-card)]" /><Button onClick={carregar} disabled={loading} className="bg-[var(--cor-primaria)] text-[var(--cor-texto-invertido)] min-h-[44px]">{loading?"Buscando...":"Buscar"}</Button></div>
     {err&&<p className="rounded-md border border-[var(--cor-erro)] bg-[var(--cor-erro-suave)] px-3 py-2 text-sm text-[var(--cor-erro)]">{err}</p>}

@@ -1,5 +1,6 @@
 "use client";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -11,6 +12,8 @@ import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import { useAuth } from "@/lib/auth-context";
 import * as api from "@/lib/api";
+import { useQueryAdminFila } from "@/lib/queries";
+import { queryKeys } from "@/lib/query-keys";
 import { formatarDataHoraCompleta } from "@/lib/datas";
 import { Clock, Filter, CheckCheck, XCircle, RefreshCw, AlertTriangle, Layers, Search, CheckSquare, Square, Zap, Sparkles } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
@@ -27,18 +30,24 @@ function timeAgo(iso:string){
   return `${Math.floor(h/24)}d`;
 }
 
+const MOCK: Item[] = [
+  { tipo: "item", id: 1, titulo: "Reforma tributária entra em fase de regulamentação", categoria: "economia", status_revisao: "pendente", nome_fonte: "Fonte Exemplo", url_fonte_original: "https://example.com/a", urgente: false, cluster: null, cluster_titulo: "", timestamp_ingestao: new Date().toISOString() },
+  { tipo: "cluster", id: 2, titulo: "Frente fria avança pelo Sudeste", categoria: "cidades", status_revisao: "pendente", nome_fonte: "G1", url_fonte_original: "https://example.com/b", urgente: true, cluster: 10, cluster_titulo: "Frente fria no Sudeste", timestamp_ingestao: new Date(Date.now()-3600000*2).toISOString() },
+  { tipo: "item", id: 3, titulo: "Vacina nacional entra em testes finais", categoria: "saúde", status_revisao: "pendente", nome_fonte: "CNN", url_fonte_original: "https://example.com/c", urgente: false, cluster: null, cluster_titulo: "", timestamp_ingestao: new Date(Date.now()-3600000*5).toISOString() },
+];
+
 export default function Page(){
-  const { token } = useAuth();
+  const { usuario, token } = useAuth();
   const tk = token||"";
+  const cliente = useQueryClient();
   const [status,setStatus]=useState<string>("pendente");
   const [busca,setBusca]=useState(""); const [q,setQ]=useState("");
   const [cat,setCat]=useState<string>("todas");
   const [soUrgente,setSoUrgente]=useState(false);
   const [soCluster,setSoCluster]=useState(false);
   const [ordem,setOrdem]=useState<"recente"|"antigo"|"titulo">("recente");
-  const [page,setPage]=useState(1); const [total,setTotal]=useState(0);
-  const [itens,setItens]=useState<Item[]>([]); const [loading,setLoading]=useState(false);
-  const [err,setErr]=useState<string|null>(null); const [ok,setOk]=useState<string|null>(null);
+  const [page,setPage]=useState(1);
+  const [ok,setOk]=useState<string|null>(null); const [erroMutacao,setErroMutacao]=useState<string|null>(null);
   const [sel,setSel]=useState<Set<number>>(new Set());
   const [acting,setActing]=useState<number|null>(null);
   const [bulk,setBulk]=useState(false);
@@ -46,6 +55,36 @@ export default function Page(){
   const [aprovarTudoProg,setAprovarTudoProg]=useState<{done:number; total:number; fail:number} | null>(null);
   const [aprovarTudoRunning,setAprovarTudoRunning]=useState(false);
   const [auto,setAuto]=useState(false);
+
+  // Fila de curadoria: leitura sempre fresca (staleTime 0), com polling
+  // opcional de 30s (Auto) e preservação da página anterior durante a troca.
+  const consultaFila = useQueryAdminFila({
+    token,
+    usuarioId: usuario?.id ?? 0,
+    status,
+    page,
+    intervaloMs: auto ? 30_000 : 0,
+  });
+  const itens = consultaFila.isError ? MOCK : (consultaFila.data?.results ?? []);
+  const total = consultaFila.isError ? MOCK.length : (consultaFila.data?.count ?? 0);
+  const loading = consultaFila.isFetching;
+  const err = consultaFila.isError
+    ? (consultaFila.error instanceof Error ? consultaFila.error.message : "Falha ao carregar fila — tente novamente em instantes")
+    : erroMutacao;
+
+  // Cada carregamento limpa a mensagem anterior (como o antigo carregar fazia).
+  useEffect(() => {
+    if (consultaFila.isFetching) setOk(null);
+  }, [consultaFila.isFetching]);
+  // Mensagem quando a fila volta vazia para o status atual.
+  useEffect(() => {
+    if (!consultaFila.isSuccess) return;
+    if (!(consultaFila.data?.results ?? []).length) setOk(status === "pendente" ? "Fila vazia — nada pendente para curadoria." : `Nenhum item com status "${status}".`);
+  }, [consultaFila.isSuccess, consultaFila.data, status]);
+
+  useEffect(()=>{ setPage(1); },[status]);
+
+  const recarregar = () => { setErroMutacao(null); void consultaFila.refetch(); };
 
   const cats = useMemo(()=> Array.from(new Set(itens.map(i=>i.categoria).filter(Boolean))).sort(),[itens]);
 
@@ -69,44 +108,26 @@ export default function Page(){
   const totalSel = sel.size;
   const allSel = filtrados.length>0 && filtrados.every(i=> sel.has(i.id));
 
-  const carregar=useCallback(async(p=page,s=status)=>{
-    if(!tk){ setErr("Faça login como admin."); return; }
-    setErr(null); setOk(null); setLoading(true);
-    try{
-      const r=await api.adminListarFila(tk,{status:s||undefined,page:p});
-      setItens(r.results||[]); setTotal(r.count||0);
-      if(!(r.results||[]).length) setOk(s==="pendente"?"Fila vazia — nada pendente para curadoria.":`Nenhum item com status "${s}".`);
-    }catch(e:any){
-      setErr(e?.message||"Falha ao carregar fila — tente novamente em instantes");
-      setItens([{tipo:"item",id:1,titulo:"Reforma tributária entra em fase de regulamentação",categoria:"economia",status_revisao:"pendente",nome_fonte:"Fonte Exemplo",url_fonte_original:"https://example.com/a",urgente:false,cluster:null,cluster_titulo:"",timestamp_ingestao:new Date().toISOString()},{tipo:"cluster",id:2,titulo:"Frente fria avança pelo Sudeste",categoria:"cidades",status_revisao:"pendente",nome_fonte:"G1",url_fonte_original:"https://example.com/b",urgente:true,cluster:10,cluster_titulo:"Frente fria no Sudeste",timestamp_ingestao:new Date(Date.now()-3600000*2).toISOString()},{tipo:"item",id:3,titulo:"Vacina nacional entra em testes finais",categoria:"saúde",status_revisao:"pendente",nome_fonte:"CNN",url_fonte_original:"https://example.com/c",urgente:false,cluster:null,cluster_titulo:"",timestamp_ingestao:new Date(Date.now()-3600000*5).toISOString()}]);
-      setTotal(3);
-    } finally{ setLoading(false); }
-  },[tk,page,status]);
-
-  useEffect(()=>{ if(tk) carregar(page,status); },[tk,page,status,carregar]);
-  useEffect(()=>{ if(!auto) return; const id=setInterval(()=> carregar(page,status), 30000); return ()=> clearInterval(id); },[auto,page,status,carregar]);
-  useEffect(()=>{ setPage(1); },[status]);
-
   const toggleSel=(id:number)=> setSel(prev=>{ const n=new Set(prev); if(n.has(id)) n.delete(id); else n.add(id); return n; });
   const toggleAll=()=> setSel(prev=>{ if(allSel) return new Set(); return new Set(filtrados.map(i=>i.id)); });
 
   const decidir=async(id:number,acao:"aprovar"|"rejeitar")=>{
-    setActing(id); setErr(null);
-    try{ await api.adminDecidirFila(tk,id,acao); setOk(acao==="aprovar"?"Aprovado.":"Rejeitado."); setSel(prev=>{ const n=new Set(prev); n.delete(id); return n; }); await carregar(page,status); }
-    catch(e:any){ setErr(e?.message||"Falha na decisão."); }
+    setActing(id); setErroMutacao(null);
+    try{ await api.adminDecidirFila(tk,id,acao); setOk(acao==="aprovar"?"Aprovado.":"Rejeitado."); setSel(prev=>{ const n=new Set(prev); n.delete(id); return n; }); await cliente.invalidateQueries({ queryKey: queryKeys.admin.filaRaiz() }); }
+    catch(e:any){ setErroMutacao(e?.message||"Falha na decisão."); }
     finally{ setActing(null); }
   };
   const bulkDecidir=async(acao:"aprovar"|"rejeitar")=>{
     if(!sel.size) return;
     if(!confirm(`${acao==="aprovar"?"Aprovar":"Rejeitar"} ${sel.size} itens selecionados?`)) return;
-    setBulk(true); setErr(null);
+    setBulk(true); setErroMutacao(null);
     let okC=0; let fail=0;
     for(const id of Array.from(sel)){
       try{ await api.adminDecidirFila(tk,id,acao); okC++; } catch{ fail++; }
     }
     setBulk(false); setSel(new Set());
     setOk(`${okC} ${acao==="aprovar"?"aprovados":"rejeitados"}${fail?` — ${fail} falhas`:""}.`);
-    await carregar(page,status);
+    await cliente.invalidateQueries({ queryKey: queryKeys.admin.filaRaiz() });
   };
 
   const executarAprovarTudo=async()=>{
@@ -121,7 +142,7 @@ export default function Page(){
     }
     allIds=[...new Set(allIds)];
     if(!allIds.length){ setOk("Nada pendente nos filtros atuais."); setAprovarTudoOpen(false); return; }
-    setAprovarTudoRunning(true); setErr(null); setAprovarTudoProg({done:0,total:allIds.length,fail:0});
+    setAprovarTudoRunning(true); setErroMutacao(null); setAprovarTudoProg({done:0,total:allIds.length,fail:0});
     let done=0; let fail=0;
     for(const id of allIds){
       try{ await api.adminDecidirFila(tk,id,"aprovar"); done++; }catch{ fail++; }
@@ -129,7 +150,7 @@ export default function Page(){
     }
     setAprovarTudoRunning(false); setAprovarTudoOpen(false); setAprovarTudoProg(null); setSel(new Set());
     setOk(`${done} aprovados${fail?` — ${fail} falhas`:""} (aprovar tudo${total>itens.length?` — ${allIds.length} itens em ${Math.ceil(total/PAGE_SIZE)} páginas`:""}).`);
-    await carregar(page,status);
+    await cliente.invalidateQueries({ queryKey: queryKeys.admin.filaRaiz() });
   };
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -150,7 +171,7 @@ export default function Page(){
           </div>
 
           <div className="flex flex-wrap gap-2">
-            <Button onClick={()=>carregar(page,status)} disabled={loading} variant="outline" className="min-h-[36px]"><RefreshCw className={`mr-1 h-4 w-4 ${loading?"animate-spin":""}`} /> Atualizar</Button>
+            <Button onClick={recarregar} disabled={loading} variant="outline" className="min-h-[36px]"><RefreshCw className={`mr-1 h-4 w-4 ${loading?"animate-spin":""}`} /> Atualizar</Button>
             <Button onClick={()=>setAprovarTudoOpen(true)} disabled={!filtrados.some(i=>i.status_revisao==="pendente")||bulk||aprovarTudoRunning||!tk||loading} className="min-h-[36px] bg-emerald-600 text-white hover:bg-emerald-700 gap-1.5"><Sparkles className="h-4 w-4" /> Aprovar tudo <Badge variant="outline" className="ml-1 border-white/30 bg-white/15 text-white">{filtrados.filter(i=>i.status_revisao==="pendente").length}{total>itens.length?` de ${total}`:""} pendentes</Badge></Button>
             <Button onClick={()=>{const ids=filtrados.filter(i=>i.status_revisao==="pendente").map(i=>i.id); if(!ids.length) return; setSel(new Set(ids)); window.scrollTo({top: document.body.scrollHeight/3, behavior:"smooth"});}} disabled={!filtrados.some(i=>i.status_revisao==="pendente")||bulk} variant="outline" className="min-h-[36px] gap-1"><Zap className="h-4 w-4" /> Selecionar todos pendentes</Button>
             <div className="flex items-center gap-2 rounded-md border border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] px-3 py-1 text-xs"><Switch checked={auto} onCheckedChange={setAuto} id="auto" /><Label htmlFor="auto" className="text-xs">Auto 30s</Label></div>

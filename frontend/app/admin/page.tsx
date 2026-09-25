@@ -9,6 +9,15 @@ import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import * as api from "@/lib/api";
+import {
+  useQueryAdminFila,
+  useQueryAdminUsuarios,
+  useQueryAdminAssinaturas,
+  useQueryAdminFontes,
+  useQueryAdminRoboConfig,
+  useQueryAdminPlanos,
+  useQueryAdminDenuncias,
+} from "@/lib/queries";
 import { formatarDataPorExtenso, formatarNumeroPtBR } from "@/lib/datas";
 import Link from "next/link";
 import {
@@ -124,90 +133,40 @@ const MODULOS_BASE = [
 export default function Page() {
   const { usuario, token, carregando } = useAuth();
   const r = useRouter();
-  const [stats, setStats] = useState<Stats>({
-    pendentes: null,
-    usuarios: null,
-    assinaturas: null,
-    fontes: null,
-    roboAtivo: null,
-    planos: null,
-    denuncias: null,
-  });
-  const [loadingStats, setLoadingStats] = useState(true);
+  const usuarioId = usuario?.id ?? 0;
 
   useEffect(() => {
     if (!carregando && !token) r.replace("/login");
   }, [carregando, token, r]);
 
-  useEffect(() => {
-    if (!token) return;
-    let cancel = false;
-    setLoadingStats(true);
-    (async () => {
-      const tasks: Promise<void>[] = [];
-      tasks.push(
-        api
-          .adminListarFila(token, { status: "pendente" })
-          .then((res) => {
-            if (!cancel) setStats((s) => ({ ...s, pendentes: res.count ?? res.results.length }));
-          })
-          .catch(() => {})
-      );
-      tasks.push(
-        api
-          .adminListarUsuarios(token, {})
-          .then((res) => {
-            if (!cancel) setStats((s) => ({ ...s, usuarios: res.count ?? res.results.length }));
-          })
-          .catch(() => {})
-      );
-      tasks.push(
-        api
-          .adminListarAssinaturas(token, { status: "ativa" })
-          .then((res) => {
-            if (!cancel) setStats((s) => ({ ...s, assinaturas: res.count ?? res.results.length }));
-          })
-          .catch(() => {})
-      );
-      tasks.push(
-        api
-          .robosListarFontes(token)
-          .then((res) => {
-            if (!cancel) setStats((s) => ({ ...s, fontes: res.length }));
-          })
-          .catch(() => {})
-      );
-      tasks.push(
-        api
-          .robosObterConfig(token)
-          .then((res) => {
-            if (!cancel) setStats((s) => ({ ...s, roboAtivo: res.ativo }));
-          })
-          .catch(() => {})
-      );
-      tasks.push(
-        api
-          .adminListarPlanos(token)
-          .then((res) => {
-            if (!cancel) setStats((s) => ({ ...s, planos: res.count ?? (res.results as unknown as unknown[]).length ?? 0 }));
-          })
-          .catch(() => {})
-      );
-      tasks.push(
-        api
-          .adminListarDenuncias(token, { status: "pendente" })
-          .then((res) => {
-            if (!cancel) setStats((s) => ({ ...s, denuncias: res.count ?? res.results.length }));
-          })
-          .catch(() => {})
-      );
-      await Promise.allSettled(tasks);
-      if (!cancel) setLoadingStats(false);
-    })();
-    return () => {
-      cancel = true;
-    };
-  }, [token]);
+  // --- Migração TanStack Query: stats do dashboard derivadas de hooks Admin
+  // (staleTime 0 — telas de decisão). As chaves são as mesmas das telas de
+  // detalhe; o cache é compartilhado entre dashboard e detalhes (dedupe).
+  const filaQuery = useQueryAdminFila({ token, usuarioId, status: "pendente", page: 1 });
+  const usuariosQuery = useQueryAdminUsuarios({ token, usuarioId, busca: null, habilitada: true });
+  const assinaturasQuery = useQueryAdminAssinaturas({ token, usuarioId, filtros: { busca: null, status: "ativa" }, habilitada: true });
+  const fontesQuery = useQueryAdminFontes({ token, usuarioId });
+  const roboConfigQuery = useQueryAdminRoboConfig({ token, usuarioId });
+  const planosQuery = useQueryAdminPlanos({ token, usuarioId });
+  const denunciasQuery = useQueryAdminDenuncias({ token, usuarioId, filtros: { status: "pendente" }, habilitada: true });
+
+  const stats: Stats = {
+    pendentes: filaQuery.data?.count ?? filaQuery.data?.results.length ?? null,
+    usuarios: usuariosQuery.data?.count ?? usuariosQuery.data?.results.length ?? null,
+    assinaturas: assinaturasQuery.data?.count ?? assinaturasQuery.data?.results.length ?? null,
+    fontes: fontesQuery.data?.length ?? null,
+    roboAtivo: roboConfigQuery.data?.ativo ?? null,
+    planos: planosQuery.data?.count ?? (planosQuery.data?.results as unknown as unknown[] | undefined)?.length ?? null,
+    denuncias: denunciasQuery.data?.count ?? denunciasQuery.data?.results.length ?? null,
+  };
+  const loadingStats =
+    filaQuery.isLoading ||
+    usuariosQuery.isLoading ||
+    assinaturasQuery.isLoading ||
+    fontesQuery.isLoading ||
+    roboConfigQuery.isLoading ||
+    planosQuery.isLoading ||
+    denunciasQuery.isLoading;
 
   const saudacao = useMemo(() => {
     const h = new Date().getHours();

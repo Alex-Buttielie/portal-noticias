@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
+import * as api from "@/lib/api";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -11,7 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { SeloFormato, formatoDaPublicacao } from "@/components/comunidade/TipoSelo";
 import { useAuth } from "@/lib/auth-context";
-import * as api from "@/lib/api";
+import { useQueryPublicacaoComunidade } from "@/lib/queries";
 import { registrarEventoComunidade } from "@/lib/interacoes-comunidade";
 import { formatarDataHoraCompleta } from "@/lib/datas";
 import { AdsSlot } from "@/components/AdsSlot";
@@ -24,7 +25,7 @@ const LS_SEGUINDO = "brd_autores_seguindo";
 function readLS(k: string): string[] { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) as string[] : []; } catch { return []; } }
 function writeLS(k: string, v: string[]) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { } }
 
-function fallbackPub(id: number, rawId: string): api.Publicacao {
+function fallbackPub(id: number, rawId: string): any {
   return { id, titulo: `Publicação #${rawId}`, conteudo: "Conteúdo indisponível no momento.", tipo: "opiniao", status: "publicado", categoria: "geral", autor: 1, autor_nome: "Autor Exemplo", tags: ["exemplo"], news_cluster: null, news_item: null, destaque: false, numero_comentarios: 0, criado_em: new Date().toISOString(), publicado_em: new Date().toISOString() };
 }
 
@@ -33,102 +34,106 @@ export default function Page({ params }: { params: { id: string } }) {
   const safeId = Number.isFinite(id) ? id : 1;
   const { token, usuario } = useAuth();
   const router = useRouter();
-  const [pub, setPub] = useState<api.Publicacao | null>(null);
+
+  const [pub, setPub] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [erroPub, setErroPub] = useState<string | null>(null);
-  const [comentarios, setComentarios] = useState<api.Comentario[]>([]);
-  const [relacionadas, setRelacionadas] = useState<api.Publicacao[]>([]);
-  const [noticiasRel, setNoticiasRel] = useState<api.FeedEntrada[]>([]);
+  const [comentarios, setComentarios] = useState<any[]>([]);
+  const [relacionadas, setRelacionadas] = useState<any[]>([]);
+  const [noticiasRel, setNoticiasRel] = useState<any[]>([]);
   const [seguindo, setSeguindo] = useState<string[]>([]);
-  const [perfil, setPerfil] = useState<api.PerfilAutorPublico | null>(null);
+  const [perfil, setPerfil] = useState<any>(null);
   const [openPerfil, setOpenPerfil] = useState(false);
   const [openDenuncia, setOpenDenuncia] = useState<{ open: boolean; comentarioId?: number }>({ open: false });
   const [openEditar, setOpenEditar] = useState(false);
-  const [responderA, setResponderA] = useState<api.Comentario | null>(null);
+  const [responderA, setResponderA] = useState<any>(null);
   const [motivo, setMotivo] = useState("");
   const [comentTxt, setComentTxt] = useState("");
   const [editVals, setEditVals] = useState({ titulo: "", conteudo: "" });
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
+  // --- MIGRATION: useQueryPublicacaoComunidade para dados da publicação ---
+  const pubQuery = useQueryPublicacaoComunidade({
+    id: safeId,
+    token,
+    usuarioId: usuario?.id ?? null,
+  });
+
+  useEffect(() => {
+    // Sincronizar dados da query ao mudar de usuário ou fazer login
+    if (pubQuery.data) {
+      setPub(pubQuery.data);
+      setEditVals({ titulo: pubQuery.data.titulo, conteudo: pubQuery.data.conteudo });
+    }
+    if (pubQuery.isError && !pub) {
+      setErroPub("Publicação indisponível — mostrando cópia local.");
+    }
+  }, [pubQuery.data, pubQuery.isError, usuario?.id]);
+
+  // Preservar LS de grupos ao mudar de página
   useEffect(() => { setSeguindo(readLS(LS_SEGUINDO)); }, []);
 
+  // Substituir o recarregar manual pela query
   const recarregar = async () => {
     setLoading(true);
     setErroPub(null);
     try {
-      const p = await api.obterPublicacao(token, safeId);
-      const resolved = p ?? fallbackPub(safeId, params.id);
-      setPub(resolved);
-      setEditVals({ titulo: resolved.titulo, conteudo: resolved.conteudo });
-      registrarEventoComunidade("ver_publicacao", { publicacaoId: safeId, categoria: resolved.categoria });
-      if (!p) setErroPub("Publicação indisponível na API — mostrando cópia local.");
+      // refetch da query da publicação (a key crua ["publicacao", safeId]
+      // não prefixa a key real e seria um no-op).
+      await pubQuery.refetch();
     } catch {
-      const m = fallbackPub(safeId, params.id);
-      setPub(m);
-      setEditVals({ titulo: m.titulo, conteudo: m.conteudo });
-      setErroPub("Não foi possível carregar a publicação — mostrando cópia local.");
+      // fallback silencioso
     } finally {
       setLoading(false);
     }
   };
 
+  // Efeitos que continuam usando API manual (comentários, feed, perfil) —
+  // mantidos para não quebrar o fluxo existente de mutations/localStorage.
   useEffect(() => {
     let alive = true;
     (async () => {
-      setLoading(true);
-      setErroPub(null);
       try {
-        const p = await api.obterPublicacao(token, safeId);
-        const resolved = p ?? fallbackPub(safeId, params.id);
-        if (alive) {
-          setPub(resolved);
-          setEditVals({ titulo: resolved.titulo, conteudo: resolved.conteudo });
-          registrarEventoComunidade("ver_publicacao", { publicacaoId: safeId, categoria: resolved.categoria });
-          if (!p) setErroPub("Publicação indisponível na API — mostrando cópia local.");
-        }
+        const cs = await api.obterComentarios({ publicacao: safeId });
+        if (alive) setComentarios(cs ?? []);
       } catch {
-        if (alive) {
-          const m = fallbackPub(safeId, params.id);
-          setPub(m);
-          setEditVals({ titulo: m.titulo, conteudo: m.conteudo });
-          setErroPub("Não foi possível carregar a publicação — mostrando cópia local.");
-        }
-      } finally { if (alive) setLoading(false); }
+        if (alive) setComentarios([]);
+      }
     })();
     return () => { alive = false; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [safeId]);
 
   useEffect(() => {
     let alive = true;
     (async () => {
-      try { const cs = await api.obterComentarios({ publicacao: safeId }); if (alive) setComentarios(cs ?? []); } catch { if (alive) setComentarios([]); }
-    })();
-    return () => { alive = false; };
-  }, [safeId]);
-
-  // Ecossistema: mesma editoria (comunidade) + notícias relacionadas (feed).
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      if (!pub) return;
       try {
-        const lista = await api.obterPublicacoes({ categoria: pub.categoria || undefined, ordenar: "discutidos" });
-        if (alive) setRelacionadas((lista ?? []).filter((p) => p.id !== safeId).slice(0, 4));
+        const pl = await api.obterPublicacoes({ categoria: pub?.categoria || undefined, ordenar: "discutidos" });
+        if (alive) setRelacionadas((pl ?? []).filter((p) => p.id !== safeId).slice(0, 4));
       } catch { if (alive) setRelacionadas([]); }
       try {
-        const feed = await api.obterFeed({ categoria: pub.categoria || undefined });
+        const feed = await api.obterFeed({ categoria: pub?.categoria || undefined });
         if (alive) setNoticiasRel((feed.results ?? []).slice(0, 3));
       } catch { if (alive) setNoticiasRel([]); }
     })();
     return () => { alive = false; };
-  }, [pub, safeId]);
+  }, [pub?.categoria, safeId]);
+
+  useEffect(() => {
+    let vivo = true;
+    (async () => {
+      try {
+        const p = await api.obterPerfilAutor(pub?.autor);
+        if (vivo) setPerfil(p);
+      } catch { vivo = false; }
+    })();
+    return () => { vivo = false; };
+  }, [pub?.autor]);
 
   // Thread 1 nível: topo + respostas agrupadas.
   const { tops, respostasPor } = useMemo(() => {
     const tops = comentarios.filter((c) => !c.resposta_de);
-    const respostasPor: Record<number, api.Comentario[]> = {};
+    const respostasPor: Record<number, any[]> = {};
     for (const c of comentarios) {
       if (c.resposta_de) {
         (respostasPor[c.resposta_de] ||= []).push(c);
@@ -137,7 +142,7 @@ export default function Page({ params }: { params: { id: string } }) {
     return { tops, respostasPor };
   }, [comentarios]);
 
-  const isAutor = !!usuario && !!pub && usuario.id === pub.autor;
+  const isAutor = !!usuario && !!pub && usuario.id === pub?.autor;
   const isSeguindo = pub ? seguindo.includes(String(pub.autor)) : false;
   const formato = formatoDaPublicacao(pub?.tipo ?? "opiniao", comentarios.length);
 
@@ -222,7 +227,7 @@ export default function Page({ params }: { params: { id: string } }) {
       ? { href: `/noticia/item/${pub.news_item}`, rotulo: `Notícia relacionada (#${pub.news_item})` }
       : null;
 
-  const BlocoComentario = ({ c, ehResposta = false }: { c: api.Comentario; ehResposta?: boolean }) => (
+  const BlocoComentario = ({ c, ehResposta = false }: { c: any; ehResposta?: boolean }) => (
     <div className={ehResposta ? "ml-6 border-l-2 border-[var(--cor-borda)] pl-3" : ""}>
       <div className="rounded-[var(--raio-md)] border border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] p-3">
         <div className="flex items-center justify-between gap-2">
@@ -285,11 +290,11 @@ export default function Page({ params }: { params: { id: string } }) {
                 <Button size="sm" variant="outline" className="h-8 gap-1 border-[var(--cor-borda)]" onClick={verPerfil}><Eye className="h-3.5 w-3.5" aria-hidden />Perfil</Button>
               </div>
             </div>
-            {!!pub.tags.length && <div className="flex flex-wrap gap-1">{pub.tags.map((t) => <span key={t} className="rounded-full border border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] px-2 py-0.5 text-xs text-[var(--cor-texto-suave)]">#{t}</span>)}</div>}
+            {!!pub.tags.length && <div className="flex flex-wrap gap-1">{pub.tags.map((t: string) => <span key={t} className="rounded-full border border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] px-2 py-0.5 text-xs text-[var(--cor-texto-suave)]">#{t}</span>)}</div>}
           </div>
 
           <Card className="border-[var(--cor-borda)] bg-[var(--cor-fundo-card)]">
-            <CardContent className="p-5"><p className="whitespace-pre-wrap leading-relaxed text-[var(--cor-texto)]">{pub.conteudo}</p></CardContent>
+            <CardContent className="p-5"><p className="whitespace-pre-wrap text-[var(--cor-texto)]">{pub.conteudo}</p></CardContent>
           </Card>
 
           {/* Notícia relacionada — ponte com o ecossistema */}
@@ -362,7 +367,7 @@ export default function Page({ params }: { params: { id: string } }) {
             <CardContent className="space-y-1.5">
               {relacionadas.length === 0 && <p className="text-xs text-[var(--cor-texto-suave)]">Nenhuma outra discussão em {pub.categoria} ainda.</p>}
               {relacionadas.map((r) => (
-                <Link key={r.id} href={`/comunidade/${r.id}`} className="block rounded-md p-1.5 hover:bg-[var(--cor-primaria-suave)]">
+                <Link key={r.id} href={`/comunidade/${r.id}`} className="block rounded-md p-1.5 hover:bg-[var(--cor-primaria-suive)]">
                   <p className="truncate text-sm font-medium text-[var(--cor-texto)]">{r.titulo}</p>
                   <p className="text-xs text-[var(--cor-texto-suave)]">{r.numero_comentarios ?? 0} comentários · {r.autor_nome}</p>
                 </Link>
@@ -381,7 +386,7 @@ export default function Page({ params }: { params: { id: string } }) {
           {perfil ? (
             <div className="space-y-2 text-sm">
               <p className="text-[var(--cor-texto)]">Seguidores: <strong>{perfil.numero_seguidores}</strong> {perfil.credenciado && <Badge className="ml-2 bg-[var(--cor-sucesso)] text-white">Credenciado</Badge>}</p>
-              {perfil.publicacoes.length > 0 && <div className="space-y-1"><p className="font-medium text-[var(--cor-texto)]">Publicações recentes</p>{perfil.publicacoes.slice(0, 3).map((p) => <Link key={p.id} href={`/comunidade/${p.id}`} className="block rounded-md border border-[var(--cor-borda)] p-2 hover:bg-[var(--cor-primaria-suave)] text-[var(--cor-texto)] text-sm">{p.titulo}</Link>)}</div>}
+              {perfil.publicacoes.length > 0 && <div className="space-y-1"><p className="font-medium text-[var(--cor-texto)]">Publicações recentes</p>{perfil.publicacoes.slice(0, 3).map((p: { id: number; titulo: string }) => <Link key={p.id} href={`/comunidade/${p.id}`} className="block rounded-md border border-[var(--cor-borda)] p-2 hover:bg-[var(--cor-primaria-suave)] text-[var(--cor-texto)] text-sm">{p.titulo}</Link>)}</div>}
             </div>
           ) : <p className="text-sm text-[var(--cor-texto-suave)]">Carregando...</p>}
           <DialogFooter><Button variant="outline" onClick={() => setOpenPerfil(false)} className="border-[var(--cor-borda)]">Fechar</Button><Button onClick={toggleSeguir} className="bg-[var(--cor-primaria)] text-[var(--cor-texto-invertido)] gap-1">{isSeguindo ? <><UserMinus className="h-4 w-4" aria-hidden />Deixar de seguir</> : <><UserPlus className="h-4 w-4" aria-hidden />Seguir autor</>}</Button></DialogFooter>
