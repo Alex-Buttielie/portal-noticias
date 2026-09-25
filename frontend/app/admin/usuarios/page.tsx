@@ -11,11 +11,6 @@ import { useQueryAdminUsuarios } from "@/lib/queries";
 import { queryKeys } from "@/lib/query-keys";
 import { formatarDataCurta } from "@/lib/datas";
 
-const MOCK: api.AdminUsuario[] = [
-  { id: 1, email: "admin@exemplo.com", nome: "Admin Exemplo", papel: "admin", is_active: true, email_verificado: true, date_joined: new Date().toISOString() },
-  { id: 2, email: "user@exemplo.com", nome: "Usuário Exemplo", papel: "free", is_active: true, email_verificado: false, date_joined: new Date().toISOString() },
-];
-
 export default function Page(){
   const { usuario, token } = useAuth();
   const cliente = useQueryClient();
@@ -24,7 +19,7 @@ export default function Page(){
   const [erroMutacao,setErroMutacao]=useState<string|null>(null);
   // A tela só carrega após o clique em "Buscar" (buscaAplicada sai de null).
   const consulta=useQueryAdminUsuarios({ token, usuarioId: usuario?.id ?? 0, busca: buscaAplicada, habilitada: buscaAplicada !== null });
-  const itens=consulta.isError?MOCK:(consulta.data?.results ?? []);
+  const itens=consulta.data?.results ?? [];
   const loading=consulta.isFetching;
   const err=consulta.isError
     ? (consulta.error instanceof Error ? consulta.error.message : "Falha ao carregar — tente novamente")

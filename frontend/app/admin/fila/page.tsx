@@ -30,12 +30,6 @@ function timeAgo(iso:string){
   return `${Math.floor(h/24)}d`;
 }
 
-const MOCK: Item[] = [
-  { tipo: "item", id: 1, titulo: "Reforma tributária entra em fase de regulamentação", categoria: "economia", status_revisao: "pendente", nome_fonte: "Fonte Exemplo", url_fonte_original: "https://example.com/a", urgente: false, cluster: null, cluster_titulo: "", timestamp_ingestao: new Date().toISOString() },
-  { tipo: "cluster", id: 2, titulo: "Frente fria avança pelo Sudeste", categoria: "cidades", status_revisao: "pendente", nome_fonte: "G1", url_fonte_original: "https://example.com/b", urgente: true, cluster: 10, cluster_titulo: "Frente fria no Sudeste", timestamp_ingestao: new Date(Date.now()-3600000*2).toISOString() },
-  { tipo: "item", id: 3, titulo: "Vacina nacional entra em testes finais", categoria: "saúde", status_revisao: "pendente", nome_fonte: "CNN", url_fonte_original: "https://example.com/c", urgente: false, cluster: null, cluster_titulo: "", timestamp_ingestao: new Date(Date.now()-3600000*5).toISOString() },
-];
-
 export default function Page(){
   const { usuario, token } = useAuth();
   const tk = token||"";
@@ -65,8 +59,8 @@ export default function Page(){
     page,
     intervaloMs: auto ? 30_000 : 0,
   });
-  const itens = consultaFila.isError ? MOCK : (consultaFila.data?.results ?? []);
-  const total = consultaFila.isError ? MOCK.length : (consultaFila.data?.count ?? 0);
+  const itens = consultaFila.data?.results ?? [];
+  const total = consultaFila.data?.count ?? 0;
   const loading = consultaFila.isFetching;
   const err = consultaFila.isError
     ? (consultaFila.error instanceof Error ? consultaFila.error.message : "Falha ao carregar fila — tente novamente em instantes")

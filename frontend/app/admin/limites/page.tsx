@@ -19,12 +19,14 @@ import { Clock3, Layers, Pencil, RefreshCw, Settings2, ShieldCheck, Sparkles, Za
 
 type Lim = { id: number; chave: string; plano: string; valor: string; descricao: string; atualizado_em?: string | null };
 
-const META: Record<string, { label: string; desc: string; icon: typeof Layers; exemplo: string }> = {
-  feed_max_itens: { label: "Itens no feed", desc: "Quantas matérias o usuário vê por dia no feed principal.", icon: Layers, exemplo: "free: 20 itens/dia · premium: ilimitado" },
-  radar_credito: { label: "Radar", desc: "Consultas ao Radar de tendências e evolução por período.", icon: Zap, exemplo: "free: 3 consultas/dia · premium: ilimitado" },
-  alertas_max: { label: "Alertas", desc: "Alertas personalizados por tema/categoria.", icon: Sparkles, exemplo: "free: 1 alerta · premium: ilimitado" },
-  historico_dias: { label: "Histórico", desc: "Dias de histórico e arquivo completo liberados.", icon: Clock3, exemplo: "free: 7 dias · premium: histórico completo" },
-  feed_sem_anuncios: { label: "Feed sem anúncios", desc: "Remove publicidade do feed para o plano.", icon: ShieldCheck, exemplo: "free: com anúncios · premium: sem anúncios" },
+// `referencia` documenta o formato esperado do valor (ex.: "free: 20/dia").
+// É texto de apoio à curadoria, não dado presented como real ao leitor.
+const META: Record<string, { label: string; desc: string; icon: typeof Layers; referencia: string }> = {
+  feed_max_itens: { label: "Itens no feed", desc: "Quantas matérias o usuário vê por dia no feed principal.", icon: Layers, referencia: "free: 20 itens/dia · premium: ilimitado" },
+  radar_credito: { label: "Radar", desc: "Consultas ao Radar de tendências e evolução por período.", icon: Zap, referencia: "free: 3 consultas/dia · premium: ilimitado" },
+  alertas_max: { label: "Alertas", desc: "Alertas personalizados por tema/categoria.", icon: Sparkles, referencia: "free: 1 alerta · premium: ilimitado" },
+  historico_dias: { label: "Histórico", desc: "Dias de histórico e arquivo completo liberados.", icon: Clock3, referencia: "free: 7 dias · premium: histórico completo" },
+  feed_sem_anuncios: { label: "Feed sem anúncios", desc: "Remove publicidade do feed para o plano.", icon: ShieldCheck, referencia: "free: com anúncios · premium: sem anúncios" },
 };
 
 function human(meta: (typeof META)[string] | undefined, chave: string) {
@@ -37,14 +39,6 @@ function isRecente(iso?: string | null) {
   if (Number.isNaN(d)) return false;
   return Date.now() - d < 24 * 60 * 60 * 1000;
 }
-
-const MOCK: Lim[] = [
-  { id: 1, chave: "feed_max_itens", plano: "free", valor: "20", descricao: "Exemplo — limite de itens no feed (free)", atualizado_em: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString() },
-  { id: 2, chave: "feed_max_itens", plano: "premium", valor: "ilimitado", descricao: "Exemplo — sem limite no premium", atualizado_em: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString() },
-  { id: 3, chave: "radar_credito", plano: "free", valor: "3", descricao: "Exemplo — créditos diários do radar", atualizado_em: new Date(Date.now() - 30 * 60 * 1000).toISOString() },
-  { id: 4, chave: "radar_credito", plano: "premium", valor: "ilimitado", descricao: "Exemplo — radar ilimitado", atualizado_em: new Date().toISOString() },
-  { id: 5, chave: "feed_sem_anuncios", plano: "premium", valor: "1", descricao: "Exemplo — feed sem anúncios ativo", atualizado_em: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString() },
-];
 
 export default function Page() {
   const { usuario, token } = useAuth();
@@ -60,12 +54,14 @@ export default function Page() {
 
   const brutas = ((consulta.data?.results as unknown as Lim[]) || []);
   const vazia = consulta.isSuccess && !brutas.length;
-  const itens = consulta.isError ? MOCK : (vazia ? MOCK : brutas);
+  const itens = brutas;
   const loading = consulta.isFetching;
+  // P0-08: nada é exibido no lugar da lista real. Erro => estado de erro;
+  // vazio de verdade => estado vazio.
   const err = consulta.isError
-    ? ((consulta.error instanceof Error ? consulta.error.message : "Falha — API offline") + " — exibindo dados de exemplo.")
+    ? (consulta.error instanceof Error ? consulta.error.message : "Falha — API offline")
     : vazia
-      ? "API offline — exibindo dados de exemplo."
+      ? "Nenhum limite cadastrado ainda."
       : null;
 
   const chaves = useMemo(() => Array.from(new Set(itens.map((i) => i.chave))), [itens]);
@@ -128,7 +124,7 @@ export default function Page() {
                       <p className="text-sm font-semibold text-[var(--cor-texto)]">{human(meta, c)}</p>
                       <p className="text-xs text-[var(--cor-texto-suave)]">{meta?.desc ?? "Regra de gating por plano."}</p>
                       <p className="mt-1 font-mono text-xs text-[var(--cor-texto-suave)]">{c}</p>
-                      {meta?.exemplo && <p className="mt-1 text-xs font-medium text-[var(--cor-primaria)]">{meta.exemplo}</p>}
+                      {meta?.referencia && <p className="mt-1 text-xs font-medium text-[var(--cor-primaria)]">{meta.referencia}</p>}
                     </div>
                   </div>
                 </div>
@@ -149,7 +145,7 @@ export default function Page() {
                 <Card className="border-[var(--cor-borda)] bg-[var(--cor-fundo-card)]">
                   <CardHeader className="pb-3">
                     <CardTitle className="flex flex-wrap items-center gap-2 text-base">{human(META[chave], chave)}<Badge variant="outline" className="border-[var(--cor-borda)] font-mono text-[10px]">{chave}</Badge></CardTitle>
-                    <CardDescription>{META[chave]?.desc ?? "Valores por plano para esta chave."} {META[chave]?.exemplo && <span className="font-medium text-[var(--cor-primaria)]"> — {META[chave].exemplo}</span>}</CardDescription>
+                    <CardDescription>{META[chave]?.desc ?? "Valores por plano para esta chave."} {META[chave]?.referencia && <span className="font-medium text-[var(--cor-primaria)]"> — {META[chave].referencia}</span>}</CardDescription>
                   </CardHeader>
                   <CardContent className="overflow-x-auto">
                     <table className="w-full min-w-[520px] text-sm">
@@ -173,7 +169,7 @@ export default function Page() {
             <TabsContent value="todas" className="mt-3 space-y-3">
               {agrupado.map(([chave, linhas]) => (
                 <Card key={chave} className="border-[var(--cor-borda)] bg-[var(--cor-fundo-card)]">
-                  <CardHeader className="pb-3"><CardTitle className="flex flex-wrap items-center gap-2 text-base">{human(META[chave], chave)}<Badge variant="outline" className="border-[var(--cor-borda)] font-mono text-[10px]">{chave}</Badge></CardTitle><CardDescription>{META[chave]?.exemplo ?? ""}</CardDescription></CardHeader>
+                  <CardHeader className="pb-3"><CardTitle className="flex flex-wrap items-center gap-2 text-base">{human(META[chave], chave)}<Badge variant="outline" className="border-[var(--cor-borda)] font-mono text-[10px]">{chave}</Badge></CardTitle><CardDescription>{META[chave]?.referencia ?? ""}</CardDescription></CardHeader>
                   <CardContent className="overflow-x-auto">
                     <table className="w-full min-w-[520px] text-sm">
                       <thead><tr className="border-b border-[var(--cor-borda)] text-left text-xs text-[var(--cor-texto-suave)]"><th className="py-2 font-medium">Plano</th><th className="py-2 font-medium">Valor</th><th className="py-2 font-medium">Descrição</th><th className="py-2 font-medium">Atualizado</th><th className="py-2" /></tr></thead>
@@ -216,7 +212,7 @@ export default function Page() {
             <div className="rounded-md border border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] p-3">
               <p className="text-xs font-semibold text-[var(--cor-texto)]">Como fica para o usuário</p>
               <p className="mt-1 text-sm text-[var(--cor-texto-suave)]">{preview || "—"}</p>
-              {edit && META[edit.chave]?.exemplo && <p className="mt-1 text-xs text-[var(--cor-texto-suave)]">Referência: {META[edit.chave].exemplo}</p>}
+              {edit && META[edit.chave]?.referencia && <p className="mt-1 text-xs text-[var(--cor-texto-suave)]">Referência: {META[edit.chave].referencia}</p>}
             </div>
             {erroVal && <p role="alert" className="rounded-md border border-[var(--cor-erro)] bg-[var(--cor-erro-suave)] px-3 py-2 text-sm text-[var(--cor-erro)]">{erroVal}</p>}
           </div>

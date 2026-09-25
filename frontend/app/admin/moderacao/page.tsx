@@ -12,10 +12,6 @@ import * as api from "@/lib/api";
 import { useQueryAdminDenuncias } from "@/lib/queries";
 import { queryKeys } from "@/lib/query-keys";
 
-const MOCK: any[] = [
-  { id: 1, motivo: "spam", detalhe: "Conteúdo de exemplo", status: "pendente", denunciante_email: "denunciante@exemplo.com", criado_em: new Date().toISOString(), alvo_repr: "Publicacao #1" },
-];
-
 export default function Page(){
   const { usuario, token } = useAuth();
   const cliente = useQueryClient();
@@ -24,7 +20,7 @@ export default function Page(){
   const [erroMutacao,setErroMutacao]=useState<string|null>(null);
   // A tela só carrega após o clique em "Carregar denuncias".
   const consulta=useQueryAdminDenuncias({ token, usuarioId: usuario?.id ?? 0, filtros: { status: null }, habilitada: consultou });
-  const itens=consulta.isError?MOCK:((consulta.data?.results ?? []) as any[]);
+  const itens=(consulta.data?.results ?? []) as any[];
   const loading=consulta.isFetching;
   const err=consulta.isError
     ? (consulta.error instanceof Error ? consulta.error.message : "Falha ao carregar — tente novamente")

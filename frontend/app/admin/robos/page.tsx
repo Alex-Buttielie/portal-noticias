@@ -29,12 +29,6 @@ type Fonte = api.FonteRobo;
 type Cfg = api.ConfigRobo;
 type Exec = api.ExecucaoRobo;
 
-/** Fallback mock de fontes quando a API falha (comportamento original preservado). */
-const FONTES_MOCK: Fonte[] = [
-  { id: 1, nome: "G1", url: "https://g1.globo.com/rss/g1/", ativo: true, categoria_padrao: "geral", criado_em: new Date().toISOString(), atualizado_em: new Date().toISOString() },
-  { id: 2, nome: "UOL", url: "https://rss.uol.com.br/feed/noticias.xml", ativo: true, categoria_padrao: "geral", criado_em: new Date().toISOString(), atualizado_em: new Date().toISOString() },
-];
-
 function rel(iso: string) {
   const d = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
   if (d < 60) return `há ${d}s`;
@@ -86,8 +80,9 @@ export default function Page() {
   const perPage = 10;
 
   // --- Migração TanStack Query: fontes, config e execuções do robô
-// (staleTime 0 — telas de decisão). O fallback mock de fontes em erro é
-// preservado; o estado local permite updates otimistas nas mutations.
+// (staleTime 0 — telas de decisão). O estado local permite updates otimistas
+// nas mutations. P0-08: em erro de carga a lista de fontes fica vazia — não
+// populamos fontes fictícias para a tela parecer viva.
 const fontesQuery = useQueryAdminFontes({ token: tk || null, usuarioId });
 const cfgQuery = useQueryAdminRoboConfig({ token: tk || null, usuarioId });
 const execsQuery = useQueryAdminRoboExecucoes({ token: tk || null, usuarioId });
@@ -96,13 +91,13 @@ const loadingF = fontesQuery.isLoading;
 const loadingC = cfgQuery.isLoading;
 const loadingE = execsQuery.isLoading;
 
-// Sincroniza dados da query ao estado local; em erro, aplica o fallback mock.
+// Sincroniza dados da query ao estado local; em erro, limpa a lista local.
 useEffect(() => {
   if (fontesQuery.data) {
     setFontes(fontesQuery.data);
     if (fontesQuery.data.length === 0) setOk("Nenhuma fonte cadastrada — crie a primeira abaixo.");
   } else if (fontesQuery.isError) {
-    setFontes(FONTES_MOCK);
+    setFontes([]);
   }
   if (cfgQuery.data) { setCfg(cfgQuery.data); setCfgOrig(cfgQuery.data); }
   if (execsQuery.data) setExecs(execsQuery.data);

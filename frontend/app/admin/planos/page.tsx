@@ -19,11 +19,6 @@ import { BadgeCheck, Crown, Pencil, Plus, RefreshCw, ShieldAlert, Trash2 } from 
 
 type Plano = api.Plano;
 
-const MOCK: Plano[] = [
-  { id: 1, nome: "Free", preco: "0.00", duracao_dias: 0, ativo: true },
-  { id: 2, nome: "Premium", preco: "29.90", duracao_dias: 30, ativo: true },
-];
-
 function precoValido(v: string) { return /^\d+(\.\d{1,2})?$/.test(v.trim()); }
 
 export default function Page() {
@@ -55,18 +50,19 @@ export default function Page() {
     : [];
   const lista = Array.isArray(brutasRaw) ? brutasRaw : [];
   const vazia = consulta.isSuccess && !lista.length;
-  const planos = consulta.isError ? MOCK : (vazia ? MOCK : lista);
+  const planos = lista;
   const loading = consulta.isFetching;
+  // P0-08: preço e nome de plano vêm só da API. Nada é inventado no lugar.
   const err = consulta.isError
-    ? ((consulta.error instanceof Error ? consulta.error.message : "Falha ao carregar — tentaremos novamente") + " — exibindo dados de exemplo.")
+    ? (consulta.error instanceof Error ? consulta.error.message : "Falha ao carregar — tentaremos novamente")
     : vazia
-      ? "API offline — exibindo dados de exemplo."
+      ? "Nenhum plano cadastrado ainda."
       : null;
 
   function validar(nomeV: string, precoV: string, diasV: string): string | null {
     if (!nomeV.trim()) return "Nome é obrigatório.";
     if (nomeV.trim().length < 2) return "Nome muito curto.";
-    if (!precoValido(precoV)) return "Preço inválido. Use formato 29.90";
+    if (!precoValido(precoV)) return "Preço inválido. Use o formato 0.00 (só centavos, ex.: 19.90).";
     const d = Number(diasV);
     if (!Number.isInteger(d) || d < 0 || d > 3650) return "Duração deve ser inteiro entre 0 e 3650 dias.";
     return null;
@@ -159,7 +155,7 @@ export default function Page() {
             <p className="flex items-center gap-2 text-sm font-semibold text-[var(--cor-texto)]"><Plus className="h-4 w-4 text-[var(--cor-primaria)]" /> Criar plano</p>
             <div className="grid gap-3 md:grid-cols-3">
               <div className="space-y-1"><Label htmlFor="nome">Nome</Label><Input id="nome" value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Ex: Premium" className="border-[var(--cor-borda)]" /></div>
-              <div className="space-y-1"><Label htmlFor="preco">Preço (R$)</Label><Input id="preco" value={preco} onChange={(e) => setPreco(e.target.value)} placeholder="29.90" inputMode="decimal" className="border-[var(--cor-borda)]" /></div>
+              <div className="space-y-1"><Label htmlFor="preco">Preço (R$)</Label><Input id="preco" value={preco} onChange={(e) => setPreco(e.target.value)} placeholder="0.00" inputMode="decimal" className="border-[var(--cor-borda)]" aria-describedby="preco-ajuda" /><p id="preco-ajuda" className="text-xs text-[var(--cor-texto-suave)]">Só centavos, sem o "R$". Ex.: 19.90</p></div>
               <div className="space-y-1"><Label htmlFor="dias">Duração (dias)</Label><Input id="dias" value={dias} onChange={(e) => setDias(e.target.value)} placeholder="30" inputMode="numeric" className="border-[var(--cor-borda)]" /></div>
             </div>
             <div className="flex items-center gap-2"><Switch checked={ativo} onCheckedChange={setAtivo} id="ativo" /><Label htmlFor="ativo" className="text-sm">Ativo — visível para assinatura</Label>{!ativo && <Badge variant="outline" className="border-[var(--cor-borda)]">inativo</Badge>}</div>
