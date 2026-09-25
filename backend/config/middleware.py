@@ -8,7 +8,8 @@ import time
 import uuid
 from typing import Any
 
-from .metrics import record_http
+from .health import degraded_state
+from .metrics import record_degradacao, record_http
 from .observability import (
     configure_sentry_tags,
     environment,
@@ -30,6 +31,12 @@ _request_id_ctx: contextvars.ContextVar[str] = contextvars.ContextVar(
 # precisa ter esse limite já no middleware, antes de entrar em qualquer
 # view/task; limitar apenas na gravação permitiria colisões entre IDs distintos.
 MAX_REQUEST_ID_LENGTH = 64
+
+# Rótulo de rota para path NÃO resolvido pelo URLconf. Sem isso, cada 404 com
+# path aleatório (`/wp-admin`, scanner, probe) criaria uma série nova em
+# `portal_http_requests_total` — cardinalidade sem limite alimentada por
+# tráfego público.
+ROUTE_UNMATCHED = "unmatched"
 
 
 def normalizar_request_id(valor: object | None) -> str:
@@ -105,6 +112,24 @@ def mark_degraded(request: Any, reason: str = "dependency") -> None:
     request.observability_degraded_reason = safe_path(reason, limit=120)
 
 
+def _marcar_degradacao_por_dependencia(request: Any) -> None:
+    """Consulta o estado das dependências opcionais (memoizado) e marca a
+    resposta quando cache/Celery estão fora do ar.
+
+    Silenciosamente degradado é o falso verde que esta instrumentação existe
+    para evitar: o header `X-Operational-State: degraded` + a métrica
+    `portal_degraded_responses_total` tornam o estado visível para o proxy, o
+    alerta externo e o Grafana, sem derrubar a request nem vazar a causa.
+    """
+
+    try:
+        estado = degraded_state()
+    except Exception:  # noqa: BLE001 - observabilidade não pode derrubar requisição
+        return
+    if estado.get("status") == "degraded":
+        mark_degraded(request, "optional-dependency")
+
+
 class RequestIdMiddleware:
     """Propaga X-Request-ID, mede a request e adiciona headers de release."""
 
@@ -118,6 +143,7 @@ class RequestIdMiddleware:
         request.request_id = request_id
         request.observability_degraded = False
         request.observability_degraded_reason = ""
+        _marcar_degradacao_por_dependencia(request)
 
         request_token = _request_id_ctx.set(request_id)
         technical_token = set_technical_consent(
@@ -143,13 +169,68 @@ class RequestIdMiddleware:
         finally:
             elapsed = time.perf_counter() - started
             resolver_match = getattr(request, "resolver_match", None)
-            route = safe_path(
-                getattr(resolver_match, "route", None) or request.path,
-                limit=200,
+            route = (
+                safe_path(getattr(resolver_match, "route", None), limit=200)
+                if getattr(resolver_match, "route", None)
+                else ROUTE_UNMATCHED
             )
             record_http(request.method, route, status, elapsed)
+            if getattr(request, "observability_degraded", False):
+                record_degradacao(getattr(request, "observability_degraded_reason", "") or "dependency")
             reset_technical_consent(technical_token)
             _request_id_ctx.reset(request_token)
+
+    def process_exception(self, request, exception):
+        """Anexa os headers de correlação à resposta de erro 500.
+
+        Numa exception não tratada a resposta é montada pelo handler do Django
+        ACIMA deste middleware: sem este hook, o 500 saía sem `X-Request-ID` e
+        sem `X-Operational-State` — justamente a resposta que o usuário cola
+        como código de suporte e que o operador usa para correlacionar o log.
+
+        Devolver uma resposta aqui SUPLANTE `response_for_exception`, então os
+        dois efeitos padrão do Django precisam ser refeitos explicitamente:
+        o sinal `got_request_exception` (é por ele que o Sentry e o
+        `django.request` ERROR são emitidos) e o log de 5xx. Sem eles, esta
+        troca trocaria um header faltando por um erro invisível — pior que o
+        defeito original.
+        """
+        from django.conf import settings
+        from django.core.exceptions import PermissionDenied
+        from django.core.signals import got_request_exception
+        from django.http import Http404, JsonResponse
+
+        try:  # Django >= 5.1: erro de multipart tem resposta própria (400)
+            from django.http.request import MultiPartParserError
+        except ImportError:  # pragma: no cover
+            MultiPartParserError = ()  # type: ignore[assignment]
+
+        # `DEBUG_PROPAGATE_EXCEPTIONS` (pytest/debug) manda a exception
+        # subir: nesse modo quem responde é o traceback do Django.
+        if getattr(settings, "DEBUG_PROPAGATE_EXCEPTIONS", False):
+            return None
+
+        # Exceção de protocolo HTTP NÃO é erro interno: `Http404`,
+        # `PermissionDenied` e `MultiPartParserError` têm conversão própria no
+        # Django (`get_exception_response`) e interceptá-las aqui
+        # transformaria um 404 legítimo — `comunidade/views.py` e
+        # `credenciamento/views.py` levantam `Http404` — em 500.
+        if isinstance(exception, (Http404, PermissionDenied, MultiPartParserError)):
+            return None
+
+        got_request_exception.send(sender=None, request=request)
+        logging.getLogger("django.request").error(
+            "Internal Server Error: %s", request.path, exc_info=exception
+        )
+        response = JsonResponse(
+            {
+                "detail": "Erro interno.",
+                "request_id": getattr(request, "request_id", None) or "-",
+            },
+            status=500,
+        )
+        self._add_response_headers(request, response)
+        return response
 
     def _add_response_headers(self, request, response) -> None:
         request_id = getattr(request, "request_id", None)
@@ -172,6 +253,7 @@ class RequestIdMiddleware:
 
 __all__ = [
     "MAX_REQUEST_ID_LENGTH",
+    "ROUTE_UNMATCHED",
     "RequestIdLogFilter",
     "RequestIdMiddleware",
     "get_current_request_id",

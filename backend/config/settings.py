@@ -494,6 +494,37 @@ OBSERVABILITY_CELERY_PING_TIMEOUT = float(os.environ.get("OBSERVABILITY_CELERY_P
 # loopback (ou a um bearer token definido no ambiente).
 OBSERVABILITY_HEALTH_TOKEN = os.environ.get("OBSERVABILITY_HEALTH_TOKEN", "")
 OBSERVABILITY_METRICS_TOKEN = os.environ.get("OBSERVABILITY_METRICS_TOKEN", "")
+# Redes que o operador declara como proxy CONFIÁVEL para o gating dos
+# endpoints privados (`/health-detail`, `/metrics`). Vazio por padrão: com
+# Nginx na mesma máquina o `REMOTE_ADDR` já é 127.0.0.1 e nada precisa ser
+# declarado. Atrás de Docker/Nginx em rede de containers o tráfego público
+# também chega com IP privado — por isso a lista é explícita e nunca "qualquer
+# RFC1918". `X-Forwarded-For` não é considerado (ver config/observability_views).
+OBSERVABILITY_TRUSTED_PROXY_NETWORKS = os.environ.get(
+    "OBSERVABILITY_TRUSTED_PROXY_NETWORKS", ""
+)
+# Memoização, por processo, do estado de degradação consultado pelo middleware a
+# cada requisição. Um `celery inspect` custa centenas de ms: sem memoização, uma
+# queda do broker transformaria toda request em check bloqueante.
+OBSERVABILITY_DEGRADED_PROBE_INTERVAL_SECONDS = float(
+    os.environ.get("OBSERVABILITY_DEGRADED_PROBE_INTERVAL_SECONDS", "15")
+)
+# Heartbeat do beat escrito pelo operador (systemd/Alloy). Vazio = check
+# `not_configured` (visível, nunca verde por omissão). Sem valor inventado: não
+# existe introspection confiável de "beat vivo" pelo broker.
+OBSERVABILITY_BEAT_HEARTBEAT_FILE = os.environ.get("OBSERVABILITY_BEAT_HEARTBEAT_FILE", "")
+OBSERVABILITY_BEAT_MAX_AGE_SECONDS = float(
+    os.environ.get("OBSERVABILITY_BEAT_MAX_AGE_SECONDS", "900")
+)
+# Profundidade de fila (mensagens prontas) que caracteriza acúmulo. Vira alerta
+# no Grafana; o check só muda o estado para `degraded` acima deste valor.
+OBSERVABILITY_QUEUE_DEPTH_WARN = int(os.environ.get("OBSERVABILITY_QUEUE_DEPTH_WARN", "1000"))
+# Filesystem do collector de telemetria/log (o que precisa ter espaço para o
+# alerta de indisponibilidade continuar visível). Vazio = BASE_DIR.
+OBSERVABILITY_COLLECTOR_PATH = os.environ.get("OBSERVABILITY_COLLECTOR_PATH", "")
+OBSERVABILITY_DISK_MIN_FREE_RATIO = float(
+    os.environ.get("OBSERVABILITY_DISK_MIN_FREE_RATIO", "0.05")
+)
 
 # Analytics de produto é separado de telemetria técnica. O backend é
 # fail-closed: sem token HMAC válido, expirado ou de categoria errada, nada é
@@ -503,6 +534,10 @@ ANALYTICS_CONSENT_SIGNING_KEY = os.environ.get("ANALYTICS_CONSENT_SIGNING_KEY", 
 ANALYTICS_REQUIRE_CONSENT_TOKEN = env_bool("ANALYTICS_REQUIRE_CONSENT_TOKEN", True)
 ANALYTICS_CONSENT_TTL_SECONDS = int(os.environ.get("ANALYTICS_CONSENT_TTL_SECONDS", "86400"))
 ANALYTICS_RETENTION_DAYS = int(os.environ.get("ANALYTICS_RETENTION_DAYS", "365"))
+# Lote do expurgo de analytics (`metricas.tasks.expurar_analytics`): um
+# `DELETE` de tabela inteira em produção segura a tabela e degrada o banco
+# inteiro; o job lê e apaga N primaries por vez.
+ANALYTICS_EXPURGO_LOTE = int(os.environ.get("ANALYTICS_EXPURGO_LOTE", "1000"))
 TECHNICAL_TELEMETRY_ENABLED = env_bool("TECHNICAL_TELEMETRY_ENABLED", False)
 TECHNICAL_CONSENT_TOKEN_TTL_SECONDS = int(
     os.environ.get("TECHNICAL_CONSENT_TOKEN_TTL_SECONDS", "86400")

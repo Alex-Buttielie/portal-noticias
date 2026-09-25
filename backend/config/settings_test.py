@@ -52,3 +52,13 @@ CACHES = {
 CELERY_BROKER_URL = "memory://"
 CELERY_RESULT_BACKEND = "cache+memory://"
 CELERY_TASK_ALWAYS_EAGER = False
+
+# Observabilidade (run 20260925-1020-observabilidade). A suíte não sobe worker
+# Celery, então `check_celery` reportaria "degraded" em TODAS as requisições e
+# todo teste que olha `X-Operational-State` ficaria dependente de um broker que
+# não existe. Desligado aqui; os testes que precisam da degradação reativam com
+# `override_settings` + monkeypatch no check.
+OBSERVABILITY_CHECK_CELERY = False
+# Sem memoização: o probe de degradação é por processo e a suíte precisa poder
+# reavaliar a cada requisição (isolamento, sem estado entre testes).
+OBSERVABILITY_DEGRADED_PROBE_INTERVAL_SECONDS = 0.0

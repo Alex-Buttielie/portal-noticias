@@ -7,9 +7,21 @@ The `urlpatterns` list routes URLs to views. For more information please see:
 from django.contrib import admin
 from django.urls import include, path
 
+from config.observability_views import health_detail, livez, metrics_view, readyz
 from config.views import healthz
 
 urlpatterns = [
+    # --- Observabilidade (run 20260925-1020-observabilidade) -----------------
+    # Rotas na raiz (sem barra final) porque é assim que o Docker HEALTHCHECK,
+    # o Nginx, o Alloy e o Better Stack chamam; o `APPEND_SLASH` do
+    # CommonMiddleware redireciona `/livez/` -> `/livez` para quem digitar a
+    # barra. `healthz` (abaixo) é o endpoint legado e foi mantido: o
+    # `HEALTHCHECK` do docker-compose e o monitor externo já apontam para ele.
+    path("livez", livez, name="livez"),
+    path("readyz", readyz, name="readyz"),
+    path("health-detail", health_detail, name="health-detail"),
+    path("metrics", metrics_view, name="metrics"),
+    # -----------------------------------------------------------------------
     path("healthz", healthz, name="healthz"),
     path("admin/", admin.site.urls),
     path("api/", include("identidade.urls")),

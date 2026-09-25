@@ -9,17 +9,28 @@ Este módulo é deliberadamente pequeno e sem dependências de UI.  Ele fornece:
 * uma Before-Send do Sentry que nunca envia cookies, Authorization, query
   strings ou payloads de usuário.
 
-As funções não initializam integrations externas.  Assim podem ser importadas
+As funções não inicializam integrações externas.  Assim podem ser importadas
 pelo formatter de logging, por commands de management e por testes sem DSN,
 Redis ou Sentry configurados.
+
+Duas fontes de verdade convivem aqui de propósito, e a ordem importa:
+
+1. os valores por variável de ambiente (`ENVIRONMENT`/`RELEASE`/`SERVICE_NAME`),
+   calculados no import, que funcionam mesmo sem o Django carregado;
+2. os settings do Django (`OBSERVABILITY_ENVIRONMENT`, ...), que são a
+   configuração de fato do projeto e sabe cair em ``"production"`` quando
+   ``DEBUG`` é False (o bloco abaixo só lê do ambiente, então sem esta
+   precedência o header ``X-Environment`` mentiria em produção).
 """
 
 from __future__ import annotations
 
 import copy
+import datetime as dt
 import os
 import re
 from contextvars import ContextVar
+from decimal import Decimal
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
@@ -52,21 +63,66 @@ _technical_consent_ctx: ContextVar[bool] = ContextVar(
     "observability_technical_consent", default=False
 )
 
-# Nomes que nunca devem aparecer em telemetria. A comparação é feita sem
-# diferenciar maiúsculas/minúsculas e também cobre as formas com hífen.
+# Nomes que nunca devem aparecer em telemetria. A comparação é feita por
+# TOKEN (início/fim de palavra ou separador `_`/`-`), não por sub-string: a
+# versão por sub-string redigia campos inocente como `description`
+# ("descrip-tion" contém "ip") e `clip`, o que esconde diagnóstico real sem
+# adicionar proteção. Compostos de IP (`client_ip`, `x_forwarded_for`, ...)
+# entram explicitamente porque não têm separador.
 _SENSITIVE_KEY = re.compile(
-    r"(authorization|cookie|set-cookie|password|passwd|secret|token|api[-_]?key|"
-    r"access[-_]?key|private[-_]?key|credential|session|csrf|xsrf|email|e-mail|"
-    r"telefone|phone|documento|document|endereco|address|ip|user[-_]?agent|"
-    r"cookieConsent|query)",
+    r"(?:^|[^a-z0-9])(?:"
+    r"authorization|proxy-authorization|cookie|set-cookie|password|passwd|secret|"
+    r"token|api[-_]?key|access[-_]?key|private[-_]?key|credential|session|"
+    r"sessionid|csrf|xsrf|email|e-mail|telefone|phone|documento|document|"
+    r"endereco|address|user[-_]?agent|cookieconsent|query|senha|chave|segredo|"
+    r"cpf|cnpj"
+    r")(?:[^a-z0-9]|$)"
+    r"|(?:^|[^a-z0-9])(?:ip|clientip|remoteip|ipaddress|ips|xforwardedfor)(?:[^a-z0-9]|$)"
+    r"|(?:client|remote|source|user|origin)[-_]?ip(?:[^a-z0-9]|$)"
+    r"|(?:x[-_]?forwarded[-_]?for)(?:[^a-z0-9]|$)",
     re.IGNORECASE,
 )
 _EMAIL = re.compile(r"(?<![\w.+-])[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}(?![\w.-])")
 _BEARER = re.compile(r"\bBearer\s+[A-Za-z0-9._~+/=-]+", re.IGNORECASE)
+# JWT sem rótulo (`eyJ...`), comum em log de exceção/header cru.
+_JWT = re.compile(r"\beyJ[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{4,}")
 _SECRET_ASSIGNMENT = re.compile(
-    r"(?i)\b(api[_-]?key|access[_-]?token|refresh[_-]?token|password|secret)\s*[:=]\s*[^\s,;]+"
+    r"(?i)\b(authorization|proxy-authorization|cookie|set-cookie|token|auth|"
+    r"api[_-]?key|access[_-]?key|secret|client[_-]?secret|passwd|password|pass|"
+    r"pwd|senha|chave|segredo|cpf|cnpj|session|sessionid|session[_-]?id|"
+    r"access[_-]?token|refresh[_-]?token|"
+    r"id[_-]?token|private[_-]?key)\s*[:=]\s*[^\s,;&]+"
 )
 _CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+# Identidade vai para HEADER (`X-Release`, `X-Environment`, tag do Sentry), então
+# aqui não pode sobrar NENHUM caractere de controle nem espaço: CR/LF num
+# header é injeção de resposta (o `settings.py` deriva release de `GIT_SHA`/
+# ambiente, e um valor mal configurado não pode virar um segundo header).
+_CONTROL_HEADER = re.compile(r"[\s\x00-\x1f\x7f]")
+
+_TRUE_VALUES = {"1", "true", "yes", "on"}
+
+
+def _settings_value(nome: str, padrao: str) -> str:
+    """Lê um setting do Django quando ele já está configurado.
+
+    Antes do `django.setup()` (ou durante o próprio import de
+    `config.settings`) `settings` não está pronto: nesse caso devolvemos o
+    fallback calculado do ambiente, sem nunca forçar o setup prematuramente
+    (fazer isso produziria um objeto `Settings` com o módulo pela metade).
+    """
+
+    try:
+        from django.conf import settings as django_settings
+
+        if not django_settings.configured:
+            return padrao
+        valor = getattr(django_settings, nome, None)
+    except Exception:  # noqa: BLE001 - observabilidade nunca derruba o processo
+        return padrao
+    if valor in (None, ""):
+        return padrao
+    return str(valor)
 
 
 def current_task_id() -> str:
@@ -103,20 +159,19 @@ def technical_consent() -> bool:
 def release() -> str:
     """Release efetiva, sem aceitar-control/injection do ambiente."""
 
-    value = RELEASE
-    value = _CONTROL.sub("", value)
+    value = _CONTROL_HEADER.sub("", _settings_value("OBSERVABILITY_RELEASE", RELEASE))
     return value[:200] or "local"
 
 
 def environment() -> str:
-    value = ENVIRONMENT
-    value = _CONTROL.sub("", value)
+    """Ambiente efetivo (development/homolog/production) para logs e headers."""
+
+    value = _CONTROL_HEADER.sub("", _settings_value("OBSERVABILITY_ENVIRONMENT", ENVIRONMENT))
     return value[:80] or "development"
 
 
 def service() -> str:
-    value = SERVICE_NAME
-    value = _CONTROL.sub("", value)
+    value = _CONTROL_HEADER.sub("", _settings_value("OBSERVABILITY_SERVICE_NAME", SERVICE_NAME))
     return value[:80] or "portal-api"
 
 
@@ -135,6 +190,7 @@ def redact_text(value: object, *, limit: int = MAX_LOG_TEXT) -> str:
     text = "" if value is None else str(value)
     text = _CONTROL.sub("", text)
     text = _BEARER.sub(f"Bearer {REDACTED}", text)
+    text = _JWT.sub(REDACTED, text)
     text = _EMAIL.sub("[REDACTED_EMAIL]", text)
     text = _SECRET_ASSIGNMENT.sub(lambda m: f"{m.group(1)}={REDACTED}", text)
     # Não preservar query strings em URLs que apareçam em mensagens de log.
@@ -154,9 +210,17 @@ def safe_path(value: object, *, limit: int = 500) -> str:
     raw = "" if value is None else str(value)
     try:
         parts = urlsplit(raw)
-        if parts.scheme or parts.netloc:
-            return redact_text(urlunsplit((parts.scheme, parts.netloc, parts.path, "", "")), limit=limit)
-        # urlsplit treats an ordinary path as a path; query/fragment are removed.
+        # Só trata como URL absoluta o que realmente é http(s): um path como
+        # "api:feed/x" seria interpretado como esquema "api" e remontado
+        # errado, corrompendo o rótulo de rota das métricas.
+        if parts.netloc or parts.scheme in {"http", "https"}:
+            return redact_text(
+                urlunsplit((parts.scheme, parts.netloc, parts.path, "", "")),
+                limit=limit,
+            )
+        # urlsplit trata um path comum como path; query/fragment são removidos.
+        if parts.scheme:
+            return redact_text(raw.split("?", 1)[0].split("#", 1)[0], limit=limit)
         return redact_text(parts.path or raw, limit=limit)
     except Exception:
         return redact_text(raw.split("?", 1)[0].split("#", 1)[0], limit=limit)
@@ -179,6 +243,15 @@ def redact_payload(value: Any, *, _depth: int = 0, _key: object | None = None) -
         return redact_text(value)
     if isinstance(value, bytes):
         return f"[BYTES:{len(value)}]"
+    # Tipos que o JsonEncoder do python-json-logger saberia formatar: mantemos
+    # a informação (ISO/número) em vez de degradar tudo para "[datetime]",
+    # senão todo campo de tempo do log vira inútil.
+    if isinstance(value, (dt.datetime, dt.date, dt.time)):
+        return value.isoformat()
+    if isinstance(value, dt.timedelta):
+        return value.total_seconds()
+    if isinstance(value, Decimal):
+        return str(value)
     if isinstance(value, dict):
         output: dict[str, Any] = {}
         for index, (key, item) in enumerate(value.items()):
@@ -188,12 +261,14 @@ def redact_payload(value: Any, *, _depth: int = 0, _key: object | None = None) -
             key_text = redact_text(key, limit=120)
             output[key_text] = redact_payload(item, _depth=_depth + 1, _key=key)
         return output
-    if isinstance(value, (list, tuple, set)):
+    if isinstance(value, (list, tuple, set, frozenset)):
         items = list(value)[:MAX_REDACT_ITEMS]
         result = [redact_payload(item, _depth=_depth + 1) for item in items]
         if len(value) > MAX_REDACT_ITEMS:
             result.append("[TRUNCATED_ITEMS]")
         return result
+    if isinstance(value, BaseException):
+        return safe_exception(value)
     return f"[{type(value).__name__}]"
 
 
@@ -203,6 +278,45 @@ def safe_exception(exc: BaseException | None) -> str:
     if exc is None:
         return ""
     return redact_text(f"{type(exc).__name__}: {exc}")
+
+
+def _technical_consent_default() -> bool:
+    """Consentimento técnico padrão, configurável por setting ou ambiente.
+
+    Fail-closed: sem consentimento explícito (header `X-Technical-Consent` ou
+    o default do operador) o Sentry não recebe nada.  O default é lido do
+    setting `SENTRY_TECHNICAL_CONSENT_DEFAULT` para que a decisão fique no
+    mesmo lugar que o resto da configuração (e seja testável com
+    `override_settings`); o ambiente é apenas o fallback para uso fora do
+    Django.
+    """
+
+    try:
+        from django.conf import settings as django_settings
+
+        if django_settings.configured and hasattr(
+            django_settings, "SENTRY_TECHNICAL_CONSENT_DEFAULT"
+        ):
+            return bool(getattr(django_settings, "SENTRY_TECHNICAL_CONSENT_DEFAULT"))
+    except Exception:  # noqa: BLE001
+        pass
+    return str(os.environ.get("SENTRY_TECHNICAL_CONSENT_DEFAULT", "false")).strip().lower() in _TRUE_VALUES
+
+
+def _contestao_envio(motivo: str) -> None:
+    """Contabiliza o evento retido, para o descarte não virar falso verde.
+
+    Sem isto, um `SENTRY_TECHNICAL_CONSENT_DEFAULT` mal configurado seria
+    indistinguível de "não houve erro": o alerta de zero erros continuaria
+    verde enquanto o Sentry descartaria tudo.
+    """
+
+    try:
+        from .metrics import METRICS
+
+        METRICS.inc("portal_sentry_events_dropped_total", reason=str(motivo)[:32])
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def sentry_before_send(event: dict, hint: dict | None = None) -> dict | None:
@@ -215,7 +329,8 @@ def sentry_before_send(event: dict, hint: dict | None = None) -> dict | None:
     consentimento.  O pipeline de produto continua separado.
     """
 
-    if not bool(os.environ.get("SENTRY_TECHNICAL_CONSENT_DEFAULT", "false").lower() in {"1", "true", "yes", "on"}) and not technical_consent():
+    if not _technical_consent_default() and not technical_consent():
+        _contestao_envio("no_technical_consent")
         return None
     if not isinstance(event, dict):
         return None
@@ -270,6 +385,17 @@ def configure_sentry_tags(**values: object) -> None:
                 return
 
 
+def _request_id_do_contexto() -> str:
+    """Request ID do ContextVar do middleware, sem ciclo de import no topo."""
+
+    try:
+        from .middleware import get_current_request_id
+
+        return get_current_request_id()
+    except Exception:  # noqa: BLE001
+        return "-"
+
+
 class RedactingJsonFormatter(JsonFormatter if JsonFormatter is not None else object):  # type: ignore[misc]
     """JSON logger que aplica os mesmos limites do redactor do Sentry."""
 
@@ -277,16 +403,38 @@ class RedactingJsonFormatter(JsonFormatter if JsonFormatter is not None else obj
         # Não mutamos o LogRecord original: outros handlers podem precisar do
         # traceback original dentro do mesmo processo.
         local = copy.copy(record)
-        local.msg = redact_text(getattr(local, "msg", ""))
+        msg = getattr(local, "msg", "")
+        # `logger.info({...})` é a forma de log estruturado que o
+        # python-json-logger entende (dict vira campo, não texto): passar por
+        # `redact_text` transformaria o payload em string e perderia a
+        # estrutura. Aqui ele é redigido como estrutura.
+        local.msg = redact_payload(msg) if isinstance(msg, dict) else redact_text(msg)
         args = getattr(local, "args", None)
         if args:
-            local.args = tuple(redact_payload(arg) for arg in args)
-        local.request_id = getattr(local, "request_id", "-")
-        local.service = getattr(local, "service", service())
-        local.environment = getattr(local, "environment", environment())
-        local.release = getattr(local, "release", release())
-        local.task_id = getattr(local, "task_id", current_task_id())
+            # `logging` guarda um dict de args como dict (não tupla) quando o
+            # log usa `logger.info("%(k)s", {"k": v})`; iterar esse dict
+            # devolveria as CHAVES e quebraria o `msg % args` na saída.
+            local.args = (
+                redact_payload(args) if isinstance(args, dict)
+                else tuple(redact_payload(arg) for arg in args)
+            )
+        local.request_id = getattr(local, "request_id", None) or _request_id_do_contexto() or "-"
+        local.service = getattr(local, "service", None) or service()
+        local.environment = getattr(local, "environment", None) or environment()
+        local.release = getattr(local, "release", None) or release()
+        local.task_id = getattr(local, "task_id", None) or current_task_id()
         return super().format(local)
+
+    def add_fields(self, log_record, record, message_dict):  # noqa: D102
+        # `super().add_fields` monta o JSON final (format string + `extra=`).
+        # Redigir aqui é a única barreira para campo injetado por
+        # `logger.info(..., extra={"email": ...})`: o python-json-logger copia
+        # qualquer atributo do record para a saída sem filtro.
+        super().add_fields(log_record, record, message_dict)
+        seguro = redact_payload(log_record)
+        if isinstance(seguro, dict):
+            log_record.clear()
+            log_record.update(seguro)
 
     def formatException(self, ei):  # noqa: N802,D102
         return redact_text(super().formatException(ei))
