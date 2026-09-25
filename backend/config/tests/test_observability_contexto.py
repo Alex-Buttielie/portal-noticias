@@ -7,6 +7,7 @@ o contexto da task — é isso que é testado aqui.
 
 from __future__ import annotations
 
+import logging
 import sys
 import types
 
@@ -18,6 +19,7 @@ from config.observability import (
     current_task_id,
     environment,
     release,
+    reportar_falha_de_init_sentry,
     reset_task_id,
     reset_technical_consent,
     service,
@@ -170,3 +172,28 @@ def test_task_id_do_celery_entra_no_evento_do_sentry():
     assert evento["tags"]["release"]
     assert evento["environment"] == environment()
     assert evento["release"] == release()
+
+
+# ---------------------------------------------------------------------------
+# Falha de init do Sentry (achado MINOR-9)
+# ---------------------------------------------------------------------------
+
+
+def test_falha_de_init_do_sentry_avisa_e_conta_sem_vazar_dsn(caplog):
+    """O `except` do `settings.py` não pode falhar em silêncio: sem sinal, o
+    operador acredita ter APM e não tem. O aviso leva só o TIPO da exceção — o
+    DSN pode estar na mensagem."""
+
+    from config.metrics import METRICS
+
+    METRICS.clear()
+    caplog.set_level(logging.WARNING, logger="config.settings")
+
+    reportar_falha_de_init_sentry(
+        ValueError("https://chave:segredo@sentry.invalid/123 — formato invalido")
+    )
+
+    aviso = next(r for r in caplog.records if "Sentry nao inicializado" in r.getMessage())
+    assert "ValueError" in aviso.getMessage()
+    assert "segredo" not in aviso.getMessage()
+    assert 'portal_sentry_init_failed_total{error="ValueError"} 1' in METRICS.render_prometheus()

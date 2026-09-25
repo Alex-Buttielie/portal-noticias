@@ -411,7 +411,13 @@ def _claims_confiaveis(payload: bytes) -> dict[str, Any]:
     # menos é sinal de envelope fora do contrato, não de "ignorar o que vier".
     if not isinstance(claims, dict) or set(claims) != _CLAIMS_OBRIGATORIAS:
         raise ValueError("claims")
-    if claims.get("v") != VERSAO_CLAIMS or isinstance(claims.get("v"), bool):
+    # `v` tem de ser `int` de verdade: `1.0 != 1` é `False`, então o `float`
+    # passava e o docstring ("sem tipo frouxo, sem float") seria mentira
+    # (achado NIT-8). `bool` é subclasse de `int` em Python, então é barrado
+    # explicitamente.
+    if isinstance(claims.get("v"), bool) or not isinstance(claims.get("v"), int):
+        raise ValueError("v")
+    if claims["v"] != VERSAO_CLAIMS:
         raise ValueError("v")
     for claim in ("iat", "exp"):
         # `bool` é subclasse de `int` em Python e `float` não é epoch: sem esta
@@ -452,13 +458,16 @@ def verificar_consentimento(
     if not _chave_ativa():
         return Verificacao(False, MOTIVO_SEM_CHAVE)
 
-    # `compare_digest` só é constante (e seguro) para dois `bytes`. Percorrer as
-    # chaves candidatas inteiro é proposital: um atacante não consegue medir
-    # "acertou na 1ª chave" para decidir qual das suas tentativas parar de fazer.
-    valido = any(
-        hmac.compare_digest(_assinatura(candidata, mensagem), assinatura)
-        for candidata in [_chave_ativa(), *_chaves_anteriores()]
-    )
+    # Percorrer as chaves candidatas INTEIRO é proposital: um atacante não
+    # consegue medir "acertou na 1ª chave" para decidir qual das suas
+    # tentativas parar de fazer. Por isso o laço é explícito e acumula com
+    # `|=` — `any()` faria curto-circuito no primeiro `True` e o comentário
+    # estaria descrevendo uma propriedade que o código não tem (achado
+    # MINOR-4). `compare_digest` só é constante e seguro para `bytes`, e é
+    # exatamente isso que `_assinatura` devolve.
+    valido = False
+    for candidata in [_chave_ativa(), *_chaves_anteriores()]:
+        valido |= hmac.compare_digest(_assinatura(candidata, mensagem), assinatura)
     if not valido:
         return Verificacao(False, MOTIVO_ASSINATURA)
 

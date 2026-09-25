@@ -92,10 +92,102 @@ def test_cache_que_sempre_falha_e_reportado_como_error(monkeypatch):
 
 
 def test_beat_sem_heartbeat_configurado_nao_fica_verde():
-    resultado = health.check_celery_beat()
+    """A suíte cria um arquivo de heartbeat (ver `config/settings_test.py`)
+    para não contaminar os testes que olham `X-Operational-State`; aqui o
+    cenário que importa é o default de produção, que é SEM arquivo."""
+
+    with override_settings(OBSERVABILITY_BEAT_HEARTBEAT_FILE=""):
+        resultado = health.check_celery_beat()
 
     assert resultado.status == "not_configured"
     assert "OBSERVABILITY_BEAT_HEARTBEAT_FILE" in resultado.detail
+
+
+def test_beat_sem_heartbeat_configurado_e_degradacao_agregada():
+    """Achado MAJOR-3 (critério 16): com a configuração default, o beat
+    aparecia como `not_configured` e o estado agregado continuava
+    `status="ok"`, `degraded=False` — sem header, sem métrica, sem alerta. Um
+    check sem sinal próprio não configurado é PONTO CEGO, e ponto cego é
+    degradação."""
+
+    health.reset_degraded_cache()
+    with override_settings(
+        OBSERVABILITY_BEAT_HEARTBEAT_FILE="",
+        OBSERVABILITY_JOB_STATE_FILE="",
+        OBSERVABILITY_DEGRADED_PROBE_INTERVAL_SECONDS=0.0,
+    ):
+        estado = health.degraded_state()
+        dados = health.snapshot(include_optional=True, include_queues=False)
+
+    assert "celery_beat:not_configured" in estado["reasons"]
+    assert estado["status"] == "degraded"
+    # Readiness continua 200: dependência opcional não tira o portal do ar.
+    assert dados["ready"] is True
+    assert dados["status"] == "degraded"
+    assert dados["degraded"] is True
+    assert dados["checks"]["celery_beat"]["status"] == "not_configured"
+    health.reset_degraded_cache()
+
+
+def test_job_sem_canal_configurado_e_degradacao_agregada(tmp_path):
+    """Mesmo critério do beat, para o canal de job: com o beat saudável e o
+    `OBSERVABILITY_JOB_STATE_FILE` vazio, o agregado tem de dizer que há um
+    ponto cego — senão o critério 14 fica sem sinal e ninguém percebe."""
+
+    arquivo = tmp_path / "beat.heartbeat"
+    arquivo.write_text("ok")
+    health.reset_degraded_cache()
+    with override_settings(
+        OBSERVABILITY_BEAT_HEARTBEAT_FILE=str(arquivo),
+        OBSERVABILITY_JOB_STATE_FILE="",
+        OBSERVABILITY_DEGRADED_PROBE_INTERVAL_SECONDS=0.0,
+    ):
+        estado = health.degraded_state()
+
+    assert estado["reasons"] == ("celery_jobs:not_configured",)
+    assert estado["status"] == "degraded"
+    health.reset_degraded_cache()
+
+
+def test_check_sem_sinal_proprio_configurado_volta_a_ok(tmp_path):
+    """O inverso também precisa valer: com heartbeat recente, o agregado
+    deixa de estar degradado (senão o alerta seria ruído permanente)."""
+
+    arquivo = tmp_path / "beat.heartbeat"
+    arquivo.write_text("ok")
+    estado_job = tmp_path / "jobs.json"
+    estado_job.write_text('{"versao": 1, "atualizado_em": %f, "tasks": {}}' % time.time())
+
+    health.reset_degraded_cache()
+    with override_settings(
+        OBSERVABILITY_BEAT_HEARTBEAT_FILE=str(arquivo),
+        OBSERVABILITY_JOB_STATE_FILE=str(estado_job),
+        OBSERVABILITY_DEGRADED_PROBE_INTERVAL_SECONDS=0.0,
+    ):
+        estado = health.degraded_state()
+
+    assert "celery_beat:not_configured" not in estado["reasons"]
+    assert estado["status"] == "ok", estado["reasons"]
+    health.reset_degraded_cache()
+
+
+def test_ponto_cego_vira_metrica_alertavel():
+    """O ponto cego também é NÚMERO: sem isso, "não há como observar" e "está
+    tudo bem" seriam indistinguíveis no scrape."""
+
+    from config.metrics import METRICS
+
+    METRICS.clear()
+    with override_settings(OBSERVABILITY_BEAT_HEARTBEAT_FILE=""):
+        health.check_celery_beat()
+
+    exposicao = METRICS.render_prometheus()
+    assert 'portal_health_check_not_configured{check="celery_beat"} 1' in exposicao
+
+    METRICS.clear()
+    with override_settings(OBSERVABILITY_BEAT_HEARTBEAT_FILE="", OBSERVABILITY_JOB_STATE_FILE=""):
+        health.check_celery_jobs()
+    assert 'portal_health_check_not_configured{check="celery_jobs"} 1' in METRICS.render_prometheus()
 
 
 def test_beat_com_heartbeat_recem_escrito_e_ok(tmp_path):
@@ -229,7 +321,12 @@ def test_filas_sem_leitura_possivel_e_degraded_nao_ok():
 
     resultado = health.check_filas()
 
-    assert resultado.status in {"degraded", "ok"}
+    # O transporte em memória da suíte não tem `queue_declare(passive=True)`
+    # equivalente, então o resultado é `error` aqui; em broker real a fila
+    # inexistente também não pode virar "ok". O que este teste proíbe é o
+    # "ok" sem leitura.
+    assert resultado.status != "ok"
+    assert resultado.status in {"degraded", "error"}
     if resultado.status == "degraded":
         assert "unavailable" in resultado.detail
 
@@ -327,7 +424,10 @@ def test_snapshot_com_opcionais_agrega_degraded_sem_derrubar_readiness(monkeypat
         lambda: health.CheckResult("celery", "ok", False, 1.0, "", {"workers": 1}),
     )
     monkeypatch.setattr(
-        health, "check_celery_beat", lambda: health.CheckResult("celery_beat", "not_configured")
+        health, "check_celery_beat", lambda: health.CheckResult("celery_beat", "ok", False, 1.0)
+    )
+    monkeypatch.setattr(
+        health, "check_celery_jobs", lambda: health.CheckResult("celery_jobs", "ok", False, 1.0)
     )
     monkeypatch.setattr(
         health, "check_filesystem", lambda: health.CheckResult("collector_disk", "ok", False, 1.0)
@@ -352,7 +452,10 @@ def test_degraded_state_memoiza_e_nao_repete_o_probe(monkeypatch):
         health, "check_celery", lambda: health.CheckResult("celery", "not_configured")
     )
     monkeypatch.setattr(
-        health, "check_celery_beat", lambda: health.CheckResult("celery_beat", "not_configured")
+        health, "check_celery_beat", lambda: health.CheckResult("celery_beat", "ok", False, 1.0)
+    )
+    monkeypatch.setattr(
+        health, "check_celery_jobs", lambda: health.CheckResult("celery_jobs", "ok", False, 1.0)
     )
     monkeypatch.setattr(
         health, "check_filesystem", lambda: health.CheckResult("collector_disk", "ok", False, 1.0)
@@ -378,7 +481,10 @@ def test_degraded_state_forcado_reavalia(monkeypatch):
         health, "check_celery", lambda: health.CheckResult("celery", "not_configured")
     )
     monkeypatch.setattr(
-        health, "check_celery_beat", lambda: health.CheckResult("celery_beat", "not_configured")
+        health, "check_celery_beat", lambda: health.CheckResult("celery_beat", "ok", False, 1.0)
+    )
+    monkeypatch.setattr(
+        health, "check_celery_jobs", lambda: health.CheckResult("celery_jobs", "ok", False, 1.0)
     )
     monkeypatch.setattr(
         health, "check_filesystem", lambda: health.CheckResult("collector_disk", "ok", False, 1.0)

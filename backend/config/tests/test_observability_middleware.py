@@ -167,6 +167,47 @@ def test_process_exception_anexa_headers_e_dispara_sinal_e_log(caplog):
     assert any(r.name == "django.request" and r.levelno == logging.ERROR for r in caplog.records)
 
 
+def test_log_do_500_nao_aceita_path_forjado(caplog):
+    """Achado MINOR-2: `request.path` é controlado por quem fez a requisição e
+    ia cru para o log. Com CR/LF ele forjava uma linha de log inteira — com
+    `levelname` e `request_id` escolhidos pelo atacante."""
+
+    caplog.set_level(logging.ERROR, logger="django.request")
+    request = RequestFactory().get("/")
+    middleware = RequestIdMiddleware(lambda _r: HttpResponse("ok"))
+    middleware(request)
+    # O `path` é setado pelo servidor WSGI; simula-se o que chega ao log.
+    request.path = "/api/x\nERROR forjado Authorization: Basic ZGV2OnNlcmV0YQ=="
+
+    middleware.process_exception(request, RuntimeError("boom"))
+
+    registro = next(r for r in caplog.records if r.name == "django.request")
+    mensagem = registro.getMessage()
+    # A mensagem do log é UMA linha: o `\n` não sobrevive (o `urlsplit` de
+    # `safe_path` remove controle e o `redact_single_line` do formatter de texto
+    # escapa o que sobrar) — o atacante não escolhe `levelname` nem
+    # `request_id` da próxima linha.
+    assert "\n" not in mensagem
+    assert "forjado" in mensagem  # continua visível, sem virar outra linha
+    assert "ZGV2OnNlcmV0YQ==" not in mensagem
+
+
+def test_log_do_500_nao_vaza_query_string(caplog):
+    caplog.set_level(logging.ERROR, logger="django.request")
+    request = RequestFactory().get("/")
+    middleware = RequestIdMiddleware(lambda _r: HttpResponse("ok"))
+    middleware(request)
+    request.path = "/api/x?token=segredo-123&email=a@b.invalid"
+
+    middleware.process_exception(request, RuntimeError("boom"))
+
+    registro = next(r for r in caplog.records if r.name == "django.request")
+    mensagem = registro.getMessage()
+    assert "segredo-123" not in mensagem
+    assert "a@b.invalid" not in mensagem
+    assert "/api/x" in mensagem
+
+
 # ---------------------------------------------------------------------------
 # Degradação
 # ---------------------------------------------------------------------------

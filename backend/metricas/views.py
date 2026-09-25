@@ -197,11 +197,12 @@ class EventoIngestaoView(APIView):
                 )
             if not consent.sub_valido(dados.get("sessao")):
                 dados["sessao"] = verificacao.sub
-        if saneado.campos_excedentes:
-            METRICS.inc(
-                "portal_analytics_events_rejected_total",
-                reason=consent.MOTIVO_CAMPO_EXCEDENTE,
-            )
+        # Campo fora da allowlist NÃO é "evento rejeitado": o evento segue e é
+        # persistido (o descarte já foi contado em
+        # `portal_analytics_payload_fields_dropped_total`, dentro de
+        # `sanear_payload`). Contar aqui fazia o painel de "eventos rejeitados"
+        # disparar com eventos sendo aceitos — alarme falso justamente na
+        # métrica que existe para não ser verde-mentira (achado MINOR-6).
         if not tipo:
             return Response({"detail": "Informe tipo."}, status=status.HTTP_400_BAD_REQUEST)
         try:

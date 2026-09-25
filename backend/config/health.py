@@ -31,6 +31,7 @@ from django.conf import settings
 from django.core.cache import cache
 from django.db import connection
 
+from . import job_state
 from .metrics import METRICS, record_dependency
 from .observability import redact_text, safe_exception, service
 
@@ -41,6 +42,19 @@ from .observability import redact_text, safe_exception, service
 # tentando observar viraria a causa de indisponibilidade.
 _degrade_lock = threading.Lock()
 _degrade_cache: dict[str, Any] = {"status": "unknown", "checked_at": 0.0, "reasons": ()}
+
+# Checks em que "não configurado" é PONTO CEGO, e não sinal de saúde (achado
+# MAJOR-3). Neles não existe introspecção alternativa: sem heartbeat do beat
+# não se sabe se o beat disparou; sem arquivo de estado não se sabe se os jobs
+# rodam. Dizer "ok" nesses casos seria inventar saúde — e era exatamente o que
+# acontecia: `not_configured` estava fora de `optional_bad`, então o agregado
+# continuava verde com o critério 16 não atendido.
+#
+# `redis`/`collector_disk` NÃO entram aqui: `not_configured` neles significa
+# "cache local em desenvolvimento" / "sem BASE_DIR", que é uma escolha
+# declarada do ambiente, não um ponto cego. `celery` usa `disabled` para o
+# mesmo motivo.
+CHECKS_SEM_SINAL_PROPRIO = frozenset({"celery_beat", "celery_jobs"})
 
 
 @dataclass
@@ -81,6 +95,14 @@ def _timed(name: str, required: bool, fn) -> CheckResult:
         meta=meta,
     )
     record_dependency(name, result.status == "ok", result.duration_ms / 1000)
+    # Ponto cego declarado vira métrica: sem isto, "não há como observar" e
+    # "está tudo bem" seriam o mesmo número no scrape — e é o primeiro que
+    # desaparece do painel.
+    METRICS.gauge(
+        "portal_health_check_not_configured",
+        1 if result.status == "not_configured" else 0,
+        check=name,
+    )
     return result
 
 
@@ -191,8 +213,12 @@ def check_celery_beat() -> CheckResult:
     beat não tem identidade de worker e nada no broker prova que ele disparou
     o agendamento. Inventar um "ok" aqui seria exatamente o falso verde que
     esta run existe para eliminar. Sem `OBSERVABILITY_BEAT_HEARTBEAT_FILE`
-    configurado o check é `not_configured` (visível, não verde); com ele, a
-    idade do arquivo diz se o beat parou de escrever.
+    configurado o check é `not_configured` — que, para este check, conta como
+    DEGRADAÇÃO (ver `CHECKS_SEM_SINAL_PROPRIO`): sem heartbeat configurado não
+    há como saber se o beat parou, e o critério 16 exige que a condição apareça
+    como falha e gere alerta. O produtor do arquivo é
+    `infra/systemd/celery-beat-heartbeat@.service` (Bloco C1), que consulta a
+    unit do beat antes de escrever.
     """
 
     def probe():
@@ -214,6 +240,37 @@ def check_celery_beat() -> CheckResult:
         return "ok", "", {"age_seconds": round(idade, 1)}
 
     return _timed("celery_beat", False, probe)
+
+
+def check_celery_jobs() -> CheckResult:
+    """Frescor da telemetria de job vinda do worker (critério 14).
+
+    O `/metrics` é servido pelo processo web e o `record_celery` roda no worker:
+    sem um canal entre os dois, as métricas de task não aparecem em nenhum
+    scrape e não existe sinal de atraso. O canal é o arquivo de estado durável
+    (`config/job_state.py`), no mesmo padrão do heartbeat do beat. Publicar as
+    métricas acontece aqui e no scrape, para que elas existam mesmo sem tráfego
+    (um scrape é um momento em que o operador precisa do dado).
+    """
+
+    def probe():
+        if job_state.caminho() is None:
+            return (
+                "not_configured",
+                "defina OBSERVABILITY_JOB_STATE_FILE para ver telemetria de job",
+                {},
+            )
+        estado = job_state.ler()
+        if estado is None:
+            return "error", "job state file unreadable or missing", {}
+        resumo = job_state.publicar_metricas(estado) or {}
+        limite = job_state.idade_maxima()
+        idade = float(resumo.get("age_seconds") or 0.0)
+        if idade > limite:
+            return "degraded", "job state stale", {"age_seconds": idade}
+        return "ok", "", {"tasks": resumo.get("tasks", 0), "age_seconds": idade}
+
+    return _timed("celery_jobs", False, probe)
 
 
 def check_filas() -> CheckResult:
@@ -319,6 +376,26 @@ def _nomes_de_filas() -> list[str]:
     return vistos
 
 
+def _e_degradante(result: CheckResult) -> bool:
+    """Este resultado opcional pesa no estado agregado?
+
+    `ok` não. `disabled` não (o operador desligou o check). `not_configured`
+    só quando o check não tem sinal próprio (ver `CHECKS_SEM_SINAL_PROPRIO`) —
+    aí a ausência de configuração É o ponto cego. Qualquer outro estado
+    (`degraded`, `error`) pesa.
+    """
+
+    if result.status == "ok" or result.status == "disabled":
+        return False
+    if result.status == "not_configured":
+        return result.name in CHECKS_SEM_SINAL_PROPRIO
+    return True
+
+
+def _checks_opcionais() -> list[CheckResult]:
+    return [check_cache(), check_celery(), check_celery_beat(), check_celery_jobs(), check_filesystem()]
+
+
 def snapshot(*, include_optional: bool = True, include_queues: bool = False) -> dict[str, Any]:
     """Executa checks e devolve estado agregável.
 
@@ -333,14 +410,12 @@ def snapshot(*, include_optional: bool = True, include_queues: bool = False) -> 
         # `check_filas` fica de fora do caminho de requisição (custa uma
         # conexão ao broker): ele aparece no detalhe privado e vira métrica de
         # profundidade, que é o que o alerta de acúmulo consome.
-        results.extend(
-            [check_cache(), check_celery(), check_celery_beat(), check_filesystem()]
-        )
+        results.extend(_checks_opcionais())
     if include_queues:
         results.append(check_filas())
     by_name = {result.name: result for result in results}
     required_ok = all(result.status == "ok" for result in results if result.required)
-    optional_bad = [result for result in results if not result.required and result.status not in {"ok", "disabled", "not_configured"}]
+    optional_bad = [result for result in results if not result.required and _e_degradante(result)]
     if not required_ok:
         status = "error"
     elif optional_bad:
@@ -395,11 +470,8 @@ def degraded_state(*, force: bool = False) -> dict[str, Any]:
     with _degrade_lock:
         if not force and (agora - float(_degrade_cache["checked_at"])) < max(0.0, intervalo):
             return dict(_degrade_cache)
-        resultados = [check_cache(), check_celery(), check_celery_beat(), check_filesystem()]
-        reasons = tuple(
-            f"{r.name}:{r.status}" for r in resultados
-            if r.status not in {"ok", "disabled", "not_configured"}
-        )
+        resultados = _checks_opcionais()
+        reasons = tuple(f"{r.name}:{r.status}" for r in resultados if _e_degradante(r))
         estado = {
             "status": "degraded" if reasons else "ok",
             "checked_at": agora,
@@ -414,10 +486,12 @@ def detail_text(result: CheckResult) -> str:
 
 
 __all__ = [
+    "CHECKS_SEM_SINAL_PROPRIO",
     "CheckResult",
     "check_cache",
     "check_celery",
     "check_celery_beat",
+    "check_celery_jobs",
     "check_database",
     "check_filesystem",
     "check_filas",

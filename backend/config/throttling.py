@@ -16,12 +16,36 @@ publicação (`comunidade`) e lista de espera (`landing`).
 `AnonRateThrottle` só limita requisições de clientes NÃO autenticados
 (`request.user.is_authenticated is False`) — usuários autenticados não são
 afetados por esta classe.
+
+Identidade do cliente (achado MAJOR-1 da revisão do backend, run
+20260925-1020-observabilidade): o `SimpleRateThrottle.get_ident` do DRF, sem
+`NUM_PROXIES`, devolve o `X-Forwarded-For` CRU. Os nginx versionados não
+definem esse header, então o valor chegava intacto: o balde era escolhido pelo
+próprio cliente e 40 POSTs contra um teto de 30/min deram 40×`201`. Toda
+throttle anônima deste arquivo passa a identificar o cliente por
+`config.proxies.identificar_cliente` (fail-closed: o header só é lido quando o
+par é loopback ou uma rede declarada em `OBSERVABILITY_TRUSTED_PROXY_NETWORKS`,
+e só o último elemento da cadeia, que é o que o proxy anexou).
 """
 
 from rest_framework.throttling import AnonRateThrottle, UserRateThrottle
 
+from .proxies import identificar_cliente
 
-class EscritaPublicaAnonThrottle(AnonRateThrottle):
+
+class _IdentidadePorParReal:
+    """Mixin de `get_ident` para as throttles anônimas.
+
+    Deliberadamente NÃO aplicado a `UserRateThrottle`: lá o balde é o usuário
+    autenticado (`request.user.pk`), não o endereço — trocar por IP daria a um
+    único usuário o mesmo balde de todo mundo atrás do mesmo proxy.
+    """
+
+    def get_ident(self, request) -> str:
+        return identificar_cliente(request)
+
+
+class EscritaPublicaAnonThrottle(_IdentidadePorParReal, AnonRateThrottle):
     """
     Throttle conservador (folgado o bastante para uso legítimo, apertado o
     bastante para dificultar abuso automatizado) para endpoints públicos de
@@ -34,7 +58,7 @@ class EscritaPublicaAnonThrottle(AnonRateThrottle):
     scope = "escrita_publica"
 
 
-class AuthSensivelAnonThrottle(AnonRateThrottle):
+class AuthSensivelAnonThrottle(_IdentidadePorParReal, AnonRateThrottle):
     """
     Achado de revisão de segurança (major): login e os demais endpoints de
     autenticação (recuperação/redefinição de senha, verificação de e-mail,
@@ -61,7 +85,7 @@ class DenunciaUserThrottle(UserRateThrottle):
     scope = "denuncia"
 
 
-class EnderecosAnonThrottle(AnonRateThrottle):
+class EnderecosAnonThrottle(_IdentidadePorParReal, AnonRateThrottle):
     """
     FRENTE 5 — proxy de endereços (`enderecos/`): endpoints públicos de
     LEITURA com upstream externo (ViaCEP/IBGE). Sem throttle, um único
@@ -73,7 +97,7 @@ class EnderecosAnonThrottle(AnonRateThrottle):
     scope = "enderecos"
 
 
-class ConsentimentoAnonThrottle(AnonRateThrottle):
+class ConsentimentoAnonThrottle(_IdentidadePorParReal, AnonRateThrottle):
     """
     Run 20260925-1020-observabilidade (Bloco A2) — emissão do token de
     consentimento de analytics (`POST /api/metricas/consent/`).
@@ -84,6 +108,11 @@ class ConsentimentoAnonThrottle(AnonRateThrottle):
     transformar o emissor num coletor de dados com o carimbo do próprio site. A
     taxa (`30/min`, configurável por `THROTTLE_CONSENTIMENTO_RATE`) é folgada o
     bastante para a renovação normal — uma vez por sessão por TTL — nunca bater.
+
+    É este teto que o achado MAJOR-1 furou: com o `X-Forwarded-For` cru como
+    balde, o limite não existia para o cliente que gira o header. O teto é um
+    controle de privacidade, então a correção (`_IdentidadePorParReal`) é
+    obrigatória — não é ajuste de taxa.
     """
 
     scope = "consentimento"

@@ -188,13 +188,60 @@ class TestAC5RateLimitingCadastro:
         assert not User.objects.filter(email="throttle-cadastro-excedente@example.com").exists()
 
 
+class TestIdentidadeDoClienteNaoEEscolhidaPorQuemChama:
+    """Achado MAJOR-1: o `X-Forwarded-For` cru era o balde do rate limit.
+
+    Este teste usa um escopo PRÉ-EXISTENTE (`auth_sensivel`, o login) de
+    propósito: a correção da identificação do cliente vale para todas as
+    throttles anônimas, não só para a que a run 20260925-1020 introduziu. Um
+    `curl` girando o header gets um balde novo por requisição, e brute force de
+    credencial é exatamente o caso que `auth_sensivel` existe para fechar.
+    """
+
+    def test_login_nao_e_contornavel_girando_xff(self, cache_locmem_isolado):
+        from config.settings import REST_FRAMEWORK
+
+        limite = int(REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"]["auth_sensivel"].partition("/")[0])
+        client = APIClient()
+
+        codigos = [
+            client.post(
+                "/api/auth/login/",
+                {"email": f"alvo{indice}@example.com", "senha": "SenhaForte123"},
+                format="json",
+                REMOTE_ADDR="203.0.113.10",
+                HTTP_X_FORWARDED_FOR=f"10.0.0.{indice}",
+            ).status_code
+            for indice in range(limite + 3)
+        ]
+
+        assert 429 not in codigos[:limite], f"throttle antes do limite: {codigos}"
+        assert codigos[limite:] == [429, 429, 429]
+
+    def test_host_forjado_nao_abre_balde_novo(self, cache_locmem_isolado):
+        from config.settings import REST_FRAMEWORK
+
+        limite = int(REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"]["auth_sensivel"].partition("/")[0])
+        client = APIClient()
+
+        codigos = [
+            client.post(
+                "/api/auth/login/",
+                {"email": "alvo@example.com", "senha": "SenhaForte123"},
+                format="json",
+                REMOTE_ADDR="203.0.113.10",
+                HTTP_X_FORWARDED_FOR="127.0.0.1",
+                HTTP_X_FORWARDED_HOST="127.0.0.1",
+                HTTP_HOST="127.0.0.1",
+            ).status_code
+            for _ in range(limite + 2)
+        ]
+
+        assert codigos[-1] == 429
+        assert 429 not in codigos[:limite]
+
+
 class TestAC5RateLimitingNaoAfetaUsuarioAutenticado:
-    """`AnonRateThrottle` só deve contar/bloquear requisições NÃO
-    autenticadas — documentado em `config/throttling.py`. Este teste garante
-    que o comportamento documentado é real: um usuário autenticado
-    continua conseguindo usar o endpoint de escrita pública (comunidade)
-    mesmo depois de o "balde" anônimo estar cheio, porque ele usa uma chave
-    de cache diferente (por usuário, não por IP)."""
 
     def test_usuario_autenticado_nao_e_bloqueado_pelo_throttle_anonimo(self, cache_locmem_isolado):
         User = get_user_model()

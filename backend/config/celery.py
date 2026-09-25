@@ -69,4 +69,27 @@ def _marcar_task_postrun(task_id=None, state=None, **_kwargs):
         record_celery(nome, state or "unknown", duracao)
     except Exception:  # noqa: BLE001 - métrica nunca derruba o worker
         pass
+    # O registry acima é POR PROCESSO e quem serve `/metrics` é o processo web:
+    # sem este canal, `portal_celery_tasks_total` não existiria em nenhum scrape
+    # (achado MAJOR-4). Ver `config/job_state.py` para o que ele entrega e o
+    # que continua cross-process.
+    try:
+        from .job_state import registrar_task
+
+        registrar_task(nome, state or "unknown", duracao)
+    except Exception:  # noqa: BLE001 - telemetria nunca derruba o worker
+        pass
+    return None
+
+
+@signals.task_retry.connect
+def _contar_task_retry(request=None, **_kwargs):
+    """Retry é um dos sinais que o critério 14 exige consultar."""
+
+    try:
+        from .job_state import registrar_retry
+
+        registrar_retry(getattr(getattr(request, "task", None), "name", "-"))
+    except Exception:  # noqa: BLE001 - telemetria nunca derruba o worker
+        pass
     return None

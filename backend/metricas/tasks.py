@@ -118,7 +118,14 @@ def expurar_analytics(dias: int | None = None, lote: int | None = None) -> dict:
                 break
         removidos[nome] = total
         lotes[nome] = executados
-        METRICS.inc("portal_analytics_purge_deleted_total", model=nome, rows=total)
+        # A contagem é o VALOR do contador, não um rótulo: como `rows=total`,
+        # cada contagem distinta criava uma série nova (crescendo com a variação
+        # diária) e o alerta por `rows` não agregava nada (achado MINOR-5).
+        #
+        # Atenção ao chamar `inc`: o segundo parâmetro POSICIONAL é o valor, e
+        # `value=` como keyword colidiria com ele (viraria incremento, não
+        # rótulo). O rótulo é só `model`, que é o que separa a série.
+        METRICS.inc("portal_analytics_purge_deleted_total", total, model=nome)
 
     _invalida_agregados_cache()
 

@@ -24,6 +24,8 @@ caso, o valor do ambiente sempre tem prioridade sobre este.
 """
 
 import os
+import tempfile
+from pathlib import Path
 
 os.environ.setdefault(
     "DJANGO_SECRET_KEY",
@@ -62,3 +64,20 @@ OBSERVABILITY_CHECK_CELERY = False
 # Sem memoização: o probe de degradação é por processo e a suíte precisa poder
 # reavaliar a cada requisição (isolamento, sem estado entre testes).
 OBSERVABILITY_DEGRADED_PROBE_INTERVAL_SECONDS = 0.0
+
+# Heartbeat do beat e estado de job: a suíte não sobe beat nem worker, então os
+# dois ficariam `not_configured` — e, desde o achado MAJOR-3, "não configurado"
+# em check SEM SINAL PRÓPRIO (`celery_beat`, `celery_jobs`) conta como
+# DEGRADAÇÃO. Isso é o comportamento correto em produção e contaminaria todo
+# teste que olha `X-Operational-State` (que não é sobre beat). Por isso os
+# arquivos existem de antemão, com mtime recente: o check vê "ok" e os testes
+# que precisam de `not_configured`/degradação usam `override_settings`.
+_TESTE_TMP = Path(tempfile.gettempdir()) / "portal-observabilidade-suite"
+_TESTE_TMP.mkdir(parents=True, exist_ok=True)
+_BEAT_HEARTBEAT = _TESTE_TMP / "beat.heartbeat"
+_BEAT_HEARTBEAT.touch(exist_ok=True)
+_ESTADO_JOB = _TESTE_TMP / "job-state.json"
+if not _ESTADO_JOB.exists():
+    _ESTADO_JOB.write_text('{"versao": 1, "atualizado_em": 0, "tasks": {}}', encoding="utf-8")
+OBSERVABILITY_BEAT_HEARTBEAT_FILE = str(_BEAT_HEARTBEAT)
+OBSERVABILITY_JOB_STATE_FILE = str(_ESTADO_JOB)

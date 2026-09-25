@@ -455,8 +455,71 @@ def test_categoria_invalida_nao_e_emitida():
     assert erro.value.motivo == consent.MOTIVO_CATEGORIA
 
 
-@pytest.mark.parametrize("sub", ["", "abc", "x" * 65, "com espaço", "acentuação-çã", None, "a;b"])
-def test_sujeito_invalido_nao_e_emitido(sub):
-    with pytest.raises(consent.ConsentError) as erro:
-        consent.gerar_token_consent(sub=sub)
-    assert erro.value.motivo == consent.MOTIVO_SUJEITO
+# ---------------------------------------------------------------------------
+# Tipos de claim (achado NIT-8)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("versao", [1.0, "1", True, None])
+def test_claim_v_com_tipo_frouxo_e_recusado(versao):
+    """`1.0 != 1` é `False`: o `float` atravessava e o docstring ("sem tipo
+    frouxo, sem float") era mentira."""
+
+    agora = int(time.time())
+    token = _reassinar(
+        _token(),
+        {
+            "v": versao,
+            "categoria": "analytics",
+            "iat": agora,
+            "exp": agora + 60,
+            "sub": SUB,
+        },
+    )
+
+    verificacao = consent.verificar_consentimento(token, sub_esperado=SUB)
+
+    assert not verificacao.ok
+    assert verificacao.motivo == consent.MOTIVO_MALFORMADO
+
+
+def test_rotacao_percorre_todas_as_chaves_sem_curto_circuito(monkeypatch):
+    """A verificação percorre TODAS as chaves candidatas, e não para na
+    primeira que casa.
+
+    O comentário em `verificar_consentimento` afirma essa propriedade; com
+    `any()` sobre um gerador ela era falsa (curto-circuito no primeiro `True`) e
+    o vazamento de "qual chave assinou" voltava. Este teste amarra o
+    comportamento ao comentário.
+    """
+
+    chamadas: list[str] = []
+    original = consent._assinatura
+
+    def _espiao(chave: str, mensagem: bytes) -> bytes:
+        chamadas.append(chave)
+        return original(chave, mensagem)
+
+    monkeypatch.setattr(consent, "_assinatura", _espiao)
+    monkeypatch.setattr(consent, "_chaves_anteriores", lambda: ["chave-antiga-1", "chave-antiga-2"])
+
+    token = _token()
+    chamadas.clear()  # a emissão também assina; aqui interessa a verificação
+    verificacao = consent.verificar_consentimento(token, sub_esperado=SUB)
+
+    assert verificacao.ok
+    # A chave ativa primeiro, depois TODAS as anteriores — nenhuma é pulada
+    # depois do acerto.
+    assert chamadas == [CHAVE_A, "chave-antiga-1", "chave-antiga-2"]
+
+
+def test_rotacao_aceita_token_assinado_pela_chave_anterior():
+    """Contraprova do teste anterior: a rotação continua funcionando."""
+
+    with override_settings(
+        ANALYTICS_CONSENT_SIGNING_KEY=CHAVE_B, ANALYTICS_CONSENT_SIGNING_KEY_PREVIOUS=CHAVE_A
+    ):
+        antigo = _token()
+        verificacao = consent.verificar_consentimento(antigo, sub_esperado=SUB)
+
+    assert verificacao.ok

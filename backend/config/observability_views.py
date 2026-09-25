@@ -37,7 +37,6 @@ uma autenticação por `curl -H`.
 
 from __future__ import annotations
 
-import ipaddress
 import logging
 import secrets
 
@@ -48,6 +47,7 @@ from django.views.decorators.cache import never_cache
 from . import health
 from .metrics import METRICS
 from .observability import environment, release, service
+from .proxies import endereco_remoto, redes_confiaveis
 
 logger = logging.getLogger("config.observability")
 
@@ -58,46 +58,33 @@ def _setting(nome: str, padrao: str = "") -> str:
     return str(getattr(settings, nome, padrao) or "").strip()
 
 
-def _redes_confiaveis() -> list:
-    """Redes explicitamente declaradas como proxy confiável pelo operador."""
-
-    redes = []
-    for bruto in _setting("OBSERVABILITY_TRUSTED_PROXY_NETWORKS").split(","):
-        item = bruto.strip()
-        if not item:
-            continue
-        try:
-            redes.append(ipaddress.ip_network(item, strict=False))
-        except ValueError:
-            # Configuração inválida não pode abrir a porta: valores não
-            # parseáveis são ignorados (e o operador percebe pelo 404).
-            logger.warning("OBSERVABILITY_TRUSTED_PROXY_NETWORKS: valor inválido ignorado")
-    return redes
-
-
-def _endereco_remoto(request) -> ipaddress._BaseAddress | None:
-    bruto = request.META.get("REMOTE_ADDR") or ""
-    try:
-        return ipaddress.ip_address(bruto.strip())
-    except ValueError:
-        return None
-
-
 def eh_loopback(request) -> bool:
     """True para loopback real ou para um proxy explicitamente declarado.
 
-    `X-Forwarded-For` é ignorado de propósito (ver docstring do módulo).
+    `X-Forwarded-For` é ignorado de propósito (ver docstring do módulo). A
+    lista de redes vem de `config/proxies.py` — a mesma implementação que decide
+    a identidade do cliente no rate limit, para que "quem é confiável" não
+    tenha duas versões capable de divergir.
     """
 
-    endereco = _endereco_remoto(request)
+    endereco = endereco_remoto(request)
     if endereco is None:
         return False
     if endereco.is_loopback:
         return True
-    return any(endereco in rede for rede in _redes_confiaveis())
+    return any(endereco in rede for rede in redes_confiaveis())
 
 
 def _token_autoriza(request, nome_setting: str) -> bool:
+    """Compara o bearer token em BYTES, nunca em `str`.
+
+    `secrets.compare_digest` só aceita `str` ASCII: com um header não-ASCII
+    (`Authorization: Bearer çéé`) ele levanta `TypeError` e o 404 silencioso do
+    endpoint privado virava **500** — ruído de 5xx e evento de Sentry gerados
+    por qualquer cliente anônimo com um único header (achado MINOR-3). Em bytes a
+    comparação continua constante e não existe `TypeError` possível.
+    """
+
     esperado = _setting(nome_setting)
     if not esperado:
         return False
@@ -105,7 +92,7 @@ def _token_autoriza(request, nome_setting: str) -> bool:
     prefixo, _, valor = header.partition(" ")
     if prefixo.lower() != "bearer" or not valor:
         return False
-    return secrets.compare_digest(valor.strip(), esperado)
+    return secrets.compare_digest(valor.strip().encode("utf-8"), esperado.encode("utf-8"))
 
 
 def _eh_staff(request) -> bool:
@@ -204,6 +191,16 @@ def metrics_view(request):
         return _negado(request, "metrics")
 
     METRICS.inc("portal_metrics_scrapes_total")
+    # O scrape é um dos momentos em que o operador precisa da telemetria de job,
+    # e este processo pode não ter atendido requisição nenhuma desde o último
+    # scrape (site com tráfego baixo, probes que só batem em `/readyz`).
+    # Publicar aqui garante que as séries existam mesmo sem probe anterior.
+    try:
+        from .job_state import publicar_metricas
+
+        publicar_metricas()
+    except Exception:  # noqa: BLE001 - canal de job nunca derruba o scrape
+        pass
     corpo = METRICS.render_prometheus()
     resposta = HttpResponse(corpo, content_type=PROMETHEUS_CONTENT_TYPE)
     return _no_store(resposta)

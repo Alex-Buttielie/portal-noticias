@@ -17,8 +17,10 @@ from django.test import override_settings
 from config.observability import (
     REDACTED,
     RedactingJsonFormatter,
+    RedactingTextFormatter,
     is_sensitive_key,
     redact_payload,
+    redact_single_line,
     redact_text,
     safe_path,
     sentry_before_send,
@@ -82,9 +84,154 @@ def test_log_nao_contem_email_authorization_token_ou_query_sensive():
     for segredo in (EMAIL, SENHA, JWT, "ak-live-0123456789", "12345678909"):
         assert segredo not in linha
     # Nem o rótulo do header sobrevive: `Authorization: Bearer x` cai na regra
-    # de atribuição e vira `Authorization=[REDACTED]`.
-    assert REDACTED in linha
-    assert linha.count(REDACTED) >= 4
+    # de header com credencial e vira `Authorization=[REDACTED]`.
+    assert f"Authorization={REDACTED}" in linha
+    # O resto da linha depois do header também não sobrevive (o valor do header
+    # vai até o fim da linha): é o efeito colateral aceito por segurança —
+    # `api_key`, `cpf` e a query string estavam DEPOIS do header e sumiriam.
+    assert "api_key" not in linha
+    assert "12345678909" not in linha
+
+
+def test_log_redige_atribuicoes_sem_header_de_credencial():
+    """A redação das atribuições comuns continua valendo quando a mensagem não
+    menciona header de credencial (a regra de header consome a linha inteira,
+    então este é o caminho que prova que as outras regras contam)."""
+
+    linha = _log(
+        f"falhou para {EMAIL} | api_key=ak-live-0123456789 "
+        f"| cpf=12345678909 | url=https://x.invalid/a?token=abc"
+    )
+
+    for segredo in (EMAIL, "ak-live-0123456789", "12345678909", "token=abc"):
+        assert segredo not in linha
+    assert "https://x.invalid/a?" in linha
+    assert linha.count(REDACTED) >= 3
+    assert linha.count("[REDACTED_EMAIL]") == 1
+
+
+@pytest.mark.parametrize(
+    "bruto, segredo",
+    [
+        # Achado MINOR-1: o regex genérico parava no PRIMEIRO espaço, então
+        # "Basic" era consumido como valor e a credencial base64 sobrevivia.
+        ("Authorization: Basic ZGV2OnNlcmV0YQ==", "ZGV2OnNlcmV0YQ=="),
+        ("authorization: basic ZGV2OnNlcmV0YQ==", "ZGV2OnNlcmV0YQ=="),
+        # O segundo par de cookie sobrevivia pelo separador por espaço (e
+        # porque `csrf` não é nome sensível na lista).
+        ("Cookie: sessao=abc123 csrf=def456", "def456"),
+        ("Set-Cookie: sessao=abc123; Path=/; HttpOnly", "abc123"),
+    ],
+)
+def test_header_com_credencial_nao_deixa_valor_escapar(bruto, segredo):
+    texto = redact_text(bruto)
+
+    assert segredo not in texto
+    assert REDACTED in texto
+
+
+def test_redact_text_preserva_o_resto_da_linha_quando_nao_ha_header():
+    """Falso positivo é o custo aceito, mas só onde há header: uma linha sem
+    `Authorization`/`Cookie` mantém o diagnóstico completo."""
+
+    texto = redact_text("celery: task feed.tasks.x finished em 0.42s (fila=celery)")
+
+    assert "feed.tasks.x" in texto
+    assert "0.42s" in texto
+
+
+def test_redact_single_line_achata_quebra_de_linha():
+    """Achado MINOR-2: em modo texto não existe `json.dumps` para isolar a
+    linha, então um `\n` num `request.path` virava uma linha de log forjada."""
+
+    texto = redact_single_line("linha1\nforjada\rlinha2\tTAB")
+
+    assert "\n" not in texto
+    assert "\r" not in texto
+    assert "\t" not in texto
+    assert "\\n" in texto and "\\r" in texto and "\\t" in texto
+    assert "forjada" in texto
+
+
+def test_formatter_de_texto_redige_e_nao_quebra_linha():
+    """O modo `verbose` (DJANGO_LOG_JSON=false) também passa pelo redactor."""
+
+    formatter = RedactingTextFormatter("%(levelname)s %(message)s")
+    record = logging.LogRecord(
+        "config.test",
+        logging.ERROR,
+        __file__,
+        1,
+        "500 em /x\nERROR forjado: Authorization: Basic %s | email=%s",
+        ("ZGV2OnNlcmV0YQ==", EMAIL),
+        None,
+    )
+
+    linha = formatter.format(record)
+
+    assert "ZGV2OnNlcmV0YQ==" not in linha
+    assert EMAIL not in linha
+    assert "\n" not in linha
+    assert linha.startswith("ERROR ")
+    assert "\\n" in linha
+
+
+def test_formatter_de_texto_configurado_redige_e_nao_quebra_linha():
+    """O modo `verbose` REALMENTE configurado (`DJANGO_LOG_JSON=false`) tem que
+    passar pelo redactor.
+
+    Testar a classe diretamente provaria só que a classe existe; o que quebra
+    é o LIGAMENTO em `settings.LOGGING`, então é o formulário resolvido do
+    setting que este teste formata.
+    """
+
+    from django.conf import settings
+    from django.utils.module_loading import import_string
+
+    spec = settings.LOGGING["formatters"]["verbose"]
+    classe = import_string(spec["()"]) if isinstance(spec.get("()"), str) else spec["()"]
+    formatter = classe(spec["format"])
+    record = logging.LogRecord(
+        "config.test",
+        logging.ERROR,
+        __file__,
+        1,
+        "500 em /x\nERROR forjado: Authorization: Basic %s | email=%s",
+        ("ZGV2OnNlcmV0YQ==", EMAIL),
+        None,
+    )
+    record.request_id = "req-1"
+    record.task_id = "-"
+    record.environment = "development"
+    record.service = "portal-api"
+    record.release = "local"
+
+    linha = formatter.format(record)
+
+    assert "ZGV2OnNlcmV0YQ==" not in linha
+    assert EMAIL not in linha
+    assert "\n" not in linha
+    assert "\\n" in linha
+    assert "req-1" in linha
+
+
+def test_formatter_de_texto_preserva_traceback_multilinha():
+    """O traceback continua quebrado em linhas: achatá-lo destruiria a
+    legibilidade que é a razão de existir do modo texto."""
+
+    formatter = RedactingTextFormatter("%(levelname)s %(message)s")
+    try:
+        raise ValueError(f"falhou para {EMAIL}")
+    except ValueError:
+        record = logging.LogRecord(
+            "config.test", logging.ERROR, __file__, 1, "erro", (), __import__("sys").exc_info()
+        )
+
+    linha = formatter.format(record)
+
+    assert "\n" in linha
+    assert "ValueError" in linha
+    assert EMAIL not in linha
 
 
 def test_log_redige_campos_injetados_via_extra():
@@ -269,7 +416,17 @@ def test_redact_text_cobre_bearer_jwt_e_query_string():
 
     for segredo in (EMAIL, JWT, SENHA, "token=abc"):
         assert segredo not in texto
-    assert "https://x.invalid/a?" in texto
+    # A mensagem termina no header `Authorization`, então o resto da linha é
+    # redigido junto (ver `test_log_redige_atribuicoes_sem_header_de_credencial`
+    # para o caminho em que a URL sobrevive sem o secret).
+    assert "url=https://x.invalid/a" not in texto
+
+
+def test_redact_text_preserva_url_sem_query_sensivel():
+    texto = redact_text("chamada https://x.invalid/a/feed ok (senha=abc)")
+
+    assert "https://x.invalid/a/feed" in texto
+    assert "abc" not in texto
 
 
 def test_safe_path_remove_query_e_fragmento():

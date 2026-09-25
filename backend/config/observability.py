@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import copy
 import datetime as dt
+import logging
 import os
 import re
 from contextvars import ContextVar
@@ -83,7 +84,12 @@ _SENSITIVE_KEY = re.compile(
     re.IGNORECASE,
 )
 _EMAIL = re.compile(r"(?<![\w.+-])[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}(?![\w.-])")
-_BEARER = re.compile(r"\bBearer\s+[A-Za-z0-9._~+/=-]+", re.IGNORECASE)
+# Esquema de autenticação com credencial: `Bearer <jwt>`, `Basic <base64>`,
+# `Token <chave>`. Só `Bearer` estava coberto (achado MINOR-1): o regex
+# genérico de atribuição abaixo parava no PRIMEIRO espaço, então em
+# `Authorization: Basic ZGV2OnNlcmV0YQ==` ele consumia "Basic" como valor e a
+# credencial base64 ficava de fora — visível no log e no evento do Sentry.
+_AUTH_SCHEME = re.compile(r"\b(Bearer|Basic|Token)\s+[A-Za-z0-9._~+/=-]{2,}", re.IGNORECASE)
 # JWT sem rótulo (`eyJ...`), comum em log de exceção/header cru.
 _JWT = re.compile(r"\beyJ[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{4,}")
 _SECRET_ASSIGNMENT = re.compile(
@@ -93,7 +99,24 @@ _SECRET_ASSIGNMENT = re.compile(
     r"access[_-]?token|refresh[_-]?token|"
     r"id[_-]?token|private[_-]?key)\s*[:=]\s*[^\s,;&]+"
 )
+# Os QUATRO headers cujo valor precisa ser consumido até o fim da linha. São
+# exceções deliberadas a `[^\s,;&]+`: o valor de um header não termina no
+# primeiro espaço nem no primeiro `;`, e é justamente aí que a segunda
+# credencial sobrevivia (`Cookie: sessao=abc123 csrf=def456` -> o segundo par
+# ficava de fora, porque `csrf` também não é um nome sensível). O custo é
+# perder o resto da linha quando um texto menciona "cookie:" como palavra —
+# falso positivo aceitável para telemetria, vazamento não.
+_HEADER_VALUE = re.compile(
+    r"(?i)\b(authorization|proxy-authorization|cookie|set-cookie)\s*[:=]\s*[^\r\n]+"
+)
 _CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+# CR/LF/TAB viram escapes visíveis. Onde isso é aplicado (`redact_single_line`,
+# formatter de texto) não existe estrutura de dados que isole a linha: um `\n`
+# num `request.path` viraria uma LINHA DE LOG FORJADA, com `levelname`,
+# `request_id` e release do atacante. O modo JSON não precisa disso (o
+# `json.dumps` neutraliza) e o traceback preserva as quebras de linha de
+# propósito — são elas que tornam o log legível.
+_LINE_BREAK = re.compile(r"[\r\n\t]")
 # Identidade vai para HEADER (`X-Release`, `X-Environment`, tag do Sentry), então
 # aqui não pode sobrar NENHUM caractere de controle nem espaço: CR/LF num
 # header é injeção de resposta (o `settings.py` deriva release de `GIT_SHA`/
@@ -189,9 +212,11 @@ def redact_text(value: object, *, limit: int = MAX_LOG_TEXT) -> str:
 
     text = "" if value is None else str(value)
     text = _CONTROL.sub("", text)
-    text = _BEARER.sub(f"Bearer {REDACTED}", text)
+    text = _AUTH_SCHEME.sub(lambda m: f"{m.group(1)} {REDACTED}", text)
     text = _JWT.sub(REDACTED, text)
     text = _EMAIL.sub("[REDACTED_EMAIL]", text)
+    # Header com credencial: o valor vai até o fim da linha (ver `_HEADER_VALUE`).
+    text = _HEADER_VALUE.sub(lambda m: f"{m.group(1)}={REDACTED}", text)
     text = _SECRET_ASSIGNMENT.sub(lambda m: f"{m.group(1)}={REDACTED}", text)
     # Não preservar query strings em URLs que apareçam em mensagens de log.
     text = re.sub(
@@ -202,6 +227,21 @@ def redact_text(value: object, *, limit: int = MAX_LOG_TEXT) -> str:
     if len(text) > max(0, limit):
         return text[: max(0, limit - 1)] + "…"
     return text
+
+
+def redact_single_line(value: object, *, limit: int = MAX_LOG_TEXT) -> str:
+    """`redact_text` + CR/LF/TAB virados em escape visível.
+
+    Onde não existe estrutura de dados segurando o valor (uma linha de log em
+    modo texto, um rótulo de métrica, o `request.path` de um 500), uma quebra de
+    linha é uma LINHA FORJADA: o atacante escolhe o `levelname` e o
+    `request_id` que o operador vai ler. `redact_text` sozinha não resolve
+    porque preserva `\n`/`\r` de propósito — traceback sem quebra de linha é
+    ilegível.
+    """
+
+    texto = _LINE_BREAK.sub(lambda m: {chr(10): "\\n", chr(13): "\\r", chr(9): "\\t"}[m.group(0)], redact_text(value, limit=limit))
+    return texto
 
 
 def safe_path(value: object, *, limit: int = 500) -> str:
@@ -316,6 +356,32 @@ def _contestao_envio(motivo: str) -> None:
 
         METRICS.inc("portal_sentry_events_dropped_total", reason=str(motivo)[:32])
     except Exception:  # noqa: BLE001
+        pass
+
+
+def reportar_falha_de_init_sentry(exc: BaseException) -> None:
+    """Sinaliza que o APM NÃO subiu, sem derrubar o processo.
+
+    O `sentry_sdk.init` roda dentro de um `try/except Exception` em
+    `config/settings.py` (falha de observabilidade não pode impedir o portal de
+    subir) e o `pass` original sumia em silêncio: DSN com typo, integração
+    ausente ou argumento inválido deixavam o operador com a sensação de APM
+    ativo e nenhum evento. O único sinal posterior
+    (`portal_sentry_events_dropped_total`) nem subia, porque não houve init.
+
+    O aviso leva só o TIPO da exceção: DSN e traceback podem carregar segredo e
+    host, e o log é justamente a superfície que precisa ser limpa.
+    """
+
+    tipo = type(exc).__name__[:32] or "Exception"
+    logging.getLogger("config.settings").warning(
+        "Sentry nao inicializado (falha=%s): sem APM, sem evento.", tipo
+    )
+    try:
+        from .metrics import METRICS
+
+        METRICS.inc("portal_sentry_init_failed_total", error=tipo)
+    except Exception:  # noqa: BLE001 - o sinal é acessório; a falha não sobe
         pass
 
 
@@ -440,18 +506,45 @@ class RedactingJsonFormatter(JsonFormatter if JsonFormatter is not None else obj
         return redact_text(super().formatException(ei))
 
 
+class RedactingTextFormatter(logging.Formatter):
+    """Formatter de texto (`DJANGO_LOG_JSON=false`) com a mesma redação do JSON.
+
+    Antes o modo `verbose` era um `logging.Formatter` puro: a redação — declarada
+    no módulo como "última barreira" — não existia nesse caminho, e um `\n` num
+    `request.path` virava uma segunda linha de log com `levelname`/`request_id`
+    controlados por quem fez a requisição (achado MINOR-2).
+
+    Só a MENSAGEM é redigida e achatada em uma linha. O traceback continua
+    multilinha: quebrá-lo destruiria a legibilidade que é a razão de existir do
+    modo texto, e ele não contém entrada do cliente nas suas primeiras linhas
+    (a `redact_text` do `formatException` continua valendo).
+    """
+
+    def formatMessage(self, record) -> str:  # noqa: N802,D102
+        return redact_single_line(super().formatMessage(record))
+
+    def formatException(self, ei):  # noqa: N802,D102
+        # O traceback é anexado DEPOIS de `formatMessage` pelo `logging`, então
+        # redigir só a mensagem deixaria a exceção crua na linha de log — e a
+        # mensagem de exceção é onde vive a query string com token.
+        return redact_text(super().formatException(ei))
+
+
 __all__ = [
     "ENVIRONMENT",
     "RELEASE",
     "SERVICE_NAME",
     "RedactingJsonFormatter",
+    "RedactingTextFormatter",
     "configure_sentry_tags",
     "current_task_id",
     "environment",
     "is_sensitive_key",
     "redact_payload",
+    "redact_single_line",
     "redact_text",
     "release",
+    "reportar_falha_de_init_sentry",
     "reset_task_id",
     "reset_technical_consent",
     "safe_exception",

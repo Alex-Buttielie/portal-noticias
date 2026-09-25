@@ -417,7 +417,12 @@ def test_campo_em_excesso_e_descartado_e_nao_persiste():
     bruto = json.dumps({c.name: str(getattr(evento, c.name)) for c in EventoSite._meta.fields})
     for vazamento in ("123.456.789-00", EMAIL, "segredo", "cpf", "email", "authorization"):
         assert vazamento not in bruto
-    assert "portal_analytics_payload_fields_dropped_total" in METRICS.render_prometheus()
+    exposicao = METRICS.render_prometheus()
+    assert "portal_analytics_payload_fields_dropped_total" in exposicao
+    # Achado MINOR-6: campo em excesso NÃO é "evento rejeitado" — o evento é
+    # persistido (201). Contar recusa aqui fazia o alerta de "eventos rejeitados"
+    # disparar com eventos sendo aceitos.
+    assert "portal_analytics_events_rejected_total" not in exposicao
 
 
 def test_dado_pessoal_em_extra_e_redigido_e_nao_chega_ao_banco():
@@ -607,4 +612,83 @@ def test_emissao_esta_limitada_por_throttle(settings):
     assert "Retry-After" in client.post(
         "/api/metricas/consent/", {"sessao": SUB}, format="json"
     ).headers
+    cache.clear()
+
+
+def test_emissao_nao_e_contornavel_girando_x_forwarded_for(settings):
+    """Regressão do achado MAJOR-1: este teto era decorativo.
+
+    O `SimpleRateThrottle.get_ident` do DRF usa o `X-Forwarded-For` cru quando
+    `NUM_PROXIES` não está configurado, e os nginx versionados não definem esse
+    header — então o balde era escolhido pelo cliente. 40 POSTs com o header
+    rotacionado contra o teto de 30/min devolviam 40×`201` e zero `429`, que é
+    exatamente o "script de coleta de dados com o carimbo do próprio site" que o
+    limite existe para impedir.
+
+    Aqui o par (`REMOTE_ADDR`) é externo e não declarado como proxy, então o
+    header não pode influenciar o balde: o limite precisa valer.
+    """
+
+    from django.core.cache import cache
+
+    from config.settings import REST_FRAMEWORK
+
+    limite = int(REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"]["consentimento"].partition("/")[0])
+    settings.CACHES = {
+        "default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}
+    }
+    cache.clear()
+    client = APIClient()
+    codigos = [
+        client.post(
+            "/api/metricas/consent/",
+            {"sessao": SUB},
+            format="json",
+            REMOTE_ADDR="203.0.113.10",
+            HTTP_X_FORWARDED_FOR=f"10.0.0.{indice}",
+        ).status_code
+        for indice in range(limite + 10)
+    ]
+
+    assert 429 not in codigos[:limite], f"throttle antes do limite: {codigos}"
+    assert codigos.count(429) == len(codigos) - limite, codigos
+    cache.clear()
+
+
+def test_emissao_respeita_o_teto_por_cliente_atras_de_proxy_declarado(settings):
+    """O outro lado da moeda: a correção não pode transformar o limite em
+    "30/min para o site inteiro". Com o proxy declarado, cada cliente real tem
+    o seu balde — e o mesmo cliente continua sendo barrado."""
+
+    from django.core.cache import cache
+
+    from config.settings import REST_FRAMEWORK
+
+    limite = int(REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"]["consentimento"].partition("/")[0])
+    settings.CACHES = {
+        "default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}
+    }
+    settings.OBSERVABILITY_TRUSTED_PROXY_NETWORKS = "172.18.0.0/16"
+    cache.clear()
+    client = APIClient()
+
+    def _pede(indice_cliente: int) -> int:
+        return client.post(
+            "/api/metricas/consent/",
+            {"sessao": SUB},
+            format="json",
+            REMOTE_ADDR="172.18.0.9",
+            # O proxy ANEXA o cliente real no fim da cadeia (default do Nginx).
+            HTTP_X_FORWARDED_FOR=f"198.51.100.{indice_cliente}",
+        ).status_code
+
+    # Três clientes distintos, cada um no seu balde.
+    assert [_pede(10), _pede(11), _pede(12)] == [201, 201, 201]
+    # O mesmo cliente esgota o PRÓPRIO teto (a primeira requisição acima já
+    # consumiu uma das `limite` vagas).
+    codigos = [_pede(10) for _ in range(limite - 1)]
+    assert 429 not in codigos
+    assert _pede(10) == 429
+    # E o outro cliente continua com o balde intacto.
+    assert _pede(11) == 201
     cache.clear()

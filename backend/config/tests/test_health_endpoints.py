@@ -206,6 +206,27 @@ def test_health_detail_com_token_errado_ou_de_outro_endpoint():
     assert sem_bearer.status_code == 404
 
 
+@pytest.mark.parametrize(
+    "endpoint, setting",
+    [("/health-detail", "OBSERVABILITY_HEALTH_TOKEN"), ("/metrics", "OBSERVABILITY_METRICS_TOKEN")],
+)
+def test_bearer_nao_ascii_responde_negacao_e_nao_vira_500(endpoint, setting):
+    """Achado MINOR-3: `secrets.compare_digest` só aceita `str` ASCII, então um
+    `Authorization` não-ASCII levantava `TypeError` e o 404 prometido virava
+    500 — ruído de 5xx e evento de Sentry gerados por qualquer cliente anônimo
+    com um único header."""
+
+    with override_settings(**{setting: TOKEN_SAUDE}):
+        response = Client().get(
+            endpoint,
+            REMOTE_ADDR=IP_EXTERNO,
+            HTTP_AUTHORIZATION="Bearer çéé-ñ",
+        )
+
+    assert response.status_code == 404
+    assert _body(response) == {"detail": "Not found."}
+
+
 def test_health_detail_aceita_loopback():
     response = Client().get("/health-detail", REMOTE_ADDR="127.0.0.1")
 

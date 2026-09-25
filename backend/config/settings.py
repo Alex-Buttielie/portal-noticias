@@ -388,6 +388,16 @@ REST_FRAMEWORK = {
         # a renovação de token (1 por sessão por TTL) nunca atrapalhar.
         "consentimento": os.environ.get("THROTTLE_CONSENTIMENTO_RATE", "30/min"),
     },
+    # Achado MAJOR-1 (revisão do backend, run 20260925-1020-observabilidade):
+    # sem isto o `SimpleRateThrottle.get_ident` do DRF devolve o
+    # `X-Forwarded-For` CRU e o balde do rate limit passa a ser escolhido pelo
+    # próprio cliente (os nginx versionados não definem esse header, então o
+    # valor chega intacto). `0` = "confie em NENHUM header de proxy por
+    # omissão", que é o lado fail-closed. A exceção explícita — peer em
+    # `OBSERVABILITY_TRUSTED_PROXY_NETWORKS` ou loopback, usando só o ÚLTIMO
+    # elemento da cadeia — está em `config/proxies.py:identificar_cliente` e é
+    # aplicada pelas throttles de `config/throttling.py`.
+    "NUM_PROXIES": 0,
 }
 
 # FRENTE 5 — endereços inteligentes: base URLs e TTLs do proxy
@@ -521,6 +531,18 @@ OBSERVABILITY_DEGRADED_PROBE_INTERVAL_SECONDS = float(
 OBSERVABILITY_BEAT_HEARTBEAT_FILE = os.environ.get("OBSERVABILITY_BEAT_HEARTBEAT_FILE", "")
 OBSERVABILITY_BEAT_MAX_AGE_SECONDS = float(
     os.environ.get("OBSERVABILITY_BEAT_MAX_AGE_SECONDS", "900")
+)
+# Canal durável de telemetria de job (achado MAJOR-4): o worker grava o estado
+# das tasks neste arquivo e o processo web (único que serve `/metrics`) publica
+# `portal_job_task_idle_seconds` — o sinal de ATRASO que o critério 14 pede.
+# Vazio = canal desligado, e o check `celery_jobs` reporta `not_configured`
+# (que conta como degradação: sem ele não há como saber se os jobs rodam).
+# No deploy, a mesma env do beat (`/etc/portal/celery-<amb>.env`) precisa
+# declarar `OBSERVABILITY_JOB_STATE_FILE` para o worker — que já roda com esse
+# arquivo — ter onde escrever.
+OBSERVABILITY_JOB_STATE_FILE = os.environ.get("OBSERVABILITY_JOB_STATE_FILE", "")
+OBSERVABILITY_JOB_STATE_MAX_AGE_SECONDS = float(
+    os.environ.get("OBSERVABILITY_JOB_STATE_MAX_AGE_SECONDS", "900")
 )
 # Profundidade de fila (mensagens prontas) que caracteriza acúmulo. Vira alerta
 # no Grafana; o check só muda o estado para `degraded` acima deste valor.
@@ -1060,7 +1082,12 @@ LOGGING = {
         },
     },
     "formatters": {
+        # O modo texto NÃO é um `logging.Formatter` cru: ele usa o redactor
+        # também (achado MINOR-2) — sem isso, a redação — que o módulo chama de
+        # última barreira — não existia nesse caminho e um `\n` num
+        # `request.path` virava uma linha de log forjada.
         "verbose": {
+            "()": "config.observability.RedactingTextFormatter",
             "format": (
                 "%(asctime)s %(levelname)s %(name)s [%(module)s] "
                 "[env=%(environment)s service=%(service)s release=%(release)s "
@@ -1139,7 +1166,11 @@ if SENTRY_DSN:
                 "config.observability", fromlist=["sentry_before_send_transaction"]
             ).sentry_before_send_transaction,
         )
-    except Exception:
+    except Exception as exc:
         # Uma configuração inválida de observabilidade não pode impedir que o
         # portal suba — o init do Sentry é opcional (sem DSN, nada é enviado).
-        pass
+        # O que NÃO pode é sumir em silêncio: com o `pass` original, um DSN com
+        # typo deixava o operador com a sensação de APM ativo e nenhum evento
+        # (achado MINOR-9). `reportar_falha_de_init_sentry` avisa (sem DSN e
+        # sem traceback) e conta `portal_sentry_init_failed_total`.
+        __import__("config.observability", fromlist=["reportar_falha_de_init_sentry"]).reportar_falha_de_init_sentry(exc)

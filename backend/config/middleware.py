@@ -13,6 +13,7 @@ from .metrics import record_degradacao, record_http
 from .observability import (
     configure_sentry_tags,
     environment,
+    redact_single_line,
     release,
     reset_technical_consent,
     safe_path,
@@ -219,8 +220,15 @@ class RequestIdMiddleware:
             return None
 
         got_request_exception.send(sender=None, request=request)
+        # `request.path` é controlado por quem fez a requisição: ele passa por
+        # `safe_path` (perde query string) e por `redact_single_line` (CR/LF viram
+        # escape). Sem isso, um path com `%0a%0aERROR ...` forjava uma linha de
+        # log inteira — com `levelname` e `request_id` escolhidos pelo atacante
+        # (achado MINOR-2).
         logging.getLogger("django.request").error(
-            "Internal Server Error: %s", request.path, exc_info=exception
+            "Internal Server Error: %s",
+            redact_single_line(safe_path(request.path, limit=500)),
+            exc_info=exception,
         )
         response = JsonResponse(
             {

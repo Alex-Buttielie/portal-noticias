@@ -191,6 +191,41 @@ def test_registra_metricas_tecnicas_do_expurgo():
     assert "portal_analytics_purge_duration_seconds_count" in exposicao
 
 
+def test_contagem_de_linhas_e_valor_e_nao_rotulo():
+    """Achado MINOR-5: com `rows=<contagem>` como rótulo, cada contagem distinta
+    criava uma série nova e o alerta por `rows` não agregava nada. Aqui a
+    contagem é o valor do contador e a série é só por modelo."""
+
+    METRICS.clear()
+    _criar_eventos(idade_dias=500, quantidade=3)
+    expurar_analytics.run()
+    primeira = METRICS.render_prometheus()
+    METRICS.clear()
+
+    # Segunda execução: 0 linhas (idempotente).
+    expurar_analytics.run()
+    segunda = METRICS.render_prometheus()
+
+    assert 'rows=' not in primeira
+    assert 'portal_analytics_purge_deleted_total{model="metricas.EventoSite"} 3' in primeira
+    assert 'portal_analytics_purge_deleted_total{model="metricas.EventoSite"} 0' in segunda
+    # Uma série por modelo, não uma por contagem.
+    series = [linha for linha in primeira.splitlines() if linha.startswith("portal_analytics_purge_deleted_total{")]
+    assert len(series) == 3
+
+
+def test_contagem_acumula_entre_execucoes():
+    METRICS.clear()
+    _criar_eventos(idade_dias=500, quantidade=3)
+    expurar_analytics.run()
+    _criar_eventos(idade_dias=500, quantidade=2)
+    expurar_analytics.run()
+
+    # Contador cumulativo: 3 + 2 na MESMA série (com `rows=` seriam duas séries
+    # de valor 1, e o alerta por `rows` não agregaria nada).
+    assert 'portal_analytics_purge_deleted_total{model="metricas.EventoSite"} 5' in METRICS.render_prometheus()
+
+
 def test_task_esta_registrada_no_app_celery():
     from config.celery import app
 
