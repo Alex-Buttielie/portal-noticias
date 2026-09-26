@@ -1,9 +1,60 @@
 from django.conf import settings
 from django.db import models
 
+from config.uploads import (
+    POLITICA_DOCUMENTO,
+    POLITICA_FOTO,
+    UploadInvalidoError,
+    detectar_tipo,
+    nome_regenerado,
+    validar_upload,
+)
+
+
+def _caminho_validado(instance, arquivo, politica, campo: str) -> str:
+    """
+    Valida `arquivo` e devolve o caminho com nome REGENERADO.
+
+    Este é o `upload_to` de todos os campos de upload do app, e é a
+    última fronteira antes do disco: roda para POST do serializer, para
+    o admin do Django, para `manage.py shell` e para qualquer código
+    futuro. Não importa como o arquivo chegou aqui.
+    """
+    conteudo = validar_upload(arquivo, politica)
+    tipo = detectar_tipo(conteudo, politica)
+    if tipo is None:  # pragma: no cover — `validar_upload` já recusou
+        raise UploadInvalidoError(f"Tipo de arquivo não permitido para '{campo}'.")
+    nome = nome_regenerado(tipo[0])
+    return f"{politica.prefixo}/{instance.user_id}/{nome}"
+
 
 def caminho_documento(instance, filename):
-    return f"credenciamento/{instance.user_id}/{filename}"
+    """
+    `upload_to` do documento comprobatório (`SolicitacaoCredenciamento`).
+
+    ANTES (P0-10, eixo 3): `f"credenciamento/{instance.user_id}/{filename}"`
+    — o nome vinha LITERALMENTE do cliente. Controlava a extensão (gravar
+    um `.html` e tê-lo servido como `text/html` na origem do portal = XSS
+    armazenado) e permitia colisão/sobrescrita.
+
+    AGORA: `filename` é IGNORADO. O tipo vem dos magic bytes e o nome é
+    `<uuid4hex><ext canônica>`.
+
+    A assinatura da função não mudou, e é ela que as migrations referenciam
+    (`credenciamento.models.caminho_documento`) — por isso nenhuma migration
+    precisa ser criada nem alterada.
+    """
+    return _caminho_validado(instance, instance.documento, POLITICA_DOCUMENTO, "documento")
+
+
+def caminho_foto_solicitacao(instance, filename):
+    """`upload_to` da foto na solicitação de credenciamento."""
+    return _caminho_validado(instance, instance.foto, POLITICA_FOTO, "foto")
+
+
+def caminho_foto_perfil(instance, filename):
+    """`upload_to` da foto no perfil do jornalista credenciado."""
+    return _caminho_validado(instance, instance.foto, POLITICA_FOTO, "foto")
 
 
 class SolicitacaoCredenciamento(models.Model):
@@ -33,7 +84,7 @@ class SolicitacaoCredenciamento(models.Model):
     telefone = models.CharField(max_length=30, blank=True)
     cidade = models.CharField(max_length=150, blank=True)
     uf = models.CharField(max_length=2, blank=True)
-    foto = models.FileField(upload_to=caminho_documento, blank=True, null=True)
+    foto = models.FileField(upload_to=caminho_foto_solicitacao, blank=True, null=True)
     mini_bio = models.TextField(blank=True)
     dados_profissionais = models.TextField(blank=True)
     # Documento comprobatório (diploma/registro). Nunca exposto via URL
@@ -86,7 +137,7 @@ class PerfilJornalista(models.Model):
     # jornalista após aprovado. Copiados da solicitação no momento da
     # aprovação (`services.decidir`) e, a partir daí, editáveis
     # independentemente via `services.atualizar_perfil`.
-    foto = models.FileField(upload_to=caminho_documento, blank=True, null=True)
+    foto = models.FileField(upload_to=caminho_foto_perfil, blank=True, null=True)
     mini_bio = models.TextField(blank=True)
     dados_profissionais = models.TextField(blank=True)
 

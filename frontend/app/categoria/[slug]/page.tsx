@@ -10,7 +10,11 @@ import { AdsSlot } from "@/components/AdsSlot";
 import { hrefSubcategoria, subcategoriasCompletas } from "@/lib/categorias";
 import { CategoriaReporter } from "@/components/Reporters";
 import { breadcrumbListJsonLd } from "@/lib/schema";
+// P0-08: estado vazio real quando a categoria não tem itens — em vez de
+// popular a tela com notícias fictícias.
 import { EstadoVazio } from "@/components/EstadoVazio";
+// P0-10: renderiza o JSON-LD com escape de contexto `<script>`.
+import { JsonLd } from "@/components/JsonLd";
 
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
   const { slug: slugParam } = await params;
@@ -32,7 +36,7 @@ export default async function Page({ params }: { params: Promise<{ slug: string 
   return (
     <div className="space-y-6">
       <CategoriaReporter categoria={slug} />
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
+      <JsonLd dados={jsonLd} />
       <div className="flex items-center gap-2 text-xs text-[var(--cor-texto-suave)]"><Link href="/" className="hover:underline">Início</Link><span aria-hidden>›</span><Link href="/editorias" className="hover:underline">Editorias</Link><span aria-hidden>›</span><span className="capitalize text-[var(--cor-texto)]">{slug}</span></div>
       <div className="rounded-[var(--raio-lg)] border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] p-5 md:p-6">
         <div className="hud-line mb-3" aria-hidden />

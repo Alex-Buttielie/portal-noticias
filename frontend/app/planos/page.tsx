@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Check, X, Crown, ShieldCheck, Sparkles, Zap, Newspaper, Bell, Archive, Users, HelpCircle } from "lucide-react";
 import { assinarPlano, type Plano } from "@/lib/api";
+import { urlSeguraParaLink } from "@/lib/url-segura";
 import { useQueryPlanos } from "@/lib/queries";
 import { EstadoVazio } from "@/components/EstadoVazio";
 import { queryKeys } from "@/lib/query-keys";
@@ -85,9 +86,20 @@ export default function Page() {
     setErro(null);
     try {
       const assinatura = await assinarMutation.mutateAsync(sel.id);
-      if (assinatura.checkout_url) {
+      // `checkout_url` vem do gateway (Mercado Pago). Atribuir uma URL
+      // a `window.location.href` é uma navegação: se o gateway (ou um
+      // intermediário comprometido) devolver `javascript:…`, o payload
+      // executa na origem do portal. Allowlist de esquema + fallback
+      // para a área logada, nunca a URL original.
+      const checkout = urlSeguraParaLink(assinatura.checkout_url);
+      if (checkout) {
         toast.success("Abrindo o checkout seguro…");
-        window.location.href = assinatura.checkout_url;
+        window.location.href = checkout;
+        return;
+      }
+      if (assinatura.checkout_url) {
+        toast.error("O gateway devolveu um endereço de checkout inválido. Abrindo minha conta.");
+        router.push("/minha-conta");
         return;
       }
       setOk(true); toast.success("Assinatura confirmada");

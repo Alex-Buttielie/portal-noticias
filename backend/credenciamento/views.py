@@ -6,6 +6,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from . import services
+from config.uploads import headers_de_servida
 from .models import PerfilJornalista, SolicitacaoCredenciamento
 from .serializers import PerfilJornalistaSerializer, SolicitacaoCredenciamentoSerializer
 from .services import solicitar
@@ -58,6 +59,13 @@ class DocumentoView(APIView):
     GET /api/credenciamento/solicitacoes/<id>/documento/ — critério de
     aceite 5: só o próprio solicitante ou um admin (`papel=admin`) pode
     baixar o documento. Nunca servido via URL estática pública.
+
+    Hardening (P0-10, eixo 3): os cabeçalhos de defesa são obrigatórios
+    aqui. Antes, `FileResponse` deduzia o `Content-Type` pelo NOME do
+    arquivo e não emitia `Content-Disposition` nem `nosniff` — um `.html`
+    ou `.svg` armazenado seria interpretado na origem do portal. Com
+    `attachment` + `application/octet-stream` + `nosniff`, o browser
+    baixa o arquivo em vez de renderizá-lo. Ver `config/uploads.py`.
     """
 
     permission_classes = [IsAuthenticated]
@@ -75,7 +83,17 @@ class DocumentoView(APIView):
 
         if not solicitacao.documento:
             raise Http404
-        return FileResponse(solicitacao.documento.open("rb"))
+        # `as_attachment=True` + `filename` explícito: o `FileResponse` do
+        # Django passaria a deduzir o content_type do nome, que é exatamente
+        # o que não queremos.
+        resposta = FileResponse(
+            solicitacao.documento.open("rb"),
+            as_attachment=True,
+            filename="documento",
+        )
+        for cabecalho, valor in headers_de_servida("documento").items():
+            resposta[cabecalho] = valor
+        return resposta
 
 
 class MeuPerfilView(APIView):

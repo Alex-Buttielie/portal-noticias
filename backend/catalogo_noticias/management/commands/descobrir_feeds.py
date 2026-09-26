@@ -21,6 +21,8 @@ import feedparser
 import requests
 from django.core.management.base import BaseCommand, CommandError
 
+from config.egress import EgressBloqueado, SessaoEgress
+
 UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/126.0 Safari/537.36"
@@ -46,13 +48,26 @@ PADROES_FALLBACK = [
 
 
 def _get(url: str, timeout: int = 20):
-    return requests.get(url, timeout=timeout, headers={"User-Agent": UA}, allow_redirects=True)
+    """
+    GET com controle de saída.
+
+    Este comando é o pior caso de SSRF do projeto: a lista de ENTRADA é um
+    JSON de candidatos e os candidatos de feed saem de `<link rel=
+    "alternate">` extraídos de homepages arbitrárias, com `urljoin` — ou
+    seja, de conteúdo controlado por terceiro. Sem o controle, ele varre a
+    rede interna de quem rodar a manutenção. O `allow_redirects=True`
+    é seguro porque a `SessaoEgress` revalida cada `Location`.
+    """
+    with SessaoEgress(user_agent=UA) as sessao:
+        return sessao.get(url, timeout=timeout, headers={"User-Agent": UA}, allow_redirects=True)
 
 
 def _e_feed_valido(url: str, timeout: int = 20) -> tuple[bool, str, int]:
     """Retorna (ok, titulo_ou_erro, n_itens)."""
     try:
         r = _get(url, timeout)
+    except EgressBloqueado as exc:
+        return False, f"destino bloqueado: {exc}", 0
     except requests.RequestException as exc:
         return False, f"rede: {exc.__class__.__name__}", 0
     if r.status_code >= 400:
@@ -82,6 +97,8 @@ def descobrir(nome: str, pagina: str, timeout: int = 20) -> dict:
             href = HREF_RE.search(tag)
             if href and ("rss" in tipo or "atom" in tipo or "xml" in tipo):
                 candidatos.append(urljoin(r.url, href.group(1)))
+    except EgressBloqueado as exc:
+        return {"nome": nome, "pagina": pagina, "feed": None, "erro": f"destino bloqueado: {exc}"}
     except requests.RequestException as exc:
         return {"nome": nome, "pagina": pagina, "feed": None, "erro": f"homepage inacessível: {exc.__class__.__name__}"}
 

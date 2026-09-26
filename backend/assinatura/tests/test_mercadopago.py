@@ -66,7 +66,7 @@ def test_criar_cobranca_devolve_pendente_e_checkout_sandbox():
     )
     payload = {"id": "pre-123", "sandbox_init_point": "https://sandbox.mercadopago.com/checkout/pre-123"}
 
-    with patch("requests.post", return_value=_resposta(201, payload)) as post:
+    with patch("assinatura.providers.payment.SessaoEgress.post", return_value=_resposta(201, payload)) as post:
         resultado = MercadoPagoGatewayProvider().criar_cobranca(subscription, plano.preco)
 
     assert resultado.referencia_gateway == "pre-123"
@@ -85,7 +85,7 @@ def test_assinar_plano_mp_fica_pendente_com_checkout():
     plano = _plano()
     payload = {"id": "pre-456", "sandbox_init_point": "https://sandbox.mercadopago.com/checkout/pre-456"}
 
-    with patch("requests.post", return_value=_resposta(201, payload)):
+    with patch("assinatura.providers.payment.SessaoEgress.post", return_value=_resposta(201, payload)):
         subscription = services.assinar_plano(usuario, plano, MercadoPagoGatewayProvider())
 
     assert subscription.status == Subscription.STATUS_PAGAMENTO_PENDENTE
@@ -97,11 +97,11 @@ def test_assinar_plano_mp_fica_pendente_com_checkout():
 def test_consultar_status_mapeia_estados():
     gateway = MercadoPagoGatewayProvider()
 
-    with patch("requests.get", return_value=_resposta(200, {"status": "authorized"})):
+    with patch("assinatura.providers.payment.SessaoEgress.get", return_value=_resposta(200, {"status": "authorized"})):
         assert gateway.consultar_status("pre-1") == "aprovado"
-    with patch("requests.get", return_value=_resposta(200, {"status": "pending"})):
+    with patch("assinatura.providers.payment.SessaoEgress.get", return_value=_resposta(200, {"status": "pending"})):
         assert gateway.consultar_status("pre-1") == "pendente"
-    with patch("requests.get", return_value=_resposta(200, {"status": "cancelled"})):
+    with patch("assinatura.providers.payment.SessaoEgress.get", return_value=_resposta(200, {"status": "cancelled"})):
         assert gateway.consultar_status("pre-1") == "recusado"
 
 
@@ -119,7 +119,7 @@ def test_webhook_confirma_assinatura_pendente():
         status=HistoricoPagamento.STATUS_PENDENTE, referencia_gateway="pre-789",
     )
 
-    with patch("requests.get", return_value=_resposta(200, {"status": "authorized"})):
+    with patch("assinatura.providers.payment.SessaoEgress.get", return_value=_resposta(200, {"status": "authorized"})):
         resposta = APIClient().post("/api/assinatura/webhook/mercadopago/?topic=preapproval&id=pre-789")
 
     assert resposta.status_code == 200
@@ -129,7 +129,7 @@ def test_webhook_confirma_assinatura_pendente():
 
 @override_settings(ASSINATURA_MP_ACCESS_TOKEN="TEST-dummy")
 def test_webhook_desconhecido_responde_200_sem_efeito():
-    with patch("requests.get", return_value=_resposta(200, {"status": "authorized"})):
+    with patch("assinatura.providers.payment.SessaoEgress.get", return_value=_resposta(200, {"status": "authorized"})):
         resposta = APIClient().post("/api/assinatura/webhook/mercadopago/?topic=preapproval&id=pre-inexistente")
 
     assert resposta.status_code == 200
