@@ -20,7 +20,6 @@ pytestmark = pytest.mark.django_db
 
 def test_processar_vencimentos_delega_para_o_servico_e_retorna_resultado():
     esperado = {"expiradas": 1, "encerradas": 0, "renovadas": 2}
-
     with patch.object(tasks, "processar_vencimentos_e_grace_periods", return_value=esperado) as mock:
         resultado = tasks.processar_vencimentos()
 
@@ -29,4 +28,14 @@ def test_processar_vencimentos_delega_para_o_servico_e_retorna_resultado():
 
 
 def test_processar_vencimentos_sem_nada_a_processar_retorna_zeros():
-    assert tasks.processar_vencimentos() == {"expiradas": 0, "encerradas": 0, "renovadas": 0}
+    # P1-07: o dicionário cresceu com os contadores de renovação que
+    # distinguem "renovado" de "cobrança criada aguardando o provedor" e
+    # de "já havia cobrança em aberto" (a guarda anti-cobrança-dupla).
+    assert tasks.processar_vencimentos() == {
+        "expiradas": 0,
+        "encerradas": 0,
+        "renovadas": 0,
+        "renovacoes_aguardando": 0,
+        "renovacoes_ja_em_aberto": 0,
+        "renovacoes_recusadas": 0,
+    }

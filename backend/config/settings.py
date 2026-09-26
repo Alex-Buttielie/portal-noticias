@@ -818,9 +818,44 @@ ASSINATURA_PAYMENT_GATEWAY_PROVIDER = os.environ.get("ASSINATURA_PAYMENT_GATEWAY
 # configurado, o provider falha alto ao ser usado — nunca silenciosamente.
 ASSINATURA_MP_ACCESS_TOKEN = os.environ.get("ASSINATURA_MP_ACCESS_TOKEN", "")
 ASSINATURA_MP_SANDBOX = env_bool("ASSINATURA_MP_SANDBOX", True)
+# Segredo do webhook do MP (o "secret signature" que o painel do MP gera
+# por aplicação, em Webhooks > Configure notificação). É o que
+# autentica a origem da notificação: sem ele o endpoint público do
+# webhook é aceito por qualquer um (ver
+# `providers.payment.verificar_assinatura_webhook`). NUNCA entra no
+# código nem no log; o valor vem só do ambiente.
+ASSINATURA_MP_WEBHOOK_SECRET = os.environ.get("ASSINATURA_MP_WEBHOOK_SECRET", "")
+# Conciliação com o provedor: a notificação do MP é at-least-once (ele
+# reenvia até 8 vezes em ~4 dias), então existe uma rotina que pergunta ao
+# provedor o que está acontecendo e corrige a divergência. Ela é a única
+# forma de um pagamento perdido na notificação virar assinatura ativa.
+ASSINATURA_INTERVALO_RECONCILIAR_MINUTOS = int(
+    os.environ.get("ASSINATURA_INTERVALO_RECONCILIAR_MINUTOS", 60)
+)
 ASSINATURA_INTERVALO_PROCESSAR_VENCIMENTOS_MINUTOS = int(
     os.environ.get("ASSINATURA_INTERVALO_PROCESSAR_VENCIMENTOS_MINUTOS", 60)
 )
+
+# Mesmo raciocínio do bloco do EMAIL_BACKEND acima (e pelo mesmo motivo
+# documentado lá: o boot de produção é o `import config.wsgi` do
+# Gunicorn, que NÃO roda system checks — um check aqui passaria
+# batido): se o provedor configurado é o Mercado Pago e o segredo do
+# webhook não veio, o endpoint público do webhook recusa TODA
+# notificação (fail-closed, ver
+# `providers.payment.verificar_assinatura_webhook`), o cliente paga e a
+# assinatura nunca é confirmada. Isso é invisível se não for dito alto,
+# e a conciliação só sana quando o segredo existir.
+if ASSINATURA_PAYMENT_GATEWAY_PROVIDER == "mercadopago" and not ASSINATURA_MP_WEBHOOK_SECRET:
+    logging.getLogger("config.settings").error(
+        "ASSINATURA_PAYMENT_GATEWAY_PROVIDER=mercadopago sem "
+        "ASSINATURA_MP_WEBHOOK_SECRET: o webhook do Mercado Pago recusará "
+        "toda notificação (a origem não pode ser autenticada) e nenhuma "
+        "assinatura será confirmada por webhook — o cliente paga e a "
+        "assinatura fica em pagamento_pendente. Defina o mesmo secret "
+        "gerado no painel do MP (Webhooks > Configure notificação) antes "
+        "de tratar a integração de pagamento como entregue."
+    )
+
 B2B_INTERVALO_VERIFICAR_ALERTAS_MINUTOS = int(
     os.environ.get("B2B_INTERVALO_VERIFICAR_ALERTAS_MINUTOS", 60)
 )
@@ -832,6 +867,15 @@ CELERY_BEAT_SCHEDULE = {
     "assinatura-processar-vencimentos": {
         "task": "assinatura.tasks.processar_vencimentos",
         "schedule": ASSINATURA_INTERVALO_PROCESSAR_VENCIMENTOS_MINUTOS * 60,
+    },
+    # Rede de segurança do dinheiro: a notificação do Mercado Pago é
+    # at-least-once e pode se perder (deploy no meio do request, 500
+    # transitório, ela nunca chegar). Esta task pergunta ao provedor o
+    # que ele diz e corrige a divergência — inclusive reenviando um
+    # cancelamento que não chegou lá.
+    "assinatura-reconciliar-com-provedor": {
+        "task": "assinatura.tasks.reconciliar_com_provedor",
+        "schedule": ASSINATURA_INTERVALO_RECONCILIAR_MINUTOS * 60,
     },
     # BRD §27 — "Resumo da manhã" e "Resumo da noite" são envios distintos de
     # verdade (horário fixo via crontab, timezone America/Sao_Paulo — ver
