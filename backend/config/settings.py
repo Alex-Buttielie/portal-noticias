@@ -306,6 +306,26 @@ STORAGES = {
 MEDIA_URL = "media/"
 MEDIA_ROOT = BASE_DIR / "media"
 
+# ---------------------------------------------------------------------------
+# Saúde e prontidão (P0-10, eixo 4)
+# ---------------------------------------------------------------------------
+# Teto de tempo de CADA checagem de dependência em `/readyz`. Precisa ser
+# menor que o `timeoutSeconds` do probe do orquestrador, senão o probe dá
+# timeout e o orquestrador não chega a ler o 503 — que é a informação que
+# ele precisa.
+HEALTH_TIMEOUT_SEGUNDOS = float(os.environ.get("HEALTH_TIMEOUT_SEGUNDOS", "2.0"))
+
+# Segredo de acesso a `/health-detail` e `/metrics`.
+#
+# VAZIO POR PADRITO, E VAZIO = ACESSO POR TOKEN DESABILITADO (fail-closed).
+# Não é descuido: um deploy que esqueça esta variável não pode acabar com
+# detalhe de saúde e métricas abertos na internet. A alternativa (fallback
+# para um valor embutido no código) publicaria o segredo no repositório.
+# Staff autenticado continua tendo acesso em qualquer caso.
+#
+# Gere com: `python -c "import secrets; print(secrets.token_urlsafe(32))"`
+HEALTH_DETAIL_TOKEN = os.environ.get("HEALTH_DETAIL_TOKEN", "")
+
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 

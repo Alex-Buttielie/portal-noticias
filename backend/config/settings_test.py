@@ -45,6 +45,18 @@ CACHES = {
     }
 }
 
+# P0-10 (eixo 4): a suíte precisa exercitar os endpoints RESTRITOS, e eles
+# exigem um token. Definido AQUI (e não em `settings.py`) para que o valor
+# de teste nunca dependa do ambiente de quem roda a suíte — um
+# `HEALTH_DETAIL_TOKEN` herdado do shell poderia, por acaso, fazer o teste
+# de "token errado" passar pelo motivo errado.
+#
+# `config/settings.py` grava o valor da variável de ambiente, e esta
+# sobreposição garante que a suíte use o segredo de teste. Em DEBUG=False o
+# `config.settings` já recusaria subir com a SECRET_KEY fraca, e este módulo
+# existe exatamente para isso (ver docstring do módulo).
+HEALTH_DETAIL_TOKEN = "token-de-teste-p0-10-nao-usar-fora-da-suite"
+
 # A suíte não sobe Redis. O transporte em memória permite testar o
 # dispatch sem transformar a task em INSERT síncrono; os dois testes de
 # integração que precisam observar a persistência ativam `always_eager`
