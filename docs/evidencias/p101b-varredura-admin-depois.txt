@@ -1,0 +1,178 @@
+====================================================================================================
+A) ModelAdmin: campos de TEXTO que o operador consegue DIGITAR e salvar
+====================================================================================================
+
+[SEM POLITICA] AcaoModeracao -> AcaoModeracaoAdmin   (backend/moderacao/admin.py:20)
+      - tipo                               30
+      - motivo                             TextField(sem teto no banco)
+
+[SEM POLITICA] Comentario -> ComentarioAdmin   (backend/comunidade/admin.py:14)
+      - conteudo                           TextField(sem teto no banco)
+
+[SEM POLITICA] ConfiguracaoRobo -> ConfiguracaoRoboAdmin   (backend/catalogo_noticias/admin.py:19)
+      - categorias_sensiveis               500
+      - llm_model                          100
+      - llm_api_base_url                   500
+
+[SEM POLITICA] Denuncia -> DenunciaAdmin   (backend/moderacao/admin.py:14)
+      - motivo                             20
+      - detalhe                            TextField(sem teto no banco)
+      - status                             20
+      - resolucao_motivo                   TextField(sem teto no banco)
+
+[SEM POLITICA] DestaqueEditorial -> DestaqueEditorialAdmin   (backend/feed/admin.py:22)
+      - tipo                               20
+      - entry_tipo                         10
+      - motivo                             300
+
+[SEM POLITICA] EmailAddress -> EmailAddressAdmin   (backend/.venv/lib/python3.14/site-packages/allauth/account/admin.py:12)
+      - email                              254
+
+[SEM POLITICA] EventoBusca -> EventoBuscaAdmin   (backend/feed/admin.py:7)
+      - query                              300
+      - query_normalizada                  300
+      - session_key                        64
+      - request_id                         64
+
+[SEM POLITICA] FeatureLimit -> FeatureLimitAdmin   (backend/gating/admin.py:7)
+      - chave                              100
+      - plano                              20
+      - valor                              200
+      - descricao                          TextField(sem teto no banco)
+
+[SEM POLITICA] FonteRobo -> FonteRoboAdmin   (backend/catalogo_noticias/admin.py:9)
+      - nome                               150
+      - url                                1000
+      - categoria_padrao                   100
+      - estado_padrao                      2
+
+[SEM POLITICA] Group -> GroupAdmin   (backend/.venv/lib/python3.14/site-packages/django/contrib/auth/admin.py:29)
+      - name                               150
+
+[SEM POLITICA] InscricaoListaEspera -> InscricaoListaEsperaAdmin   (backend/landing/admin.py:7)
+      - nome                               150
+      - email                              254
+      - localidade                         150
+      - canal_preferido                    20
+
+[SEM POLITICA] InscricaoNewsletter -> InscricaoNewsletterAdmin   (backend/newsletter/admin.py:7)
+      - tipo                               20
+      - periodo                            10
+      - token_descadastro                  64
+
+[SEM POLITICA] InteracaoNoticia -> InteracaoNoticiaAdmin   (backend/feed/admin.py:15)
+      - session_key                        64
+      - tipo                               20
+      - entry_tipo                         10
+      - categoria                          100
+      - query                              300
+
+[SEM POLITICA] LocalidadeSalva -> LocalidadeSalvaAdmin   (backend/radar/admin.py:7)
+      - pais                               100
+      - estado                             100
+      - cidade                             150
+
+[SEM POLITICA] MembroOrganizacao -> MembroOrganizacaoAdmin   (backend/b2b/admin.py:24)
+      - papel_na_organizacao               20
+
+[POLITICA APLICADA] NewsCluster -> NewsClusterAdmin   (backend/catalogo_noticias/admin.py:39)
+      - titulo_acontecimento               300
+      - categoria_dominante                100
+
+[POLITICA APLICADA] NewsItem -> NewsItemAdmin   (backend/catalogo_noticias/admin.py:67)
+      - titulo                             300
+      - resumo_proprio                     TextField(sem teto no banco)
+      - conteudo_bruto                     TextField(sem teto no banco)
+      - conteudo_completo                  TextField(sem teto no banco)
+      - url_fonte_original                 1000
+      - nome_fonte                         150
+      - categoria                          100
+      - autor                              200
+      - pais                               100
+      - estado                             100
+      - cidade                             150
+      - imagem_url                         1000
+      - status_revisao                     20
+
+[SEM POLITICA] Organizacao -> OrganizacaoAdmin   (backend/b2b/admin.py:17)
+      - nome                               200
+      - plano                              20
+
+[SEM POLITICA] PaginaEditorial -> PaginaEditorialAdmin   (backend/moderacao/admin.py:48)
+      - titulo                             200
+      - conteudo                           TextField(sem teto no banco)
+
+[SEM POLITICA] PerfilJornalista -> PerfilJornalistaAdmin   (backend/credenciamento/admin.py:39)
+      - motivo_suspensao                   TextField(sem teto no banco)
+      - mini_bio                           TextField(sem teto no banco)
+      - dados_profissionais                TextField(sem teto no banco)
+
+[SEM POLITICA] Plan -> PlanAdmin   (backend/assinatura/admin.py:13)
+      - nome                               100
+
+[SEM POLITICA] Publicacao -> PublicacaoAdmin   (backend/comunidade/admin.py:7)
+      - titulo                             300
+      - conteudo                           TextField(sem teto no banco)
+      - tipo                               20
+      - status                             20
+      - categoria                          100
+
+[SEM POLITICA] RecursoModeracao -> RecursoModeracaoAdmin   (backend/moderacao/admin.py:26)
+      - texto                              TextField(sem teto no banco)
+      - status                             20
+
+[SEM POLITICA] ReputacaoEventoLog -> ReputacaoEventoLogAdmin   (backend/moderacao/admin.py:37)
+      - motivo                             300
+
+[SEM POLITICA] Site -> SiteAdmin   (backend/.venv/lib/python3.14/site-packages/django/contrib/sites/admin.py:6)
+      - domain                             100
+      - name                               50
+
+[SEM POLITICA] SocialAccount -> SocialAccountAdmin   (backend/.venv/lib/python3.14/site-packages/allauth/socialaccount/admin.py:39)
+      - provider                           200
+      - uid                                191
+
+[SEM POLITICA] SocialApp -> SocialAppAdmin   (backend/.venv/lib/python3.14/site-packages/allauth/socialaccount/admin.py:30)
+      - provider                           30
+      - provider_id                        200
+      - name                               40
+      - client_id                          191
+      - secret                             191
+      - key                                191
+
+[SEM POLITICA] SocialToken -> SocialTokenAdmin   (backend/.venv/lib/python3.14/site-packages/allauth/socialaccount/admin.py:53)
+      - token                              TextField(sem teto no banco)
+      - token_secret                       TextField(sem teto no banco)
+
+[SEM POLITICA] SolicitacaoCredenciamento -> SolicitacaoCredenciamentoAdmin   (backend/credenciamento/admin.py:8)
+      - telefone                           30
+      - cidade                             150
+      - uf                                 2
+      - mini_bio                           TextField(sem teto no banco)
+      - dados_profissionais                TextField(sem teto no banco)
+      - status                             20
+      - motivo_decisao                     TextField(sem teto no banco)
+
+[SEM POLITICA] Subscription -> SubscriptionAdmin   (backend/assinatura/admin.py:44)
+      - status                             20
+
+[SEM POLITICA] User -> UserAdmin   (backend/identidade/admin.py:8)
+      - email                              254
+      - nome                               150
+
+====================================================================================================
+B) Inlines: campo de TEXTO editavel dentro de um inline de admin
+====================================================================================================
+
+  NewsCluster x NewsItem  (backend/catalogo_noticias/admin.py:29)  -> somente leitura
+
+  Organizacao x MembroOrganizacao  (backend/b2b/admin.py:6)  -> EDITAVEIS
+      - membros.papel_na_organizacao       20
+
+  Organizacao x CriterioMonitoramento  (backend/b2b/admin.py:11)  -> EDITAVEIS
+      - criterios.tipo                     20
+      - criterios.valor                    200
+
+  Subscription x HistoricoPagamento  (backend/assinatura/admin.py:21)  -> somente leitura
+
+  Subscription x AssinaturaMudancaEstadoLog  (backend/assinatura/admin.py:31)  -> somente leitura
