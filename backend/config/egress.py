@@ -144,9 +144,23 @@ REDES_BLOQUEADAS: tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...] = (
 #: IMDSv1 ligado, GET aqui devolve credenciais da role da instância.
 METADATA_IP = "169.254.169.254"
 
-#: Domínios considered confiáveis, para código que QUER nomear o alvo
-#: (ex.: assertar que um webhook aponta mesmo para o host esperado).
-#: NÃO é usado para autorizar: a checagem de IP sempre roda.
+#: Catálogo dos hosts que ESTA APLICAÇÃO fala em produção.
+#:
+#: NÃO é uma autorização: a checagem do IP resolvido sempre roda, e um
+#: host desta lista que resolva para rede privada é barrado do mesmo jeito
+#: (ver `test_allowlist_de_host_nao_substitui_a_checagem_de_ip`).
+#:
+#: Para que serve: é o valor contra o qual o provedor de LLM compara o
+#: `api_base_url` configurado e emite AVISO quando não bate. Esse
+#: `api_base_url` é administrável e é a base de um POST que leva o
+#: `Authorization: Bearer` do provedor, então apontá-lo para um host
+#: inesperado é exatamente o caso que um operador precisa notar. Não
+#: bloqueamos — um LLM self-hosted é um uso legítimo — mas o desvio fica
+#: no log.
+#:
+#: Para os provedores de URL FIXA (Resend, Mercado Pago) a lista é
+#: informativa: o host já está no código, então compará-lo não agrega
+#: proteção. Por isso eles não passam por ela.
 ALVO_CONFIANCAVEL: frozenset[str] = frozenset(
     {
         "api.resend.com",
@@ -190,7 +204,7 @@ class EgressError(Exception):
 
 
 class EgressBloqueado(EgressError):
-    """A URL/host/IP é forbidden por política de saída. Não há retry."""
+    """A URL, o host ou o IP é proibido pela política de saída. Não há retry."""
 
     def __init__(self, mensagem: str, *, host: str = "", url: str = "", ip: str = "") -> None:
         super().__init__(mensagem)

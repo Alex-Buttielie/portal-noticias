@@ -75,6 +75,11 @@ const REGEX_ESCAPE = /[<>&\u2028\u2029]/g;
  * - A saída é garantidamente livre de `<`, `>` e `&` crus.
  */
 export function serializarJsonLd(dados: unknown): string {
+  // `null`/`undefined` não descrevem nada. `JSON.stringify(null)` devolveria
+  // a string `"null"`, que é JSON válido e passaria em `corpoJsonLdSeguro`,
+  // produzindo um `<script>application/ld+json` com `null` — silenciosamente
+  // inútil para o crawler. Melhor não renderizar o elemento.
+  if (dados === null || dados === undefined) return "";
   let bruto: string | undefined;
   try {
     bruto = JSON.stringify(dados);

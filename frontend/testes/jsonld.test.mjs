@@ -193,9 +193,13 @@ test("os construtores reais de schema produzem JSON-LD íntegro sob ataque", () 
 
 test("valores não serializáveis não derrubam o render", () => {
   assert.equal(serializarJsonLd(undefined), "");
+  assert.equal(serializarJsonLd(null), "");
   assert.equal(serializarJsonLd(() => {}), "");
   assert.equal(propsJsonLd(undefined), null);
-  // BigInt lança em JSON.stringify — precisa virar null, não exceção.
+  // `null` não pode virar `<script>null</script>`: é JSON válido, passaria
+  // em `corpoJsonLdSeguro` e seria inútil para o crawler.
+  assert.equal(propsJsonLd(null), null);
+  // BigInt lança em JSON.stringify — precisa virar string vazio, não exceção.
   assert.equal(serializarJsonLd({ x: 1n }), "");
   const circular = { a: 1 };
   circular.self = circular;

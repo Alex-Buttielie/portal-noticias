@@ -23,7 +23,7 @@ from typing import Optional
 import requests
 from django.conf import settings
 
-from config.egress import EgressBloqueado, SessaoEgress
+from config.egress import ALVO_CONFIANCAVEL, EgressBloqueado, SessaoEgress
 
 from .news_source import ItemBruto
 
@@ -124,6 +124,7 @@ class LLMHttpSummarizationProvider(SummarizationProvider):
         self.api_key = api_key if api_key is not None else settings.CATALOGO_NOTICIAS_LLM_API_KEY
         self.modelo = modelo or _db_model
         self.timeout_segundos = timeout_segundos or _db_timeout
+        self._avisar_host_de_llm_nao_esperado()
         # Reducao de custo/numero de chamadas (pedido do usuario): quantos
         # itens INDEPENDENTES entram em uma unica chamada HTTP de
         # `resumir_e_classificar_em_lote`, e um teto de tokens de resposta
@@ -192,6 +193,41 @@ class LLMHttpSummarizationProvider(SummarizationProvider):
             'Responda em JSON: {"resumo": ..., "categoria": ..., '
             '"urgente": ...}.\n\n' + fontes_texto
         )
+
+    def _avisar_host_de_llm_nao_esperado(self) -> None:
+        """
+        Sinal de AUDITORIA para `api_base_url` fora do catálogo.
+
+        O campo é administrável e é a base de um POST que leva
+        `Authorization: Bearer <api_key>`. O controle de saída já garante
+        que o destino não é rede privada; o que sobra é o destino ser um
+        host PÚBLICO inesperado — para onde a credencial do provedor seria
+        enviada.
+
+        Não bloqueamos: LLM self-hosted é uso legítimo, e quem configura é
+        admin. O ponto é que a decisão fique registrada em log, e não
+        espalhada pelo código. O catálogo é `config.egress.ALVO_CONFIANCAVEL`.
+        """
+        from urllib.parse import urlsplit
+
+        try:
+            host = (urlsplit(self.api_base_url).hostname or "").lower()
+        except ValueError:
+            return
+        if not host:
+            return
+        de_confianca = any(
+            host == alvo or host.endswith("." + alvo) for alvo in ALVO_CONFIANCAVEL
+        )
+        if not de_confianca:
+            logger.warning(
+                "api_base_url do provedor de LLM aponta para '%s', fora do "
+                "catálogo de hosts esperados (%s). Se isto não for um provedor "
+                "self-hosted autorizado, a credencial do provedor está sendo "
+                "enviada para um host inesperado.",
+                host,
+                ", ".join(sorted(ALVO_CONFIANCAVEL)),
+            )
 
     def _chamar_api(self, prompt: str, max_tokens: Optional[int] = None) -> dict:
         """

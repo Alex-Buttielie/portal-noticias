@@ -146,6 +146,19 @@ def health_detail(request):
     }
     if relatorio.nao_verificadas:
         corpo["nao_verificadas"] = sorted(relatorio.nao_verificadas)
+
+    # Aviso de CONFIGURACAO, aqui e não em `/readyz`: uma `MEDIA_ROOT` mal
+    # posicionada não impede o serviço de receber tráfego — é um risco que
+    # o operador precisa corrigir, e `/health-detail` é o canal restrito
+    # onde ele olha. Reportar no readiness derrubaria o portal inteiro por
+    # um detalhe de ambiente.
+    from .uploads import verificar_media_root_fora_do_servido
+
+    problema_midia = verificar_media_root_fora_do_servido()
+    if problema_midia:
+        METRICAS.incrementar("portal_config_insegura_total", 1, item="media_root")
+        logger.error("Configuração insegura de mídia: %s", problema_midia)
+        corpo["avisos"] = {"media_root": problema_midia}
     return JsonResponse(corpo)
 
 

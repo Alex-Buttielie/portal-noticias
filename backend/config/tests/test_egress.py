@@ -295,6 +295,51 @@ def test_url_com_espaco_e_recusada_com_mensagem_util() -> None:
     assert "vazia" in str(info.value)
 
 
+@pytest.mark.parametrize(
+    "url",
+    [
+        # `inet_aton` do glibc aceita hexadecimal e octal. Um filtro por
+        # substring não pega nenhum destes; o teste de IP resolvido pega.
+        "http://0x7f.0.0.1/",
+        "http://0x7f000001/",
+        "http://017700000001/",
+        # Decimal sem pontos: `2130706433` == `127.0.0.1`.
+        "http://2130706433/",
+        # Ponto final no rótulo.
+        "http://localhost./",
+        # Dígitos Unicode: o `getaddrinfo` faz IDNA e resolve para o
+        # loopback. Um `ipaddress.ip_address()` no texto cru FALHARIA
+        # aqui, e o host passaria sem checagem.
+        "http://①②⑦.0.0.1/",
+        "http://⓵⓶⑦.0.0.1/",
+        # Percent-encoding: não é um host resolvível, e host não
+        # resolvível é bloqueio.
+        "http://127.0.0.1%2e/",
+        "http://%31%32%37.0.0.1/",
+        # IPv6 escrito de formas equivalents, com IPv4 embutido.
+        "http://[::ffff:7f00:1]/",
+        "http://[0:0:0:0:0:ffff:127.0.0.1]/",
+        "http://[::ffff:a9fe:a9fe]/",  # ::ffff:169.254.169.254
+        "http://[::]/",
+        # Serviços DNS que resolvem literalmente para a rede privada.
+        # Estes resolvem de verdade no teste (rede disponível), então a
+        # proteção é a checagem do IP resolvido, não a lista de hosts.
+        "http://169.254.169.254.nip.io/",
+        "http://127.0.0.1.sslip.io/",
+    ],
+)
+def test_bypass_por_codificacao_de_ip_e_bloqueado(url: str) -> None:
+    """
+    Bypasses de CODIFICAÇÃO do endereço. Todos falham com
+    "IP bloqueado" (quando resolvem) ou "host não resolvido" (quando não).
+
+    O ponto do teste é que a causa da recusa é o IP RESOLVIDO. Um filtro
+    de string passaria por `0x7f.0.0.1` e por `①②⑦.0.0.1`.
+    """
+    with pytest.raises(EgressBloqueado):
+        validar_url(url)
+
+
 # ---------------------------------------------------------------------------
 # 5/6. DNS resolvendo para rede privada
 # ---------------------------------------------------------------------------
