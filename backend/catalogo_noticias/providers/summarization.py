@@ -23,9 +23,29 @@ from typing import Optional
 import requests
 from django.conf import settings
 
+from .fallback_local import (
+    MOTIVO_ERRO_HTTP,
+    MOTIVO_RATE_LIMIT,
+    MOTIVO_RESPOSTA_INVALIDA,
+    MOTIVO_SEM_CREDENCIAL,
+    MOTIVO_TIMEOUT,
+    normalizar_motivo,
+)
 from .news_source import ItemBruto
 
 logger = logging.getLogger(__name__)
+
+# P1-02 (WS-08/GP-5): menor timeout aceito na chamada externa. `requests`
+# levanta `ValueError` (NAO uma `RequestException`) para `timeout <= 0` e
+# trata `timeout=None` como "espere para sempre" — nos dois casos a excecao
+# escaparia do `except requests.RequestException` de `_chamar_api` e derrubaria
+# a ingestao inteira. Um timeout sempre positivo e sempre explicito e a
+# unica garantia de que a chamada externa nunca fica pendurada.
+TIMEOUT_MINIMO_SEGUNDOS = 1
+
+# Status HTTP de rate limit, classificado como motivo PROPRIO de fallback
+# (o provedor esta recusando por cota, nao por falha da chamada).
+_HTTP_TOO_MANY_REQUESTS = 429
 
 
 @dataclass
@@ -37,10 +57,29 @@ class ResultadoResumo:
     urgente: bool = False
     tokens_utilizados: Optional[int] = None
     custo_estimado_usd: Optional[float] = None
+    # P1-02 (WS-08/GP-5): `fallback=True` marca este resultado como gerado
+    # pelo caminho LOCAL deterministico (`providers/fallback_local.py`) e nao
+    # pelo provedor externo, com `motivo_fallback` dizendo POR QUE. Sem isso o
+    # objeto persistido seria indistinguivel de um resumo do provedor — o
+    # "sistema degradado que parece saudavel". `motivo_fallback` e sempre um
+    # rotulo fechado de `fallback_local.MOTIVOS_CONHECIDOS`, nunca texto livre.
+    fallback: bool = False
+    motivo_fallback: str = ""
 
 
 class SummarizationProviderError(Exception):
-    """Levantada quando o provedor de LLM falha (rede, resposta invalida, etc.)."""
+    """
+    Levantada quando o provedor de LLM falha (rede, resposta invalida, etc.).
+
+    P1-02: carrega `motivo` — um rotulo fechado de
+    `fallback_local.MOTIVOS_CONHECIDOS` (timeout, rate_limit, erro_http,
+    resposta_invalida, sem_credencial) — para que o chamador register metrica,
+    log e marcador de origem com o CAUSA, e nao apenas com "deu erro".
+    """
+
+    def __init__(self, mensagem: str = "", *, motivo: str = ""):
+        super().__init__(mensagem)
+        self.motivo = normalizar_motivo(motivo) if motivo else ""
 
 
 class SummarizationProvider(ABC):
@@ -121,7 +160,7 @@ class LLMHttpSummarizationProvider(SummarizationProvider):
         self.api_base_url = api_base_url or _db_base
         self.api_key = api_key if api_key is not None else settings.CATALOGO_NOTICIAS_LLM_API_KEY
         self.modelo = modelo or _db_model
-        self.timeout_segundos = timeout_segundos or _db_timeout
+        self.timeout_segundos = self._normalizar_timeout(timeout_segundos or _db_timeout)
         # Reducao de custo/numero de chamadas (pedido do usuario): quantos
         # itens INDEPENDENTES entram em uma unica chamada HTTP de
         # `resumir_e_classificar_em_lote`, e um teto de tokens de resposta
@@ -150,27 +189,51 @@ class LLMHttpSummarizationProvider(SummarizationProvider):
 
         if not self.api_key:
             logger.warning(
-                "CATALOGO_NOTICIAS_LLM_API_KEY nao configurada — usando resumo local "
-                "derivado do titulo/fonte (sem LLM) ate a API key ser definida; "
-                "itens nao-sensiveis serao publicaveis sem revisao humana.",
+                "CATALOGO_NOTICIAS_LLM_API_KEY nao configurada — o provedor externo "
+                "nao sera chamado; o pipeline usara o fallback local deterministico "
+                "(motivo=%s) ate a API key ser definida.",
+                MOTIVO_SEM_CREDENCIAL,
             )
 
-    def _resumo_local_para_item(self, item: ItemBruto) -> ResultadoResumo:
-        titulo = (item.titulo or "").strip()
-        nome_fonte = (item.nome_fonte or "").strip()
-        if titulo and nome_fonte:
-            resumo = f"{titulo} — publicada por {nome_fonte}. Confira a integra na fonte original."
-        elif titulo:
-            resumo = f"{titulo} — confira a integra na fonte original."
-        else:
-            resumo = "Confira a integra desta materia na fonte original."
-        return ResultadoResumo(resumo=resumo, categoria=(item.categoria or "").strip().lower(), urgente=False)
+    @staticmethod
+    def _normalizar_timeout(valor) -> int:
+        """
+        Garante um timeout EXPLICITO e POSITIVO na chamada externa.
+
+        Configuracao invalida (0, negativo, `None`, string nao numerica) e
+        normalizada para `TIMEOUT_MINIMO_SEGUNDOS` com aviso — em vez de
+        deixar `requests` receber `timeout=None` (espera indefinida) ou
+        levantar `ValueError` (que nao e `RequestException` e escaparia do
+        tratamento de erro, derrubando a ingestao).
+        """
+        try:
+            segundos = int(float(valor))
+        except (TypeError, ValueError):
+            segundos = 0
+        if segundos < TIMEOUT_MINIMO_SEGUNDOS:
+            logger.warning(
+                "Timeout do SummarizationProvider invalido (%r) — usando o minimo "
+                "de %d s para nunca deixar a chamada externa sem limite de espera.",
+                valor,
+                TIMEOUT_MINIMO_SEGUNDOS,
+            )
+            return TIMEOUT_MINIMO_SEGUNDOS
+        return segundos
 
     def resumir_e_classificar(self, itens_brutos: list[ItemBruto]) -> ResultadoResumo:
         if not itens_brutos:
             raise ValueError("resumir_e_classificar requer ao menos um ItemBruto")
         if not (self.api_key or "").strip():
-            return self._resumo_local_para_item(itens_brutos[0])
+            # P1-02: antes isto devolvia silenciosamente um resumo local, com
+            # zero rastro de que o provedor nunca fora chamado. Agora levanta
+            # com motivo explicito e deixa a producao do fallback (metrica +
+            # log + marcador de origem) a cargo de `services/ingestao.py`, que
+            # e o unico ponto que conhece o resto do fluxo.
+            raise SummarizationProviderError(
+                "SummarizationProvider sem credencial configurada "
+                "(CATALOGO_NOTICIAS_LLM_API_KEY vazia) — provedor externo nao chamado.",
+                motivo=MOTIVO_SEM_CREDENCIAL,
+            )
 
         prompt = self._montar_prompt(itens_brutos)
         resposta_bruta = self._chamar_api(prompt)
@@ -221,11 +284,65 @@ class LLMHttpSummarizationProvider(SummarizationProvider):
                 json=corpo,
                 timeout=self.timeout_segundos,
             )
+            # 429 e classificado ANTES de `raise_for_status()`: rate limit e
+            # um motivo de fallback distinto de "erro http generico" (o
+            # provedor esta-recusando por cota, nao por falha da chamada), e
+            # o operador precisa ver a diferenca na metrica.
+            if getattr(resposta, "status_code", None) == _HTTP_TOO_MANY_REQUESTS:
+                logger.warning(
+                    "Provedor de LLM respondeu 429 (rate limit) em %s — "
+                    "motivo de fallback=%s.",
+                    self.api_base_url,
+                    MOTIVO_RATE_LIMIT,
+                )
+                raise SummarizationProviderError(
+                    "Provedor de LLM respondeu 429 (rate limit).",
+                    motivo=MOTIVO_RATE_LIMIT,
+                )
             resposta.raise_for_status()
             return resposta.json()
+        except SummarizationProviderError:
+            raise
+        except requests.Timeout as exc:
+            # `requests.Timeout` (Read/Connect) e subclasse de
+            # `RequestException` — precisa ser checado ANTES do `except`
+            # generico para nao ser rotulado como "erro http".
+            logger.warning(
+                "Timeout de %ss ao chamar o provedor de LLM (%s) — motivo de fallback=%s.",
+                self.timeout_segundos,
+                self.api_base_url,
+                MOTIVO_TIMEOUT,
+            )
+            raise SummarizationProviderError(
+                f"Timeout de {self.timeout_segundos}s ao chamar o provedor de LLM.",
+                motivo=MOTIVO_TIMEOUT,
+            ) from exc
+        except requests.HTTPError as exc:
+            status = getattr(getattr(exc, "response", None), "status_code", None)
+            logger.warning(
+                "Provedor de LLM respondeu HTTP %s (%s) — motivo de fallback=%s.",
+                status,
+                self.api_base_url,
+                MOTIVO_ERRO_HTTP,
+            )
+            raise SummarizationProviderError(
+                f"Provedor de LLM respondeu HTTP {status}.",
+                motivo=MOTIVO_ERRO_HTTP,
+            ) from exc
         except requests.RequestException as exc:
-            logger.exception("Falha ao chamar o provedor de LLM (%s)", self.api_base_url)
-            raise SummarizationProviderError(str(exc)) from exc
+            # Conexao recusada/DNS/TLS: `str(exc)` carrega a URL do host, nunca
+            # o cabecalho de autorizacao, mas mesmo assim nao logamos a
+            # excecao completa aqui — so o tipo, que e o que diagnostica.
+            logger.warning(
+                "Falha de rede ao chamar o provedor de LLM (%s, %s) — motivo de fallback=%s.",
+                self.api_base_url,
+                type(exc).__name__,
+                MOTIVO_ERRO_HTTP,
+            )
+            raise SummarizationProviderError(
+                f"Falha de rede ao chamar o provedor de LLM: {type(exc).__name__}.",
+                motivo=MOTIVO_ERRO_HTTP,
+            ) from exc
 
     def _interpretar_resposta(self, resposta_bruta: dict) -> ResultadoResumo:
         try:
@@ -252,9 +369,17 @@ class LLMHttpSummarizationProvider(SummarizationProvider):
                 ),
             )
         except (KeyError, IndexError, TypeError, json.JSONDecodeError) as exc:
-            logger.exception("Resposta do provedor de LLM em formato inesperado")
+            # Log com o TIPO da falha, nunca com o corpo da resposta do
+            # provedor (pode ecoar conteudo da fonte ou trecho da materia).
+            logger.warning(
+                "Resposta do provedor de LLM em formato inesperado (%s) — "
+                "motivo de fallback=%s.",
+                type(exc).__name__,
+                MOTIVO_RESPOSTA_INVALIDA,
+            )
             raise SummarizationProviderError(
-                f"Resposta do provedor de LLM em formato inesperado: {exc}"
+                f"Resposta do provedor de LLM em formato inesperado: {exc}",
+                motivo=MOTIVO_RESPOSTA_INVALIDA,
             ) from exc
 
     # -----------------------------------------------------------------------
@@ -275,7 +400,15 @@ class LLMHttpSummarizationProvider(SummarizationProvider):
         if not itens_brutos:
             return []
         if not (self.api_key or "").strip():
-            return [self._resumo_local_para_item(item) for item in itens_brutos]
+            # Mesmo contrato de `resumir_e_classificar`: sem credencial o
+            # provedor externo nao e chamado e o motivo do fallback fica
+            # explicito, para `services/ingestao.py` registrar metrica, log e
+            # marcador de origem. Ver `resumir_e_classificar`.
+            raise SummarizationProviderError(
+                "SummarizationProvider sem credencial configurada "
+                "(CATALOGO_NOTICIAS_LLM_API_KEY vazia) — provedor externo nao chamado.",
+                motivo=MOTIVO_SEM_CREDENCIAL,
+            )
 
         prompt = self._montar_prompt_lote(itens_brutos)
         max_tokens = self._max_tokens_para_lote(len(itens_brutos))
@@ -331,9 +464,15 @@ class LLMHttpSummarizationProvider(SummarizationProvider):
             if not isinstance(dados, list):
                 raise ValueError("resposta em lote esperada como uma lista JSON")
         except (KeyError, IndexError, TypeError, ValueError, json.JSONDecodeError) as exc:
-            logger.exception("Resposta em lote do provedor de LLM em formato inesperado")
+            logger.warning(
+                "Resposta em lote do provedor de LLM em formato inesperado (%s) — "
+                "motivo de fallback=%s.",
+                type(exc).__name__,
+                MOTIVO_RESPOSTA_INVALIDA,
+            )
             raise SummarizationProviderError(
-                f"Resposta em lote do provedor de LLM em formato inesperado: {exc}"
+                f"Resposta em lote do provedor de LLM em formato inesperado: {exc}",
+                motivo=MOTIVO_RESPOSTA_INVALIDA,
             ) from exc
 
         uso = resposta_bruta.get("usage", {}) or {}

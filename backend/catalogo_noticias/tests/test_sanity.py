@@ -16,6 +16,10 @@ import pytest
 from django.test import override_settings
 
 from catalogo_noticias.models import NewsCluster, NewsItem, RegistroExecucaoIngestao
+from catalogo_noticias.providers.fallback_local import (
+    motivo_fallback_local,
+    origem_fallback_local,
+)
 from catalogo_noticias.providers.news_source import FonteIndisponivelError, ItemBruto, NewsSourceProvider
 from catalogo_noticias.providers.summarization import ResultadoResumo, SummarizationProvider
 from catalogo_noticias.services.deduplicacao import agrupar_itens_brutos
@@ -313,8 +317,24 @@ def test_limiar_de_fontes_e_configuravel_via_settings():
     assert all(item.status_revisao == NewsItem.STATUS_PENDENTE for item in itens)
 
 
-def test_summarization_provider_falhando_forca_revisao_humana_em_vez_de_publicar():
-    """Sem resumo confiavel do provider, o item nunca vai para publicacao automatica."""
+def test_summarization_provider_falhando_publica_pelo_fallback_local_marcado():
+    """
+    P1-02 (WS-08/GP-5) — MUDANCA DE CONTRATO, deliberada.
+
+    Antes desta intervencao, provider fora do ar produzia
+    `resumo_proprio == ""` -> `status_revisao=pendente` -> item INVISIVEL no
+    feed (`feed/services.py::STATUS_PUBLICAVEIS`). Ou seja, a degradacao
+    apagava a noticia em vez de publica-la: o "rascunho fantasma" do backlog.
+
+    O contrato vigente: provider indisponivel -> conteudo gerado pelo caminho
+    LOCAL deterministico (`providers/fallback_local.py`), publicado no fluxo
+    normal e MARCADO em `NewsItem.tags`, para que a metrica, a UI e o
+    editorial saibam que o resumo nao veio do provedor.
+
+    O requisito original deste teste — "nunca publicar sem resumo confiavel" —
+    continua valendo, mas passa a ser garantido pelo caminho do material
+    INSUFICIENTE (teste logo abaixo), e nao por qualquer falha do provider.
+    """
 
     class SummarizationProviderQuebrado(SummarizationProvider):
         def resumir_e_classificar(self, itens_brutos):
@@ -331,6 +351,51 @@ def test_summarization_provider_falhando_forca_revisao_humana_em_vez_de_publicar
     registro = executar_ingestao(fontes=fontes, summarization_provider=SummarizationProviderQuebrado())
 
     item = NewsItem.objects.get()
-    assert item.status_revisao == NewsItem.STATUS_PENDENTE
-    assert item.resumo_proprio == ""
     assert registro.total_itens_ingeridos == 1
+    # Conteudo local deterministico, nao vazio...
+    assert item.resumo_proprio != ""
+    assert "Noticia qualquer sem categoria sensivel" in item.resumo_proprio
+    # ...publicado no fluxo normal (categoria nao sensivel, fonte unica)...
+    assert item.status_revisao == NewsItem.STATUS_NAO_APLICAVEL
+    assert item.publicado_automaticamente is True
+    # ...e distinguivel: o marcador de origem esta persistido.
+    assert origem_fallback_local(item.tags) is True
+    assert motivo_fallback_local(item.tags) == "erro_do_provider"
+
+
+def test_provider_quebrado_sem_titulo_forca_revisao_humana():
+    """
+    O requisito original preservado: sem material de origem que sustente um
+    resumo honesto, o fallback NAO preenche — sinaliza
+    `conteudo_insuficiente`, devolve resumo vazio e o item vai para revisao
+    humana, nunca para publicacao automatica.
+
+    "Material insuficiente" aqui = ausencia de TITULO (a manchete e o unico
+    campo que identifica a noticia; `nome_fonte` e obrigatorio por
+    `NewsItem.clean()`). Sem manchete, publicar seria a meia-noticia que o
+    backlog proibe.
+    """
+
+    class SummarizationProviderQuebrado(SummarizationProvider):
+        def resumir_e_classificar(self, itens_brutos):
+            from catalogo_noticias.providers.summarization import SummarizationProviderError
+
+            raise SummarizationProviderError("provedor de LLM fora do ar (simulado)")
+
+    item_sem_manchete = ItemBruto(
+        titulo="",
+        url_fonte_original="https://g1/sem-material",
+        nome_fonte="G1",
+        conteudo_bruto="Um texto sem manchete alguma.",
+        categoria="",
+    )
+    fontes = [FakeNewsSourceProvider("G1", itens=[item_sem_manchete])]
+
+    executar_ingestao(fontes=fontes, summarization_provider=SummarizationProviderQuebrado())
+
+    item = NewsItem.objects.get()
+    assert item.resumo_proprio == ""
+    assert item.status_revisao == NewsItem.STATUS_PENDENTE
+    assert item.publicado_automaticamente is False
+    # Distinguivel tambem no caso degenerado: o motivo nao e "erro do provider".
+    assert motivo_fallback_local(item.tags) == "conteudo_insuficiente"

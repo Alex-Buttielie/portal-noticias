@@ -13,6 +13,10 @@ from django.utils import timezone
 from assinatura.models import HistoricoPagamento, Subscription
 from b2b.models import CriterioMonitoramento, Organizacao
 from catalogo_noticias.models import NewsItem, RegistroExecucaoIngestao
+from catalogo_noticias.providers.fallback_local import (
+    TAG_ORIGEM_FALLBACK,
+    motivo_fallback_local,
+)
 from catalogo_noticias.services import orcamento as orcamento_llm
 from comunidade.models import Comentario, Publicacao, Seguidor
 from credenciamento.models import SolicitacaoCredenciamento
@@ -273,16 +277,49 @@ def painel(dias: int = 30) -> dict:
     try:
         noticias_periodo = NewsItem.objects.filter(timestamp_ingestao__gte=corte).count()
         noticias_pendentes = NewsItem.objects.filter(status_revisao=NewsItem.STATUS_PENDENTE).count()
-        taxa_aprovacao = round((NewsItem.objects.filter(status_revisao__in=[NewsItem.STATUS_APROVADO, NewsItem.STATUS_NAO_APLICAVEL]).count() / NewsItem.objects.count()), 4) if NewsItem.objects.count() else 0.0
+        total_noticias = NewsItem.objects.count()
+        taxa_aprovacao = round((NewsItem.objects.filter(status_revisao__in=[NewsItem.STATUS_APROVADO, NewsItem.STATUS_NAO_APLICAVEL]).count() / total_noticias), 4) if total_noticias else 0.0
     except Exception:
         noticias_periodo = noticias_pendentes = 0
         taxa_aprovacao = 0.0
+        # `total_noticias` e reusado abaixo (P1-02): precisa de valor mesmo
+        # quando a contagem falhar, senao o painel levanta `NameError`.
+        total_noticias = 0
 
     try:
         custo_periodo = RegistroExecucaoIngestao.objects.filter(executado_em__gte=corte).aggregate(t=Sum("custo_estimado_summarization_usd"))["t"] or 0.0
         custo_periodo = round(float(custo_periodo), 4)
     except Exception:
         custo_periodo = 0.0
+
+    # P1-02 (WS-08/GP-5) — procedencia do resumo, metricas DURAVEIS.
+    # Derivadas do marcador tecnico em `NewsItem.tags`
+    # (`fallback_local.TAG_ORIGEM_FALLBACK`), nao de contador em memoria: a
+    # leitura de `telemetria_resumo` e por processo e se perderia/repetiria
+    # em qualquer deploy com mais de um worker. Esta e a leitura que o painel
+    # pode mostrar sem mentir. `try/except` no mesmo padrao defensive do resto
+    # de `painel()`: metrica nunca pode derrubar o painel. `total_noticias` ja
+    # foi calculado acima (mesma variavel reusada, sem query extra).
+    try:
+        itens_com_fallback = NewsItem.objects.filter(tags__contains=[TAG_ORIGEM_FALLBACK])
+        noticias_resumo_fallback = itens_com_fallback.count()
+        contagem_por_motivo: dict[str, int] = {}
+        # Um item carrega no maximo um marcador de motivo, entao a contagem
+        # por motivo e o numero de itens cujo marcador diz aquele motivo.
+        for tags in itens_com_fallback.values_list("tags", flat=True):
+            motivo = motivo_fallback_local(tags)
+            if motivo:
+                contagem_por_motivo[motivo] = contagem_por_motivo.get(motivo, 0) + 1
+        resumo_por_motivo = dict(
+            sorted(contagem_por_motivo.items(), key=lambda par: (-par[1], par[0]))
+        )
+    except Exception:
+        noticias_resumo_fallback = 0
+        resumo_por_motivo = {}
+
+    taxa_resumo_fallback = (
+        round(noticias_resumo_fallback / total_noticias, 4) if total_noticias else 0.0
+    )
 
     funil = {
         "lista_espera": lista_espera_total,
@@ -353,6 +390,12 @@ def painel(dias: int = 30) -> dict:
                 "noticias_pendentes": noticias_pendentes,
                 "taxa_aprovacao": taxa_aprovacao,
                 "custo_periodo": custo_periodo,
+                # P1-02: quantas noticias do acervo estao com resumo gerado
+                # pelo fallback local (e nao pelo provedor externo), e por
+                # que. `taxa_resumo_fallback_local` alto = provedor degradado.
+                "noticias_resumo_fallback_local": noticias_resumo_fallback,
+                "taxa_resumo_fallback_local": taxa_resumo_fallback,
+                "resumo_fallback_local_por_motivo": resumo_por_motivo,
             },
         },
         "funil": funil,
