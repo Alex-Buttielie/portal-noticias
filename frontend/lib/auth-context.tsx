@@ -16,6 +16,15 @@ interface AuthContextValue {
   usuario: api.Usuario | null;
   carregando: boolean;
   fazerLogin: (email: string, senha: string) => Promise<void>;
+  /**
+   * Adota uma sessão JÁ autenticada vinda de qualquer caminho de login e
+   * aplica o mesmo best-effort de preferência de cookies que o `fazerLogin`
+   * faz. Existe para o login Google (P1-05b): o `POST /api/auth/google/` já
+   * devolve `{token, usuario}`, e a tela não deve reimplementar a gravação em
+   * localStorage. O contexto é o dono da persistência — nenhuma tela escreve
+   * `portal_noticias_token` por conta própria.
+   */
+  assumirLogin: (resposta: api.LoginResposta) => void;
   fazerLogout: () => Promise<void>;
   atualizarUsuario: (usuario: api.Usuario) => void;
   atualizarToken: (token: string) => void;
@@ -76,20 +85,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const fazerLogin = useCallback(
-    async (email: string, senha: string) => {
-      const resposta = await api.login(email, senha);
+  // Único ponto de "a sessão é válida agora": grava em memória e em
+  // localStorage e traz a preferência de cookies do backend.
+  // code-review-contract.md (run 20260903-1134-seo-lgpd-design-system,
+  // Finding 2): traz a preferência de cookies já registrada no backend para
+  // este dispositivo/navegador logo após o login bem-sucedido — sem isso, um
+  // usuário autenticado que troca de dispositivo sempre via o banner de novo
+  // mesmo já tendo respondido em outro lugar. Best-effort (a própria função
+  // engole erro de rede/404) — não deve bloquear nem falhar o login.
+  const assumirLogin = useCallback(
+    (resposta: api.LoginResposta) => {
       persistirSessao(resposta.token, resposta.usuario);
-      // code-review-contract.md (run 20260903-1134-seo-lgpd-design-system,
-      // Finding 2): traz a preferência de cookies já registrada no backend
-      // para este dispositivo/navegador logo após o login bem-sucedido —
-      // sem isso, um usuário autenticado que troca de dispositivo sempre
-      // via o banner de novo mesmo já tendo respondido em outro lugar.
-      // Best-effort (a própria função engole erro de rede/404) — não deve
-      // bloquear nem falhar o login.
       void importarPreferenciasDoBackendSeNecessario(resposta.token);
     },
     [persistirSessao]
+  );
+
+  const fazerLogin = useCallback(
+    async (email: string, senha: string) => {
+      assumirLogin(await api.login(email, senha));
+    },
+    [assumirLogin]
   );
 
   const fazerLogout = useCallback(async () => {
@@ -123,7 +139,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   return (
     <AuthContext.Provider
-      value={{ token, usuario, carregando, fazerLogin, fazerLogout, atualizarUsuario, atualizarToken }}
+      value={{
+        token,
+        usuario,
+        carregando,
+        fazerLogin,
+        assumirLogin,
+        fazerLogout,
+        atualizarUsuario,
+        atualizarToken,
+      }}
     >
       {children}
     </AuthContext.Provider>
