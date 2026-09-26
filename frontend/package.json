@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "eslint app components lib",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@radix-ui/react-accordion": "^1.2.20",
@@ -37,7 +38,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "lucide-react": "^0.460.0",
-    "next": "14.2.15",
+    "next": "15.5.26",
     "next-themes": "^0.4.6",
     "postcss": "^8.4.49",
     "react": "18.3.1",
@@ -52,6 +53,11 @@
     "@types/node": "20.14.15",
     "@types/react": "18.3.3",
     "@types/react-dom": "18.3.0",
+    "eslint": "8.57.1",
+    "eslint-config-next": "15.5.26",
     "typescript": "5.5.4"
+  },
+  "overrides": {
+    "postcss": "$postcss"
   }
 }

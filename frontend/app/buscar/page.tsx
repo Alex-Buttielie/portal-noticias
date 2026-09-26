@@ -14,8 +14,9 @@ const MOCK: ResultadoBusca[] = [
   { tipo: "item", id: 201, titulo: "Resultados — busque por política, economia...", resumo: "Conteúdo de exemplo.", categoria: "geral", urgente: false, numero_fontes: 1, timestamp: new Date().toISOString() },
 ];
 
-export default async function Page({ searchParams }: { searchParams: { q?: string } }) {
-  const q = (searchParams.q || "").trim();
+export default async function Page({ searchParams }: { searchParams: Promise<{ q?: string }> }) {
+  const sp = await searchParams;
+  const q = (sp.q || "").trim();
   let itens: ResultadoBusca[] = [];
   let sugestao: string | undefined;
   let populares: { termo: string; total: number }[] = [];

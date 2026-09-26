@@ -1,0 +1,9 @@
+# Artefatos de build e dependencias: nunca lintados.
+.next/
+node_modules/
+out/
+next-env.d.ts
+
+# O Dockerfile e os *.example nao sao codigo de aplicacao.
+Dockerfile
+*.example

@@ -74,6 +74,22 @@ export function ImagemNoticia({
   const comSrcSet = usandoPicsum || ehPicsum(original);
 
   return (
+    // `<img>` proposital, não descuido. Três motivos, nenhum contornável
+    // trocando a tag:
+    // 1. A cadeia de fallback (original → picsum → placeholder) é dirigida por
+    //    `onError`; o `next/image` tem o próprio ciclo de fallback e
+    //    quebraria a máquina de estados de `fase`.
+    // 2. As imagens vêm de domínios de RSS arbitrários (e justamente
+    //    hostis: hotlink bloqueado, 404, mixed-content). O `next/image` exige
+    //    enumerar cada host em `remotePatterns` — impossível para um portal
+    //    agregador, e o hotlink que hoje é contornado passaria a 400/502.
+    // 3. O `next/image` serve via `/_next/image`, que é exatamente a rota do
+    //    RCE crítico ainda sem patch neste repositório
+    //    (GHSA-2xp9-vwfh-vxw4, faixa >=10.0.0 <15.5.24). Mandar as imagens
+    //    para lá aumentaria a exposição enquanto o Next não for atualizado.
+    // O LCP é tratado com `loading`/`decoding`/`srcSet` acima. Desativação
+    // pontual e justificada, não da regra.
+    // eslint-disable-next-line @next/next/no-img-element
     <img
       src={atual}
       srcSet={comSrcSet ? srcSetPicsum(seedEfetiva) : undefined}

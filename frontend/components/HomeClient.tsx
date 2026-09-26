@@ -77,6 +77,11 @@ export function HomeClient({
   }, [feedProp, urgProp, maisLidasProp, leiturasTick]);
 
   const perfil = useMemo(() => ({ interesses: usuario?.interesses ?? [] }), [usuario]);
+  // `leiturasTick` é um sinal de invalidação, não um dado: o memo lê o
+  // localStorage (store externa, fora do ciclo de render) e o tick é o que
+  // manda reexecutar a leitura. A regra não enxerga essa dependência
+  // indireta e a accuse de "unnecessary"; removê-la do array congelaria os
+  // contadores de leitura. Desativação pontual e justificada, não da regra.
   const leituras = useMemo(() => {
     if (!hidratado) return {};
     try {
@@ -84,7 +89,7 @@ export function HomeClient({
     } catch {
       return {};
     }
-  }, [hidratado, leiturasTick]);
+  }, [hidratado /* eslint-disable-line react-hooks/exhaustive-deps */, leiturasTick]);
 
   useEffect(() => {
     setHidratado(true);
