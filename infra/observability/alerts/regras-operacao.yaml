@@ -1,0 +1,373 @@
+# Regras de alerta — operação: dependências, e-mail, integridade da
+# telemetria e limites de cardinalidade.
+#
+# ============================================================================
+# COMPATIBILIDADE COM O BACKEND — LEIA ANTES DE CARREGAR
+# ============================================================================
+# Reescritas contra a exposição real de `develop` (1dec732). Tabela nome a nome
+# em `alerts/README.md` §1.
+#
+# O que o WIP propunha aqui e o que acontece em `develop`:
+#
+#   sinal                       regra do WIP            em develop
+#   ---------------------------  ----------------------  ---------------------------
+#   profundidade de fila        PortalFilaAcumulada     NÃO EXISTE como métrica
+#   tasks Celery por resultado  PortalCeleryTaskFalha   NÃO EXISTE
+#   atraso de job               PortalJobAtrasado       NÃO EXISTE
+#   check sem sinal próprio    PortalCheckSemSinal     NÃO EXISTE
+#   dependência nomeada         PortalDependenciaCriticaIndisponivel  NÃO EXISTE
+#   Sentry descartando          PortalSentryDescartandoErros  NÃO EXISTE (sem Sentry)
+#   séries descartadas          PortalMetricasDescartadas  NÃO EXISTE (sem teto)
+#   disco do coletor            PortalDiscoColetorBaixo NÃO EXISTE
+#   acesso privado negado       PortalAcessoPrivadoSendoSondado  EXISTE, com outro nome
+#   --- o que develop GANHOU e o WIP não tinha ---
+#   e-mail não entregue         (não existia)           EXISTE: portal_email_entrega_total
+#   configuração insegura       (não existia)           EXISTE: portal_config_insegura_total
+#   saúde degradada agregada    (não existia)           EXISTE: portal_health_detail_total{situacao="degradado"}
+#   reinício de processo        (não existia)           EXISTE: portal_tempo_de_atividade_segundos
+#
+# A regra de acesso privado foi a única do WIP que sobreviveu quase intacta: só
+# o nome mudou, de `portal_observability_access_denied_total` para
+# `portal_acesso_negado_total` com o rótulo `recurso` (`backend/config/views.py:138,215`).
+#
+# O QUE NÃO É ALERTA DE MÉTRICA (e por quê) — está no `README.md` deste
+# diretório junto com o canal correto de cada um:
+#   * atraso de backup          -> cron monitor do Better Stack + watchdog local
+#   * expiração de TLS          -> check HTTP do Better Stack
+#   * "a VPS está no ar?"      -> check HTTP do Better Stack
+#   * profundidade de fila     -> `manage.py saude_filas --json` (ver abaixo)
+# Nenhum deles pode depender da VPS estar de pé para o alerta existir, e
+# nenhum deles é métrica — por isso não há (e não deve haver) painel de Grafana
+# fingindo cobri-los.
+groups:
+  - name: portal-operacao
+    interval: 30s
+    rules:
+      # =====================================================================
+      # SAÚDE DE DEPENDÊNCIA — o que develop mede de fato
+      # =====================================================================
+      - alert: PortalDependenciaCriticaIndisponivel
+        # SINAL REAL, e é o substituto honesto de
+        # `portal_dependency_checks_total{dependency="postgresql"}`.
+        #
+        # `portal_health_detail_total` é incrementado em
+        # `backend/config/views.py:142` com `situacao="degradado"` sempre que
+        # `verificar_prontidao` devuelve `ok == False`. `verificar_prontidao`
+        # (`health.py:333-350`) só marca `ok == False` por resultado de uma
+        # checagem REALMENTE executada — `checar_banco` faz `SELECT 1` com
+        # `statement_timeout` (`health.py:154-203`) e nunca devolve `ok` sem
+        # consultar. Logo, "degradado" é observado, não presumido.
+        #
+        # O que esta regra NÃO dá é o NOME da dependência: develop só publica
+        # a soma. O nome está no corpo de `/health-detail` (restrito), e é lá
+        # que o `primeiro_passo` manda o operador. Isso é dito na anotação em
+        # vez de prometer `{{ $labels.dependency }}`, que não existe.
+        expr: |
+          sum by (ambiente) (rate(portal_health_detail_total{situacao="degradado"}[5m])) > 0
+        for: 3m
+        labels:
+          severity: critical
+          servico: portal-api
+          runbook: dependencia-critica
+        annotations:
+          summary: "Uma checagem de dependência falhou em {{ $labels.ambiente }}"
+          description: >-
+            O snapshot agregado saiu `degradado` pelo menos uma vez na janela de
+            5 minutos, há mais de 3 minutos. Em develop a checagem obrigatória
+            é o PostgreSQL; cache e broker são opcionais e viram degradação
+            também. DIFERENÇA IMPORTANTE: este alerta não diz QUAL dependência
+            — develop não publica métrica por dependência
+            (`portal_dependency_checks_total` não existe). O nome está no corpo
+            de `/health-detail`, que é restrito a staff ou token.
+          impacto: "Portal sem escrita; readiness em 503."
+          runbook_url: "https://runbooks.portal.exemplo.invalid/dependencia-critica.md"
+          primeiro_passo: "curl -sS -H \"X-Observability-Token: $TOKEN\" http://127.0.0.1:5103/health-detail | jq .checagens"
+
+      - alert: PortalFilaDeMonitoracaoAusente
+        # ESTA É A REGRA QUE REUTILIZA `filas_saude.py` — sem duplicar nada.
+        #
+        # develop mede a saúde das filas e a publica de DUAS formas já
+        # existentes e testadas:
+        #   * `manage.py saude_filas --json` (stdout + código de saída
+        #     0/1/3) — `backend/config/management/commands/saude_filas.py:10-19`;
+        #   * o arquivo de estado durável lido por
+        #     `backend/config/filas_saude.py` e `filas_estado.py`.
+        # NÃO existe `portal_celery_queue_depth` nem `portal_celery_tasks_total`
+        # em lugar nenhum. Um painel Grafana não executa comando de gerência,
+        # então o caminho honesto não é inventar métrica: é o que já está
+        # documentado em `infra/filas/PROVISIONAMENTO.md` §2.3 — um check
+        # externo que rode `saude_filas` e trate saída ≠ 0 como crítico, mais o
+        # registro JSON indexado no Loki por `loki.source.file "filas"` em
+        # `config.alloy`.
+        #
+        # Esta regra cobre a ponta que o Prometheus enxerga: o canal de
+        # telemetria das filas. Se o registro some do Loki, o painel
+        # `portal-filas-celery` deixa de ter fonte de verdade, e ninguém
+        # precisa ter olhado o painel para saber disso.
+        #
+        # `absent(A or B)` E NÃO `absent(A) and absent(B)`. A segunda forma foi
+        # a primeira versão deste arquivo e é uma regra que NUNCA dispara:
+        # `absent()` devolve um vetor cujos rótulos são DERIVADOS dos matchers
+        # do argumento (comportamento documentado do PromQL), então
+        # `absent(up{ambiente="production",job="portal-api"})` vem com
+        # `{ambiente="production", job="portal-api"}` enquanto
+        # `absent(portal_config_insegura_total)` vem com `{}`. O operador de
+        # interseção `and` exige conjuntos de rótulos idênticos, então os dois
+        # lados nunca se cruzam e a regra é verde para sempre. Achado pelo teste
+        # unitário de `proving/provar-regras.py` — foi a segunda regra
+        # incapaz de disparar encontrada neste lote, e nenhuma das duas
+        # apareceria em revisão de texto.
+        expr: |
+          absent(
+            up{ambiente="production", job="portal-api"}
+            or portal_config_insegura_total
+          )
+        for: 30m
+        labels:
+          severity: warning
+          servico: portal-api
+          runbook: filas-sem-monitoracao
+        annotations:
+          summary: "Sem telemetria no ambiente {{ $labels.job }}"
+          description: >-
+            Nem o scrape da API nem o registro de configuração do ambiente
+            chegaram ao Mimir. A leitura de filas, que vem de
+            `manage.py saude_filas --json` e do arquivo de estado de
+            `filas_saude.py`, perde o único canal por onde o Loki consegue
+            enxergá-la. O comando em si NÃO é metricado e não é observável por
+            PromQL: ele é monitorado pelo check externo de
+            `infra/filas/PROVISIONAMENTO.md` §2.3.
+          impacto: "A saúde das filas deixa de ser observável; o painel de filas fica sem dado."
+          runbook_url: "https://runbooks.portal.exemplo.invalid/filas-sem-monitoracao.md"
+          primeiro_passo: "cd /home/apps/portal-<amb> && .venv/bin/python manage.py saude_filas --json; conferir o registro JSONL que o cron anexa"
+
+      # =====================================================================
+      # E-MAIL — o gate de entrega que develop ganhou (P1-04)
+      # =====================================================================
+      - alert: PortalEmailNaoEntregue
+        # SINAL REAL, e é a regra mais importante deste arquivo depois da de
+        # cardinalidade. `backend/config/email_entrega.py` é fail-closed: sem
+        # canal de entrega configurado, a verificação de cadastro, a redefinição
+        # de senha e a newsletter "saem" com sucesso para um backend que
+        # descarta a mensagem, e o deploy segue reportando verde
+        # (`email_entrega.py:198-201` levanta `CanalIndisponivel` e conta
+        # `situacao="sem_canal"`).
+        #
+        # `situacao="sem_canal"` é um rótulo FECHADO de três valores
+        # (`entregue`, `sem_canal`, `falha` — `email_entrega.py:184-186` com
+        # os valores de `registrar_evento` em :200/:218/:228/:231). Cardinalidade
+        # 5 destinos x 3 situações = 15 séries, por design.
+        #
+        # Qualquer valor > 0 é falha: significa que alguém tentou entregar e
+        # não conseguiu. Não existe "taxa aceitável" para e-mail que não sai.
+        expr: |
+          sum by (ambiente, destino) (increase(portal_email_entrega_total{situacao="sem_canal"}[15m])) > 0
+        for: 1m
+        labels:
+          severity: critical
+          servico: portal-api
+          runbook: email-sem-canal
+        annotations:
+          summary: "E-mail não sai: {{ $labels.destino }} em {{ $labels.ambiente }}"
+          description: >-
+            Houve tentativa de entrega de `{{ $labels.destino }}` nos últimos 15
+            minutos sem canal configurado. `DJANGO_EMAIL_BACKEND` está em um
+            backend que não entrega a ninguém (locmem, console, dummy) ou falta a
+            chave exigida. O serviço responde 200 e o usuário recebe
+            confirmação de um e-mail que nunca chegará — incluindo o token de
+            verificação de e-mail, que é o caminho de recuperação de conta.
+          impacto: "Cadastro, redefinição de senha, newsletter e contato reportam sucesso e não entregam nada. Recuperação de conta impossível."
+          runbook_url: "https://runbooks.portal.exemplo.invalid/email-sem-canal.md"
+          primeiro_passo: "curl -sS -H \"X-Observability-Token: $TOKEN\" http://127.0.0.1:5103/health-detail | jq .avisos.email"
+
+      - alert: PortalEmailFalhaProvedor
+        # Falha do PROVEDOR com canal configurado — caso diferente do anterior:
+        # aqui a configuração está certa e quem falhou foi o Resend/SMTP.
+        # `tipo` é o nome da classe da exceção (`email_entrega.py:210-212`) e é
+        # o ÚNICO rótulo de valor livre de todo o registro de métricas de
+        # develop. `by (ambiente, destino)` o mantém FORA da identidade do
+        # alerta e fora do rótulo da série agregada; o detalhe fica no log.
+        expr: |
+          sum by (ambiente) (rate(portal_email_falha_provedor_total[15m])) > 0
+        for: 10m
+        labels:
+          severity: warning
+          servico: portal-api
+          runbook: email-falha-provedor
+        annotations:
+          summary: "Provedor de e-mail falhando em {{ $labels.ambiente }}"
+          description: >-
+            Exceção do provedor durante a entrega nos últimos 15 minutos. A
+            mensagem NÃO foi entregue: `entregar_email` transforma qualquer
+            exceção em `FalhaDeEntrega` e a view responde erro, então quem
+            tentou foi avisado. O que se acumula é a fila de quem vai tentar de
+            novo. Para o tipo da exceção, veja o log (a métrica agrega sem o
+            rótulo `tipo` de propósito).
+          impacto: "Entregas falhando; volume de retry e reclamação crescendo."
+          runbook_url: "https://runbooks.portal.exemplo.invalid/email-falha-provedor.md"
+          primeiro_passo: "journalctl -u portal-api --since 15m | grep -i 'falha no provedor\\|exceção do provedor'"
+
+      # =====================================================================
+      # CONFIGURAÇÃO INSEGURA — o outro aviso que develop ganhou
+      # =====================================================================
+      - alert: PortalConfiguracaoInsegura
+        # `portal_config_insegura_total` é fail-closed por desenho
+        # (`backend/config/views.py:155-197`): a `MEDIA_ROOT` fora do servido e
+        # o `DJANGO_EMAIL_BACKEND` que não entrega SÃO problemas de RISCO, não de
+        # disponibilidade — por isso eles ficam em `avisos` no `/health-detail`
+        # e NÃO derrubam o readiness. Sem esta regra eles seriam avisados para
+        # ninguém, porque o painel de saúde não tem série para eles.
+        #
+        # Rótulo `item` com DOIS valores por design (`media_root`,
+        # `email_backend` — `views.py:160,183`).
+        expr: |
+          max by (ambiente, item) (portal_config_insegura_total) > 0
+        for: 10m
+        labels:
+          severity: warning
+          servico: portal-api
+          runbook: configuracao-insegura
+        annotations:
+          summary: "Configuração insegura ativa: {{ $labels.item }} em {{ $labels.ambiente }}"
+          description: >-
+            O item `{{ $labels.item }}` está inseguro há mais de 10 minutos.
+            `media_root`: `MEDIA_ROOT` dentro do que o servidor serve, ou seja
+            documentos de credenciamento acessíveis por URL. `email_backend`:
+            o canal de e-mail não entrega (ver `PortalEmailNaoEntregue`, que é o
+            sinal mais específico deste caso). develop não expõe contador por
+            item, só presença — por isso o alerta é de PRESENÇA, não de taxa, e
+            a contagem exata está no `/health-detail`.
+          impacto: "Risco de exposição (mídia) ou de perda de função (e-mail), com o serviço reportando pronto."
+          runbook_url: "https://runbooks.portal.exemplo.invalid/configuracao-insegura.md"
+          primeiro_passo: "curl -sS -H \"X-Observability-Token: $TOKEN\" http://127.0.0.1:5103/health-detail | jq .avisos"
+
+      # =====================================================================
+      # ACESSO PRIVADO NEGADO
+      # =====================================================================
+      - alert: PortalAcessoPrivadoSendoSondado
+        # ÚNICA regra do WIP que sobreviveu com troca de nome.
+        # `portal_observability_access_denied_total` (WIP) ->
+        # `portal_acesso_negado_total{recurso}` (develop, `views.py:138,215`).
+        # Rótulo `recurso` com DOIS valores: `health_detail`, `metrics`.
+        #
+        # A primeira hipótese é sempre o próprio coletor com token divergente do
+        # ambiente. A segunda é sondagem externa — e, ao contrário do que o WIP
+        # afirmava, o Nginx de `develop` NÃO tem `location
+        # ^/(health-detail|metrics)$`: `grep` nos sete arquivos de
+        # `infra/nginx/` não encontra nenhuma menção a `/metrics`. A única
+        # barreira hoje é a aplicação (`health.py:414-418`). Isto é dito na
+        # anotação porque muda a gravidade: negação vista pela aplicação
+        # significa que a barreira de borda não está no caminho dessa rota.
+        expr: |
+          sum by (ambiente, recurso) (rate(portal_acesso_negado_total[15m])) > 0.1
+        for: 15m
+        labels:
+          severity: warning
+          servico: portal-api
+          runbook: acesso-privado-negado
+        annotations:
+          summary: "Acesso negado a {{ $labels.recurso }} em {{ $labels.ambiente }}"
+          description: >-
+            O endpoint privado recebeu tentativas negadas por mais de 15
+            minutos. Hipótese 1: o coletor está com token divergente de
+            HEALTH_DETAIL_TOKEN no ambiente da aplicação — nesse caso a
+            telemetria do ambiente está cega e é a causa de
+            `PortalApiInacessivel`. Hipótese 2: sondagem externa. Ela é mais
+            grave do que o WIP supunha, porque develop NÃO tem bloqueio de
+            borda para `/metrics` e `/health-detail` em
+            `infra/nginx/portal-*.conf`: a única proteção é a da aplicação. Ver
+            `alerts/README.md` §4.
+          impacto: "Telemetria do ambiente pode estar cega; possível reconhecimento externo de rota autenticada."
+          runbook_url: "https://runbooks.portal.exemplo.invalid/acesso-privado-negado.md"
+          primeiro_passo: "comparar ALLOY_BACKEND_METRICS_TOKEN_FILE com HEALTH_DETAIL_TOKEN no env da aplicação"
+
+      # =====================================================================
+      # CARDINALIDADE — o MAJOR-2 virado regra contínua
+      # =====================================================================
+      - alert: PortalCardinalidadeAcimaDoOrcamento
+        # ESTA REGRA É O MAJOR-2 DEIXADO DE GUARDAR PERMANENTE.
+        #
+        # develop registra em memória, por processo, e SEM teto de séries
+        # (`backend/config/health.py:438-455`: o `_Registro` só tem um `Lock` e
+        # dois dicts; não existe `MAX_SERIES` nem descarte). A cardinalidade
+        # atual é limitada por design — 11 nomes de métrica, todos os rótulos
+        # fechados, **33 séries** no pior caso com um valor de `tipo`, e 53 com
+        # cinco classes de exceção (medido; ver `alerts/README.md` §3). Isso é
+        # ~94x menor que o teto de 5000 séries do `config/metrics.py` do WIP,
+        # que ainda trazia um rótulo `route` vindo da URL.
+        #
+        # Nenhum teto em código é um prazo, não uma garantia. A medição acima é
+        # de hoje; a regra abaixo é o que garante que amanhã continue valendo.
+        # Ela conta as séries reais do ambiente e compara com um orçamento
+        # declarado — 200, ou seja, 6x a medição de hoje, folgado para as duas
+        # classes de exceção extras e para o gauge de uptime por instância.
+        # Se alguém introduzir um rótulo de valor livre (`path`, `user_id`,
+        # `email`, `request_id`), esta regra dispara na mesma hora.
+        #
+        # `count by (__name__)` no Mimir conta séries por métrica, o que é
+        # exatamente a unidade que estoura o banco de métricas.
+        expr: |
+          sum by (ambiente) (count by (ambiente, __name__) ({__name__=~"portal_.*"})) > 200
+        for: 10m
+        labels:
+          severity: warning
+          servico: portal-api
+          runbook: cardinalidade-acima-do-orcamento
+        annotations:
+          summary: "Cardinalidade de métricas acima do orçamento em {{ $labels.ambiente }}"
+          description: >-
+            O total de séries `portal_*` do ambiente passou de 200. A medição de
+            referência é 33 (pior caso com um valor de `tipo` em
+            `portal_email_falha_provedor_total`); 53 com cinco classes de
+            exceção. develop não tem teto de séries em código
+            (`backend/config/health.py:438-455`), então esta regra é a ÚNICA
+            barreira. A causa quase certa é um rótulo de valor livre
+            introduzido no backend — `path`, `user_id`, `email` ou `request_id`.
+          impacto: "Crescimento do banco de métricas e queda de performance do Mimir; o sintoma é painel vazio sem erro visível."
+          runbook_url: "https://runbooks.portal.exemplo.invalid/cardinalidade-acima-do-orcamento.md"
+          # A consulta PromQL completa fica aqui e NÃO em `description`: os
+          # templates Go de anotação rejeitam `=` (o `promtool check rules`
+          # reprova o arquivo inteiro, e as 13 regras restantes deixariam de
+          # carregar por causa de uma linha de documentação).
+          primeiro_passo: "no Mimir: topk(10, count by (__name__, situacao, destino, recurso, item) ({__name__=~\"portal_.*\"})) — a métrica com maior contagem é a que ganhou rótulo de valor livre"
+
+      # =====================================================================
+      # O PROCESSO ESTÁ VIVO OU RECOMEÇOU?
+      # =====================================================================
+      - alert: PortalProcessoReiniciando
+        # ÚNICO gauge de develop que sobrevive a restart e é por processo
+        # (`health.py:459-461`). Contadores zeram; este não. Um uptime que cai
+        # é o sinal mais direto de "o processo que serve /metrics foi
+        # substituído" — que é a razão pela qual todo contador desta malha
+        # subestima.
+        #
+        # `resets(...)`, e NÃO `changes(...)`. ESTE É O DETALHE QUE TORNA A
+        # REGRA CORRETA, e ele foi encontrado pelo teste unitário
+        # (`proving/provar-regras.py`): `changes()` conta QUALQUER mudança de
+        # valor, e uptime de processo é um gauge que SOBE CONTINUAMENTE — então
+        # `changes(...[30m])` devolve ~20 num sistema perfeitamente saudável e a
+        # regra disparava PARA SEMPRE. `resets()` conta QUEDAS, que é a
+        # definição de reinício. Medido no teste: `resets()` de uma série
+        # estável = 0; de uma série com 3 quedas = 3.
+        #
+        # `for: 10m` sobre uma janela de 30 min: um restart isolado de deploy
+        # não pagina; três quedas sustentadas já é crash loop.
+        expr: |
+          max by (ambiente) (resets(portal_tempo_de_atividade_segundos[30m])) >= 3
+        for: 10m
+        labels:
+          severity: warning
+          servico: portal-api
+          runbook: processo-reiniciando
+        annotations:
+          summary: "Processo da API reiniciando em ciclo em {{ $labels.ambiente }}"
+          description: >-
+            O uptime do processo exposto caiu (o gauge `resets`) três vezes ou
+            mais na última meia hora.
+            Como o registro de métricas de develop é EM MEMÓRIA e POR WORKER
+            (`backend/config/health.py:426-436`), cada reinício zera todos os
+            contadores: é por isso que todo `rate()` desta malha subestima, e
+            por isso este sinal é o que explica contadores que "não sobem".
+          impacto: "Contadores de métrica zando; painéis de taxa subestimando e, em crash loop, indisponibilidade real."
+          runbook_url: "https://runbooks.portal.exemplo.invalid/processo-reiniciando.md"
+          primeiro_passo: "journalctl -u portal-api --since 1h | grep -iE 'error|traceback|out of memory|killed'"

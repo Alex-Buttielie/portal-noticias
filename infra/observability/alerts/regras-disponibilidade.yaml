@@ -1,0 +1,313 @@
+# Regras de alerta — disponibilidade e latência.
+#
+# ============================================================================
+# COMPATIBILIDADE COM O BACKEND — LEIA ANTES DE CARREGAR
+# ============================================================================
+# Estas regras foram reescritas contra a exposição de métricas REAL de
+# `develop` (1dec732). A tabela nome a nome está em `alerts/README.md` §1.
+# Resumo do que mudou em relação ao rascunho do WIP:
+#
+#   * `portal_ready`            -> NÃO EXISTE. Substituída por
+#                                  `portal_readyz_total{situacao="nao_pronto"}`,
+#                                  que `backend/config/views.py:116` incrementa.
+#   * `portal_http_requests_total`, `..._duration_seconds_{bucket,sum,count}`
+#                               -> NÃO EXISTEM. Não há middleware de métricas
+#                                  em `develop`. Viraram a regra
+#                                  `PortalTelemetriaNaoInstrumentada`.
+#   * `portal_ingestion_executions_total`
+#                               -> NÃO EXISTE (o próprio WIP registrava que
+#                                  era declarada e nunca incrementada).
+#   * `up{job="portal-api"}` e `up{job="alloy"}`
+#                               -> EXISTEM, e são do COLETOR, não do backend.
+#                                  `ambiente` é rótulo EM BANDA (posto por
+#                                  `prometheus.relabel` em `config.alloy`), e
+#                                  não só external label — sem isso
+#                                  `absent()` nunca casaria e a regra de
+#                                  "telemetria ausente" seria incapaz de
+#                                  disparar.
+#
+# DUAS CONVENÇÕES QUE VALEM PARA TODAS AS REGRAS DESTE ARQUIVO
+# -------------------------------------------------------------
+# 1) `for:` separa "acidente" de "pico". Os valores vêm do comportamento real
+#    (scrape a cada 30 s, `HEALTH_TIMEOUT_SEGUNDOS` default 2 s) e estão
+#    justificados em cada anotação.
+# 2) CONTADORES POR PROCESSO. `_Registro` (`backend/config/health.py:426-485`)
+#    é um registro EM MEMÓRIA, por worker do Gunicorn, que zera a cada restart.
+#    O scrape enxerga um worker. Consequência prática: todo contador aqui
+#    SUBESTIMA, e nenhuma regra pode usar razão (divide dois subestimados por
+#    outro subestimado e o resultado não é taxa). Por isso os limiares são
+#    "ocorrência > 0", nunca "percentual". A única métrica que sobrevive ao
+#    restart é o gauge `portal_tempo_de_atividade_segundos`, que é por isso o
+#    gauge de escolha em `PortalProcessoReiniciando`.
+#
+# Como carregar: Grafana Cloud (Mimir -> Alerting -> Provisioning, ou o ruler
+# da stack). Ver `infra/observability/alerts/README.md`.
+#
+# `runbook_url` usa o domínio reservado `.invalid` (RFC 2606), que NUNCA
+# resolve: é um placeholder impossível de confundir com um runbook real. Troque
+# pelo endereço interno antes de carregar as regras — `verificar-env.sh` falha
+# se o placeholder continuar no arquivo.
+groups:
+  - name: portal-disponibilidade
+    interval: 30s
+    rules:
+      # ---------------------------------------------------------------------
+      # 1) A API responde ao scrape?
+      # ---------------------------------------------------------------------
+      - alert: PortalApiInacessivel
+        # `up == 0` cobre "não respondeu"; o `absent` cobre "deixou de existir
+        # de vez" (target removido, coletor caiu). Os dois são falha, e
+        # silenciar o segundo é o que faz um check de uptime "verde" sem alvo.
+        #
+        # SINTOMA QUE ESTA REGRA DETECTA E AS OUTRAS NÃO: em `develop` o único
+        # caminho de `/metrics` é autenticado
+        # (`backend/config/health.py:414-418`, anônimo = 401). Token divergente,
+        # arquivo de token apagado ou porta errada produzem `up == 0` aqui
+        # enquanto o portal está perfeito para o usuário. É por isso que esta
+        # é `critical` mesmo seeming "só observabilidade": sem ela, todo painel
+        # e toda regra de métrica abaixo ficam vazios e silenciosos.
+        expr: |
+          max by (ambiente) (up{job="portal-api"}) == 0
+          or
+          absent(up{job="portal-api"})
+        for: 2m
+        labels:
+          severity: critical
+          servico: portal-api
+          runbook: api-inacessivel
+        annotations:
+          summary: "API não expõe /metrics em {{ $labels.ambiente }}"
+          description: >-
+            O scrape de /metrics em {{ $labels.instance }} está falhando há mais
+            de 2 minutos. Em develop /metrics responde 401 para anônimo
+            (backend/config/health.py:414-418), então as causas são: API fora do
+            ar, porta errada em ALLOY_BACKEND_METRICS_ADDR, ou token de
+            {{ $labels.job }} divergente de HEALTH_DETAIL_TOKEN no ambiente da
+            aplicação. Verifique com
+            `curl -H "X-Observability-Token: $TOKEN" http://127.0.0.1:5103/metrics`.
+          impacto: "Sem métricas não há painel nem alerta correto; o diagnóstico de incidente perde a telemetria."
+          runbook_url: "https://runbooks.portal.exemplo.invalid/api-inacessivel.md"
+          primeiro_passo: "curl na /metrics a partir do loopback da VPS, com o mesmo token do arquivo de ALLOY_BACKEND_METRICS_TOKEN_FILE"
+
+      # ---------------------------------------------------------------------
+      # 2) A API pode receber tráfego?
+      # ---------------------------------------------------------------------
+      - alert: PortalReadinessFalha
+        # SINAL REAL. `backend/config/views.py:116` incrementa
+        # `portal_readyz_total` com `situacao="ok"` OU `situacao="nao_pronto"`
+        # em TODA chamada de /readyz, e `verificar_prontidao`
+        # (`health.py:324-350`) só devolve `ok` depois de o banco ter sido
+        # verificado com sucesso NESTA chamada. Não há caminho para 200 sem
+        # verificar.
+        #
+        # LIMIAR `> 0` E NÃO RAZÃO: o contador é por processo e subestima
+        # (ver cabeçalho). "Pelo menos uma resposta não-pronta na janela" é o
+        # único limiar que não depende da fração de workers que o scrape
+        # enxergou. Como a série só é emitida depois de ACONTECER, o vetor é
+        # vazio quando tudo está pronto e a regra não dispara — ausência aqui
+        # é "nunca deu ruim", não "não sei".
+        expr: |
+          sum by (ambiente) (rate(portal_readyz_total{situacao="nao_pronto"}[5m])) > 0
+        for: 2m
+        labels:
+          severity: critical
+          servico: portal-api
+          runbook: readiness-falha
+        annotations:
+          summary: "Dependência obrigatória fora do ar em {{ $labels.ambiente }}"
+          description: >-
+            /readyz respondeu `nao_pronto` pelo menos uma vez na janela de 5
+            minutos, há mais de 2 minutos. Em develop a checagem obrigatória é o
+            PostgreSQL (`health.py:154-203`); cache e broker são opcionais e
+            quando não puderam ser verificados vão para `nao_verificadas`, que
+            NÃO reprova (ver PortalReadinessNaoSondada). O portal continua no ar
+            para quem já tem página/cache, mas nada novo é salvo.
+          impacto: "Escritas e login indisponíveis; o portal fica só-leitura."
+          runbook_url: "https://runbooks.portal.exemplo.invalid/readiness-falha.md"
+          primeiro_passo: "curl -sS http://127.0.0.1:5103/readyz | jq .checagens"
+
+      - alert: PortalReadinessNaoSondada
+        # A REGRA QUE MATA O `not_configured`.
+        #
+        # `Relatorio.nao_verificadas` (`health.py:302-309`) existe justamente
+        # para que "não verificado" não se pareça com "verificado e ok": cache
+        # locmem e broker `memory://` devolvem `None` da checagem em vez de um
+        # `ok` falso. O lado ruim dessa honestidade é que a lista é invisível
+        # para o Prometheus: em `develop` NÃO existe
+        # `portal_health_check_not_configured`, então essa lista nunca chega ao
+        # Mimir e um ambiente com postgres verificado e broker nunca verificado
+        # é EXATAMENTE indistinguível, no alerta, de um ambiente totalmente
+        # verificado.
+        #
+        # Esta regra é o piso do honesto: se o endpoint de readiness nunca foi
+        # sondado no ambiente, ela dispara. Ela NÃO consegue distinguir "broker
+        # verificado" de "broker nunca verificado" — essa distinção continua
+        # Depending de ler o corpo de /readyz (cron de `saude_filas` ou check
+        # HTTP com asserção de corpo) — e o texto da anotação diz isso em vez
+        # de fingir granularidade que não existe.
+        expr: |
+          absent(portal_readyz_total)
+          or
+          absent(portal_readyz_duracao_ms)
+        for: 15m
+        labels:
+          severity: warning
+          servico: portal-api
+          runbook: readiness-nao-sondada
+        annotations:
+          summary: "Readiness nunca foi medida em {{ $labels.ambiente }}"
+          description: >-
+            Nenhuma requisição a /readyz chegou ao processo que o coletor raspa
+            há mais de 15 minutos. A causa provável não é o portal quebrado: é o
+            check externo não existir (Better Stack sem o objeto
+            `readiness-producao`) ou o `HEALTHCHECK` do orquestrador não estar
+            apontando para /readyz. Enquanto esta regra não disparar, ninguém
+            tem qualquer leitura do estado de dependência do ambiente. As
+            dependências que `verificar_prontidao` marcou como não verificadas
+            (`nao_verificadas` no corpo de /readyz) continuam invisíveis para o
+            Prometheus: não há métrica para elas em develop.
+          impacto: "Ninguém sabe se o ambiente está pronto; a checagem de dependência não está sendo feita por ninguém."
+          runbook_url: "https://runbooks.portal.exemplo.invalid/readiness-nao-sondada.md"
+          primeiro_passo: "curl -sS http://127.0.0.1:5103/readyz e conferir se o check externo está cadastrado"
+
+      # ---------------------------------------------------------------------
+      # 3) Taxa de erro e latência: NÃO INSTRUMENTADAS em develop
+      # ---------------------------------------------------------------------
+      # O WIP carregava `PortalTaxaErros5xx` (sobre
+      # `portal_http_requests_total`) e `PortalLatenciaAlta` (sobre
+      # `portal_http_request_duration_seconds_bucket`). As DUAS MÉTRICAS não
+      # existem em `develop`: não há middleware que registre requisição e não há
+      # histograma em `backend/config/health.py`. Entregar as duas regras como
+      # estavam seria o pior resultado possível — duas regras que NUNCA disparam
+      # e parecem cobertura. Elas foram substituídas pela regra consolidada
+      # `PortalTelemetriaNaoInstrumentada` abaixo, que dispara enquanto o sinal
+      # não existir.
+      #
+      # A rota para fechar isso é DUPLA e está escrita no runbook:
+      #   (a) borda — `log_format` JSON em `infra/nginx/http-cache.conf` (hoje
+      #       nenhum dos sete arquivos de `infra/nginx/` define `log_format`);
+      #       com isso o Loki passa a permitir taxa de 5xx e p95 por `uri`;
+      #   (b) aplicação — `portal_http_requests_total{status,route}` com
+      #       `route` de vocabulário FECHADO (o WIP usava o path resolvido, o
+      #       que é controlado pelo cliente e estoura cardinalidade).
+      # Nenhuma das duas é infraestrutura de observabilidade: é código de
+      # aplicação, e por isso não entra neste lote.
+
+      # ---------------------------------------------------------------------
+      # 4) O coletor está vivo?
+      # ---------------------------------------------------------------------
+      - alert: PortalColetorIndisponivel
+        # `absent` e não `== 0`: se o processo do coletor morre, a série `up`
+        # fica stale e uma comparação com 0 RESOLVERIA o alerta — que é
+        # exatamente o "alerta que se autossilencia".
+        expr: absent(up{job="alloy"})
+        for: 10m
+        labels:
+          severity: critical
+          servico: portal-alloy
+          runbook: coletor-indisponivel
+        annotations:
+          summary: "Coletor Grafana Alloy sem telemetria própria há 10 min"
+          description: >-
+            Nenhuma métrica do coletor chega ao Mimir. Todo painel fica vazio
+            e todo alerta de métrica SILENCIA — que é o pior estado possível,
+            porque parece "sem incidente". Cheque a unit, o `verificar-env.sh` e
+            o remote-write.
+          impacto: "Observabilidade cega; alertas de métrica param de funcionar."
+          runbook_url: "https://runbooks.portal.exemplo.invalid/coletor-indisponivel.md"
+          primeiro_passo: "systemctl status alloy-<ambiente> e journalctl -u alloy-<ambiente> -n 100"
+
+      - alert: PortalTelemetriaAusente
+        # `ambiente` é rótulo EM BANDA porque `prometheus.relabel` o adiciona em
+        # `config.alloy`. Se ele fosse apenas `external_labels` do
+        # `remote_write`, esta expressão NUNCA dispararia: `absent()` compara a
+        # série inteira e a série hipotética não teria `ambiente` como parte
+        # dela. Essa é a diferença entre uma regra que pode falhar e uma que é
+        # decoração.
+        expr: absent(up{ambiente="production", job="portal-api"})
+        for: 15m
+        labels:
+          severity: critical
+          servico: portal-alloy
+          runbook: telemetria-ausente
+        annotations:
+          summary: "Sem série do ambiente production há 15 min"
+          description: >-
+            Nenhuma série de `up{ambiente="production", job="portal-api"}` no
+            Mimir. Ou o coletor de produção parou, ou o remote-write está
+            falhando (401 por token trocado, 429 por cota de ingestão). Difere
+            de `PortalColetorIndisponivel` porque aqui o coletor pode estar
+            saudável e o que falhou foi o envio de um ambiente específico.
+          impacto: "Produção sem alerta de erro, latência ou fila."
+          runbook_url: "https://runbooks.portal.exemplo.invalid/telemetria-ausente.md"
+          primeiro_passo: "conferir `prometheus_remote_storage_samples_failed_total` no painel do coletor"
+
+      # ---------------------------------------------------------------------
+      # 5) O que develop NÃO mede — e por isso esta regra existe
+      # ---------------------------------------------------------------------
+      - alert: PortalTelemetriaNaoInstrumentada
+        # A REGRA MAIS IMPORTANTE DESTE ARQUIVO.
+        #
+        # `absent(A or B or C ...)` vale 1 quando NENHUMA das séries existe.
+        # Sem ela, os painéis de disponibilidade e de ingestão ficam em `No data`
+        # em produção e os alertas de taxa associados nunca disparam — que é o
+        # conjunto exato de "documentos referenciando métricas que develop não
+        # expõe" que a revisão encontrou.
+        #
+        # A lista abaixo é a correspondência completa, verificada uma a uma
+        # contra o backend de develop. A tabela com `arquivo:linha` dos dois
+        # lados está em `alerts/README.md` §1.
+        #
+        # `severity: warning` e NÃO `critical` por uma razão deliberada: isto
+        # não é um incidente do portal, é uma lacuna de instrumentação
+        # conhecida. Precisa ser alto e visível — nunca silencioso — mas não
+        # pode disparar pelo mesmo canal que `PortalApiInacessivel` usa, ou o
+        # operador aprende a ignorar o canal.
+        expr: |
+          absent(
+            portal_http_requests_total
+            or portal_http_request_duration_seconds_bucket
+            or portal_celery_queue_depth
+            or portal_celery_tasks_total
+            or portal_celery_task_duration_seconds_bucket
+            or portal_job_task_idle_seconds
+            or portal_dependency_checks_total
+            or portal_dependency_check_duration_seconds_bucket
+            or portal_ingestion_executions_total
+            or portal_degraded_responses_total
+            or portal_health_check_not_configured
+            or portal_sentry_events_dropped_total
+            or portal_metrics_series_dropped_total
+            or portal_collector_disk_free_ratio
+            or portal_observability_access_denied_total
+            or portal_metrics_scrapes_total
+          )
+        for: 30m
+        labels:
+          severity: warning
+          servico: portal-api
+          runbook: telemetria-nao-instrumentada
+        annotations:
+          summary: "Sinais de disponibilidade ainda não existem em develop ({{ $labels.ambiente }})"
+          description: >-
+            Há mais de 30 min que NENHUMA das séries abaixo aparece no Mimir,
+            porque `develop` não as expõe em lugar nenhum:
+            `portal_http_requests_total`, `portal_http_request_duration_seconds_*`,
+            `portal_celery_queue_depth`, `portal_celery_tasks_total`,
+            `portal_celery_task_duration_seconds_bucket`,
+            `portal_job_task_idle_seconds`, `portal_dependency_checks_total`,
+            `portal_dependency_check_duration_seconds_bucket`,
+            `portal_ingestion_executions_total`, `portal_degraded_responses_total`,
+            `portal_health_check_not_configured`,
+            `portal_sentry_events_dropped_total`,
+            `portal_metrics_series_dropped_total`,
+            `portal_collector_disk_free_ratio`,
+            `portal_observability_access_denied_total`, `portal_metrics_scrapes_total`.
+            Isto NÃO é o portal quebrado: é o painel de disponibilidade rodando
+            sobre 9 métricas de verdade. Enquanto esta regra estiver de pé, os
+            painéis `portal-disponibilidade` e `portal-ingestao` mostram "NÃO
+            MEDIDO" em vez de número. Cada painel deste diretório nomeia, no
+            próprio texto, qual é o item de backend que fecha a lacuna.
+          impacto: "Sem sinal de 5xx, latência, fila, dependência nomeada ou ingestão. O diagnóstico de incidente depende de leitura de log."
+          runbook_url: "https://runbooks.portal.exemplo.invalid/telemetria-nao-instrumentada.md"
+          primeiro_passo: "ver `infra/observability/alerts/README.md` §1 (tabela de correspondência) e o painel `portal-telemetria-nao-instrumentada`"

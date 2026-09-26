@@ -1,0 +1,979 @@
+{
+  "__inputs": [
+    {
+      "name": "DS_PROMETHEUS",
+      "label": "Prometheus / Mimir",
+      "description": "Data source Prometheus do ambiente (Mimir do Grafana Cloud).",
+      "type": "datasource",
+      "pluginId": "prometheus",
+      "pluginName": "Prometheus"
+    },
+    {
+      "name": "DS_LOKI",
+      "label": "Loki",
+      "description": "Data source Loki do ambiente.",
+      "type": "datasource",
+      "pluginId": "loki",
+      "pluginName": "Loki"
+    }
+  ],
+  "__requires": [
+    {
+      "type": "grafana",
+      "id": "grafana",
+      "name": "Grafana",
+      "version": "11.0.0"
+    },
+    {
+      "type": "datasource",
+      "id": "prometheus",
+      "name": "Prometheus",
+      "version": "1.0.0"
+    },
+    {
+      "type": "datasource",
+      "id": "loki",
+      "name": "Loki",
+      "version": "1.0.0"
+    }
+  ],
+  "annotations": {
+    "list": []
+  },
+  "description": "Portal — o que `develop` REALMENTE mede, com as lacunas declaradas. Item P2-01. Tabela de correspondência em infra/observability/alerts/README.md §1.",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "API acessível (scrape)",
+      "description": "`up` do scrape em `/metrics` (vem do COLETOR, não do backend). Zero aqui significa que o coletor não consegue ler /metrics: API fora do ar, porta errada em ALLOY_BACKEND_METRICS_ADDR, ou token divergente. Em `develop` `/metrics` devolve 401 para anônimo (`backend/config/health.py:414-418`), então token errado É o cenário mais provável — e produz painel vazio com o portal perfeito para o usuário.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 0,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 2,
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "state": null,
+                "value": null
+              },
+              {
+                "color": "green",
+                "state": "value",
+                "value": 1
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
+          "expr": "max(up{ambiente=~\"${ambiente:raw}\", job=\"portal-api\"})",
+          "legendFormat": "up",
+          "range": false,
+          "instant": true,
+          "format": "time_series",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Readiness: respostas NÃO prontas",
+      "description": "`portal_readyz_total{situacao=\"nao_pronto\"}/s` — incremented em `backend/config/views.py:116` em TODA chamada de `/readyz`, com `ok` ou `nao_pronto`. `verificar_prontidao` (`health.py:324-350`) só devolve `ok` depois de o banco ter sido verificado NESTA chamada. Zero = ninguém recebeu `nao_pronto` na janela. Lembre: o contador é POR PROCESSO e subestima (cada worker Gunicorn tem o seu registro em memória).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 5,
+        "x": 4,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "decimals": 2,
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "state": null,
+                "value": null
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
+          "expr": "sum(rate(portal_readyz_total{ambiente=~\"${ambiente:raw}\", situacao=\"nao_pronto\"}[$__rate_interval]))",
+          "legendFormat": "nao_pronto/s",
+          "range": false,
+          "instant": true,
+          "format": "time_series",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Saúde degradada (checagem falhou)",
+      "description": "`portal_health_detail_total{situacao=\"degradado\"}` — `backend/config/views.py:142`. Substitui `portal_health_degraded_total` e `portal_dependency_checks_total` do WIP, que não existem em `develop`. ATENÇÃO: `develop` não publica métrica por dependência, então este número NÃO diz QUAL falhou. O nome está no corpo de `/health-detail` (restrito).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 5,
+        "x": 9,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 2,
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "state": null,
+                "value": null
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
+          "expr": "sum(increase(portal_health_detail_total{ambiente=~\"${ambiente:raw}\", situacao=\"degradado\"}[$__range]))",
+          "legendFormat": "degradadas no período",
+          "range": false,
+          "instant": true,
+          "format": "time_series",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "LACUNAS DE INSTRUMENTAÇÃO (1 = falta sinal)",
+      "description": "`absent()` sobre as 16 séries que `develop` não expõe — é a MESMA expressão de `PortalTelemetriaNaoInstrumentada`. Valor 1 (vermelho) significa: os painéis de taxa de erro, latência, fila e ingestão NÃO TÊM DADO. Valor ausente (cinza) significa que algum dia o backend passou a expor pelo menos uma delas. Enquanto for 1, os números deste painel são apenas 9 métricas reais — a lista completa está no painel de texto abaixo.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 5,
+        "x": 14,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 2,
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "1": {
+                  "text": "NÃO MEDIDO",
+                  "color": "red",
+                  "index": 0
+                }
+              }
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "state": null,
+                "value": null
+              },
+              {
+                "color": "red",
+                "state": "value",
+                "value": 1e-06
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
+          "expr": "absent(\n  portal_http_requests_total\n  or portal_http_request_duration_seconds_bucket\n  or portal_celery_queue_depth\n  or portal_celery_tasks_total\n  or portal_celery_task_duration_seconds_bucket\n  or portal_job_task_idle_seconds\n  or portal_dependency_checks_total\n  or portal_dependency_check_duration_seconds_bucket\n  or portal_ingestion_executions_total\n  or portal_degraded_responses_total\n  or portal_health_check_not_configured\n  or portal_sentry_events_dropped_total\n  or portal_metrics_series_dropped_total\n  or portal_collector_disk_free_ratio\n  or portal_observability_access_denied_total\n  or portal_metrics_scrapes_total\n)",
+          "legendFormat": "faltando sinal",
+          "range": false,
+          "instant": true,
+          "format": "time_series",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Sondas de saúde por segundo",
+      "description": "Substitui o painel de `portal_http_requests_total{status}` do WIP, que não existe em `develop`: não há contagem de requisição por status em lugar nenhum do backend. O que existe são as sondas dos próprios endpoints de saúde, e elas são reais (`views.py:83,97,116,218`). Um `healthz/s` que cai a zero com `up=1` significa que o monitor externo deixou de existir.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "decimals": 2,
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "normal"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "state": null,
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
+          "expr": "sum(rate(portal_healthz_total{ambiente=~\"${ambiente:raw}\"}[$__rate_interval]))",
+          "legendFormat": "healthz/s",
+          "range": false,
+          "instant": true,
+          "format": "time_series",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
+          "expr": "sum(rate(portal_livez_total{ambiente=~\"${ambiente:raw}\"}[$__rate_interval]))",
+          "legendFormat": "livez/s",
+          "range": false,
+          "instant": true,
+          "format": "time_series",
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
+          "expr": "sum(rate(portal_readyz_total{ambiente=~\"${ambiente:raw}\"}[$__rate_interval]))",
+          "legendFormat": "readyz/s",
+          "range": false,
+          "instant": true,
+          "format": "time_series",
+          "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
+          "expr": "sum(rate(portal_metrics_total{ambiente=~\"${ambiente:raw}\"}[$__rate_interval]))",
+          "legendFormat": "scrapes de /metrics/s",
+          "range": false,
+          "instant": true,
+          "format": "time_series",
+          "refId": "D"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Readiness por resultado",
+      "description": "Separação `ok` × `nao_pronto` de `portal_readyz_total`. A separação só aparece depois que AMBOS os valores ocorreram alguma vez no processo: `_Registro.render()` (`health.py:468-477`) só emite as combinações de rótulo que já ocorreram, e não emite zero para as que faltam. Consequência a saber: uma série `nao_pronto` ausente é \"nunca deu ruim\", não \"não sei\".",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "decimals": 2,
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "normal"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "state": null,
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
+          "expr": "sum by (situacao) (rate(portal_readyz_total{ambiente=~\"${ambiente:raw}\"}[$__rate_interval]))",
+          "legendFormat": "{{situacao}}",
+          "range": false,
+          "instant": true,
+          "format": "time_series",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Duração da checagem de readiness",
+      "description": "`portal_readyz_duracao_ms` (`backend/config/views.py:117`) é a soma das durações das checagens da chamada, em ms, com `HEALTH_TIMEOUT_SEGUNDOS` = 2 s por padrão (`health.py:321`). É o ÚNICO proxy de latência de dependência que `develop` mede, e é um GAUGE: não zera a cada restart, ao contrário dos contadores. Substitui o histograma `portal_dependency_check_duration_seconds_bucket` do WIP, que não existe.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 12
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "decimals": 2,
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "state": null,
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "state": "value",
+                "value": 500
+              },
+              {
+                "color": "red",
+                "state": "value",
+                "value": 1800
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
+          "expr": "max(portal_readyz_duracao_ms{ambiente=~\"${ambiente:raw}\"})",
+          "legendFormat": "ms",
+          "range": false,
+          "instant": true,
+          "format": "time_series",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "E-mail: desfecho das tentativas",
+      "description": "`portal_email_entrega_total{destino,situacao}` (`backend/config/email_entrega.py:184-186`). `situacao=\"sem_canal\"` é o gate de entrega P1-04: o serviço responde sucesso e a mensagem é DESCARTADA, porque `DJANGO_EMAIL_BACKEND` está num backend que não entrega a ninguém. Cardinalidade 5 destinos × 3 situações = 15 séries, fechadas por contrato. Esta série não existia no WIP.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 12
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "decimals": 2,
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "normal"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "state": null,
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
+          "expr": "sum by (situacao) (rate(portal_email_entrega_total{ambiente=~\"${ambiente:raw}\"}[$__rate_interval]))",
+          "legendFormat": "{{situacao}}/s",
+          "range": false,
+          "instant": true,
+          "format": "time_series",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "stat",
+      "title": "Uptime do processo",
+      "description": "`portal_tempo_de_atividade_segundos` (`backend/config/health.py:459-461`). Único gauge de `develop` que sobrevive a restart — e é exatamente por isso que ele importa: TODOS os contadores deste painel são em memória, por worker do Gunicorn, e zeram a cada reinício. Uma queda neste número explica por que os contadores \"não sobem\".",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 20
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 2,
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "state": null,
+                "value": null
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
+          "expr": "max(portal_tempo_de_atividade_segundos{ambiente=~\"${ambiente:raw}\"})",
+          "legendFormat": "uptime",
+          "range": false,
+          "instant": true,
+          "format": "time_series",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "stat",
+      "title": "Reinícios na última meia hora",
+      "description": "Quantas vezes o uptime CAIU em 30 min (`resets`, não `changes`: `changes` conta QUALQUER mudança e o uptime sobe sempre, então devolveria ~20 num sistema saudável). Três quedas em 10 min já é crash loop, não deploy. É a mesma expressão de `PortalProcessoReiniciando`.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 20
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 2,
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "state": null,
+                "value": null
+              },
+              {
+                "color": "red",
+                "state": "value",
+                "value": 3
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
+          "expr": "max(resets(portal_tempo_de_atividade_segundos{ambiente=~\"${ambiente:raw}\"}[30m]))",
+          "legendFormat": "reinícios",
+          "range": false,
+          "instant": true,
+          "format": "time_series",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "type": "text",
+      "title": "O que este painel NÃO mede (e o que fecha cada lacuna)",
+      "description": "",
+      "gridPos": {
+        "h": 4,
+        "w": 12,
+        "x": 12,
+        "y": 20
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "### Três painéis do rascunho foram removidos, não corrigidos\n\n`develop` **não expõe** taxa de erro 5xx, latência de requisição, nem\nlatência por rota. Não existe `portal_http_requests_total`, nem\n`portal_http_request_duration_seconds_*`, nem qualquer histograma, em lugar\nnenhum do backend. Três painéis que apontavam para eles foram removidos\ndeste painel em vez de deixados em `No data`: painel em branco sem\nexplicação é falso verde com outro formato.\n\nO que fecha cada lacuna — e por que **nada** disso é infraestrutura:\n\n| Sinal que falta | Fecha com | Onde |\n|---|---|---|\n| taxa de 5xx, por `status` | `log_format` JSON em `infra/nginx/http-cache.conf` (hoje **nenhum** dos 7 arquivos de `infra/nginx/` define `log_format`) | item de nginx |\n| taxa de 5xx, por `route` | `portal_http_requests_total{status,route}` com `route` de **vocabulário fechado** | item de backend |\n| p50/p90/p95 de requisição | histograma no middleware — `health.py` hoje só mede as checagens de saúde | item de backend |\n| ingestões por minuto | hoje só existe `RegistroExecucaoIngestao` no banco (`catalogo_noticias/models.py:288`), que é dado de produto, não de operação | item de backend |\n\nUm rótulo `route` vindo do path resolvido **não** é aceitável: é controlado\npelo cliente e estoura cardinalidade. Ver `alerts/README.md` §3."
+      }
+    },
+    {
+      "id": 12,
+      "type": "text",
+      "title": "Como ler estes números",
+      "description": "",
+      "gridPos": {
+        "h": 7,
+        "w": 24,
+        "x": 0,
+        "y": 24
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "### `/metrics` de `develop` é um registro POR PROCESSO\n\n`backend/config/health.py:426-485` é um registro em memória: um `Lock` e dois\ndicts no próprio processo. A API roda com mais de um worker Gunicorn, e o\nscrape enxerga **um** deles. Três consequências, todas material:\n\n* **contadores subestimam** o total real — use `rate()` para tendência e\n  forma, nunca para contagem;\n* **contadores zeram a cada restart** e a cada troca de worker. Os únicos\n  gauges fiáveis são `portal_tempo_de_atividade_segundos` e\n  `portal_readyz_duracao_ms`;\n* **não existe agregação entre processos**. Um alerta de razão\n  (divide dois contadores subestimados por um terceiro) não é uma taxa. Por\n  isso **todas** as regras deste diretório usam limiar de ocorrência\n  (`> 0`), nunca percentual.\n\nUma consequência prática que costuma morder: a série\n`portal_readyz_total{situacao=\"nao_pronto\"}` **não existe** enquanto nada deu\nerrado, porque `_Registro.render()` só emite combinações de rótulo que já\nocorreram. Ausência dessa série é \"nunca deu ruim\" — que é o que o alerta\n`PortalReadinessFalha` assume, e o que `PortalReadinessNaoSondada` existe para\ndescobrir quando o pressuposto é falso."
+      }
+    }
+  ],
+  "preload": false,
+  "refresh": "1m",
+  "schemaVersion": 39,
+  "tags": [
+    "portal",
+    "tecnico",
+    "disponibilidade"
+  ],
+  "templating": {
+    "list": [
+      {
+        "current": {},
+        "hide": 0,
+        "includeAll": false,
+        "label": "Ambiente",
+        "multi": false,
+        "name": "ambiente",
+        "options": [],
+        "query": "label_values(up, ambiente)",
+        "refresh": 1,
+        "regex": "",
+        "sort": 1,
+        "type": "query"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "America/Sao_Paulo",
+  "title": "Portal — Disponibilidade e telemetria efetiva (técnico)",
+  "uid": "portal-disponibilidade",
+  "version": 1
+}
