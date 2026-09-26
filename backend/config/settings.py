@@ -9,6 +9,7 @@ Decisões de configuração relevantes estão documentadas em
 `agentic-framework/state/run-20260901-2135-cadastro-auth/implementation-history.md`.
 """
 
+import logging
 import os
 from pathlib import Path
 
@@ -51,23 +52,150 @@ SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", _SECRET_KEY_FALLBACK)
 # (code-review-contract.md Finding 3).
 DEBUG = env_bool("DJANGO_DEBUG", False)
 
+# Comprimento mínimo da SECRET_KEY em produção. Não é um número escolhido
+# aqui: é o limiar exato do aviso `security.W009` do próprio Django ("Your
+# SECRET_KEY has less than 50 characters, which is not recommended"). O
+# ponto de guardá-lo é que o caminho de release roda `python manage.py check`
+# SEM `--deploy` (`.github/workflows/deploy.yml:322`), então um aviso de
+# `check --deploy` nunca chega a ninguém: medido no item P0-02c, uma chave
+# de 1 caractere subia em produção e o boot real (`import config.wsgi`, o
+# que o Gunicorn executa) terminava sem erro.
+_SECRET_KEY_MIN_LEN_PRODUCAO = 50
+
+
+def _motivo_secret_key_recusada_para_producao(valor: str) -> str | None:
+    """Por que `valor` não serve como SECRET_KEY de produção, ou `None` se
+    serve. Função pura — não lê o ambiente, não imprime, não levanta — para
+    deixar o guard abaixo legível e para poder ser exercitada isolada.
+
+    O guard anterior comparava apenas `SECRET_KEY == _SECRET_KEY_FALLBACK`, e
+    a desigualdadeava buracos. Todos os casos abaixo foram medidos em
+    subprocesso no item P0-02c, com DJANGO_DEBUG=false e o resto do ambiente
+    de produção real: em todos, o boot de produção (`import config.wsgi`)
+    terminava SEM ERRO e `manage.py check` não emitia warning algum.
+      * `DJANGO_SECRET_KEY=""` — a variável existe com valor vazio, e string
+        vazia não é igual ao fallback, logo a trava não disparava. O próprio
+        Django recusa esse caso, mas só DEPOIS e de forma preguiçosa, no
+        primeiro acesso a `settings.SECRET_KEY` ("The SECRET_KEY setting must
+        not be empty") — ou seja, no meio do tráfego, e não no boot;
+      * `DJANGO_SECRET_KEY="   "` — 3 bytes de segredo efetivo. Sessão,
+        cookie de sessão e token de redefinição passam a ser assinados com
+        material trivial de adivinhar;
+      * o valor de fallback com espaços nas pontas (`" django-... "`): a
+        comparação por igualdade falha e a chave publicada no repositório
+        passa;
+      * o valor de fallback em caixa alta: a mesma chave publicada, só com a
+        aparência de ter mudado;
+      * qualquer chave com menos de 50 caracteres (`"x"`, 49 caracteres):
+        nenhuma sinalização fora de `check --deploy`, que o release não roda.
+
+    Vazia/branca e "igual ao fallback (com ou sem variação de caixa ou
+    espaços)" são as maneiras de não ter definido uma chave de verdade; o
+    comprimento trata o resto da classe "chave adivinhável". O valor efetivo
+    NÃO é normalizado, só julgado: reescrever a chave derrubaria toda sessão
+    já assinada do ambiente, e nada aqui quer isso.
+    """
+    if not valor:
+        return "está vazia"
+    sem_branco = valor.strip()
+    if not sem_branco:
+        return "contém apenas espaços em branco"
+    if sem_branco.casefold() == _SECRET_KEY_FALLBACK.casefold():
+        return "é o valor de fallback de desenvolvimento (ou uma variação dele)"
+    if len(sem_branco) < _SECRET_KEY_MIN_LEN_PRODUCAO:
+        return (
+            f"tem apenas {len(sem_branco)} caracteres "
+            f"(mínimo de {_SECRET_KEY_MIN_LEN_PRODUCAO})"
+        )
+    return None
+
+
 # Falha explícita e cedo (na inicialização, não em produção sob ataque) se
-# alguém tentar rodar com DEBUG=False (indicando produção) mas ainda com a
-# SECRET_KEY fraca de fallback — nunca deve ser possível subir "produção"
-# silenciosamente insegura por esquecimento de configurar DJANGO_SECRET_KEY
-# (code-review-contract.md Finding 3).
-if not DEBUG and SECRET_KEY == _SECRET_KEY_FALLBACK:
-    raise ImproperlyConfigured(
-        "DJANGO_SECRET_KEY não foi definida (está usando o valor de fallback "
-        "de desenvolvimento) com DEBUG=False. Defina uma SECRET_KEY forte e "
-        "única via variável de ambiente antes de rodar fora de "
-        "desenvolvimento local (ou defina DJANGO_DEBUG=true apenas para "
-        "desenvolvimento)."
-    )
+# alguém tentar rodar com DEBUG=False (indicando produção) com uma
+# SECRET_KEY ausente, vazia, só com espaços em branco, curta demais, ou igual
+# ao valor de fallback de desenvolvimento — nunca deve ser possível subir
+# "produção" silenciosamente insegura por esquecimento de configurar
+# DJANGO_SECRET_KEY (code-review-contract.md Finding 3; o item P0-02c fechou
+# os contornos que a comparação por igualdade deixava).
+if not DEBUG:
+    _motivo = _motivo_secret_key_recusada_para_producao(SECRET_KEY)
+    if _motivo:
+        raise ImproperlyConfigured(
+            f"DJANGO_SECRET_KEY {_motivo} — recusado com DEBUG=False. Defina "
+            "DJANGO_SECRET_KEY via variável de ambiente com uma chave forte e "
+            f"única de no mínimo {_SECRET_KEY_MIN_LEN_PRODUCAO} caracteres "
+            "(por exemplo "
+            "`python -c 'import secrets; print(secrets.token_urlsafe(50))'`, "
+            "o mesmo valor forte que `.github/workflows/deploy.yml` grava no "
+            "primeiro deploy) antes de rodar fora de desenvolvimento local, "
+            "ou defina DJANGO_DEBUG=true, que é o único caso em que uma chave "
+            "fraca é aceita."
+        )
+
+# Hosts aceitos. O default é a dupla de loopback, e ela só funcionaria se o
+# proxy reverso reescrevesse o cabeçalho Host para localhost — o que nenhum
+# dos dois proxies deste projeto faz: o Nginx de produção encaminha o
+# hostname original (`proxy_set_header Host $host`,
+# `infra/nginx/portal-prod.conf`) e o Caddy preserva o Host no
+# `reverse_proxy web:8000` (`Caddyfile`). O efeito era silencioso e total:
+# sem DJANGO_ALLOWED_HOSTS e com DEBUG=False, todo hostname real recebia
+# DisallowedHost (HTTP 400), sem warning e sem erro no boot (medido no item
+# P0-02c). As travas abaixo dão a esse furo o mesmo tratamento que a
+# SECRET_KEY e o SQLite já recebem: falhar na inicialização, com mensagem que
+# diz o que configurar, em vez de degradar em silêncio.
+_ALLOWED_HOSTS_SO_LOOPBACK = frozenset({"localhost", "127.0.0.1"})
+
+
+def _motivo_allowed_hosts_recusado_para_producao(hosts: list) -> str | None:
+    """Por que `hosts` não pode ser o ALLOWED_HOSTS de produção, ou `None` se
+    pode. Função pura, como as outras deste arquivo.
+
+    Recusa dois estados, ambos medidos no item P0-02c subindo sem warning:
+      * lista vazia — `DJANGO_ALLOWED_HOSTS` ausente NÃO cai aqui (cai no
+        default de loopback), mas vazio, ou só com vírgulas e espaços,
+        produz `[]`, e aí todo hostname é recusado;
+      * só hosts de loopback — é o valor que o próprio
+        `backend/.env.example` sugere e o que o default de código assume; em
+        produção, o domínio real e o IP de acesso ficam em 400.
+
+    Um host além do loopback conta como declaração de intenção do operador e
+    é aceito, mesmo que esteja errado: decidir se aquele host é o correto é
+    papel do smoke test do deploy, que sonda `https://$HOST/healthz`
+    (`.github/workflows/deploy.yml:513`) e falha quando a resposta não é 200.
+    Aqui o objetivo é não deixar a lista ausente passar por implícita.
+    """
+    if not hosts:
+        return (
+            "não define nenhum host (a variável está vazia, ou só com "
+            "vírgulas e espaços)"
+        )
+    if set(hosts) <= _ALLOWED_HOSTS_SO_LOOPBACK:
+        return (
+            "define apenas hosts de loopback (localhost/127.0.0.1), que não "
+            "servem em produção"
+        )
+    return None
+
 
 ALLOWED_HOSTS = [
     h.strip() for h in os.environ.get("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1").split(",") if h.strip()
 ]
+
+if not DEBUG:
+    _motivo_hosts = _motivo_allowed_hosts_recusado_para_producao(ALLOWED_HOSTS)
+    if _motivo_hosts:
+        raise ImproperlyConfigured(
+            f"DJANGO_ALLOWED_HOSTS {_motivo_hosts} — recusado com DEBUG=False. "
+            "Defina DJANGO_ALLOWED_HOSTS via variável de ambiente com o domínio "
+            "do deploy e, se o acesso por IP também for usado, o respectivo IP "
+            "(ex.: `DJANGO_ALLOWED_HOSTS=api.seu-dominio.com.br,SEU_IP,"
+            "localhost,127.0.0.1`, a mesma forma de `.env.production.example` "
+            "e de `.github/workflows/deploy.yml`) antes de rodar fora de "
+            "desenvolvimento local, ou defina DJANGO_DEBUG=true, que é o "
+            "único caso em que o default de loopback é aceito. Sem host "
+            "correto, todo hostname real é recusado com DisallowedHost "
+            "(HTTP 400)."
+        )
 
 # ---------------------------------------------------------------------------
 # Hardening de produção (ARCHITECTURE.md seção "Nova arquitetura de infra" —
@@ -462,6 +590,50 @@ EMAIL_BACKEND = os.environ.get(
 )
 RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
 DEFAULT_FROM_EMAIL = os.environ.get("DJANGO_DEFAULT_FROM_EMAIL", "no-reply@brdportalnoticias.local")
+
+# Backends que NÃO entregam e-mail: imprimem no console, guardam em memória
+# ou descartam. Manter um destes em produção é falha silenciosa de entrega —
+# a verificação de cadastro, a redefinição de senha e a newsletter "saem" com
+# sucesso, aparecem no stdout do container, e o deploy segue reportando
+# sucesso. Este é o único dos três furos do item P0-02c que NÃO pode virar
+# `raise ImproperlyConfigured` ainda: nenhum workflow define
+# DJANGO_EMAIL_BACKEND, o `printf` que cria `backend/.env` no primeiro deploy
+# (`.github/workflows/deploy.yml:277`) não escreve a variável, e
+# `PROD_DECISOES.md` (item 2, "LLM / e-mail / OAuth") registra a integração
+# Resend como "código pronto, aguardando chave Resend do Alex" — decisão de
+# produto em aberto, não um bug. Um guard duro aqui derrubaria TODO deploy até
+# essa credencial existir. O que dá para fazer sem mentir sobre o estado:
+# tornar o furo barulhento no boot, no mesmo lugar onde o e-mail já vaza.
+_EMAIL_BACKENDS_QUE_NAO_ENTREGAM = frozenset(
+    {
+        "django.core.mail.backends.console.EmailBackend",
+        "django.core.mail.backends.locmem.EmailBackend",
+        "django.core.mail.backends.dummy.EmailBackend",
+    }
+)
+
+# O sinal é um log de nível ERROR no import, e não um system check, porque o
+# boot de produção é o `import config.wsgi` do Gunicorn (ver
+# `backend/gunicorn.conf.py` e o job de deploy) — caminho em que o Django NÃO
+# roda os system checks, então um check registrado aqui passaria batido. Neste
+# ponto `LOGGING` (mais abaixo) ainda não foi aplicado: o Django o instala em
+# `django.setup()`, depois do import dos settings. O que resta é o
+# `logging.lastResort` do Python, que escreve nível WARNING+ em stderr — que é
+# o mesmo stream onde o e-mail, e o token de verificação, estavam sendo
+# impressos. Ou seja: a falha deixa de ser invisível exatamente no lugar onde
+# vinha acontecendo, e o operador vê a causa junto do sintoma.
+if not DEBUG and EMAIL_BACKEND in _EMAIL_BACKENDS_QUE_NAO_ENTREGAM:
+    logging.getLogger("config.settings").error(
+        "E-mail em produção não é entregue: DJANGO_EMAIL_BACKEND=%s não envia "
+        "nada — a verificação de cadastro, a redefinição de senha e a "
+        "newsletter só aparecem no stdout deste container, e o deploy continua "
+        "reportando sucesso. Defina "
+        "DJANGO_EMAIL_BACKEND=config.email_resend.ResendEmailBackend e "
+        "RESEND_API_KEY=re_... (chave em https://resend.com/api-keys, com o "
+        "domínio verificado como remetente) antes de tratar o deploy como "
+        "entregue. Estado da integração: PROD_DECISOES.md, item 2.",
+        EMAIL_BACKEND,
+    )
 
 # Front-end (run 20260902-1448-frontend-mvp-web, frontend/ na raiz do
 # projeto) — usado para montar links absolutos nos e-mails de
