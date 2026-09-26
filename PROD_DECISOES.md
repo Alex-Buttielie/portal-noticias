@@ -19,6 +19,45 @@
    painel do MP; depois preencher `ASSINATURA_MP_ACCESS_TOKEN` (+ `=mercadopago`
    no provider). Para produção futura: token APP_USR + `SANDBOX=false`.
    Status: código pronto, aguardando credencial TEST do Alex.
+
+   **P1-07 (2026-09-26) — o caminho foi exercitado de ponta a ponta com
+   dublês e 5 defeitos de dinheiro foram encontrados e corrigidos.** O que
+   mudou, e o que o Alex precisa saber:
+
+   - **O webhook agora é autenticado.** Antes ele era `AllowAny` sem
+     nenhuma verificação de assinatura: qualquer um que descobrisse a URL
+     escrevia estado financeiro, e o `id` de preapproval do MP é
+     sequencial. Agora confere `x-signature` (HMAC-SHA256 do manifesto
+     `id:…;request-id:…;ts:…;` com o secret do painel) **antes** de tocar
+     o banco ou sair para a rede. **Isto exige uma variável nova no
+     ambiente: `ASSINATURA_MP_WEBHOOK_SECRET`** — o mesmo secret que o
+     painel do MP mostra em *Webhooks › Configure notificação*. Sem ela o
+     webhook é **fail-closed**: recusa tudo, loga ERROR no boot e nenhuma
+     assinatura é confirmada por notificação. O aviso é proposital — com
+     o segredo faltando, "funcionar" e "aceitar webhook de qualquer um"
+     seriam a mesma configuração.
+   - **Conferência de valor e moeda** antes de aceitar qualquer confirmação.
+   - **Cancelamento agora chega ao provedor** (antes cancelava só aqui e o
+     débito continuava ativo lá) e a conciliação reenvia se a primeira
+     tentativa falhar.
+   - **Renovação corrigida**: "pendente" do MP não é mais tratado como
+     recusa (toda renovação caía em `inadimplente`), a referência da
+     cobrança nova é gravada (o webhook da renovação não encontrava a
+     assinatura), e há guarda contra cobrar o mesmo ciclo duas vezes.
+   - **Existe conciliação** (`assinatura-reconciliar-com-provedor`, no
+     Beat): compara o provedor com o banco e corrige — inclusive o caso em
+     que o cliente pagou e a notificação se perdeu. Era o furo que prendia
+     o assinante em `pagamento_pendente` para sempre.
+
+   **O que ainda NÃO está validado (depende da credencial real):** o
+   algoritmo HMAC-SHA256 da assinatura contra a implementação real do MP
+   (os testes provam consistência interna, não que o MP usa o mesmo
+   esquema — o provedor já teve um esquema md5 antes) e a forma real da
+   resposta `GET /preapproval/<id>`. Até isso ser validado, o caminho
+   seguro é o que está: falha fechada. Para validar: disparar um evento de
+   teste pelo painel do MP e conferir no log que houve `confirmada`, e não
+   `recusada` por `assinatura_nao_confere`. Detalhes e lista de testes:
+   `backend/assinatura/tests/test_mercadopago_webhook.py`.
 2. **LLM / e-mail / OAuth** (decidido 2026-09-17: OpenAI + Resend, Google depois)
    - LLM: código já fala Chat Completions (`gpt-4o-mini` default) — só falta
      `CATALOGO_NOTICIAS_LLM_API_KEY` real no prod. Sem chave, cai em revisão
