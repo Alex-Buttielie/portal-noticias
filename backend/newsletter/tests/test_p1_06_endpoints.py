@@ -191,14 +191,23 @@ def test_tipo_personalizada_sem_premium_responde_403():
     assert not InscricaoNewsletter.objects.filter(user=user).exists()
 
 
-def test_tipo_personalizada_com_premium_responde_201():
+def test_tipo_personalizada_com_premium_responde_201(fabrica_usuario_premium):
     from gating.models import ConfiguracaoSistema, FeatureLimit
 
     ConfiguracaoSistema.objects.update_or_create(pk=1, defaults={"premium_ativo": True})
     FeatureLimit.objects.update_or_create(
         chave="newsletter_personalizada", plano="premium", defaults={"valor": "true"}
     )
-    user = _consentido("premium@example.com", papel="premium")
+    # P1-08: Premium de verdade (assinatura paga pela porta pública
+    # `assinar_plano`), e não `papel="premium"` escrito à mão. A versão
+    # anterior fixava como verdade a premissa de que o campo `papel` sozinho
+    # libera o recurso — premissa que o P1-08 tratou como NÃO premium, e que
+    # aqui permitiria a uma conta sem assinatura nenhuma assinar a newsletter
+    # personalizada. O `papel` continua sendo um snapshot: o que dá direito é a
+    # assinatura (`gating.services._assinatura_autoriza_premium`).
+    user = fabrica_usuario_premium(email="premium@example.com")
+    user.consentimento_aceito_em = timezone.now()
+    user.save(update_fields=["consentimento_aceito_em"])
     resposta = _cliente(user).post(INSCRIVER, {"tipo": "personalizada"}, format="json")
     assert resposta.status_code == 201
     assert InscricaoNewsletter.objects.get(user=user).tipo == "personalizada"

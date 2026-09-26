@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.db import models
+from django.utils import timezone
 
 
 class Plan(models.Model):
@@ -138,13 +139,39 @@ class Subscription(models.Model):
 
     @property
     def deveria_ter_acesso_premium(self) -> bool:
+        """
+        Regra de DIREITO (fonte autoritativa do Premium). O `User.papel` é
+        apenas um cache denormalizado desta regra, reescrito só em
+        `_transicionar` — por isso esta propriedade é consultada a cada
+        decisão de gating, e não só na transição.
+
+        P1-08 (correção de vazamento): a versão anterior devolvia `True`
+        para `teste`/`ativa`/`cancelada` olhando SÓ o `status`. Uma
+        assinatura com `vencimento` no passado continuava concedendo Premium
+        até a task de vencimentos passar — janela de até 60 min
+        (`ASSINATURA_INTERVALO_PROCESSAR_VENCIMENTOS_MINUTOS`, default 60 em
+        `config/settings.py:821`) e PERMANENTE se a task não rodasse. A
+        checagem de tempo é, portanto, parte do direito, não da limpeza: ela
+        vai aqui, no lugar que decide.
+
+        Fail-closed: `vencimento`/`grace_period_termina_em` ausentes valem
+        "sem direito" — assinatura sem prazo conhecido não é assinatura
+        paga. Consequência deprodutiva: nada concede Premium sem data.
+        """
+        agora = timezone.now()
         if self.status in self.STATUS_COM_ACESSO_PREMIUM:
-            return True
+            if self.vencimento is None:
+                return False
+            return self.vencimento > agora
         if self.status == self.STATUS_INADIMPLENTE:
             # Grace period: só preserva acesso Premium se a assinatura JÁ
             # esteve ativa antes (tinha algo a preservar) — ver comentário
             # detalhado acima de STATUS_COM_ACESSO_PREMIUM.
-            return self.inicio is not None
+            if self.inicio is None:
+                return False
+            if self.grace_period_termina_em is None:
+                return False
+            return self.grace_period_termina_em > agora
         return False
 
 

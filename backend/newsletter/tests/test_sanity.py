@@ -75,8 +75,11 @@ def test_inscricao_personalizada_exige_premium():
         services.inscrever(usuario_free, InscricaoNewsletter.TIPO_PERSONALIZADA)
 
 
-def test_inscricao_personalizada_funciona_para_premium():
-    usuario_premium = _usuario_consentido("premium-news@example.com", papel="premium")
+def test_inscricao_personalizada_funciona_para_premium(fabrica_usuario_premium):
+    # P1-08: Premium de verdade (assinatura paga), não `papel="premium"` solto.
+    usuario_premium = fabrica_usuario_premium(email="premium-news@example.com")
+    usuario_premium.consentimento_aceito_em = timezone.now()
+    usuario_premium.save(update_fields=["consentimento_aceito_em"])
     FeatureLimit.objects.update_or_create(
         chave="newsletter_personalizada", plano="premium", defaults={"valor": "true"}
     )

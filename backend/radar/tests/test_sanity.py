@@ -78,13 +78,12 @@ def test_salvar_localidade_e_idempotente():
     assert services.localidades_salvas(usuario).count() == 1
 
 
-def test_radar_avancado_gated_para_free():
+def test_radar_avancado_gated_para_free(fabrica_usuario_premium):
     from gating.services import has_feature
 
     usuario_free = User.objects.create_user(email="free-radar@example.com", password="senha123", papel="free")
-    usuario_premium = User.objects.create_user(
-        email="premium-radar@example.com", password="senha123", papel="premium"
-    )
+    # P1-08: Premium de verdade (assinatura paga), não `papel="premium"` solto.
+    usuario_premium = fabrica_usuario_premium(email="premium-radar@example.com")
     FeatureLimit.objects.update_or_create(chave="radar_avancado", plano="free", defaults={"valor": "false"})
     FeatureLimit.objects.update_or_create(chave="radar_avancado", plano="premium", defaults={"valor": "true"})
 
