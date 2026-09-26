@@ -711,7 +711,16 @@ def test_email_backend_que_entrega_nao_e_sinalizado_em_producao():
     passaria mesmo com o sinal disparando para todo e-mail de produção."""
     env = _env_producao(
         DJANGO_EMAIL_BACKEND="config.email_resend.ResendEmailBackend",
-        RESEND_API_KEY="re_0000000000000000000000000000000",
+        # `re_test_dummy` — o mesmo valor de `config/tests/test_email_resend.py`,
+        # e pela mesma razão. `config/email_resend.py` só exige corpo não vazio,
+        # então qualquer corpo serve ao que este teste verifica (o backend é
+        # reconhecido como QUE ENTREGA e o boot fica calado). O corpo se
+        # declara placeholder nos dois públicos ao mesmo tempo: para o filtro
+        # da checagem 8 do gate de proveniência, que descarta a linha em vez
+        # de tratá-la como segredo, e para quem lê o arquivo. Não troque por um
+        # corpo mais realista: `re_` seguido de 32 dígitos é indistinguível de
+        # uma chave real de verdade, reprova o gate e não acrescenta nada aqui.
+        RESEND_API_KEY="re_test_dummy",
     )
     proc = _rodar(env, "-c", _SNIPPET_BOOT_E_EMAIL)
 
