@@ -910,6 +910,61 @@ FEED_CACHE_TTL_SEGUNDOS = int(os.environ.get("FEED_CACHE_TTL_SEGUNDOS", 45))
 # `gating/services.py`). Mesma ordem de grandeza do cache do feed.
 GATING_CACHE_TTL_SEGUNDOS = int(os.environ.get("GATING_CACHE_TTL_SEGUNDOS", 45))
 
+# ---------------------------------------------------------------------------
+# b2b/ — isolamento, cota e limites de alerta (backlog P1-13 "B2B completo",
+# workstream WS-12). Configuração, não código hardcoded: o comercial ajusta
+# cota/plano e o teto de alertas por ambiente sem alterar código/redeploy do
+# worker, mesmo padrão de `FEED_*`/`GATING_*` acima.
+# ---------------------------------------------------------------------------
+
+# TTL (segundos) do cache do painel B2B (`itens_monitorados` /
+# `resumo_executivo` — as únicas consultas caras do app, uma por critério).
+# A chave carrega OBRIGATORIAMENTE o id da organização (ver
+# `b2b/cache.py`): sem o namespace de tenant no prefixo, a resposta de uma
+# empresa serviria para outra. Invalidação explícita em toda escrita de
+# critério; o TTL cobre falha/evento de invalidação.
+B2B_CACHE_TTL_SEGUNDOS = int(os.environ.get("B2B_CACHE_TTL_SEGUNDOS", 45))
+
+# Cota de critérios de monitoramento por plano comercial. É o teto de trabalho
+# que UMA execução de `verificar_e_enviar_alertas` faz por tenant: cada
+# criterio ativo vira uma varredura de `NewsItem`. Sem cota, uma organização
+# (ou uma conta comprometida) criaria critérios sem limite e transformaria o
+# job periódico em laço de varredura. Derivado de `Organizacao.plano` (campo
+# que já existe — nenhuma migration necessária para esta entrega).
+B2B_COTA_CRITERIOS_BASIC = int(os.environ.get("B2B_COTA_CRITERIOS_BASIC", 5))
+B2B_COTA_CRITERIOS_PRO = int(os.environ.get("B2B_COTA_CRITERIOS_PRO", 25))
+B2B_COTA_CRITERIOS_ENTERPRISE = int(os.environ.get("B2B_COTA_CRITERIOS_ENTERPRISE", 100))
+
+# Teto de itens devolvidos por critério em `itens_monitorados`/`resumo_executivo`.
+# A listagem é materializada em memória e ia sem teto: um critério genérico
+# ("economia") casa com dezenas de milhares de `NewsItem` na janela e serializa
+# tudo numa resposta. `numero_itens` continua sendo o total VERDADEIRO (count
+# escopado na organização) — o teto limita só o corpo da lista.
+B2B_MAX_ITENS_POR_CRITERIO = int(os.environ.get("B2B_MAX_ITENS_POR_CRITERIO", 50))
+
+# Teto de itens por e-mail de alerta (BRD §19) — o destinatário recebe no
+# máximo isto; o resto entra na próxima execução pelo ratchet de
+# `ultimo_alerta_em`.
+B2B_ALERTA_MAX_ITENS = int(os.environ.get("B2B_ALERTA_MAX_ITENS", 20))
+
+# Teto de e-mails de alerta por execução do job, no total. Teto global de
+# storm: mesmo com N organizações e M critérios, uma execução não passa disto
+# (os critérios não processados voltam na próxima — o ratchet de
+# `ultimo_alerta_em` não é consumido por um envio suprimido). O excedente é
+# contado e logado como `total_alertas_suprimidos_por_limite_execucao`.
+B2B_ALERTA_MAX_POR_EXECUCAO = int(os.environ.get("B2B_ALERTA_MAX_POR_EXECUCAO", 50))
+
+# Teto de e-mails de alerta por organização em uma execução. Sem isto, uma
+# organização com muitos critérios concentration o envio e esmaga o restante.
+B2B_ALERTA_MAX_POR_ORGANIZACAO = int(os.environ.get("B2B_ALERTA_MAX_POR_ORGANIZACAO", 3))
+
+# Intervalo mínimo (minutos) entre dois alertas do MESMO critério. O ratchet de
+# `ultimo_alerta_em` só impede reenvio do MESMO item; sem cooldown, um fluxo
+# contínuo de notícias vira um e-mail por execução, por critério. O cooldown
+# adia, não cancela: passado o intervalo, o que entrou desde o último alerta
+# sai na próxima execução.
+B2B_ALERTA_COOLDOWN_MINUTOS = int(os.environ.get("B2B_ALERTA_COOLDOWN_MINUTOS", 240))
+
 
 # ---------------------------------------------------------------------------
 # Observabilidade (ARCHITECTURE.md — nova arquitetura de infra, 2026-09-03).
