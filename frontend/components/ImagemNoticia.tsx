@@ -16,6 +16,7 @@ import { useState, type ReactNode } from "react";
 import { Newspaper } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ehPicsum, picsum, seedDePicsum, srcSetPicsum } from "@/lib/imagens";
+import { urlSeguraParaImagem } from "@/lib/url-segura";
 
 type Props = {
   src?: string | null;
@@ -43,7 +44,11 @@ export function ImagemNoticia({
   fallback,
   fallbackClassName,
 }: Props) {
-  const original = (src || "").trim();
+  // `src` chega cru de várias rotas (`n.imagem_url` direto do feed), sem
+  // passar por `imagemNoticia()`. Por isso a allowlist é aplicada AQUI,
+  // no último ponto antes do `src`: nenhum caminho pode contornar.
+  // Recusado => cai no picsum, que é sempre uma URL do próprio portal.
+  const original = urlSeguraParaImagem(src) ?? "";
   const [fase, setFase] = useState<"original" | "picsum" | "falhou">(
     original ? "original" : "picsum"
   );

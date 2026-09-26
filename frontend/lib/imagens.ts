@@ -1,16 +1,23 @@
+import { urlSeguraParaImagem, urlSeguraParaLink } from "@/lib/url-segura";
+
 export function categoriaImagem(categoria: string): string {
   const s = (categoria || "geral").toLowerCase().trim().replace(/\s+/g, "-") || "geral";
   return `https://picsum.photos/seed/${encodeURIComponent(s)}/800/450`;
 }
 export function imagemNoticia(entrada: { imagem_url?: string | null; categoria: string; id: string | number; titulo?: string }): string {
-  const real = (entrada.imagem_url || "").trim();
+  // `imagem_url` vem do XML do RSS — conteúdo de terceiro. Antes era
+  // devolvida VERBATIM, ou seja, `imagem_url` podia ser `javascript:…`
+  // ou qualquer esquema que o browser aceitasse em `src`. Passa pela
+  // allowlist de esquema; se não passar, cai no placeholder picsum
+  // (fail-closed para o fallback, que é sempre uma URL nossa).
+  const real = urlSeguraParaImagem(entrada.imagem_url);
   if (real) return real;
   const cat = (entrada.categoria || "geral").toLowerCase().trim().replace(/\s+/g, "-") || "geral";
   const id = String(entrada.id ?? "0");
   return `https://picsum.photos/seed/${encodeURIComponent(`${cat}-${id}`)}/800/450`;
 }
 export function temImagemReal(entrada: { imagem_url?: string | null }): boolean {
-  return !!((entrada.imagem_url || "").trim());
+  return urlSeguraParaLink(entrada.imagem_url) !== null;
 }
 export const placeholderBlur = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
 

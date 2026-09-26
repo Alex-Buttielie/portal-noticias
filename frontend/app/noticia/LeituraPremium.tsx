@@ -15,6 +15,7 @@ import type { FeedDetalhe } from "@/lib/api";
 import { Clock3, MapPin, ListChecks, MessageSquare, Printer, ALargeSmall, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatarDataHoraPorExtenso } from "@/lib/datas";
+import { LinkFonte, HostnameFonte } from "@/components/LinkFonte";
 
 type Relacionado = { id: number; titulo: string; categoria: string; imagem_url?: string; timestamp?: string };
 
@@ -77,13 +78,6 @@ export function LeituraPremium({
   }, [materiaFonte]);
   const prevId = Math.max(1, d.id - 1);
   const nextId = d.id + 1;
-  const hostname = (url: string) => {
-    try {
-      return new URL(url).hostname;
-    } catch {
-      return url;
-    }
-  };
 
   return (
     <div>
@@ -187,7 +181,7 @@ export function LeituraPremium({
                 </div>
                 <div className="flex flex-wrap items-center gap-2 border-t border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] px-4 py-3">
                   <p className="text-xs text-[var(--cor-texto-suave)]">Trecho exibido com crédito à fonte original.</p>
-                  <a href={materiaFonte.url_fonte_original} target="_blank" rel="noopener noreferrer" className="ml-auto inline-flex min-h-[44px] items-center rounded-md bg-[var(--cor-primaria)] px-4 text-sm font-semibold text-[var(--cor-texto-invertido)] hover:bg-[var(--cor-primaria-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cor-foco)]">Continuar lendo em {materiaFonte.nome_fonte} ↗</a>
+                  <LinkFonte url={materiaFonte.url_fonte_original} prefixo="↗" className="ml-auto inline-flex min-h-[44px] items-center rounded-md bg-[var(--cor-primaria)] px-4 text-sm font-semibold text-[var(--cor-texto-invertido)] hover:bg-[var(--cor-primaria-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cor-foco)]">Continuar lendo em {materiaFonte.nome_fonte}</LinkFonte>
                 </div>
               </section>
             )}
@@ -200,9 +194,9 @@ export function LeituraPremium({
                 <li key={i} className="group rounded-[var(--raio-md)] border border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] p-3 transition hover:shadow-[var(--sombra-1)]">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="flex h-7 w-7 items-center justify-center rounded-full bg-[var(--cor-primaria-suave)] text-xs font-bold text-[var(--cor-primaria)]">{i + 1}</span>
-                    <a href={f.url_fonte_original} target="_blank" rel="noopener noreferrer" className="font-semibold text-[var(--cor-primaria)] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cor-foco)]">{f.nome_fonte}</a>
-                    <span className="text-xs text-[var(--cor-texto-suave)]">↗ {hostname(f.url_fonte_original)}</span>
-                    <a href={f.url_fonte_original} target="_blank" rel="noopener noreferrer" className="ml-auto inline-flex min-h-[36px] items-center rounded-md border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] px-3 text-xs font-medium text-[var(--cor-texto)] hover:bg-[var(--cor-primaria-suave)] hover:text-[var(--cor-primaria)]">Abrir na fonte ↗</a>
+                    <LinkFonte url={f.url_fonte_original} className="font-semibold text-[var(--cor-primaria)] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cor-foco)]">{f.nome_fonte}</LinkFonte>
+                    <span className="text-xs text-[var(--cor-texto-suave)]">↗ <HostnameFonte url={f.url_fonte_original} /></span>
+                    <LinkFonte url={f.url_fonte_original} prefixo="↗" className="ml-auto inline-flex min-h-[36px] items-center rounded-md border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] px-3 text-xs font-medium text-[var(--cor-texto)] hover:bg-[var(--cor-primaria-suave)] hover:text-[var(--cor-primaria)]">Abrir na fonte</LinkFonte>
                   </div>
                   {f.resumo && <p className="mt-2 text-sm leading-relaxed text-[var(--cor-texto-suave)]">{f.resumo}</p>}
                 </li>
