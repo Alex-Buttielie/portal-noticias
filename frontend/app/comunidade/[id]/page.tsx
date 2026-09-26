@@ -61,7 +61,11 @@ export default function Page({ params }: { params: { id: string } }) {
   });
 
   useEffect(() => {
-    // Sincronizar dados da query ao mudar de usuário ou fazer login
+    // Sincronizar dados da query ao mudar de usuário ou fazer login.
+    // `pub` entra na lista porque o ramo de erro abaixo depende dele: sem a
+    // dep, a mensagem de fallback não apareceria se `pub` só fosse preenchido
+    // depois (o efeito nem rodaria de novo). Não há laço: `pub` só muda quando
+    // `pubQuery.data` muda, e o guard `!pub` impede o set repetido.
     if (pubQuery.data) {
       setPub(pubQuery.data);
       setEditVals({ titulo: pubQuery.data.titulo, conteudo: pubQuery.data.conteudo });
@@ -69,7 +73,7 @@ export default function Page({ params }: { params: { id: string } }) {
     if (pubQuery.isError && !pub) {
       setErroPub("Publicação indisponível — mostrando cópia local.");
     }
-  }, [pubQuery.data, pubQuery.isError, usuario?.id]);
+  }, [pubQuery.data, pubQuery.isError, usuario?.id, pub]);
 
   // Preservar LS de grupos ao mudar de página
   useEffect(() => { setSeguindo(readLS(LS_SEGUINDO)); }, []);

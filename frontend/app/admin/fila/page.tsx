@@ -65,7 +65,15 @@ export default function Page(){
     page,
     intervaloMs: auto ? 30_000 : 0,
   });
-  const itens = consultaFila.isError ? MOCK : (consultaFila.data?.results ?? []);
+  // Memorizado de propósito: sem isto o `?? []` cria um array novo a cada
+  // render e as dependências de `cats`/`filtrados` mudam sempre — os dois
+  // useMemo abaixo nunca acertam o cache. `MOCK` é constante de módulo e
+  // `consultaFila.data` é referência estável do React Query, então a
+  // referência de `itens` só muda quando os dados mudam de fato.
+  const itens = useMemo(
+    () => (consultaFila.isError ? MOCK : (consultaFila.data?.results ?? [])),
+    [consultaFila.isError, consultaFila.data]
+  );
   const total = consultaFila.isError ? MOCK.length : (consultaFila.data?.count ?? 0);
   const loading = consultaFila.isFetching;
   const err = consultaFila.isError
