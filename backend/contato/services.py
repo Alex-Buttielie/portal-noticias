@@ -41,6 +41,18 @@ provedor recusando, exceção de rede — ela levanta `CanalIndisponivel` ou
 
 `console.EmailBackend` escrever no stdout é o furo documentado no P0-02c: dá a
 impressão de entrega sem entrega nenhuma. Aqui ele é explicitamente recusado.
+
+P1-04: A REGRA SAIU DAQUI
+=========================
+O P0-02c documentou que **cadastro, redefinição de senha e newsletter tinham
+exatamente o mesmo furo, e ninguém tinha fechado**. Duas listas de backends
+recusados no mesmo repositório divergem na primeira correção parcial de um
+deles, então a checagem de canal, as exceções e o envio agora vivem em
+`config/email_entrega.py` e são importados daqui. `CanalIndisponivel`,
+`FalhaDeEntrega`, `BACKENDS_SEM_ENTREGA_REAL`, `BACKEND_RESEND` e
+`MOTIVO_FALHA_GENERICO` continuam sendo nomes válidos deste módulo, porque a
+view e os testes de contato os referenciam por `services.Nome`. O que sobra
+neste módulo é o que é de fato específico de contato: o destino.
 """
 
 from __future__ import annotations
@@ -54,49 +66,22 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.mail import EmailMessage
 from django.core.validators import validate_email
 
+from config.email_entrega import (
+    BACKEND_RESEND,
+    BACKENDS_SEM_ENTREGA_REAL,
+    CanalIndisponivel,
+    FalhaDeEntrega,
+    MOTIVO_FALHA_GENERICO,
+    entregar_email,
+    verificar_canal_email,
+)
+
 logger = logging.getLogger(__name__)
 
 ASSUNTO = "[Contato] Nova mensagem pelo formulário do portal"
-BACKEND_RESEND = "config.email_resend.ResendEmailBackend"
 
-# Backends que NÃO entregam nada a ninguém: escrevem no stdout (console), num
-# dicionário em memória (locmem), em disco local (filebased) ou simplesmente
-# jogam fora (dummy). Um envio "entregue" por qualquer um deles não chegou a
-# nenhuma caixa de entrada, então o endpoint responde 503 em vez de 2xx.
-BACKENDS_SEM_ENTREGA_REAL = frozenset(
-    {
-        "",
-        "django.core.mail.backends.console.EmailBackend",
-        "django.core.mail.backends.locmem.EmailBackend",
-        "django.core.mail.backends.dummy.EmailBackend",
-        "django.core.mail.backends.filebased.EmailBackend",
-    }
-)
-
-# Motivo usado quando o envio foi TENTADO e falhou. É o texto que vai para o
-# log e para o 503: NÃO é `str(exc)` do provedor, porque o texto de erro de um
-# provedor real pode ecoar o payload enviado, e o corpo da mensagem do usuário
-# não pode aparecer em log.
-MOTIVO_FALHA_GENERICO = "o provedor de e-mail recusou ou não respondeu ao envio"
-
-
-class CanalIndisponivel(Exception):
-    """Não há canal de entrega real — a mensagem NÃO foi entregue.
-
-    `motivos` é o que o operador precisa ver no log ("o motivo da falha") e o
-    que o usuário lê no 503 ("o que está faltando"): as duas pessoas precisam
-    da mesma frase. Os motivos são construídos só com NOMES de configuração
-    (`DJANGO_EMAIL_BACKEND`, `CONTATO_DESTINO_EMAIL`, `RESEND_API_KEY`) e com o
-    caminho do backend — nunca com o endereço de destino nem com chave.
-    """
-
-    def __init__(self, motivos: tuple[str, ...]):
-        self.motivos = motivos
-        super().__init__("; ".join(motivos))
-
-
-class FalhaDeEntrega(Exception):
-    """Há canal configurado, mas o envio concreto falhou — NÃO foi entregue."""
+#: Rótulo da métrica de entrega deste fluxo (`portal_email_entrega_total`).
+DESTINO_METRICA = "contato"
 
 
 @dataclass(frozen=True)
@@ -141,30 +126,21 @@ def _destino_configurado() -> str:
 
 
 def verificar_canal() -> Canal:
-    """Diz se existe um canal que entrega e-mail de verdade, e o que falta.
+    """A checagem de canal COMUM (`config.email_entrega`) mais a de destino.
 
-    Chamado ANTES de montar/enviar o e-mail: um `console.EmailBackend` não
-    custaria nada para "enviar", e é exatamente aí que nasce a mentira de
-    entrega.
+    O destino é específico de contato e por isso mora aqui: os outros fluxos
+    (verificação, redefinição, newsletter) mandam para o próprio titular e
+    não têm endereço de entrada para validar.
     """
-    backend = (getattr(settings, "EMAIL_BACKEND", "") or "").strip()
+    comum = verificar_canal_email()
     destino = _destino_configurado()
-    motivos: list[str] = []
+    motivos = list(comum.motivos)
 
-    if backend in BACKENDS_SEM_ENTREGA_REAL:
-        motivos.append(
-            f"DJANGO_EMAIL_BACKEND está em '{backend or '(vazio)'}', que não "
-            "entrega e-mail a ninguém (só imprime ou descarta)"
-        )
     if not destino:
         motivos.append(
             "CONTATO_DESTINO_EMAIL (o endereço que receberia as mensagens) não "
             "está configurado ou não é um e-mail válido"
         )
-    if backend == BACKEND_RESEND and not (getattr(settings, "RESEND_API_KEY", "") or "").strip():
-        # `config/email_resend.py:27-31` levanta ValueError sem chave: melhor
-        # dizer isso com 503 do que estourar um 500 dentro do send().
-        motivos.append("RESEND_API_KEY não está configurada, exigida pelo backend Resend")
 
     return Canal(disponivel=not motivos, motivos=tuple(motivos), destino=destino)
 
@@ -216,16 +192,9 @@ def enviar_mensagem(*, identificador: str, nome: str, email: str, mensagem: str)
         reply_to=[email],
     )
 
-    try:
-        enviados = email_msg.send(fail_silently=False)
-    except Exception as exc:  # noqa: BLE001 — qualquer falha de entrega é 503
-        # Log mínimo: tipo da exceção, sem `str(exc)` (o texto de erro do
-        # provedor pode ecoar o payload) e sem traceback (que repetiria esse
-        # texto). Nenhum corpo de mensagem, nenhuma credencial.
-        logger.error(
-            "contato: exceção do provedor de e-mail (tipo=%s)", type(exc).__name__
-        )
-        raise FalhaDeEntrega(MOTIVO_FALHA_GENERICO) from None
-
-    if not enviados:
-        raise FalhaDeEntrega(MOTIVO_FALHA_GENERICO)
+    # P1-04: a checagem de canal e a de pós-envio passaram a ser
+    # `config.email_entrega.entregar_email` — a MESMA função que cadastro,
+    # redefinição de senha e newsletter usam. Uma lista só de backends
+    # recusados, um só lugar que decide se houve entrega, uma só métrica.
+    # A checagem de destino acima continua sendo de contato.
+    entregar_email(email_msg, destino=DESTINO_METRICA)

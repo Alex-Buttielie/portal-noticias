@@ -19,7 +19,7 @@ User = get_user_model()
 pytestmark = pytest.mark.django_db
 
 
-def test_cadastro_cria_usuario_free_com_senha_hasheada():
+def test_cadastro_cria_usuario_free_com_senha_hasheada(canal_entregando):
     client = APIClient()
     resp = client.post(
         "/api/auth/cadastro/",
@@ -53,7 +53,7 @@ def test_cadastro_sem_aceite_termos_e_rejeitado():
     assert not User.objects.filter(email="semaceite@example.com").exists()
 
 
-def test_cadastro_envia_email_de_verificacao():
+def test_cadastro_envia_email_de_verificacao(canal_entregando):
     mail.outbox = []
     client = APIClient()
     resp = client.post(

@@ -19,6 +19,24 @@ O QUE ESTE MÓDULO PASSA A GARANTIR (P1-06)
    `total_enviados` — a mesma regra de `contato/` (P0-02c, furo 3) aplicada ao
    caminho que já está em produção. Ver `enviar_newsletters`.
 
+P1-04 — ONDE A REGRA DO ITEM 4 MORA: `config/email_entrega.py`
+============================================================
+O item 4 acima **não** é aplicado por uma lista escrita neste arquivo. A lista
+de backends que não entregam, o veredito de canal, a exceção de "não entregue" e
+o envio com checagem pós-envio vivem em `config/email_entrega.py`, que é a
+**fonte única** do projeto — e é de lá que este módulo importa
+(`verificar_canal_email`, `entregar_email`, `registrar_evento`,
+`orientacao_de_configuracao`, `BACKENDS_SEM_ENTREGA_REAL`).
+
+Este módulo **não** importa de `contato/`, e isso é deliberado: um app de
+newsletter não deve depender de um app de contato. O import cruzado acopla
+dois domínios que nada tem a ver e cria caminho de import frágil (ordem de
+carga, dependência circular assim que `contato` precisar de algo de
+newsletter). `contato/services.py` também importa de `config.email_entrega`, e
+os dois continuam apontando para o **mesmo objeto** de lista — o que
+`config/tests/test_p1_04_email_entrega.py` trava por identidade, e o que
+impede as duas cópias de divergirem na primeira correção parcial de uma delas.
+
 O QUE ESTE MÓDULO NÃO CONSEGUE GARANTIR (Pendência jurídica, ver relatório P1-06)
 ===============================================================================
 Não existe registro datado da revogação do consentimento, nem da versão do
@@ -36,9 +54,15 @@ import hmac
 import logging
 
 from django.conf import settings
-from django.core.mail import send_mail
+from django.core.mail import EmailMessage
 
-from contato.services import BACKENDS_SEM_ENTREGA_REAL
+from config.email_entrega import (
+    BACKENDS_SEM_ENTREGA_REAL,
+    entregar_email,
+    orientacao_de_configuracao,
+    registrar_evento,
+    verificar_canal_email,
+)
 from feed.services import itens_publicaveis
 from gating.services import has_feature
 from radar.services import tendencias as radar_tendencias
@@ -47,6 +71,12 @@ from .models import EnvioNewsletter, InscricaoNewsletter, gerar_token
 from .tokens import gerar_token_descadastro, hash_do_segredo, ler_hash_do_token
 
 logger = logging.getLogger(__name__)
+
+#: Rótulo da métrica de entrega deste fluxo (`portal_email_entrega_total`) e
+#: assunto do e-mail. O assunto é constante: nenhum dado do inscrito (nem do
+#: conteúdo do resumo) entra em header.
+DESTINO_NEWSLETTER = "newsletter"
+ASSUNTO_NEWSLETTER = "Seu resumo do Portal de Notícias"
 
 
 class RecursoGatedError(Exception):
@@ -249,8 +279,54 @@ def canal_entrega_real() -> bool:
     `locmem` no início de toda sessão de teste, e `locmem` não entrega a ninguém.
     Sem esta checagem, `total_enviados` contaria "entregas" que foram só para
     um dicionário em memória.
+
+    P1-04: a lista vem de `config/email_entrega.py` (fonte única) e não mais de
+    `contato.services` — que reexporta o mesmo objeto, então o nome continua
+    resolvendo a partir dos dois lugares e a identidade se mantém. O critério
+    continua sendo exatamente "o backend está na lista de quem não entrega", e
+    isso é deliberadamente mais estreito que `verificar_canal_email()`: o gate
+    completo também recusa o Resend sem `RESEND_API_KEY`, e o P1-06 trava
+    `config.email_resend.ResendEmailBackend` como backend de verdade. Por isso
+    `enviar_newsletters` usa o gate completo e esta função continua sendo o
+    predicado de lista que o P1-06 travou contra o `contato`.
     """
     return (getattr(settings, "EMAIL_BACKEND", "") or "").strip() not in BACKENDS_SEM_ENTREGA_REAL
+
+
+def send_mail(
+    *, subject: str, message: str, from_email: str, recipient_list, fail_silently: bool = False
+) -> int:
+    """Entrega UM resumo pelo gate de fonte única. Devolve o que foi entregue.
+
+    Esta é a **costura de transporte** do módulo, e existe por causa de quem
+    consome este serviço por dentro:
+
+    * a decisão de "existe canal?" e a checagem de "o provedor entregou?" são de
+      `config/email_entrega.entregar_email` — a política NÃO é reimplementada
+      aqui, é só Forwardada (P1-04);
+    * a assinatura é a de `django.core.mail.send_mail` (por palavra-chave) e o
+      nome é o mesmo, porque `enviar_newsletters` chama `send_mail` como nome
+      global deste módulo. É esse o ponto de aplicação dos testes de entrega
+      deste app: `newsletter/tests/test_p1_06_entrega.py` troca este atributo
+      para simular o lote em que um destino é entregue e o outro é recusado, e
+      afirma a contagem de cada um pelo seu próprio resultado. Renomear ou
+      chamar o `entregar_email` direto aqui quebraria esse teste — e quebrá-lo é
+      sinal de que a costura do módulo mudou, não de que o teste é errado.
+
+    `fail_silently` é aceito e **ignorado** de propósito: `entregar_email`
+    sempre envia com `fail_silently=False`. Engolir exceção é exatamente o
+    mecanismo que deixa uma falha de entrega virar contagem de sucesso, que é
+    o defeito que este arquivo existe para fechar.
+    """
+    return entregar_email(
+        EmailMessage(
+            subject=subject,
+            body=message,
+            from_email=from_email,
+            to=recipient_list,
+        ),
+        destino=DESTINO_NEWSLETTER,
+    )
 
 
 def enviar_newsletters(periodo: str | None = None) -> EnvioNewsletter:
@@ -261,6 +337,24 @@ def enviar_newsletters(periodo: str | None = None) -> EnvioNewsletter:
     daquele período (usado pelos 2 agendamentos de Celery Beat separados,
     manhã e noite); `None` envia para todas as inscrições ativas,
     independente do período — usado por `manage.py`/testes manuais.
+
+    P1-04 — O CONTADOR NÃO PODE MENTIR
+    ===================================
+    Este era o terceiro lugar do furo que o P0-02c documentou. O código fazia
+    `send_mail(...); total_enviados += 1`, e `console.EmailBackend` (o padrão
+    de `config/settings.py:615-617`) devolve 1 depois de imprimir no stdout.
+    O resultado era um `EnvioNewsletter` gravado no banco com
+    `total_enviados == N` para N e-mails que ninguém recebeu, e um
+    `tasks.py:10` logando "N enviados" — duas fontes de verdade afirmando
+    que a newsletter foi entregue.
+
+    Agora o envio passa por `config.email_entrega.entregar_email`: nada é
+    enviado (e nada é impresso) sem canal de entrega real, e só é contado o
+    que o provedor aceitou. Quando falta o canal, o envio é registrado com
+    `total_enviados=0` e `total_falhas=<nº de inscrições>` — porque as
+    inscrições não chegaram a ser tentadas, e `total_falhas` é o que o
+    operador olha para saber que o resumo do dia não saiu. Um `logger.error`
+    acompanha, e o canal aparece em `/health-detail`.
 
     P1-06 — a contagem é honesta:
 
@@ -273,52 +367,112 @@ def enviar_newsletters(periodo: str | None = None) -> EnvioNewsletter:
     * `total_falhas` conta "não entregue", o que inclui tanto a recusa do
       provedor quanto a ausência de canal. Os dois são a mesma coisa para quem
       lê o número: nada chegou.
+
+    A JUNÇÃO DOS DOIS (P1-04 no portão, P1-06 no item)
+    ==================================================
+    Os dois itens fecharam o MESMO furo por caminhos diferentes, e nenhuma das
+    duas metades Some: cada uma é o que falta na outra.
+
+    * **Portão de canal — P1-04 vence.** A verificação acontece uma vez por
+      execução, ANTES de montar qualquer e-mail: `verificar_canal_email()` é
+      consultada antes do laço, o que impede montar o resumo, gerar o token do
+      link de descadastro e imprimir no stdout. O P1-06 tinha um gate próprio
+      (`canal_entrega_real()`) que faz a MESMA coisa por lista própria; ele foi
+      absorvido por este e saiu do corpo da função, porque manter os dois
+      significaria dois ERRORs por execução (e o P1-06 trava que é um) e duas
+      listas que podem divergir. O gate do P1-04 é estritamente mais forte: ele
+      também recusa o Resend sem `RESEND_API_KEY`, o que a lista sozinha não
+      vê. `canal_entrega_real()` continua existindo e exportada, agora apoiada
+      na lista de fonte única, porque é o predicado que o P1-06 travou contra
+      o `contato`.
+    * **Contagem da ausência de canal — P1-06 sobrevive dentro do P1-04.** O
+      early return grava `total_enviados=0` e `total_falhas=<nº de inscrições>`
+      (e não "não processada"), que é a mesma frase do P1-06 com outra
+      justificativa. O ERROR é **um só** por execução e reúne o que as duas
+      equipes exigiam: a frase do P1-04 ("NENHUM resumo entregue"), os motivos
+      do gate (que nomeiam `DJANGO_EMAIL_BACKEND` e o backend em uso) e a
+      orientação de `config.email_entrega.orientacao_de_configuracao()`, que
+      nomeia `RESEND_API_KEY` — o P1-06 exige que o operador saiba QUAL
+      configuração falta, e o P1-04 exige que o motivo venha do gate. Nenhum
+      endereço, chave ou token entra nessa linha.
+    * **Tratamento por inscrição — P1-06 vence.** A exceção do provedor é
+      registrada com o TIPO e o id da inscrição, sem `str(exc)` e sem
+      traceback: o texto de erro de um backend real ecoa o destinatário, que é
+      dado pessoal. Isso vale para `CanalIndisponivel` e `FalhaDeEntrega` do
+      gate tanto quanto para qualquer outra exceção (`montar_corpo_email`
+      consulta o feed e o radar, e a falha ali não pode abortar o lote). A
+      checagem `if not enviados` do P1-06 continua valendo como segunda rede
+      para um transporte que devolvesse 0, e `entregar_email` já levanta
+      `FalhaDeEntrega` nesse caso — defesas que não se contradizem.
+    * **Métrica e `/health-detail` — P1-04.** `registrar_evento` conta
+      `portal_email_entrega_total{destino="newsletter",situacao=...}` em
+      `sem_canal`/`entregue`/`falha`, e o canal aparece no health-detail.
     """
     filtros = {"ativa": True, "user__consentimento_aceito_em__isnull": False}
     if periodo:
         filtros["periodo"] = periodo
     inscricoes = list(InscricaoNewsletter.objects.filter(**filtros).select_related("user"))
 
-    total_enviados = 0
-    total_falhas = 0
+    if not inscricoes:
+        # Nada a enviar: não há por que recusar por falta de canal, e o
+        # `EnvioNewsletter` zerado é o registro honesto.
+        return EnvioNewsletter.objects.create(
+            total_inscricoes_processadas=0,
+            total_enviados=0,
+            total_falhas=0,
+        )
 
-    if inscricoes and not canal_entrega_real():
-        # Uma vez por execução, não uma vez por inscrição: o motivo é o mesmo
-        # para todas, e repetir a frase por inscrição só inflaria o log com o
-        # mesmo texto. O nome do backend entra (o operador precisa saber qual
-        # configurar); a chave do Resend e os endereços, nunca.
+    # P1-04 — PORTÃO DE CANAL, antes de montar qualquer e-mail. Uma vez por
+    # execução, não uma vez por inscrição: o motivo é o mesmo para todas, e
+    # repetir a frase por inscrição só inflaria o log com o mesmo texto.
+    canal = verificar_canal_email()
+    if not canal.disponivel:
+        registrar_evento(DESTINO_NEWSLETTER, "sem_canal")
+        # Um ERROR só, e ele reúne o que as duas equipes exigiam: a frase do
+        # P1-04, o motivo do gate (que nomeia DJANGO_EMAIL_BACKEND e o backend
+        # em uso) e a orientação de fonte única (que nomeia RESEND_API_KEY).
         logger.error(
-            "newsletter: NENHUMA newsletter foi entregue — DJANGO_EMAIL_BACKEND=%s "
-            "não entrega e-mail a ninguém (só imprime, guarda em memória ou "
-            "descarta). As %d inscrições ativas com consentimento ficam sem "
-            "receber nada e esta execução é registrada como falha, não como "
-            "envio. Defina DJANGO_EMAIL_BACKEND=config.email_resend."
-            "ResendEmailBackend e RESEND_API_KEY=re_... antes de tratar o envio "
-            "como entregue (estado da integração: PROD_DECISOES.md, item 2).",
-            getattr(settings, "EMAIL_BACKEND", "(vazio)"),
+            "newsletter: NENHUM resumo entregue (inscricoes=%s) por ausência de "
+            "canal de entrega real (motivo=%s). %s",
             len(inscricoes),
+            "; ".join(canal.motivos),
+            orientacao_de_configuracao(),
         )
         return EnvioNewsletter.objects.create(
             total_inscricoes_processadas=len(inscricoes),
             total_enviados=0,
+            # P1-04: e o P1-06 antes dele, com a mesma justificativa. Contadas
+            # como falha, e não como "não processada": do ponto de vista de quem
+            # esperava o resumo da manhã, elas falharam — e a contagem é o que o
+            # operador olha para saber que o resumo do dia não saiu.
             total_falhas=len(inscricoes),
         )
 
+    total_enviados = 0
+    total_falhas = 0
+
     for inscricao in inscricoes:
         try:
+            # P1-04 no transporte (`entregar_email`, via `send_mail`, que é a
+            # costura deste módulo), P1-06 na contagem: o que o provedor não
+            # aceitou não vira enviado, e nem vira sucesso por omissão.
             enviados = send_mail(
-                subject="Seu resumo do Portal de Notícias",
+                subject=ASSUNTO_NEWSLETTER,
                 message=montar_corpo_email(inscricao),
                 from_email=settings.DEFAULT_FROM_EMAIL,
                 recipient_list=[inscricao.user.email],
                 fail_silently=False,
             )
         except Exception as exc:  # noqa: BLE001 — uma falha não para o lote
-            # Log mínimo: TIPO da exceção, sem `str(exc)` e sem traceback. O
-            # texto de erro de um backend de e-mail real ecoa o destinatário
-            # (`SMTPServerDisconnected: ... b'...@exemplo.com' ...`), e o
-            # endereço de quem recebe newsletter é dado pessoal — não vai
-            # para o log. Sem corpo de mensagem, sem token, sem credencial.
+            # P1-06. Log mínimo: TIPO da exceção, sem `str(exc)` e sem
+            # traceback. O texto de erro de um backend de e-mail real ecoa o
+            # destinatário (`SMTPServerDisconnected: ... b'...@exemplo.com'
+            # ...`), e o endereço de quem recebe newsletter é dado pessoal — não
+            # vai para o log. Sem corpo de mensagem, sem token, sem credencial.
+            # Cobre `CanalIndisponivel` e `FalhaDeEntrega` do gate (P1-04)
+            # tanto quanto qualquer outra falha: para o operador o desfecho é o
+            # mesmo — nada chegou — e o que vai para o log é o mesmo par
+            # (inscrição, tipo), nunca o texto do provedor.
             logger.error(
                 "newsletter: exceção do provedor de e-mail (inscricao=%s, tipo=%s)",
                 inscricao.pk,
@@ -327,13 +481,24 @@ def enviar_newsletters(periodo: str | None = None) -> EnvioNewsletter:
             total_falhas += 1
             continue
 
+        # P1-06: segunda rede para um transporte que devolva 0 sem levantar
+        # nada. `entregar_email` já transforma 0 em `FalhaDeEntrega`, então na
+        # prática isto só dispara se a costura `send_mail` for substituída.
         if not enviados:
             total_falhas += 1
             continue
         total_enviados += 1
 
-    return EnvioNewsletter.objects.create(
+    envio = EnvioNewsletter.objects.create(
         total_inscricoes_processadas=len(inscricoes),
         total_enviados=total_enviados,
         total_falhas=total_falhas,
     )
+    if total_falhas:
+        logger.error(
+            "newsletter: envio concluído COM FALHAS — %d entregues, %d falhas de %d",
+            total_enviados,
+            total_falhas,
+            len(inscricoes),
+        )
+    return envio

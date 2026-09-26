@@ -66,7 +66,7 @@ def _google_sociallogin(email="social.novo@example.com", uid="google-uid-001", n
 # ---------------------------------------------------------------------------
 
 class TestAC1CadastroEmailSenha:
-    def test_cadastro_valido_cria_usuario_free_nao_verificado(self):
+    def test_cadastro_valido_cria_usuario_free_nao_verificado(self, canal_entregando):
         client = APIClient()
         resp = client.post("/api/auth/cadastro/", _cadastro_payload(), format="json")
 
@@ -75,7 +75,7 @@ class TestAC1CadastroEmailSenha:
         assert user.papel == User.PAPEL_FREE
         assert user.email_verificado is False
 
-    def test_cadastro_gera_email_com_token_de_verificacao_valido(self):
+    def test_cadastro_gera_email_com_token_de_verificacao_valido(self, canal_entregando):
         mail.outbox = []
         client = APIClient()
         resp = client.post("/api/auth/cadastro/", _cadastro_payload(email="comtoken@example.com"), format="json")
@@ -95,14 +95,63 @@ class TestAC1CadastroEmailSenha:
         assert str(user.pk) == user_pk
         assert email == "comtoken@example.com"
 
-    def test_cadastro_com_email_ja_cadastrado_e_rejeitado(self):
-        User.objects.create_user(email="duplicado@example.com", password="SenhaForte123")
+    def test_cadastro_com_email_ja_cadastrado_nao_revela_e_nao_cria_conta(self, canal_entregando):
+        """P1-04 — o comportamento ESPERADO mudou, e a mudança é de segurança.
+
+        Antes: 400 para e-mail já cadastrado e 201 para e-mail novo. Isso é a
+        definição de oráculo de existência de conta — um POST com qualquer
+        senha enumerava a base. A mensagem 400 era "genérica", o que não
+        importava: status e corpo já distinguiam os casos.
+
+        Agora as duas respostas são idênticas e nenhuma conta duplicada nasce.
+        A prova completa de indistinguibilidade (status + corpo + o fato de
+        não vazar `usuario`) está em `test_p1_04_entrega_email.py`.
+
+        O caso desta conta é o PIOR para enumeração — ela já está
+        verificada, então todo campo de `usuario` que a resposta carregava
+        (`email_verificado`, `papel`, `id`, `date_joined`) seria diferente do
+        de um cadastro novo. É por isso que a resposta não tem `usuario`.
+        """
+        existente = User.objects.create_user(
+            email="duplicado@example.com", password="SenhaForte123"
+        )
+        existente.email_verificado = True
+        existente.save(update_fields=["email_verificado"])
+        mail.outbox = []
         client = APIClient()
         resp = client.post(
             "/api/auth/cadastro/", _cadastro_payload(email="duplicado@example.com"), format="json"
         )
-        assert resp.status_code == 400
+
+        assert resp.status_code == 201, resp.data
+        assert resp.data == {"detail": "Cadastro realizado. Verifique seu e-mail para confirmar a conta."}
         assert User.objects.filter(email="duplicado@example.com").count() == 1
+        # A conta JÁ estava verificada, então não há o que reenviar: nenhuma
+        # mensagem nova para um e-mail que já estava em mãos do titular.
+        assert mail.outbox == []
+
+    def test_cadastro_com_email_ja_cadastrado_nao_verificado_reenvia_verificacao(self, canal_entregando):
+        """Reenviar o link para quem se cadastrou e não verificou é o que
+        impede o beco sem saída: sem isso, a resposta 201 seria um "verifique
+        seu e-mail" de um e-mail que nunca sairia — exatamente o dano que o
+        P1-04 existe para fechar."""
+        User.objects.create_user(email="pendente@example.com", password="SenhaForte123")
+        mail.outbox = []
+        client = APIClient()
+        resp = client.post(
+            "/api/auth/cadastro/", _cadastro_payload(email="pendente@example.com"), format="json"
+        )
+
+        assert resp.status_code == 201, resp.data
+        assert len(mail.outbox) == 1
+        body = mail.outbox[0].body
+        token = body.split("token:")[1].strip().splitlines()[0]
+        resultado = read_email_verification_token(token)
+        assert resultado is not None
+        assert resultado[1] == "pendente@example.com"
+        # E o reenvio não pode virar uma senha nova por cima da existente.
+        user = User.objects.get(email="pendente@example.com")
+        assert user.check_password("SenhaForte123") is True
 
 
 # ---------------------------------------------------------------------------
@@ -561,7 +610,7 @@ class TestAC9PularOnboarding:
 # ---------------------------------------------------------------------------
 
 class TestAC10SenhaNuncaEmTextoPlano:
-    def test_senha_do_cadastro_por_email_esta_hasheada_no_banco(self):
+    def test_senha_do_cadastro_por_email_esta_hasheada_no_banco(self, canal_entregando):
         client = APIClient()
         senha_plana = "SenhaForte123"
         resp = client.post(
@@ -607,7 +656,7 @@ class TestAC10SenhaNuncaEmTextoPlano:
 # ---------------------------------------------------------------------------
 
 class TestAC11ConsentimentoLGPD:
-    def test_cadastro_email_senha_persiste_consentimento_com_timestamp_e_versao(self):
+    def test_cadastro_email_senha_persiste_consentimento_com_timestamp_e_versao(self, canal_entregando):
         client = APIClient()
         resp = client.post(
             "/api/auth/cadastro/", _cadastro_payload(email="consentimento.ac11@example.com"), format="json"
