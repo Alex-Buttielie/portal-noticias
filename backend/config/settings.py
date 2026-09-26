@@ -704,6 +704,17 @@ PASSWORD_RESET_TIMEOUT = int(
     os.environ.get("PASSWORD_RESET_TIMEOUT_SECONDS", 60 * 60)  # 1h — usado pelo PasswordResetTokenGenerator
 )
 
+# Validade do link/token de descadastro da newsletter (P1-06). O token é
+# assinado com timestamp (`newsletter/tokens.py`, mesmo par de
+# `identidade/tokens.py` para verificação de e-mail) e rotacionado no uso, então
+# é de uso único: passado o prazo, o link do e-mail deixa de funcionar e a
+# pessoa usa o link do e-mail mais recente. 30 dias cobre o intervalo típico
+# entre o envio e a pessoa decidir cancelar, com folga para quem só abre o
+# e-mail depois. Configurável por ambiente para não exigir deploy de código.
+NEWSLETTER_TOKEN_DESCADASTRO_MAX_AGE_SECONDS = int(
+    os.environ.get("NEWSLETTER_TOKEN_DESCADASTRO_MAX_AGE_SECONDS", 30 * 24 * 60 * 60)  # 30d
+)
+
 # Versão vigente dos Termos/Política de Privacidade que o cadastro exige aceite
 # explícito (LGPD) — registrada em User.consentimento_versao_termos.
 TERMOS_VERSAO_ATUAL = os.environ.get("TERMOS_VERSAO_ATUAL", "1.0")

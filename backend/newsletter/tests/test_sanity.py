@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from django.test import override_settings
 from django.utils import timezone
 import pytest
 from django.contrib.auth import get_user_model
@@ -9,6 +10,8 @@ from catalogo_noticias.models import NewsItem
 from gating.models import ConfiguracaoSistema, FeatureLimit
 from newsletter import services
 from newsletter.models import InscricaoNewsletter
+from newsletter.tests.doubles import CAMINHO_ENTREGA
+from newsletter.tokens import gerar_token_descadastro
 
 pytestmark = pytest.mark.django_db
 
@@ -58,10 +61,13 @@ def test_inscricao_personalizada_funciona_para_premium():
 
 
 def test_descadastro_por_token_desativa_inscricao():
+    """P1-06: o valor aceito é o token ASSINADO do link, não o segredo cru do
+    banco. Antes desta correção o teste passava o segredo e ele era exatamente o
+    que ia na URL — o que expunha o segredo de estado e nunca expirava."""
     usuario = _usuario_consentido("desc@example.com")
     inscricao = services.inscrever(usuario, InscricaoNewsletter.TIPO_PADRAO)
 
-    resultado = services.descadastrar_por_token(inscricao.token_descadastro)
+    resultado = services.descadastrar_por_token(gerar_token_descadastro(inscricao))
 
     inscricao.refresh_from_db()
     assert resultado is True
@@ -69,14 +75,32 @@ def test_descadastro_por_token_desativa_inscricao():
 
 
 def test_enviar_newsletters_respeita_consentimento_e_inscricao_ativa():
+    """P1-06 mudou as duas últimas asserções deste teste, e é um ponto do item.
+
+    ANTES (código de d225791) o teste afirmava `total_enviados == 1` e
+    `len(mail.outbox) == 1` sem olhar o canal. Rodando na suíte, o backend é
+    `locmem` — `django/test/utils.py:146-147` sobrescreve
+    `settings.EMAIL_BACKEND` com locmem no início de toda sessão de teste — e
+    locmem não entrega a ninguém. Ou seja: a asserção registrava "1 enviado"
+    para um e-mail que foi só para um dicionário em memória. Era o furo 3 da
+    P0-02c no caminho que já estava em produção.
+
+    Agora o backend que "entrega" é o dublê de `tests/doubles.py` (zero I/O),
+    declarado explicitamente.
+    """
     _item("Noticia 1", "https://g1/news-1")
     consentido = _usuario_consentido("envio1@example.com")
     services.inscrever(consentido, InscricaoNewsletter.TIPO_PADRAO)
 
+    # Quem não consentiu nem chega a ter inscrição: a trava é no caminho de
+    # escrita (`services.inscrever_com_status`). Antes desta correção o teste
+    # criava a inscrição sem consentimento e só confiava no filtro do envio.
     sem_consentimento = User.objects.create_user(email="semconsent@example.com", password="senha123", papel="free")
-    services.inscrever(sem_consentimento, InscricaoNewsletter.TIPO_PADRAO)
+    with pytest.raises(services.ConsentimentoAusenteError):
+        services.inscrever(sem_consentimento, InscricaoNewsletter.TIPO_PADRAO)
 
-    envio = services.enviar_newsletters()
+    with override_settings(EMAIL_BACKEND=CAMINHO_ENTREGA):
+        envio = services.enviar_newsletters()
 
     assert envio.total_enviados == 1
     assert len(mail.outbox) == 1
@@ -109,7 +133,10 @@ def test_enviar_newsletters_com_periodo_so_alcanca_inscricoes_daquele_periodo():
     usuario_noite = _usuario_consentido("periodo-n@example.com")
     services.inscrever(usuario_noite, InscricaoNewsletter.TIPO_PADRAO, periodo=InscricaoNewsletter.PERIODO_NOITE)
 
-    envio = services.enviar_newsletters(periodo=InscricaoNewsletter.PERIODO_MANHA)
+    # P1-06: o backend precisa entregar para o total decir "1 enviado" — ver a
+    # justificativa em `test_enviar_newsletters_respeita_consentimento_e_inscricao_ativa`.
+    with override_settings(EMAIL_BACKEND=CAMINHO_ENTREGA):
+        envio = services.enviar_newsletters(periodo=InscricaoNewsletter.PERIODO_MANHA)
 
     assert envio.total_enviados == 1
     assert mail.outbox[0].to == ["periodo-m@example.com"]
