@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint app components lib",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "verificar:conteudo": "node scripts/verificar-conteudo-ficticio.mjs"
   },
   "dependencies": {
     "@radix-ui/react-accordion": "^1.2.20",

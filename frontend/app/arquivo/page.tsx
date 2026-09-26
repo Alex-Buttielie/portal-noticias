@@ -7,19 +7,28 @@ import { obterFeed, type FeedEntrada } from "@/lib/api";
 import { formatarDataHoraCompacta } from "@/lib/datas";
 import { AdsSlot } from "@/components/AdsSlot";
 import { ImagemNoticia } from "@/components/ImagemNoticia";
+import { EstadoVazio } from "@/components/EstadoVazio";
 export const metadata: Metadata = { title: `Arquivo — ${SITE_NAME}`, description: `Arquivo de notícias do ${SITE_NAME}.` };
 export const revalidate = 60;
-const MOCK: FeedEntrada[] = Array.from({ length: 12 }, (_, i) => ({ tipo: i % 3 === 0 ? "cluster" : "item", id: 300 + i, titulo: `Arquivo #${300 + i} — manchete demonstrativa`, resumo: "Conteúdo de exemplo para demonstração.", categoria: ["política", "economia", "tecnologia", "cidades"][i % 4], urgente: i === 0, numero_fontes: 2 + (i % 3), timestamp: new Date(Date.now() - i * 3600000 * 6).toISOString() }));
 export default async function Page({ searchParams }: { searchParams: Promise<{ page?: string }> }) {
   const sp = await searchParams;
   const page = Math.max(1, Number(sp.page) || 1);
-  let itens: FeedEntrada[] = [];
-  try { const r = await obterFeed({ page }); itens = r.results?.length ? r.results : MOCK; } catch { itens = MOCK; }
+  // P0-08: o arquivo nunca fabrica manchete para parecer povoado.
+  const r = await obterFeed({ page }).catch(() => null);
+  const itens: FeedEntrada[] = r?.results ?? [];
+  const erro = !r;
   return (
     <div className="space-y-4">
       <div className="rounded-[var(--raio-lg)] border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] p-5"><div className="hud-line mb-3" aria-hidden /><h1 className="text-2xl font-bold text-[var(--cor-texto)]">Arquivo</h1><p className="text-sm text-[var(--cor-texto-suave)]">Página {page} — arquivo cronológico</p></div>
       <div className="grid gap-3">
-        {itens.map((n)=>(
+        {itens.length === 0 ? (
+          <EstadoVazio
+            tom={erro ? "erro" : "neutro"}
+            titulo={erro ? "Não foi possível carregar o arquivo" : page > 1 ? "Nenhuma notícia nesta página do arquivo" : "Nenhuma notícia disponível agora"}
+            descricao={erro ? "O serviço de notícias não respondeu. Nenhuma manchete foi fabricada para preencher o arquivo." : "Ainda não há matérias arquivadas. Volte mais tarde ou veja as últimas notícias."}
+            acao={{ rotulo: "Ir para o início", href: "/" }}
+          />
+        ) : itens.map((n)=>(
           <Link key={`${n.tipo}-${n.id}`} href={`/noticia/${n.id}`} className="flex gap-3 rounded-[var(--raio-lg)] border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] p-3 hover:bg-[var(--cor-primaria-suave)]">
             <span className="hidden aspect-[16/9] h-14 w-24 shrink-0 overflow-hidden rounded-md border border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] md:block" aria-hidden>
               <ImagemNoticia src={n.imagem_url} seed={`${n.categoria || "geral"}-${n.id}`} alt="" sizes="192px" className="h-full w-full object-cover" />
@@ -30,10 +39,12 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ p
       </div>
       <AdsSlot id="arquivo-infeed" formato="in-feed" />
       {itens.length > 6 && <AdsSlot id="arquivo-horizontal" formato="horizontal" className="my-6" />}
-      <div className="flex gap-2">
-        {page > 1 && <Link href={`/arquivo?page=${page - 1}`} className="rounded-md border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] px-3 py-2 text-sm text-[var(--cor-texto)] hover:bg-[var(--cor-borda)]">← Anterior</Link>}
-        <Link href={`/arquivo?page=${page + 1}`} className="rounded-md border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] px-3 py-2 text-sm text-[var(--cor-texto)] hover:bg-[var(--cor-borda)]">Próxima →</Link>
-      </div>
+      {itens.length > 0 && (
+        <div className="flex gap-2">
+          {page > 1 && <Link href={`/arquivo?page=${page - 1}`} className="rounded-md border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] px-3 py-2 text-sm text-[var(--cor-texto)] hover:bg-[var(--cor-borda)]">← Anterior</Link>}
+          <Link href={`/arquivo?page=${page + 1}`} className="rounded-md border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] px-3 py-2 text-sm text-[var(--cor-texto)] hover:bg-[var(--cor-borda)]">Próxima →</Link>
+        </div>
+      )}
     </div>
   );
 }

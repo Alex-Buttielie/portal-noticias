@@ -6,21 +6,20 @@ import Link from "next/link";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Check, X, Crown, ShieldCheck, Sparkles, Zap, Newspaper, Bell, Archive, Users, HelpCircle } from "lucide-react";
 import { assinarPlano, type Plano } from "@/lib/api";
 import { useQueryPlanos } from "@/lib/queries";
+import { EstadoVazio } from "@/components/EstadoVazio";
 import { queryKeys } from "@/lib/query-keys";
 import { usePremiumAtivo } from "@/lib/premium";
 import { useAuth } from "@/lib/auth-context";
 import { toast } from "sonner";
 import { AdsSlot } from "@/components/AdsSlot";
 
-const FALLBACK: Plano[] = [
-  { id: 1, nome: "Free", preco: "0.00", duracao_dias: 0, ativo: true },
-  { id: 2, nome: "Premium", preco: "29.90", duracao_dias: 30, ativo: true },
-];
+// P0-08: nome, preço e duração dos planos vêm exclusivamente da API
+// (/api/assinatura/planos/). Não existe plano genérico em código: se a API
+// falhar, mostramos um estado neutro e nenhuma assinatura é oferecida.
 
 const PREMIUM_BENEFICIOS = [
   { icon: Newspaper, text: "Feed sem anúncios", sub: "leitura limpa, sem banners" },
@@ -72,9 +71,10 @@ export default function Page() {
     },
   });
 
-  const planos = planosQuery.data?.length ? planosQuery.data : FALLBACK;
-  const premium = planos.find((p) => p.nome.toLowerCase().includes("premium")) ?? planos[1] ?? FALLBACK[1];
-  const free = planos.find((p) => p.nome.toLowerCase().includes("free")) ?? planos[0] ?? FALLBACK[0];
+  const planos = planosQuery.data?.filter((p) => p.ativo !== false) ?? [];
+  const semPlanos = !planosQuery.isPending && !planos.length;
+  const premium = planos.find((p) => p.nome.toLowerCase().includes("premium"));
+  const free = planos.find((p) => p.nome.toLowerCase().includes("free"));
 
   function escolher(p: Plano) { setSel(p); setErro(null); setOk(false); setOpen(true); }
 
@@ -102,13 +102,26 @@ export default function Page() {
         <p className="text-xs font-semibold tracking-widest text-[var(--cor-primaria)]">PLANOS</p>
         <h1 className="mt-1 text-3xl font-bold text-[var(--cor-texto)]">Escolha como você quer ler</h1>
         <p className="mt-2 max-w-2xl text-sm text-[var(--cor-texto-suave)]">Sem jargão: conta gratuita para começar. <strong className="font-semibold text-[var(--cor-texto)]">Premium</strong> tira anúncios, libera radar e alertas sem limite, arquivo completo e suporte prioritário.</p>
-        <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-[var(--cor-texto-suave)]"><Badge variant="outline" className="border-[var(--cor-borda)]"><Users className="mr-1 h-3 w-3" /> +12.000 assinantes</Badge><span>·</span><span>Cancele quando quiser</span></div>
+        <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-[var(--cor-texto-suave)]">
+          <span>Cancele quando quiser</span>
+        </div>
       </div>
 
       {planosQuery.isError && (
-        <p role="status" className="rounded-[var(--raio-lg)] border border-[var(--cor-alerta)] bg-[var(--cor-alerta-suave)] px-4 py-3 text-sm text-[var(--cor-texto)]">
-          Não foi possível atualizar os planos — exibindo a oferta local.
-        </p>
+        <EstadoVazio
+          tom="erro"
+          titulo="Não foi possível carregar os planos agora"
+          descricao="Os planos e preços são definidos pela redação na Central. Não vamos exibir um preço que não veio de lá."
+          rotuloTentarDeNovo="Tentar de novo"
+          onTentarDeNovo={() => void planosQuery.refetch()}
+        />
+      )}
+
+      {semPlanos && (
+        <EstadoVazio
+          titulo="Nenhum plano disponível no momento"
+          descricao="A Central ainda não publicou planos para o público. Volte em breve."
+        />
       )}
 
       {liberado && (
@@ -118,6 +131,7 @@ export default function Page() {
       )}
 
       <div className="grid gap-4 md:grid-cols-2">
+        {free && (
         <Card className="bento border-[var(--cor-borda)] bg-[var(--cor-fundo-card)]">
           <CardHeader>
             <CardTitle className="flex items-center justify-between">{free.nome}<Badge variant="outline" className="border-[var(--cor-borda)]">grátis</Badge></CardTitle>
@@ -129,7 +143,9 @@ export default function Page() {
             <p className="text-center text-xs text-[var(--cor-texto-suave)]">Sem cartão. Comece agora.</p>
           </CardContent>
         </Card>
+        )}
 
+        {premium && (
         <Card className="bento relative overflow-hidden border-[var(--cor-neon-violeta)] bg-[var(--cor-fundo-card)] shadow-[0_0_0_1px_var(--cor-neon-violeta),0_8px_24px_rgba(124,58,237,0.15)]">
           <div className="absolute inset-x-0 top-0 h-1 bg-[var(--gradiente-marca)]" aria-hidden />
           <Badge className="absolute right-4 top-4 bg-[var(--cor-premium)] text-[var(--cor-texto-invertido)]">Mais popular</Badge>
@@ -143,6 +159,7 @@ export default function Page() {
             <p className="text-center text-xs text-[var(--cor-texto-suave)]">Cobrança recorrente · cancele quando quiser</p>
           </CardContent>
         </Card>
+        )}
       </div>
 
       <Card className="bento border-[var(--cor-borda)] bg-[var(--cor-fundo-card)]">
@@ -169,8 +186,6 @@ export default function Page() {
         <CardHeader><CardTitle className="flex items-center gap-2 text-base"><HelpCircle className="h-4 w-4 text-[var(--cor-primaria)]" /> Perguntas rápidas</CardTitle></CardHeader>
         <CardContent className="space-y-3">
           {FAQ.map((f) => <div key={f.q} className="rounded-[var(--raio-md)] border border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] p-3"><p className="text-sm font-medium text-[var(--cor-texto)]">{f.q}</p><p className="mt-1 text-sm text-[var(--cor-texto-suave)]">{f.a}</p></div>)}
-          <Separator className="bg-[var(--cor-borda)]" />
-          <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--cor-texto-suave)]"><Sparkles className="h-4 w-4 text-[var(--cor-premium)]" /> Junte-se a <strong className="text-[var(--cor-texto)]">+12.000 assinantes</strong> que já leem sem anúncios.</div>
         </CardContent>
       </Card>
 

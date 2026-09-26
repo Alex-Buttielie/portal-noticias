@@ -3,11 +3,12 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth-context";
-import { salvarLocalidade, removerLocalidade, ApiError, type RadarTendencias, type RadarEvolucao, type LocalidadeSalva } from "@/lib/api";
+import { salvarLocalidade, removerLocalidade, type LocalidadeSalva } from "@/lib/api";
 import { useQueryTendenciasRadar, useQueryRadarEvolucao, useQueryRadarLocalidadesSalvas, invalidarQueriesRadarLocalidades } from "@/lib/queries";
 import { queryKeys } from "@/lib/query-keys";
 import { usePremiumAtivo } from "@/lib/premium";
 import { AdsSlot } from "@/components/AdsSlot";
+import { EstadoVazio } from "@/components/EstadoVazio";
 import RadarLocalSimples from "@/components/RadarLocalSimples";
 import type { Regiao } from "@/lib/regiao";
 import { cn } from "@/lib/utils";
@@ -22,8 +23,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { RefreshCw, MapPin, TrendingUp, BarChart3, BookmarkPlus, Bookmark, X, AlertCircle, Loader2, ExternalLink, Crown } from "lucide-react";
 
-const MOCK_T: RadarTendencias = { aviso_metodologia: "Dados de exemplo", localidade: { pais: null, estado: null, cidade: null }, assuntos_em_alta: [{ categoria: "politica", numero_noticias: 12, numero_fontes: 4, cluster_id: 1, item_id: null }, { categoria: "tecnologia", numero_noticias: 8, numero_fontes: 3, cluster_id: null, item_id: 2 }, { categoria: "economia", numero_noticias: 5, numero_fontes: 2, cluster_id: 3, item_id: null }] };
-function mockSerie(): RadarEvolucao { const hoje = new Date(); const serie = Array.from({ length: 7 }, (_, i) => { const d = new Date(hoje); d.setDate(hoje.getDate() - (6 - i)); return { dia: d.toISOString().slice(0, 10), numero_noticias: Math.floor(2 + Math.random() * 8) }; }); return { aviso_metodologia: "Dados de exemplo", categoria: null, serie }; }
 const CATS = ["", "politica", "economia", "tecnologia", "cidades", "esportes", "cultura", "geral"];
 
 function locLabel(l: { pais?: string | null; estado?: string | null; cidade?: string | null }) { const p = [l.pais, l.estado, l.cidade].filter(Boolean).join(" · "); return p || "Recorte nacional"; }
@@ -64,32 +63,15 @@ export default function RadarClient() {
     usuarioId,
   });
 
-  const fallbackTendencias = useMemo<RadarTendencias | null>(() => {
-    if (!tendenciasQuery.isError) return null;
-    return {
-      ...MOCK_T,
-      localidade: {
-        pais: filtros.pais || null,
-        estado: filtros.estado || null,
-        cidade: filtros.cidade || null,
-      },
-    };
-  }, [filtros, tendenciasQuery.isError]);
-  const tend = tendenciasQuery.data ?? fallbackTendencias;
+  // P0-08: sem fallback inventado. Se o radar falhar, a tela mostra um estado
+  // de erro explícito em vez de "assuntos em alta" com números fabricados.
+  const tend = tendenciasQuery.data;
   const loadingT = tendenciasQuery.isFetching;
 
-  const fallbackEvolucao = useMemo<RadarEvolucao | null>(() => {
-    if (!evolucaoQuery.isError) return null;
-    if (evolucaoQuery.error instanceof ApiError && evolucaoQuery.error.status === 403) {
-      return {
-        aviso_metodologia: "Prévia de 7 dias — seja Premium para ver a série completa, sem limites.",
-        categoria: evoCat || null,
-        serie: mockSerie().serie,
-      };
-    }
-    return { ...mockSerie(), categoria: evoCat || null };
-  }, [evoCat, evolucaoQuery.error, evolucaoQuery.isError]);
-  const evo = evolucaoQuery.data ?? fallbackEvolucao;
+  // P0-08: a série histórica usava mockSerie() (números aleatórios) como
+  // fallback. Agora só mostramos a série que a API devolveu; 403 continua sendo
+  // upsell de Premium, mas sem número inventado.
+  const evo = evolucaoQuery.data;
   const loadingE = Boolean(token) && evolucaoQuery.isFetching;
   const salvas = localidadesQuery.data ?? [];
 
@@ -155,6 +137,15 @@ export default function RadarClient() {
         <Button variant="outline" size="sm" onClick={() => { void tendenciasQuery.refetch(); if (token) void evolucaoQuery.refetch(); void localidadesQuery.refetch(); }} className="border-[var(--cor-borda)] bg-[var(--cor-fundo-card)]"><RefreshCw className="h-4 w-4" />Atualizar</Button>
       </div>
 
+      {tendenciasQuery.isError && (
+        <EstadoVazio
+          tom="erro"
+          titulo="Não foi possível carregar as tendências"
+          descricao="O radar não respondeu. Nenhum número de notícias foi estimado para preencher a lista."
+          rotuloTentarDeNovo="Atualizar radar"
+          onTentarDeNovo={() => void tendenciasQuery.refetch()}
+        />
+      )}
       {tend?.aviso_metodologia && <Alert className="border-[var(--cor-neon-ciano)]/30 bg-[var(--cor-destaque-suave)]"><AlertCircle className="h-4 w-4 text-[var(--cor-neon-ciano)]" /><AlertTitle className="text-[var(--cor-texto)] text-sm">Metodologia</AlertTitle><AlertDescription className="text-[var(--cor-texto-suave)] text-xs">{tend.aviso_metodologia}</AlertDescription></Alert>}
       {msg && <Alert className="border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)]"><AlertDescription className="text-sm text-[var(--cor-texto)]">{msg}</AlertDescription></Alert>}
 
@@ -219,7 +210,7 @@ export default function RadarClient() {
                   </div>
                    <div className="flex items-center gap-2">{!premiumGeral && evo && <Badge variant="outline" className="border-[var(--cor-premium)] text-[var(--cor-premium)]"><Crown className="mr-1 h-3 w-3" /> 7 dias no Free</Badge>}</div>
                   {evoExibido?.aviso_metodologia && <p className="text-xs text-[var(--cor-texto-suave)] border-l-2 border-[var(--cor-neon-ciano)] pl-2">{evoExibido.aviso_metodologia}</p>}
-                  {loadingE ? <div className="h-40 animate-pulse rounded-[var(--raio-md)] bg-[var(--cor-borda)]" /> : !evoExibido || evoExibido.serie.length === 0 ? <div className="rounded-[var(--raio-md)] border border-dashed border-[var(--cor-borda)] p-8 text-center text-sm text-[var(--cor-texto-suave)]">Sem dados para esta categoria/recorte.</div> : (
+                  {loadingE ? <div className="h-40 animate-pulse rounded-[var(--raio-md)] bg-[var(--cor-borda)]" /> : evolucaoQuery.isError ? <EstadoVazio tom="erro" titulo="Não foi possível carregar a evolução" descricao="Nenhuma série foi estimada para este recorte." rotuloTentarDeNovo="Atualizar série" onTentarDeNovo={() => void evolucaoQuery.refetch()} /> : !evoExibido || evoExibido.serie.length === 0 ? <EstadoVazio titulo="Sem dados para esta categoria/recorte" descricao="A API não retornou série de cobertura para estes filtros." /> : (
                     <>
                       <div className="rounded-[var(--raio-md)] border border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] p-3">
                         <div className="flex items-end gap-1 h-40">

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { notFound } from "next/navigation";
 import { SITE_NAME, SITE_URL } from "@/lib/site";
 import { newsArticleJsonLd } from "@/lib/schema";
 import { obterDetalheCluster, obterFeed, type FeedDetalhe } from "@/lib/api";
@@ -9,11 +10,13 @@ import { CoberturaCompleta } from "@/components/CoberturaCompleta";
 export async function generateMetadata({params}:{params:Promise<{id:string}>}): Promise<Metadata>{ const {id}=await params; let t=`Cluster #${id} - ${SITE_NAME}`; try{ const d=await obterDetalheCluster(id); t=d.titulo;}catch{} return {title:t, openGraph:{url:`${SITE_URL}/noticia/cluster/${id}`}}; }
 export function generateStaticParams(){ return [{id:"1"}]; }
 export const revalidate=60;
-async function getD(id:string): Promise<FeedDetalhe>{ try{ return await obterDetalheCluster(id);}catch{ return {tipo:"cluster",id:Number(id)||1,titulo:`Cluster #${id}`,categoria:"geral",urgente:false,timestamp:new Date().toISOString(),fontes:[{nome_fonte:"Fonte Exemplo",url_fonte_original:"https://example.com",resumo:"Resumo indisponível no momento"}]}; } }
+// P0-08: sem "Fonte Exemplo" — cluster inexistente vira 404, não notícia fictícia.
+async function getD(id:string): Promise<FeedDetalhe|null>{ try{ return await obterDetalheCluster(id);}catch{ return null; } }
 type Relacionado = { id: number; titulo: string; categoria: string; imagem_url?: string };
 export default async function Page({params}:{params:Promise<{id:string}>}){
   const {id}=await params;
   const d=await getD(id);
+  if(!d) notFound();
   const jsonLd=newsArticleJsonLd({id:d.id,tipo:"cluster",titulo:d.titulo,categoria:d.categoria,timestamp:d.timestamp,fontes:d.fontes.map(f=>({nome_fonte:f.nome_fonte,url_fonte_original:f.url_fonte_original}))});
   const imagemReal=d.fontes.find((f)=>f.imagem_url)?.imagem_url||"";
   const heroSrc=imagemNoticia({imagem_url: imagemReal, categoria:d.categoria,id:d.id,titulo:d.titulo});

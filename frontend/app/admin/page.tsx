@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
+import { EstadoVazio } from "@/components/EstadoVazio";
 import { cn } from "@/lib/utils";
 import * as api from "@/lib/api";
 import {
@@ -443,48 +444,16 @@ export default function Page() {
             <Separator className="my-4 bg-[var(--cor-borda)]" />
             <div className="relative ml-3 border-l border-[var(--cor-borda)] pl-6">
               <div className="space-y-5">
-                <div className="relative">
-                  <span className="absolute -left-[31px] top-1 flex h-5 w-5 items-center justify-center rounded-full border-2 border-[var(--cor-fundo-card)]" style={{ background: "var(--cor-primaria)" }}>
-                    <CheckCircle2 className="h-3 w-3 text-white" />
-                  </span>
-                  <p className="text-sm font-medium text-[var(--cor-texto)]">“Mercado em alta: bolsa fecha em novo recorde” aprovado</p>
-                  <p className="text-xs text-[var(--cor-texto-suave)]">Fila • por admin@brd.com • há 12 min</p>
-                </div>
-                <div className="relative">
-                  <span className="absolute -left-[31px] top-1 flex h-5 w-5 items-center justify-center rounded-full border-2 border-[var(--cor-fundo-card)]" style={{ background: "var(--cor-neon-violeta)" }}>
-                    <UserPlus className="h-3 w-3 text-white" />
-                  </span>
-                  <p className="text-sm font-medium text-[var(--cor-texto)]">Novo cadastro — marina.oliveira@exemplo.com</p>
-                  <p className="text-xs text-[var(--cor-texto-suave)]">Usuários • plano free • há 34 min</p>
-                </div>
-                <div className="relative">
-                  <span className="absolute -left-[31px] top-1 flex h-5 w-5 items-center justify-center rounded-full border-2 border-[var(--cor-fundo-card)]" style={{ background: "var(--cor-neon-ciano)" }}>
-                    <Bot className="h-3 w-3 text-white" />
-                  </span>
-                  <p className="text-sm font-medium text-[var(--cor-texto)]">Robôs executados — 14 itens ingeridos, 3 grupos formados</p>
-                  <p className="text-xs text-[var(--cor-texto-suave)]">Ingestão • sem erros • há 1 h</p>
-                </div>
-                <div className="relative">
-                  <span className="absolute -left-[31px] top-1 flex h-5 w-5 items-center justify-center rounded-full border-2 border-[var(--cor-fundo-card)]" style={{ background: "var(--cor-alerta)" }}>
-                    <Crown className="h-3 w-3 text-white" />
-                  </span>
-                  <p className="text-sm font-medium text-[var(--cor-texto)]">Assinatura Premium renovada — 2 pagamentos aprovados</p>
-                  <p className="text-xs text-[var(--cor-texto-suave)]">Receita • R$ 59,80 • há 2 h</p>
-                </div>
-                <div className="relative">
-                  <span className="absolute -left-[31px] top-1 flex h-5 w-5 items-center justify-center rounded-full border-2 border-[var(--cor-fundo-card)]" style={{ background: "var(--cor-erro)" }}>
-                    <ShieldAlert className="h-3 w-3 text-white" />
-                  </span>
-                  <p className="text-sm font-medium text-[var(--cor-texto)]">Denúncia resolvida — spam removido e autor notificado</p>
-                  <p className="text-xs text-[var(--cor-texto-suave)]">Moderação • há 3 h</p>
-                </div>
-                <div className="relative">
-                  <span className="absolute -left-[31px] top-1 flex h-5 w-5 items-center justify-center rounded-full border-2 border-[var(--cor-fundo-card)]" style={{ background: "var(--cor-texto-suave)" }}>
-                    <FileText className="h-3 w-3 text-white" />
-                  </span>
-                  <p className="text-sm font-medium text-[var(--cor-texto)]">Plano “Premium Anual” atualizado — duração 365 dias</p>
-                  <p className="text-xs text-[var(--cor-texto-suave)]">Planos • há 5 h</p>
-                </div>
+                {/* P0-08: esta linha do tempo era totalmente fictícia — manchetes
+                    aprovadas, cadastros, pagamentos e renovações inventados, com
+                    valores e horários que pareciam reais. Substituída por um
+                    estado vazio honesto; a atividade real deve vir da API. */}
+                <EstadoVazio
+                  className="border-dashed"
+                  titulo="Nenhuma atividade registrada hoje"
+                  descricao="A Central ainda não retornou eventos para o dia. Nenhum evento foi fabricado para preencher a linha do tempo."
+                  acao={{ rotulo: "Ver métricas", href: "/admin/metricas" }}
+                />
               </div>
             </div>
             <div className="mt-5 flex gap-2">

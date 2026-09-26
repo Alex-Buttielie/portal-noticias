@@ -17,12 +17,13 @@ import { useQueryPublicacoesComunidade, invalidarQueriesComunidade } from "@/lib
 import type { FiltrosPublicacoesComunidade } from "@/lib/query-keys";
 import { useQueryClient } from "@tanstack/react-query";
 import * as api from "@/lib/api";
+import { EstadoVazio } from "@/components/EstadoVazio";
 import { registrarEventoComunidade } from "@/lib/interacoes-comunidade";
 import { formatarDataCurta } from "@/lib/datas";
 import { cn } from "@/lib/utils";
 import {
   Users, MessageSquare, Shield, Newspaper, Star, Search, LogIn, Plus, Eye,
-  UserPlus, UserMinus, Send, Flag, Flame, Clock, TrendingUp, Link2, RotateCcw, MessagesSquare,
+  UserPlus, UserMinus, Send, Flag, Flame, Clock, TrendingUp, Link2, MessagesSquare,
 } from "lucide-react";
 
 type Grupo = { slug: string; nome: string; desc: string };
@@ -42,11 +43,6 @@ const LS_SEGUINDO = "brd_autores_seguindo";
 
 function readLS(key: string): string[] { try { const v = localStorage.getItem(key); return v ? JSON.parse(v) as string[] : []; } catch { return []; } }
 function writeLS(key: string, v: string[]) { try { localStorage.setItem(key, JSON.stringify(v)); } catch { } }
-
-const MOCK_PUBS: api.Publicacao[] = [
-  { id: 901, autor: 1, autor_nome: "Ana Política", titulo: "Opinião: reforma e cidades", conteudo: "Análise curta sobre impacto urbano.", tipo: "opiniao", status: "publicado", categoria: "politica", tags: ["exemplo", "cidades"], news_cluster: 1, news_item: null, destaque: true, numero_comentarios: 12, criado_em: new Date().toISOString(), publicado_em: new Date().toISOString() },
-  { id: 902, autor: 2, autor_nome: "Bruno Tech", titulo: "Análise: IA no jornalismo", conteudo: "Como IA reorganiza redação e checagem.", tipo: "analise", status: "publicado", categoria: "tecnologia", tags: ["ia", "exemplo"], news_cluster: null, news_item: null, destaque: false, numero_comentarios: 4, criado_em: new Date().toISOString(), publicado_em: new Date().toISOString() },
-];
 
 /** Link de notícia relacionada (ecossistema): cluster > item > editoria. */
 function linkNoticiaRelacionada(p: api.Publicacao): { href: string; rotulo: string } | null {
@@ -113,20 +109,9 @@ export default function Page() {
   };
   const { data: pubsData, isLoading, isError, error, refetch } = useQueryPublicacoesComunidade(filtros);
 
-  // Fallback local (modo offline): filtro client-side sobre o mock quando a API falha.
-  const pubs = useMemo(() => {
-    if (isError) {
-      return MOCK_PUBS.filter((p) => {
-        if (tipoFiltro !== "todos" && p.tipo !== tipoFiltro) return false;
-        const cat = grupoFiltro || (catFiltro !== "todas" ? catFiltro : null);
-        if (cat && p.categoria !== cat) return false;
-        if (tab === "destaques" && !p.destaque) return false;
-        if (buscaDeb && !`${p.titulo} ${p.autor_nome}`.toLowerCase().includes(buscaDeb.toLowerCase())) return false;
-        return true;
-      });
-    }
-    return pubsData ?? [];
-  }, [isError, pubsData, tipoFiltro, grupoFiltro, catFiltro, tab, buscaDeb]);
+  // P0-08: sem publicação fictícia. Feed vazio => estado vazio; erro => estado
+  // de erro com "Tentar de novo". Nunca Popularmos o feed com textos inventados.
+  const pubs = useMemo(() => pubsData ?? [], [pubsData]);
 
   const carregar = useCallback(async () => {
     const cat = grupoFiltro || (catFiltro !== "todas" ? catFiltro : undefined);
@@ -357,27 +342,25 @@ export default function Page() {
                 </CardContent>
               </Card>
 
-              {isError && (
-                <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900" role="alert">
-                  <span>{error?.message || "Não foi possível carregar o feed ao vivo — mostrando conteúdo local."}</span>
-                  <Button size="sm" variant="outline" className="gap-1" onClick={carregar}><RotateCcw className="h-3.5 w-3.5" aria-hidden />Tentar de novo</Button>
-                </div>
-              )}
-
               <div aria-live="polite" aria-busy={isLoading}>
                 {isLoading ? <EsqueletoFeed />
-                  : pubs.length === 0 ? (
-                    <Card className="border-[var(--cor-borda)] bg-[var(--cor-fundo-card)]">
-                      <CardContent className="p-6 text-center">
-                        <MessagesSquare className="mx-auto h-8 w-8 text-[var(--cor-texto-suave)]" aria-hidden />
-                        <p className="mt-2 text-sm font-medium text-[var(--cor-texto)]">Nenhuma discussão por aqui — ainda.</p>
-                        <p className="text-sm text-[var(--cor-texto-suave)]">Ajuste os filtros ou abra o primeiro debate da editoria.</p>
-                        <div className="mt-3 flex justify-center gap-2">
-                          {temFiltroAtivo && <Button variant="outline" size="sm" className="border-[var(--cor-borda)]" onClick={limparFiltros}>Limpar filtros</Button>}
-                          <Button size="sm" className="bg-[var(--cor-primaria)] text-[var(--cor-texto-invertido)]" onClick={() => setOpenCriar(true)}>Abrir discussão</Button>
-                        </div>
-                      </CardContent>
-                    </Card>
+                  : isError ? (
+                    <EstadoVazio
+                      tom="erro"
+                      titulo="Não foi possível carregar as discussões"
+                      descricao="O serviço de comunidade não respondeu. Nenhuma publicação foi fabricada para preencher o feed."
+                      onTentarDeNovo={carregar}
+                    />
+                  ) : pubs.length === 0 ? (
+                    <EstadoVazio
+                      titulo="Nenhuma discussão por aqui — ainda."
+                      descricao="Ajuste os filtros ou abra o primeiro debate da editoria."
+                    >
+                      <div className="flex flex-wrap justify-center gap-2">
+                        {temFiltroAtivo && <Button variant="outline" size="sm" className="border-[var(--cor-borda)]" onClick={limparFiltros}>Limpar filtros</Button>}
+                        <Button size="sm" className="bg-[var(--cor-primaria)] text-[var(--cor-texto-invertido)]" onClick={() => setOpenCriar(true)}>Abrir discussão</Button>
+                      </div>
+                    </EstadoVazio>
                   ) : (
                     <div className="grid gap-3">
                       {pubs.map((p, idx) => <CartaoPub key={p.id} p={p} idx={idx} />)}
@@ -388,8 +371,10 @@ export default function Page() {
 
             <TabsContent value="destaques" className="space-y-3">
               <div aria-live="polite" aria-busy={isLoading}>
-                {isLoading ? <EsqueletoFeed /> : destaques.length === 0 ? (
-                  <Card className="border-[var(--cor-borda)] bg-[var(--cor-fundo-card)]"><CardContent className="p-6 text-center text-sm text-[var(--cor-texto-suave)]">Sem destaques da curadoria por enquanto — o Feed segue aberto.</CardContent></Card>
+                {isLoading ? <EsqueletoFeed /> : isError ? (
+                  <EstadoVazio tom="erro" titulo="Não foi possível carregar os destaques" descricao="Nenhuma curadoria foi fabricada para preencher a lista." onTentarDeNovo={carregar} />
+                ) : destaques.length === 0 ? (
+                  <EstadoVazio titulo="Sem destaques da curadoria por enquanto" descricao="O Feed segue aberto — nenhuma discussão foi marcada como destaque." />
                 ) : (
                   <div className="grid gap-3">
                     <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-widest text-[var(--cor-texto-suave)]"><Star className="h-3.5 w-3.5" aria-hidden />Escolhas da curadoria</p>
@@ -401,8 +386,10 @@ export default function Page() {
 
             <TabsContent value="discutidos" className="space-y-3">
               <div aria-live="polite" aria-busy={isLoading}>
-                {isLoading ? <EsqueletoFeed /> : pubs.length === 0 ? (
-                  <Card className="border-[var(--cor-borda)] bg-[var(--cor-fundo-card)]"><CardContent className="p-6 text-center text-sm text-[var(--cor-texto-suave)]">Ainda sem termômetro — seja a primeira voz.</CardContent></Card>
+                {isLoading ? <EsqueletoFeed /> : isError ? (
+                  <EstadoVazio tom="erro" titulo="Não foi possível carregar o ranking" descricao="Nenhum número de discussões foi estimado para preencher a lista." onTentarDeNovo={carregar} />
+                ) : pubs.length === 0 ? (
+                  <EstadoVazio titulo="Ainda sem termômetro" descricao="Nenhuma discussão para ordenar — seja a primeira voz." />
                 ) : (
                   <div className="grid gap-3">
                     <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-widest text-[var(--cor-texto-suave)]"><Flame className="h-3.5 w-3.5" aria-hidden />Ordenado por comentários</p>
@@ -416,7 +403,9 @@ export default function Page() {
               <div className="grid gap-3 sm:grid-cols-2">
                 {GRUPOS.map((g) => {
                   const countPubs = pubs.filter((p) => p.categoria === g.slug).length;
-                  const membrosMock = 80 + g.slug.length * 37 + countPubs * 7;
+                  // P0-08: contagem de membros vinha de uma fórmula arbitrária
+                  // (80 + ...) e era apresentada como real. Sem dado da API,
+                  // mostramos apenas o que é verdade: as publicações do grupo.
                   const isMembro = membros.includes(g.slug);
                   return (
                     <Card key={g.slug} className={cn("border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] flex flex-col", isMembro && "ring-1 ring-[var(--cor-primaria)]")}>
@@ -430,8 +419,8 @@ export default function Page() {
                       </CardHeader>
                       <CardContent className="mt-auto space-y-3">
                         <div className="flex gap-3 text-xs text-[var(--cor-texto-suave)]">
-                          <span className="flex items-center gap-1"><Users className="h-3.5 w-3.5" aria-hidden />{membrosMock} membros</span>
-                          <span className="flex items-center gap-1"><Newspaper className="h-3.5 w-3.5" aria-hidden />{countPubs} pubs</span>
+                          <span className="flex items-center gap-1"><Newspaper className="h-3.5 w-3.5" aria-hidden />{countPubs} {countPubs === 1 ? "pub" : "pubs"}</span>
+                          {isMembro && <span className="flex items-center gap-1"><Users className="h-3.5 w-3.5" aria-hidden />você participa</span>}
                         </div>
                         <div className="flex gap-2">
                           <Button size="sm" className={cn("flex-1 min-h-[36px] gap-1", isMembro ? "bg-[var(--cor-fundo-elevado)] text-[var(--cor-texto)] border border-[var(--cor-borda)] hover:bg-[var(--cor-borda)]" : "bg-[var(--cor-primaria)] text-[var(--cor-texto-invertido)]")} onClick={() => toggleGrupo(g.slug)}>

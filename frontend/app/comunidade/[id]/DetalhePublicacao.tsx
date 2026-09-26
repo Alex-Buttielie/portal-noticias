@@ -25,9 +25,8 @@ const LS_SEGUINDO = "brd_autores_seguindo";
 function readLS(k: string): string[] { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) as string[] : []; } catch { return []; } }
 function writeLS(k: string, v: string[]) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { } }
 
-function fallbackPub(id: number, rawId: string): any {
-  return { id, titulo: `Publicação #${rawId}`, conteudo: "Conteúdo indisponível no momento.", tipo: "opiniao", status: "publicado", categoria: "geral", autor: 1, autor_nome: "Autor Exemplo", tags: ["exemplo"], news_cluster: null, news_item: null, destaque: false, numero_comentarios: 0, criado_em: new Date().toISOString(), publicado_em: new Date().toISOString() };
-}
+// P0-08: fallbackPub existia só para fabricar uma publicação ("Autor Exemplo")
+// quando a API falhava. Removido: publicação real ou estado de erro.
 
 // Componente de cliente puro: recebe `id` já resolvido pelo Server Component
 // em `./page.tsx`. Não use `use(params)` aqui — `use` só existe a partir do

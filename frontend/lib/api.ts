@@ -661,7 +661,7 @@ export interface Publicacao {
   news_cluster: number | null;
   news_item: number | null;
   destaque: boolean;
-  /** FRENTE 4 (Comunidade viva): nº de comentários visíveis (backend anotado; mock local pode omitir). */
+  /** FRENTE 4 (Comunidade viva): nº de comentários visíveis, anotado pelo backend. */
   numero_comentarios?: number;
   criado_em: string;
   publicado_em: string | null;

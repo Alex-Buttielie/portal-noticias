@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { notFound } from "next/navigation";
 import { SITE_NAME, SITE_URL } from "@/lib/site";
 import { newsArticleJsonLd } from "@/lib/schema";
 import { obterDetalheCluster, obterDetalheItem, obterFeed, type FeedDetalhe } from "@/lib/api";
@@ -15,14 +16,18 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
 }
 export function generateStaticParams() { return [{ id: "1" }]; }
 export const revalidate = 60;
+// P0-08: notícia que não existe na API não é reconstruída. Antes esta rota
+// fabricava um corpo ("Fonte Exemplo") para "não quebrar build" — agora devolve
+// 404 quando o ID não existe e um estado de erro honesto quando a API falha.
 async function getDetalhe(id: string): Promise<FeedDetalhe | null> {
   try { return await obterDetalheCluster(id); } catch {}
   try { return await obterDetalheItem(id); } catch {}
-  return { tipo: "item", id: Number(id) || 1, titulo: `Notícia #${id} — conteúdo de demonstração`, categoria: "geral", urgente: false, timestamp: new Date().toISOString(), fontes: [{ nome_fonte: "Fonte Exemplo", url_fonte_original: "https://example.com", resumo: "Resumo de fallback — API offline. Conteúdo demonstrativo para não quebrar build." }]};
+  return null;
 }
 export default async function Page({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const d = (await getDetalhe(id))!;
+  const d = await getDetalhe(id);
+  if (!d) notFound();
   const jsonLd = newsArticleJsonLd({ id: d.id, tipo: d.tipo, titulo: d.titulo, categoria: d.categoria, timestamp: d.timestamp, fontes: d.fontes.map(f=>({ nome_fonte:f.nome_fonte, url_fonte_original:f.url_fonte_original })) });
   const imagemReal = d.fontes.find((f) => f.imagem_url)?.imagem_url || "";
   const heroSrc = imagemNoticia({ imagem_url: imagemReal, categoria: d.categoria, id: d.id, titulo: d.titulo });

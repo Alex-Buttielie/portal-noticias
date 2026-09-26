@@ -9,17 +9,13 @@ import * as api from "@/lib/api";
 import { useQueryAdminAssinaturas } from "@/lib/queries";
 import { formatarDataCurta } from "@/lib/datas";
 
-const MOCK: api.AdminAssinatura[] = [
-  { id: 1, user_email: "user@exemplo.com", user_nome: "Usuário Exemplo", plan: { id: 2, nome: "Premium", preco: "29.90", duracao_dias: 30 }, status: "ativa", preco_cobrado: "29.90", criado_em: new Date().toISOString() },
-];
-
 export default function Page(){
   const { usuario, token } = useAuth();
   const [busca,setBusca]=useState("");
   const [buscaAplicada,setBuscaAplicada]=useState<string|null>(null);
   // A tela só carrega após o clique em "Buscar" (buscaAplicada sai de null).
   const consulta=useQueryAdminAssinaturas({ token, usuarioId: usuario?.id ?? 0, filtros: { busca: buscaAplicada }, habilitada: buscaAplicada !== null });
-  const itens=consulta.isError?MOCK:(consulta.data?.results ?? []);
+  const itens=consulta.data?.results ?? [];
   const loading=consulta.isFetching;
   const err=consulta.isError
     ? (consulta.error instanceof Error ? consulta.error.message : "Falha ao carregar — tente novamente")

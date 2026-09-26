@@ -7,7 +7,7 @@
  * conteúdo, comportamento, localização, séries temporais, comparativo com o
  * período anterior e insights editoriais automáticos — tudo agregado de
  * eventos reais. Sem dados, a tela mostra "sem dados", nunca números
- * inventados (o fallback mock da versão anterior foi removido).
+ * inventados.
  *
  * Inclui ainda os controles editoriais cujos overrides o algoritmo
  * respeita: `DestaqueEditorial` (manchete/destaque/bloqueio por entrada,
