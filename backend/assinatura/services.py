@@ -31,6 +31,8 @@ from .providers.payment import (
 
 logger = logging.getLogger(__name__)
 
+logger = logging.getLogger(__name__)
+
 
 class AssinaturaJaExisteError(Exception):
     """Usuário já tem uma assinatura ativa/teste/pagamento_pendente — não cria uma segunda concorrente."""
@@ -557,6 +559,9 @@ def processar_vencimentos_e_grace_periods(payment_gateway: PaymentGatewayProvide
         "renovacoes_aguardando": 0,
         "renovacoes_ja_em_aberto": 0,
         "renovacoes_recusadas": 0,
+        # P1-08: as falhas por assinatura entram no relatório em vez de
+        # abortarem a varredura (ver o isolamento logo abaixo).
+        "erros": 0,
     }
 
     # Inadimplente com grace period vencido -> expirada (derruba Premium).
@@ -577,24 +582,63 @@ def processar_vencimentos_e_grace_periods(payment_gateway: PaymentGatewayProvide
 
     # Ativa cujo vencimento chegou: renova automaticamente (se consentido)
     # ou expira.
+    #
+    # P1-08 — ISOLAMENTO POR ASSINATURA. Este é o único laço que fala com a
+    # rede, e antes da correção uma única `criar_cobranca` que levantasse
+    # exceção (provedor fora do ar, timeout, credencial expirada — o caso
+    # comum, não o raro) saía do laço, abortava a varredura INTEIRA e
+    # impedia o tratamento das assinaturas restantes. Como esta task roda a cada
+    # 60 min, um provedor instável mantinha `ativa`/`vencimento` no passado
+    # para sempre — vazamento silencioso, sem erro visível (a task falhava
+    # longe do usuário). Agora cada assinatura é transacionada por conta
+    # própria: uma falha conta em `erros`, é logada com o identificador, e a
+    # varredura continua. O direito do usuário que falhou não é mais decidido
+    # por esta task — `deveria_ter_acesso_premium` já nega pelo `vencimento`
+    # (gating.services.plano_do_usuario), então a falha aqui é adiada, nunca
+    # permissiva.
     for subscription in Subscription.objects.filter(status=Subscription.STATUS_ATIVA, vencimento__lte=agora):
-        if not subscription.renovacao_automatica:
-            _transicionar(
-                subscription,
-                Subscription.STATUS_EXPIRADA,
-                "Vencimento atingido sem renovação automática habilitada.",
+        # P1-08 — ISOLAMENTO POR ASSINATURA. Este é o único laço que fala com
+        # a rede, e sem este `try` uma única renovação que levantasse exceção
+        # (provedor fora do ar, timeout, credencial expirada — o caso comum,
+        # não o raro) saía do laço e ABORTAVA A VARREDURA INTEIRA: as
+        # assinaturas restantes não eram processadas e nenhuma era expirada.
+        # Como a task roda a cada 60 min, um provedor instável mantinha
+        # `ativa` com `vencimento` no passado por TEMPO INDETERMINADO — e
+        # nenhuma linha de log apontava para o usuário afetado, porque a task
+        # falhava longe dele.
+        #
+        # O direito NÃO passa a depender desta task: `deveria_ter_acesso_premium`
+        # já nega pelo `vencimento` no momento da requisição
+        # (`gating.services.plano_do_usuario`), então a falha aqui é adiada,
+        # nunca permissiva. A task é limpeza; o gate é o direito.
+        try:
+            if not subscription.renovacao_automatica:
+                _transicionar(
+                    subscription,
+                    Subscription.STATUS_EXPIRADA,
+                    "Vencimento atingido sem renovação automática habilitada.",
+                )
+                resultado["expiradas"] += 1
+                continue
+            acao = _renovar(subscription, payment_gateway)
+            if acao == "renovada":
+                resultado["renovadas"] += 1
+            elif acao == "renovacao_aguardando":
+                resultado["renovacoes_aguardando"] += 1
+            elif acao == "renovacao_ja_em_aberto":
+                resultado["renovacoes_ja_em_aberto"] += 1
+            elif acao == "renovacao_recusada":
+                resultado["renovacoes_recusadas"] += 1
+        except Exception:
+            resultado["erros"] += 1
+            logger.exception(
+                "Falha ao processar o vencimento da assinatura %s (usuário %s): "
+                "a varredura continua para as demais. O acesso Premium deste "
+                "usuário NÃO é concedido por causa desta falha — o gating "
+                "nega pelo `vencimento` no momento da requisição.",
+                subscription.pk,
+                subscription.user_id,
             )
-            resultado["expiradas"] += 1
-            continue
-        acao = _renovar(subscription, payment_gateway)
-        if acao == "renovada":
-            resultado["renovadas"] += 1
-        elif acao == "renovacao_aguardando":
-            resultado["renovacoes_aguardando"] += 1
-        elif acao == "renovacao_ja_em_aberto":
-            resultado["renovacoes_ja_em_aberto"] += 1
-        elif acao == "renovacao_recusada":
-            resultado["renovacoes_recusadas"] += 1
 
     return resultado
 

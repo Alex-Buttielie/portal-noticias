@@ -31,6 +31,9 @@ def test_processar_vencimentos_sem_nada_a_processar_retorna_zeros():
     # P1-07: o dicionário cresceu com os contadores de renovação que
     # distinguem "renovado" de "cobrança criada aguardando o provedor" e
     # de "já havia cobrança em aberto" (a guarda anti-cobrança-dupla).
+    # P1-08: e com `erros`, porque a varredura passou a isolar a falha de cada
+    # assinatura — uma renovação que levanta exceção não pode mais abortar o
+    # laço inteiro, e o contador é o que torna isso observável.
     assert tasks.processar_vencimentos() == {
         "expiradas": 0,
         "encerradas": 0,
@@ -38,4 +41,5 @@ def test_processar_vencimentos_sem_nada_a_processar_retorna_zeros():
         "renovacoes_aguardando": 0,
         "renovacoes_ja_em_aberto": 0,
         "renovacoes_recusadas": 0,
+        "erros": 0,
     }

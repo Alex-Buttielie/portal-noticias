@@ -368,9 +368,25 @@ class TestGatingCache:
         assert premium_ativo() is False
 
     def test_premium_ativo_invalida_no_delete(self):
+        """
+        O objetivo deste teste é a INVALIDAÇÃO DO CACHE, não o valor de
+        retorno: o `delete()` em lote não passa por `Model.delete()` (ver o
+        override de `ConfiguracaoSistemaQuerySet`), e é o override que dispara
+        `invalidar_cache_gating()`. Sem ele, o valor True ficaria preso no
+        cache até o TTL.
+
+        P1-08 mudou o valor esperado do segundo assert: apagar a linha pk=1
+        deixou de devolver `False` ("liberado para todos") e passou a devolver
+        `True` (fail-closed) — ausência de configuração não é autorização, e
+        a versão anterior deste teste fixava como verdade o comportamento
+        permissivo que abria o Premium para todos quando a linha sumisse. O
+        valor da flag ANTES do delete continua sendo True, então a
+        invalidação ainda é observada: sem ela, o segundo assert leria o
+        cache e devolveria o valor anterior.
+        """
         from gating.services import premium_ativo
 
         ConfiguracaoSistema.objects.update_or_create(pk=1, defaults={"premium_ativo": True})
         assert premium_ativo() is True
         ConfiguracaoSistema.objects.filter(pk=1).delete()
-        assert premium_ativo() is False
+        assert premium_ativo() is True
