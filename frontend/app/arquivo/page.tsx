@@ -10,8 +10,9 @@ import { ImagemNoticia } from "@/components/ImagemNoticia";
 export const metadata: Metadata = { title: `Arquivo — ${SITE_NAME}`, description: `Arquivo de notícias do ${SITE_NAME}.` };
 export const revalidate = 60;
 const MOCK: FeedEntrada[] = Array.from({ length: 12 }, (_, i) => ({ tipo: i % 3 === 0 ? "cluster" : "item", id: 300 + i, titulo: `Arquivo #${300 + i} — manchete demonstrativa`, resumo: "Conteúdo de exemplo para demonstração.", categoria: ["política", "economia", "tecnologia", "cidades"][i % 4], urgente: i === 0, numero_fontes: 2 + (i % 3), timestamp: new Date(Date.now() - i * 3600000 * 6).toISOString() }));
-export default async function Page({ searchParams }: { searchParams: { page?: string } }) {
-  const page = Math.max(1, Number(searchParams.page) || 1);
+export default async function Page({ searchParams }: { searchParams: Promise<{ page?: string }> }) {
+  const sp = await searchParams;
+  const page = Math.max(1, Number(sp.page) || 1);
   let itens: FeedEntrada[] = [];
   try { const r = await obterFeed({ page }); itens = r.results?.length ? r.results : MOCK; } catch { itens = MOCK; }
   return (

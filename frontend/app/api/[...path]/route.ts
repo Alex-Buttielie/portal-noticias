@@ -17,9 +17,15 @@ function destino(req: NextRequest): string {
   return `${base}/api${apiPath}${url.search}`;
 }
 
+// No Next 15 `ctx.params` é um Promise, mas segue deliberadamente NÃO awaited:
+// ver `destino()` acima. Reconstruir o path a partir de `params` remontaria
+// `/api/feed/` como `/api/feed` e o Django responderia 301, recriando o loop
+// 308 (Next) <-> 301 (Django) que o `skipTrailingSlashRedirect` existe para
+// evitar. O tipo continua declarado para satisfazer o validador de rota gerado
+// pelo Next (.next/types), que confere o segundo argumento do handler.
 async function repassar(
   req: NextRequest,
-  ctx: { params: { path?: string[] } },
+  ctx: { params: Promise<{ path: string[] }> },
 ): Promise<NextResponse> {
   let resp: Response;
   try {

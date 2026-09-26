@@ -12,16 +12,18 @@ import { hrefSubcategoria, subcategoriasCompletas } from "@/lib/categorias";
 import { CategoriaReporter } from "@/components/Reporters";
 import { breadcrumbListJsonLd } from "@/lib/schema";
 
-export async function generateMetadata({ params }: { params: { slug: string } }): Promise<Metadata> {
-  const cat = decodeURIComponent(params.slug);
+export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
+  const { slug: slugParam } = await params;
+  const cat = decodeURIComponent(slugParam);
   return { title: `${cat} — ${SITE_NAME}`, description: `Notícias de ${cat} no ${SITE_NAME}.`, openGraph: { title: `${cat} — ${SITE_NAME}`, url: `${SITE_URL}/categoria/${encodeURIComponent(cat)}` } };
 }
 export function generateStaticParams() { return [{ slug: "politica" }, { slug: "economia" }, { slug: "tecnologia" }, { slug: "esportes" }, { slug: "cultura" }]; }
 export const revalidate = 60;
 const MOCK: FeedEntrada[] = [{ tipo: "item", id: 99, titulo: "Conteúdo de exemplo", resumo: "Conteúdo de exemplo.", categoria: "geral", urgente: false, numero_fontes: 1, timestamp: new Date().toISOString() }];
 function timeAgo(iso: string){const d=Date.now()-new Date(iso).getTime();const h=Math.floor(d/3600000);if(h<1)return"agora";if(h<24)return`${h}h`;return`${Math.floor(h/24)}d`;}
-export default async function Page({ params }: { params: { slug: string } }) {
-  const slug = decodeURIComponent(params.slug);
+export default async function Page({ params }: { params: Promise<{ slug: string }> }) {
+  const { slug: slugParam } = await params;
+  const slug = decodeURIComponent(slugParam);
   let itens: FeedEntrada[] = [];
   try { const r = await obterFeed({ categoria: slug }); itens = r.results?.length ? r.results : MOCK.map(x=>({...x,categoria:slug})); } catch { itens = MOCK.map(x=>({...x,categoria:slug})); }
   const jsonLd = breadcrumbListJsonLd([{ nome: "Início", url: SITE_URL }, { nome: slug, url: `${SITE_URL}/categoria/${encodeURIComponent(slug)}` }]);

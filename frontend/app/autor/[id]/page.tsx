@@ -13,10 +13,11 @@ import { BadgeCheck } from "lucide-react";
 // especialidade (assunto mais frequente), selo por texto e lista completa
 // de conteúdos — tudo derivado do dado real, sem invenção.
 
-export async function generateMetadata({ params }: { params: { id: string } }): Promise<Metadata> {
-  let nome = `Autor #${params.id}`;
+export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
+  const { id: idParam } = await params;
+  let nome = `Autor #${idParam}`;
   try {
-    const p = await obterPerfilAutor(Number(params.id));
+    const p = await obterPerfilAutor(Number(idParam));
     if (p?.nome) nome = p.nome;
   } catch {}
   return { title: `${nome} — Colunista — ${SITE_NAME}` };
@@ -44,8 +45,9 @@ function especialidadeDe(perfil: PerfilAutorPublico): string | null {
   return melhor ? melhor.rotulo : null;
 }
 
-export default async function Page({ params }: { params: { id: string } }) {
-  const id = Number(params.id);
+export default async function Page({ params }: { params: Promise<{ id: string }> }) {
+  const { id: idParam } = await params;
+  const id = Number(idParam);
   let perfil: PerfilAutorPublico | null = null;
   try {
     perfil = await obterPerfilAutor(Number.isFinite(id) ? id : 1);
