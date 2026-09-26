@@ -196,19 +196,24 @@ def test_google_login_cria_usuario_novo_free_com_email_verificado():
 
     fake_sociallogin = SocialLogin(
         user=User(email="social@example.com", nome="Social Teste"),
-        account=SocialAccount(provider="google", uid="12345"),
+        account=SocialAccount(
+            provider="google", uid="12345", extra_data={"nonce": "nonce-de-teste"}
+        ),
         email_addresses=[EmailAddress(email="social@example.com", verified=True, primary=True)],
         provider=provider,
     )
+
+    client = APIClient()
+    nonce = client.post("/api/auth/google/iniciar/", {}, format="json").data["nonce"]
+    fake_sociallogin.account.extra_data = {"nonce": nonce}
 
     with patch(
         "allauth.socialaccount.providers.google.provider.GoogleProvider.verify_token",
         return_value=fake_sociallogin,
     ):
-        client = APIClient()
         resp = client.post(
             "/api/auth/google/",
-            {"id_token": "token-fake-de-teste", "aceite_termos": True},
+            {"id_token": "token-fake-de-teste", "aceite_termos": True, "nonce": nonce},
             format="json",
         )
 

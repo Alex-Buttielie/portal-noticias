@@ -495,6 +495,18 @@ SOCIALACCOUNT_PROVIDERS = {
     }
 }
 
+# Validade do `state`/`nonce` do login Google (P1-05). Este fluxo não
+# redireciona o navegador (o OAuth é resolvido no cliente e chega ao backend
+# como `id_token`), então o `state` é emitido por
+# `POST /api/auth/google/iniciar/`, guardado na sessão e tem de voltar
+# assinado no claim `nonce` do `id_token` — ver
+# `identidade/oauth_google.py`. Dez minutos é folgado para um login que
+# envolve abrir o Google, escolher a conta e voltar, e curto o bastante
+# para que um nonce esquecido no navegador não sirva amanhã.
+GOOGLE_OAUTH_NONCE_MAX_AGE_SECONDS = int(
+    os.environ.get("GOOGLE_OAUTH_NONCE_MAX_AGE_SECONDS", 600)
+)
+
 
 # Django REST Framework
 # DEFAULT_PERMISSION_CLASSES é IsAuthenticated (não AllowAny) — cada view do
