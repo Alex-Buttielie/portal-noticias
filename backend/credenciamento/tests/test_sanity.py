@@ -4,6 +4,17 @@ import pytest
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 
+# PDF com assinatura real (%PDF-): o hardening de upload (P0-10, eixo 3)
+# valida o CONTEUDO por magic bytes, entao um fixture com bytes ficticios
+# seria corretamente recusado. Este e o menor PDF estruturalmente valido.
+_PDF_MINIMO = (
+    b"%PDF-1.4\n"
+    b"1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n"
+    b"trailer<</Root 1 0 R>>\n"
+    b"%%EOF\n"
+)
+
+
 from credenciamento import services
 from credenciamento.models import PerfilJornalista, SolicitacaoCredenciamento
 
@@ -17,7 +28,7 @@ def _usuario(email="jorn@example.com"):
 
 
 def _documento():
-    return SimpleUploadedFile("diploma.pdf", b"conteudo-fake-pdf", content_type="application/pdf")
+    return SimpleUploadedFile("diploma.pdf", _PDF_MINIMO, content_type="application/pdf")
 
 
 def test_solicitar_cria_pendente():

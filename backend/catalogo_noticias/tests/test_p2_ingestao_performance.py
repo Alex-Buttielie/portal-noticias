@@ -85,7 +85,7 @@ def test_rss_envia_validators_e_persiste_resposta_200():
         fonte_robo=fonte,
     )
 
-    with patch("catalogo_noticias.providers.news_source.requests.get", return_value=resposta) as get:
+    with patch("catalogo_noticias.providers.news_source.SessaoEgress.get", return_value=resposta) as get:
         itens = provider.buscar_itens()
 
     assert len(itens) == 1
@@ -120,7 +120,7 @@ def test_pipeline_confirma_validators_somente_apos_persistir_itens():
         fonte_robo=fonte,
     )
     with patch(
-        "catalogo_noticias.providers.news_source.requests.get",
+        "catalogo_noticias.providers.news_source.SessaoEgress.get",
         return_value=resposta_200,
     ):
         executar_ingestao(
@@ -134,7 +134,7 @@ def test_pipeline_confirma_validators_somente_apos_persistir_itens():
 
     resposta_304 = MagicMock(status_code=304, content=b"", headers={})
     with patch(
-        "catalogo_noticias.providers.news_source.requests.get",
+        "catalogo_noticias.providers.news_source.SessaoEgress.get",
         return_value=resposta_304,
     ) as get:
         executar_ingestao(
@@ -171,9 +171,14 @@ def test_validator_nao_avanca_se_a_persistencia_do_lote_falhar(caplog):
         url_feed=fonte.url,
         fonte_robo=fonte,
     )
+    # P1-01: a falha do grupo e ISOLADA e registrada em log, nao propagada —
+    # por isso o `caplog` e as assercoes de aviso no fim deste teste.
+    # P0-10: o provider passou a buscar o feed por `SessaoEgress` (eixo 2,
+    # SSRF), entao o dublê precisa cobrir `SessaoEgress.get`. Um dublê em
+    # `requests.get` deixaria o teste sair para a rede de verdade.
     with caplog.at_level(logging.WARNING):
         with patch(
-            "catalogo_noticias.providers.news_source.requests.get",
+            "catalogo_noticias.providers.news_source.SessaoEgress.get",
             return_value=resposta,
         ):
             with patch(
@@ -238,7 +243,7 @@ def test_rss_304_nao_faz_parse_e_reenvia_validators():
         fonte_robo=fonte,
     )
 
-    with patch("catalogo_noticias.providers.news_source.requests.get", return_value=resposta) as get:
+    with patch("catalogo_noticias.providers.news_source.SessaoEgress.get", return_value=resposta) as get:
         with patch("catalogo_noticias.providers.news_source.feedparser.parse") as parse:
             assert provider.buscar_itens() == []
 
@@ -408,7 +413,7 @@ def test_revalidacao_periodica_forca_fetch_sem_validator_e_recupera_item():
     )
 
     with patch(
-        "catalogo_noticias.providers.news_source.requests.get",
+        "catalogo_noticias.providers.news_source.SessaoEgress.get",
         return_value=resposta,
     ) as get:
         executar_ingestao(
@@ -443,7 +448,7 @@ def test_304_falso_nao_prende_o_feed_para_sempre():
         fonte_robo=fonte,
     )
     with patch(
-        "catalogo_noticias.providers.news_source.requests.get",
+        "catalogo_noticias.providers.news_source.SessaoEgress.get",
         return_value=resposta_304,
     ) as get:
         executar_ingestao(
@@ -473,7 +478,7 @@ def test_304_falso_nao_prende_o_feed_para_sempre():
         fonte_robo=fonte,
     )
     with patch(
-        "catalogo_noticias.providers.news_source.requests.get",
+        "catalogo_noticias.providers.news_source.SessaoEgress.get",
         return_value=resposta_200,
     ) as get:
         executar_ingestao(
@@ -501,7 +506,7 @@ def test_erro_de_fetch_invalida_validator_antigo_para_proxima_tentativa():
         fonte_robo=fonte,
     )
     with patch(
-        "catalogo_noticias.providers.news_source.requests.get",
+        "catalogo_noticias.providers.news_source.SessaoEgress.get",
         side_effect=requests.RequestException("rede caiu"),
     ):
         executar_ingestao(
@@ -537,7 +542,7 @@ def test_confirmacao_de_validator_nao_sobrescreve_url_alterada():
         last_modified=fonte.last_modified,
         fonte_robo=fonte,
     )
-    with patch("catalogo_noticias.providers.news_source.requests.get", return_value=resposta):
+    with patch("catalogo_noticias.providers.news_source.SessaoEgress.get", return_value=resposta):
         provider.buscar_itens()
 
     # Simula outra alteração concorrente que não passou pelo save() do model.

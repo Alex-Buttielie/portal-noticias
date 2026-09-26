@@ -29,6 +29,8 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from decimal import Decimal
 
+from config.egress import EgressBloqueado, SessaoEgress
+
 
 @dataclass
 class ResultadoCobranca:
@@ -150,9 +152,14 @@ class MercadoPagoGatewayProvider(PaymentGatewayProvider):
         # período contratado é controlado pelo `vencimento` local.
         corpo["auto_recurring"]["repetitions"] = meses
         try:
-            resposta = requests.post(
-                f"{MP_API_BASE}/preapproval", json=corpo, headers=self._headers(), timeout=20
-            )
+            with SessaoEgress() as sessao:
+                resposta = sessao.post(
+                    f"{MP_API_BASE}/preapproval", json=corpo, headers=self._headers(), timeout=20
+                )
+        except EgressBloqueado as exc:
+            raise ProvedorPagamentoError(
+                f"Destino do Mercado Pago bloqueado pela política de segurança de saída: {exc}"
+            ) from exc
         except requests.RequestException as exc:
             raise ProvedorPagamentoError(f"Falha de rede ao criar preapproval no Mercado Pago: {exc}") from exc
         if resposta.status_code not in (200, 201):
@@ -170,9 +177,14 @@ class MercadoPagoGatewayProvider(PaymentGatewayProvider):
         import requests
 
         try:
-            resposta = requests.get(
-                f"{MP_API_BASE}/preapproval/{referencia_gateway}", headers=self._headers(), timeout=20
-            )
+            with SessaoEgress() as sessao:
+                resposta = sessao.get(
+                    f"{MP_API_BASE}/preapproval/{referencia_gateway}", headers=self._headers(), timeout=20
+                )
+        except EgressBloqueado as exc:
+            raise ProvedorPagamentoError(
+                f"Destino do Mercado Pago bloqueado pela política de segurança de saída: {exc}"
+            ) from exc
         except requests.RequestException as exc:
             raise ProvedorPagamentoError(f"Falha de rede ao consultar preapproval no Mercado Pago: {exc}") from exc
         if resposta.status_code == 404:
@@ -192,12 +204,17 @@ class MercadoPagoGatewayProvider(PaymentGatewayProvider):
         import requests
 
         try:
-            resposta = requests.put(
-                f"{MP_API_BASE}/preapproval/{referencia_gateway}",
-                json={"status": "cancelled"},
-                headers=self._headers(),
-                timeout=20,
-            )
+            with SessaoEgress() as sessao:
+                resposta = sessao.put(
+                    f"{MP_API_BASE}/preapproval/{referencia_gateway}",
+                    json={"status": "cancelled"},
+                    headers=self._headers(),
+                    timeout=20,
+                )
+        except EgressBloqueado as exc:
+            raise ProvedorPagamentoError(
+                f"Destino do Mercado Pago bloqueado pela política de segurança de saída: {exc}"
+            ) from exc
         except requests.RequestException as exc:
             raise ProvedorPagamentoError(f"Falha de rede ao cancelar preapproval no Mercado Pago: {exc}") from exc
         if resposta.status_code not in (200, 201):

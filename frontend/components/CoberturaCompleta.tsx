@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { carregarCobertura } from "@/lib/recomendacao";
 import type { CoberturaCompleta as TCobertura } from "@/lib/api";
 import { formatarDataHoraCompleta } from "@/lib/datas";
+import { LinkFonte } from "@/components/LinkFonte";
 
 /**
  * FRENTE 3 — "Ver cobertura completa": fontes, horários, atualizações e
@@ -56,9 +57,9 @@ export function CoberturaCompleta({ tipo, id }: { tipo: "cluster" | "item"; id: 
                 <span className="font-medium text-[var(--cor-texto)]">{a.titulo}</span>
                 <span className="text-xs text-[var(--cor-texto-suave)]">
                   {formatarDataHoraCompleta(a.timestamp)} • Fonte:{" "}
-                  <a href={a.url_fonte_original} target="_blank" rel="noopener noreferrer" className="text-[var(--cor-primaria)] hover:underline">
+                  <LinkFonte url={a.url_fonte_original} className="text-[var(--cor-primaria)] hover:underline">
                     {a.nome_fonte}
-                  </a>
+                  </LinkFonte>
                 </span>
               </li>
             ))}

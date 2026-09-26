@@ -36,14 +36,14 @@ def _cache_limpo(settings):
 
 def test_cep_invalido_nao_chama_upstream(monkeypatch):
     chamadas = []
-    monkeypatch.setattr(services.requests, "get", lambda *a, **k: chamadas.append(a) or _Resp({}))
+    monkeypatch.setattr(services.SessaoEgress, "get", lambda *a, **k: chamadas.append(a) or _Resp({}))
     with pytest.raises(services.EnderecoInvalidoError):
         services.consultar_cep("123")
     assert chamadas == []
 
 
 def test_cep_inexistente_vira_lookup(monkeypatch):
-    monkeypatch.setattr(services.requests, "get", lambda *a, **k: _Resp({"erro": "true"}))
+    monkeypatch.setattr(services.SessaoEgress, "get", lambda *a, **k: _Resp({"erro": "true"}))
     with pytest.raises(services.CepNaoEncontradoError):
         services.consultar_cep("00000000")
 
@@ -52,11 +52,11 @@ def test_cep_ok_e_cacheado(monkeypatch):
     payload = {"cep": "01310-100", "logradouro": "Av. Paulista", "localidade": "São Paulo", "uf": "SP"}
     chamadas = []
 
-    def _fake(url, timeout):
+    def _fake(_self, url, timeout):
         chamadas.append(url)
         return _Resp(payload)
 
-    monkeypatch.setattr(services.requests, "get", _fake)
+    monkeypatch.setattr(services.SessaoEgress, "get", _fake)
     assert services.consultar_cep("01310-100") == payload
     assert services.consultar_cep("01310100") == payload  # máscara diferente, mesmo cache
     assert len(chamadas) == 1
@@ -66,13 +66,13 @@ def test_timeout_vira_502(monkeypatch):
     def _boom(*a, **k):
         raise requests.Timeout("x")
 
-    monkeypatch.setattr(services.requests, "get", _boom)
+    monkeypatch.setattr(services.SessaoEgress, "get", _boom)
     with pytest.raises(services.ServicoEnderecoIndisponivelError):
         services.consultar_cep("01310100")
 
 
 def test_busca_valida_uf_cidade_logradouro(monkeypatch):
-    monkeypatch.setattr(services.requests, "get", lambda *a, **k: _Resp([]))
+    monkeypatch.setattr(services.SessaoEgress, "get", lambda *a, **k: _Resp([]))
     with pytest.raises(services.EnderecoInvalidoError):
         services.buscar_por_endereco("S", "São Paulo", "Paulista")
     with pytest.raises(services.EnderecoInvalidoError):
@@ -82,7 +82,7 @@ def test_busca_valida_uf_cidade_logradouro(monkeypatch):
 
 
 def test_busca_sem_resultado_vira_404(monkeypatch):
-    monkeypatch.setattr(services.requests, "get", lambda *a, **k: _Resp([]))
+    monkeypatch.setattr(services.SessaoEgress, "get", lambda *a, **k: _Resp([]))
     with pytest.raises(services.CepNaoEncontradoError):
         services.buscar_por_endereco("SP", "São Paulo", "Rua Inexistente Xyz")
 
@@ -91,11 +91,11 @@ def test_estados_cacheado(monkeypatch):
     chamadas = []
     payload = [{"sigla": "SP", "nome": "São Paulo"}]
 
-    def _fake(url, timeout):
+    def _fake(_self, url, timeout):
         chamadas.append(url)
         return _Resp(payload)
 
-    monkeypatch.setattr(services.requests, "get", _fake)
+    monkeypatch.setattr(services.SessaoEgress, "get", _fake)
     assert services.listar_estados() == [{"sigla": "SP", "nome": "São Paulo"}]
     assert services.listar_estados() == [{"sigla": "SP", "nome": "São Paulo"}]
     assert len(chamadas) == 1
@@ -113,7 +113,7 @@ def _resp_reverso(address):
 def test_reverso_ok_e_cacheado(monkeypatch):
     chamadas = []
 
-    def _fake(url, timeout, headers=None):
+    def _fake(_self, url, timeout, headers=None):
         chamadas.append(url)
         return _resp_reverso({
             "city": "Goiânia", "state": "Goiás", "state_code": "GO",
@@ -121,7 +121,7 @@ def test_reverso_ok_e_cacheado(monkeypatch):
             "suburb": "Centro", "road": "Av. Goiás",
         })
 
-    monkeypatch.setattr(services.requests, "get", _fake)
+    monkeypatch.setattr(services.SessaoEgress, "get", _fake)
     r1 = services.reverter_coordenadas(-16.68, -49.25)
     r2 = services.reverter_coordenadas(-16.6801, -49.2501)  # ~mesmo ponto, mesmo cache
     assert r1["cidade"] == "Goiânia" and r1["estado"] == "GO" and r1["pais"] == "Brasil"
@@ -138,7 +138,7 @@ def test_reverso_coordenadas_invalidas():
 
 
 def test_reverso_sem_cidade_vira_404(monkeypatch):
-    monkeypatch.setattr(services.requests, "get", lambda *a, **k: _resp_reverso({}))
+    monkeypatch.setattr(services.SessaoEgress, "get", lambda *a, **k: _resp_reverso({}))
     with pytest.raises(services.CepNaoEncontradoError):
         services.reverter_coordenadas(0, 0)
 
@@ -147,7 +147,7 @@ def test_reverso_upstream_fora_vira_502(monkeypatch):
     def _boom(*a, **k):
         raise requests.Timeout("x")
 
-    monkeypatch.setattr(services.requests, "get", _boom)
+    monkeypatch.setattr(services.SessaoEgress, "get", _boom)
     with pytest.raises(services.ServicoEnderecoIndisponivelError):
         services.reverter_coordenadas(-16.68, -49.25)
 
@@ -174,11 +174,11 @@ def _resp_ip(city="Goiânia", region="GO", country="Brasil", status="success"):
 def test_por_ip_ok_e_cacheado(monkeypatch):
     chamadas = []
 
-    def _fake(url, timeout):
+    def _fake(_self, url, timeout):
         chamadas.append(url)
         return _resp_ip()
 
-    monkeypatch.setattr(services.requests, "get", _fake)
+    monkeypatch.setattr(services.SessaoEgress, "get", _fake)
     r1 = services.localizar_por_ip("189.1.2.3")
     r2 = services.localizar_por_ip("189.1.2.3")
     assert r1["cidade"] == "Goiânia" and r1["estado"] == "GO"
@@ -188,7 +188,7 @@ def test_por_ip_ok_e_cacheado(monkeypatch):
 def test_por_ip_localhost_e_falha_viram_404(monkeypatch):
     with pytest.raises(services.CepNaoEncontradoError):
         services.localizar_por_ip("127.0.0.1")
-    monkeypatch.setattr(services.requests, "get", lambda *a, **k: _Resp({"status": "fail"}))
+    monkeypatch.setattr(services.SessaoEgress, "get", lambda *a, **k: _Resp({"status": "fail"}))
     with pytest.raises(services.CepNaoEncontradoError):
         services.localizar_por_ip("189.1.2.3")
 

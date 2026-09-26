@@ -22,6 +22,8 @@ import {
 } from "@/lib/queries";
 import { queryKeys } from "@/lib/query-keys";
 import * as api from "@/lib/api";
+import { LinkFonte } from "@/components/LinkFonte";
+import { urlSeguraParaLink } from "@/lib/url-segura";
 import { formatarDataHoraCompleta, formatarHoraComSegundos } from "@/lib/datas";
 import { Bot, Play, Settings, History, AlertTriangle, CheckCircle2, XCircle, Activity, Clock, DollarSign, Database, Search, Trash2, Pencil, Plus, RefreshCw, ExternalLink, Power, Timer, Layers, Cpu, SlidersHorizontal, Shield } from "lucide-react";
 
@@ -355,14 +357,19 @@ const erroCarregamento = fontesQuery.isError
                             {f.categoria_padrao && <Badge variant="outline" className="border-[var(--cor-borda)]">{f.categoria_padrao}</Badge>}
                             {hasErr && <Badge variant="outline" className="border-[var(--cor-erro)] text-[var(--cor-erro)] gap-1"><AlertTriangle className="h-3 w-3" />erro recente</Badge>}
                           </div>
-                          <a href={f.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 truncate text-xs text-[var(--cor-texto-suave)] hover:text-[var(--cor-primaria)]">{f.url}<ExternalLink className="h-3 w-3 shrink-0" /></a>
+                          {/* `f.url` é o endpoint RSS cadastrado por um admin — mas o valor pode ter
+    vindo de uma fonte RSS comprometida ou de um cadastro malicioso. Sem
+    allowlist de esquema, `javascript:…` aqui executava no clique. */}
+                          <LinkFonte url={f.url} className="inline-flex items-center gap-1 truncate text-xs text-[var(--cor-texto-suave)] hover:text-[var(--cor-primaria)]">
+                            {f.url}<ExternalLink className="h-3 w-3 shrink-0" />
+                          </LinkFonte>
                           <p className="text-xs text-[var(--cor-texto-suave)]">Atualizado: {formatarDataHoraCompleta(f.atualizado_em)}</p>
                           {hasErr && <p className="truncate text-xs text-[var(--cor-erro)]">{healthPorFonte[f.nome] || healthPorFonte[f.url]}</p>}
                         </div>
                         <div className="flex flex-wrap gap-1">
                           <Button size="sm" variant="outline" onClick={() => toggleAtivo(f)} className="border-[var(--cor-borda)]">{f.ativo ? "Desativar" : "Ativar"}</Button>
                           <Button size="sm" variant="outline" onClick={() => iniciarEdicao(f)} className="border-[var(--cor-borda)]"><Pencil className="mr-1 h-3 w-3" />Editar</Button>
-                          <Button size="sm" variant="outline" onClick={() => window.open(f.url, "_blank")} className="border-[var(--cor-borda)]"><ExternalLink className="mr-1 h-3 w-3" />Testar</Button>
+                          <Button size="sm" variant="outline" onClick={() => { const u = urlSeguraParaLink(f.url); if (u) window.open(u, "_blank", "noopener,noreferrer"); }} className="border-[var(--cor-borda)]"><ExternalLink className="mr-1 h-3 w-3" />Testar</Button>
                           <Button size="sm" variant="destructive" onClick={() => setConfirmRemove(f.id)}><Trash2 className="mr-1 h-3 w-3" />Remover</Button>
                         </div>
                       </div>

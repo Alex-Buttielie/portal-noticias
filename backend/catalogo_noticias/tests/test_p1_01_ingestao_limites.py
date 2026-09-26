@@ -741,7 +741,14 @@ def test_busca_rss_limita_campos_grandes_no_caminho_do_provider(monkeypatch):
     resposta.raise_for_status.return_value = None
     provider = ns.RSSNewsSourceProvider(nome_fonte="RSS Gigante", url_feed="https://rss.test/f")
 
-    with patch.object(ns.requests, "get", return_value=resposta):
+    # O dublê vai em `SessaoEgress.get`, não em `requests.get`: o P0-10
+    # (eixo 2, SSRF) trocou a chamada direta por `SessaoEgress`, que valida o
+    # destino antes de abrir a conexão. Dublê em `requests.get` deixaria o
+    # egress real rodar, ele tentaria resolver `rss.test` e o teste morreria
+    # em DNS — muito antes das asserções de limite, que são o que se quer
+    # exercitar aqui. As asserções do P1-01 não mudaram: só o ponto onde a
+    # rede é fingida.
+    with patch.object(ns.SessaoEgress, "get", return_value=resposta):
         itens = provider.buscar_itens()
 
     assert len(itens) == 0, "URL acima do limite e item inutilizavel: e descartado"
@@ -801,7 +808,7 @@ def test_url_acima_do_limite_e_descartada_pelo_provider_e_registrada(caplog):
     provider = ns.RSSNewsSourceProvider(nome_fonte="RSS Url Gigante", url_feed="https://rss.test/f")
 
     with caplog.at_level(logging.WARNING):
-        with patch.object(ns.requests, "get", return_value=resposta):
+        with patch.object(ns.SessaoEgress, "get", return_value=resposta):
             itens = provider.buscar_itens()
 
     assert itens == []
@@ -828,7 +835,7 @@ def test_imagem_url_acima_do_limite_e_descartada_pelo_provider(caplog):
     provider = ns.RSSNewsSourceProvider(nome_fonte="RSS Imagem", url_feed="https://rss.test/f")
 
     with caplog.at_level(logging.WARNING):
-        with patch.object(ns.requests, "get", return_value=resposta):
+        with patch.object(ns.SessaoEgress, "get", return_value=resposta):
             itens = provider.buscar_itens()
 
     assert len(itens) == 1
@@ -859,7 +866,7 @@ def test_html_e_entidades_do_rss_viram_texto_no_provider(caplog):
     resposta.raise_for_status.return_value = None
     provider = ns.RSSNewsSourceProvider(nome_fonte="RSS Texto", url_feed="https://rss.test/f")
 
-    with patch.object(ns.requests, "get", return_value=resposta):
+    with patch.object(ns.SessaoEgress, "get", return_value=resposta):
         itens = provider.buscar_itens()
 
     assert len(itens) == 1

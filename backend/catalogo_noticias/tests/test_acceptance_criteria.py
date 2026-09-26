@@ -113,7 +113,7 @@ class TestAC1ResilienciaDeFontes:
     def test_timeout_de_rede_gera_fonteindisponivelerror_nao_excecao_generica(self):
         provider = RSSNewsSourceProvider(nome_fonte="CNN Brasil", url_feed="https://cnn/feed")
         with patch(
-            "catalogo_noticias.providers.news_source.requests.get",
+            "catalogo_noticias.providers.news_source.SessaoEgress.get",
             side_effect=requests.exceptions.Timeout("timed out"),
         ):
             with pytest.raises(FonteIndisponivelError):
@@ -123,7 +123,7 @@ class TestAC1ResilienciaDeFontes:
         provider = RSSNewsSourceProvider(nome_fonte="G1", url_feed="https://g1/feed")
         resposta = MagicMock()
         resposta.raise_for_status.side_effect = requests.exceptions.HTTPError("500 Server Error")
-        with patch("catalogo_noticias.providers.news_source.requests.get", return_value=resposta):
+        with patch("catalogo_noticias.providers.news_source.SessaoEgress.get", return_value=resposta):
             with pytest.raises(FonteIndisponivelError):
                 provider.buscar_itens()
 
@@ -132,7 +132,7 @@ class TestAC1ResilienciaDeFontes:
         resposta = MagicMock()
         resposta.raise_for_status.side_effect = None
         resposta.content = b"isto definitivamente nao e um XML valido <<<"
-        with patch("catalogo_noticias.providers.news_source.requests.get", return_value=resposta):
+        with patch("catalogo_noticias.providers.news_source.SessaoEgress.get", return_value=resposta):
             with pytest.raises(FonteIndisponivelError):
                 provider.buscar_itens()
 
@@ -166,7 +166,7 @@ class TestAC1ResilienciaDeFontes:
             resposta.content = conteudo_por_url[url]
             return resposta
 
-        with patch("catalogo_noticias.providers.news_source.requests.get", side_effect=fake_get):
+        with patch("catalogo_noticias.providers.news_source.SessaoEgress.get", side_effect=fake_get):
             registro = executar_ingestao(fontes=fontes, summarization_provider=ProviderResumoGenuino())
 
         assert "CNN Brasil" in registro.erros_por_fonte
@@ -1807,7 +1807,7 @@ class TestHomepageCadastradaComoFeed:
         provider = RSSNewsSourceProvider(nome_fonte="BBC", url_feed="https://www.bbc.com/portuguese")
         html = b"<!DOCTYPE html><html lang=\"pt-br\"><head><title>BBC</title></head><body></body></html>"
         with patch(
-            "catalogo_noticias.providers.news_source.requests.get",
+            "catalogo_noticias.providers.news_source.SessaoEgress.get",
             return_value=self._resposta(html),
         ):
             with pytest.raises(FonteIndisponivelError, match="não é um feed RSS/Atom"):
@@ -1817,7 +1817,7 @@ class TestHomepageCadastradaComoFeed:
         provider = RSSNewsSourceProvider(nome_fonte="X", url_feed="https://x/")
         html = b"\xef\xbb\xbf  \n<HTML><BODY>oi</BODY></HTML>"
         with patch(
-            "catalogo_noticias.providers.news_source.requests.get",
+            "catalogo_noticias.providers.news_source.SessaoEgress.get",
             return_value=self._resposta(html),
         ):
             with pytest.raises(FonteIndisponivelError, match="Central > Robôs"):
@@ -1826,7 +1826,7 @@ class TestHomepageCadastradaComoFeed:
     def test_rss_valido_continua_ingerindo(self):
         provider = RSSNewsSourceProvider(nome_fonte="G1", url_feed="https://g1/feed")
         with patch(
-            "catalogo_noticias.providers.news_source.requests.get",
+            "catalogo_noticias.providers.news_source.SessaoEgress.get",
             return_value=self._resposta(_rss_bytes("Título real", "https://g1/n1", "Texto.")),
         ):
             itens = provider.buscar_itens()
@@ -1837,7 +1837,7 @@ class TestHomepageCadastradaComoFeed:
         # é pelo corpo, nunca pelo header, então segue funcionando.
         provider = RSSNewsSourceProvider(nome_fonte="Correios", url_feed="https://correio/feed")
         with patch(
-            "catalogo_noticias.providers.news_source.requests.get",
+            "catalogo_noticias.providers.news_source.SessaoEgress.get",
             return_value=self._resposta(_rss_bytes("T", "https://c/n1", "D")),
         ):
             assert len(provider.buscar_itens()) == 1
@@ -1858,7 +1858,7 @@ class TestFonteRegionalUF:
         resp = MagicMock()
         resp.raise_for_status.side_effect = None
         resp.content = _rss_bytes("Chuva em Goiânia", "https://g1/n-go", "Texto.")
-        with patch("catalogo_noticias.providers.news_source.requests.get", return_value=resp):
+        with patch("catalogo_noticias.providers.news_source.SessaoEgress.get", return_value=resp):
             itens = prov.buscar_itens()
         assert len(itens) == 1
         assert itens[0].estado_fonte == "GO"
@@ -1871,7 +1871,7 @@ class TestFonteRegionalUF:
         resp = MagicMock()
         resp.raise_for_status.side_effect = None
         resp.content = _rss_bytes("T", "https://g1/n1", "D")
-        with patch("catalogo_noticias.providers.news_source.requests.get", return_value=resp):
+        with patch("catalogo_noticias.providers.news_source.SessaoEgress.get", return_value=resp):
             itens = prov.buscar_itens()
         assert itens[0].estado_fonte == "" and itens[0].pais_fonte == ""
 
