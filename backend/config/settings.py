@@ -655,6 +655,15 @@ if not DEBUG and EMAIL_BACKEND in _EMAIL_BACKENDS_QUE_NAO_ENTREGAM:
         EMAIL_BACKEND,
     )
 
+# P1-15b — destino das mensagens do formulário de contato (`contato/`).
+# Endereço que a redação monitora e que recebe as mensagens. VAZIO por
+# propósito: este item não inventa hostname nem domínio, e sem destino
+# configurado o endpoint responde 503 dizendo exatamente o que falta
+# (`contato/services.py:verificar_canal`) em vez de aceitar a mensagem e
+# despejá-la em `console.EmailBackend`. Preencher por ambiente; ver
+# `.env.localhost.example`/`.env.production.example`/`backend/.env.example`.
+CONTATO_DESTINO = os.environ.get("CONTATO_DESTINO_EMAIL", "")
+
 # Front-end (run 20260902-1448-frontend-mvp-web, frontend/ na raiz do
 # projeto) — usado para montar links absolutos nos e-mails de
 # verificação/redefinição de senha (ex.: {FRONTEND_BASE_URL}/verificar-email)
