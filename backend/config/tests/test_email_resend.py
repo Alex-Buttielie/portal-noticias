@@ -30,7 +30,7 @@ def test_envia_texto_com_auth_e_remetente():
         to=["leitor@example.com"],
     )
 
-    with patch("requests.post", return_value=_resposta(200, {"id": "abc"})) as post:
+    with patch("config.email_resend.SessaoEgress.post", return_value=_resposta(200, {"id": "abc"})) as post:
         enviados = ResendEmailBackend().send_messages([mensagem])
 
     assert enviados == 1
@@ -51,7 +51,7 @@ def test_envia_alternativa_html_quando_existe():
     )
     mensagem.attach_alternative("<p>html</p>", "text/html")
 
-    with patch("requests.post", return_value=_resposta(200, {"id": "abc"})) as post:
+    with patch("config.email_resend.SessaoEgress.post", return_value=_resposta(200, {"id": "abc"})) as post:
         assert ResendEmailBackend().send_messages([mensagem]) == 1
 
     assert post.call_args.kwargs["json"]["html"] == "<p>html</p>"
@@ -61,7 +61,7 @@ def test_envia_alternativa_html_quando_existe():
 def test_erro_http_levanta_quando_nao_silencioso():
     mensagem = EmailMessage(subject="s", body="b", from_email="a@x.com", to=["b@x.com"])
 
-    with patch("requests.post", return_value=_resposta(422, {"message": "bad"})):
+    with patch("config.email_resend.SessaoEgress.post", return_value=_resposta(422, {"message": "bad"})):
         with pytest.raises(ValueError, match="Resend recusou"):
             ResendEmailBackend().send_messages([mensagem])
 

@@ -13,6 +13,8 @@ import logging
 
 from django.core.mail.backends.base import BaseEmailBackend
 
+from config.egress import EgressBloqueado, SessaoEgress
+
 logger = logging.getLogger(__name__)
 
 RESEND_API_URL = "https://api.resend.com/emails"
@@ -36,6 +38,11 @@ class ResendEmailBackend(BaseEmailBackend):
         import requests
 
         enviados = 0
+        # `RESEND_API_URL` é constante, mas a sessão com controle de saída
+        # é usada mesmo assim: o requisito deste item é que TODO egresso
+        # passe pelo módulo único, e um redirecionamento do provedor para
+        # rede interna também deve ser barrado.
+        sessao = SessaoEgress()
         for mensagem in email_messages:
             corpo: dict = {
                 "from": mensagem.from_email,
@@ -57,7 +64,7 @@ class ResendEmailBackend(BaseEmailBackend):
             if html:
                 corpo["html"] = html
             try:
-                resposta = requests.post(
+                resposta = sessao.post(
                     RESEND_API_URL,
                     json=corpo,
                     headers={
@@ -66,6 +73,13 @@ class ResendEmailBackend(BaseEmailBackend):
                     },
                     timeout=20,
                 )
+            except EgressBloqueado as exc:
+                # Nunca engolido: enviar e-mail para a rede interna não é
+                # "falha silenciosa", é incidente de configuração.
+                logger.error("Resend: destino bloqueado pela política de saída: %s", exc)
+                if not self.fail_silently:
+                    raise
+                continue
             except requests.RequestException as exc:
                 if not self.fail_silently:
                     raise
@@ -79,4 +93,5 @@ class ResendEmailBackend(BaseEmailBackend):
                 logger.error("Resend recusou o envio (HTTP %s): %s", resposta.status_code, resposta.text[:300])
                 continue
             enviados += 1
+        sessao.close()
         return enviados

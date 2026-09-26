@@ -23,6 +23,8 @@ import requests
 from django.conf import settings
 from django.utils import timezone as django_timezone
 
+from config.egress import EgressBloqueado, SessaoEgress
+
 logger = logging.getLogger(__name__)
 
 
@@ -383,11 +385,19 @@ class RSSNewsSourceProvider(NewsSourceProvider):
             if self.last_modified:
                 headers["If-Modified-Since"] = self.last_modified
         try:
-            resposta = requests.get(
-                self.url_feed,
-                timeout=self.timeout_segundos,
-                headers=headers,
-            )
+            # `SessaoEgress` e não `requests.get`: `url_feed` vem do
+            # cadastro de fontes, preenchido a partir de dados de
+            # TERCEIROS (o `descobrir_feeds` extrai endpoints de
+            # homepages externas) ou de um admin. Sem isto, um feed
+            # apontando para `http://169.254.169.254/latest/meta-data/`
+            # (ou para um `302` que aponte para lá) fazia o servidor
+            # ler a rede interna e devolver o corpo como "itens do feed".
+            with SessaoEgress() as sessao:
+                resposta = sessao.get(
+                    self.url_feed,
+                    timeout=self.timeout_segundos,
+                    headers=headers,
+                )
             # 304 é uma resposta válida de download condicional: não há corpo
             # para parsear e os validators anteriores devem ser preservados.
             if getattr(resposta, "status_code", None) == 304:
@@ -398,6 +408,23 @@ class RSSNewsSourceProvider(NewsSourceProvider):
                 self._validacao_completa_pendente = True
                 return []
             resposta.raise_for_status()
+        except EgressBloqueado as exc:
+            # Destino forbidden por política de saída. Não é "fonte fora do
+            # ar": é uma fonte CADASTRADA COM URL PROIBIDA. A distinção
+            # importa para o operador (é um erro de configuração/cadastro,
+            # não uma indisponibilidade temporária) e para o log, que não
+            # deve repetir a URL com a query (pode conter segredo).
+            logger.error(
+                "Saída bloqueada para a fonte '%s' (host=%s ip=%s): %s",
+                self.nome_fonte,
+                exc.host or "?",
+                exc.ip or "?",
+                exc,
+            )
+            raise FonteIndisponivelError(
+                f"A fonte '{self.nome_fonte}' tem um endereço de destino não permitido "
+                f"pela política de segurança de saída do portal. Corrija o cadastro."
+            ) from exc
         except requests.RequestException as exc:
             raise FonteIndisponivelError(
                 f"Falha ao buscar o feed RSS de '{self.nome_fonte}' ({self.url_feed}): {exc}"

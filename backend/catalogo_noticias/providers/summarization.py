@@ -23,6 +23,8 @@ from typing import Optional
 import requests
 from django.conf import settings
 
+from config.egress import EgressBloqueado, SessaoEgress
+
 from .news_source import ItemBruto
 
 logger = logging.getLogger(__name__)
@@ -211,18 +213,34 @@ class LLMHttpSummarizationProvider(SummarizationProvider):
         if max_tokens is not None:
             corpo["max_tokens"] = max_tokens
 
+        # `api_base_url` é ADMINISTRÁVEL pela API
+        # (`robos_serializers.ConfigRoboSerializer.llm_api_base_url`) e é a
+        # base de um POST que leva `Authorization: Bearer <api_key>`. Sem
+        # controle de saída, apontar isso para `http://169.254.169.254/` (ou
+        # para um serviço interno) transforma a integração de LLM em cURL
+        # para dentro, com a credencial do provedor na requisição.
+        url = f"{self.api_base_url.rstrip('/')}/chat/completions"
         try:
-            resposta = requests.post(
-                f"{self.api_base_url.rstrip('/')}/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {self.api_key}",
-                    "Content-Type": "application/json",
-                },
-                json=corpo,
-                timeout=self.timeout_segundos,
-            )
+            with SessaoEgress() as sessao:
+                resposta = sessao.post(
+                    url,
+                    headers={
+                        "Authorization": f"Bearer {self.api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json=corpo,
+                    timeout=self.timeout_segundos,
+                )
             resposta.raise_for_status()
             return resposta.json()
+        except EgressBloqueado as exc:
+            # Não é "provedor fora do ar": é destino proibido. A distinção
+            # fica no log e no tipo da exceção.
+            logger.error("LLM: destino bloqueado pela política de saída: %s", exc)
+            raise SummarizationProviderError(
+                "O endereço configurado para o provedor de LLM não é permitido "
+                "pela política de segurança de saída do portal."
+            ) from exc
         except requests.RequestException as exc:
             logger.exception("Falha ao chamar o provedor de LLM (%s)", self.api_base_url)
             raise SummarizationProviderError(str(exc)) from exc
