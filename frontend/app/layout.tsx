@@ -13,6 +13,7 @@ import { TutorialTour } from "@/components/TutorialTour";
 import { PularParaConteudo } from "@/components/PularParaConteudo";
 import { SITE_DESCRIPTION, SITE_NAME, SITE_URL } from "@/lib/site";
 import { organizationJsonLd } from "@/lib/schema";
+import { JsonLd } from "@/components/JsonLd";
 
 const inter = Inter({ subsets: ["latin"], variable: "--fonte-inter", display: "swap" });
 const serif = Source_Serif_4({ subsets: ["latin"], variable: "--fonte-serif", display: "swap" });
@@ -32,12 +33,15 @@ export const viewport: Viewport = {
   viewportFit: "cover",
 };
 
+// Script inline, de constante literal do PRÓPRIO código-fonte (nenhuma
+// interpolação de dado externo), aplicado antes da pintura para evitar
+// flash de tema. Seguro por construção: não há concatenação, logo não há
+// entrada maliciosa. Restam exatamente TRÊS `dangerouslySetInnerHTML` no
+// frontend, todos justificados: este (literal), `components/JsonLd.tsx`
+// (escape de contexto `<script>`, provado em testes/jsonld.test.mjs) e
+// `app/paginas/[slug]/page.tsx` (HTML editorial passado por
+// `lib/sanitizar-html.ts`, provado em testes/xss.test.mjs).
 const SCRIPT_TEMA_INICIAL = `(function(){try{var t=localStorage.getItem("theme");if(!t)t=window.matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";document.documentElement.setAttribute("data-theme",t)}catch(e){}})();`;
-
-function JsonLd() {
-  const data = organizationJsonLd();
-  return <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(data) }} />;
-}
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   // Sem deteccao de UA no servidor: `headers()` no root layout forcava TODAS
@@ -51,7 +55,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="pt-BR" suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: SCRIPT_TEMA_INICIAL }} />
-        <JsonLd />
+        <JsonLd dados={organizationJsonLd()} />
         <AdsScript />
       </head>
       <body className={`${inter.variable} ${serif.variable} min-h-screen bg-[var(--cor-fundo)] font-sans text-[var(--cor-texto)] antialiased`}>

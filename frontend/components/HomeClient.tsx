@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import NewsletterMiniForm from "@/components/NewsletterMiniForm";
 import { AdsSlot } from "@/components/AdsSlot";
 import { SecaoRegiao } from "@/components/SecaoRegiao";
 import { SecaoColunistas } from "@/components/SecaoColunistas";
@@ -77,6 +78,11 @@ export function HomeClient({
   }, [feedProp, urgProp, maisLidasProp, leiturasTick]);
 
   const perfil = useMemo(() => ({ interesses: usuario?.interesses ?? [] }), [usuario]);
+  // `leiturasTick` é um sinal de invalidação, não um dado: o memo lê o
+  // localStorage (store externa, fora do ciclo de render) e o tick é o que
+  // manda reexecutar a leitura. A regra não enxerga essa dependência
+  // indireta e a accuse de "unnecessary"; removê-la do array congelaria os
+  // contadores de leitura. Desativação pontual e justificada, não da regra.
   const leituras = useMemo(() => {
     if (!hidratado) return {};
     try {
@@ -84,7 +90,7 @@ export function HomeClient({
     } catch {
       return {};
     }
-  }, [hidratado, leiturasTick]);
+  }, [hidratado /* eslint-disable-line react-hooks/exhaustive-deps */, leiturasTick]);
 
   useEffect(() => {
     setHidratado(true);
@@ -426,18 +432,11 @@ export function HomeClient({
                 <Mail className="h-4 w-4 text-[var(--cor-primaria)]" aria-hidden /> Newsletter
               </h3>
               <p className="mt-1 text-sm text-[var(--cor-texto-suave)]">Resumo diário sem ruído — escolha editorias e período.</p>
-              <form action="/newsletter" className="mt-3 flex gap-2">
-                <Input
-                  placeholder="seu@email.com"
-                  type="email"
-                  required
-                  aria-label="Email para newsletter"
-                  className="h-9 bg-[var(--cor-fundo-card)]"
-                />
-                <Button type="submit" className="h-9 shrink-0 bg-[var(--cor-primaria)] text-[var(--cor-texto-invertido)] hover:bg-[var(--cor-primaria-hover)]">
-                  Assinar
-                </Button>
-              </form>
+              {/* Era `<form action="/newsletter">` com `<Input>` sem `name`:
+                  a navegação para /newsletter descartava o e-mail digitado sem
+                  nenhum feedback. Agora assina de verdade no endpoint real —
+                  ver components/NewsletterMiniForm.tsx. */}
+              <NewsletterMiniForm />
               <p className="mt-2 text-xs text-[var(--cor-texto-suave)]">
                 Ao assinar você concorda com <Link href="/privacidade" className="underline">privacidade</Link>.
               </p>

@@ -23,7 +23,24 @@ import requests
 from django.conf import settings
 from django.core.cache import cache
 
+from config.egress import EgressBloqueado, SessaoEgress
+
 logger = logging.getLogger(__name__)
+
+
+def _sessao() -> SessaoEgress:
+    """
+    Sessão com controle de saída.
+
+    Os upstreams (ViaCEP/IBGE/Nominatim/ip-api) são configurados por
+    ambiente (`ENDERECOS_*_BASE_URL`), não por usuário — mas são
+    configuráveis por ENV, e um `ENDERECOS_IPAPI_BASE_URL` apontando para
+    um serviço interno (ou para `http://169.254.169.254/`) transformaria
+    este proxy em cURL para dentro, com resposta devolvida ao visitante.
+    Por isso TODA saída daqui passa pelo mesmo módulo único do resto do
+    backend, sem exceção e sem caminho alternativo.
+    """
+    return SessaoEgress()
 
 
 class EnderecoInvalidoError(ValueError):
@@ -63,7 +80,15 @@ def _timeout() -> int:
 
 def _get_json(url: str):
     try:
-        resposta = requests.get(url, timeout=_timeout())
+        with _sessao() as sessao:
+            resposta = sessao.get(url, timeout=_timeout())
+    except EgressBloqueado as exc:
+        # Configuração de segurança, não indisponibilidade: responde 502
+        # ao cliente, mas o log de erro deixa claro que a causa é a URL.
+        logger.error("enderecos upstream bloqueado pela política de saída: %s", exc)
+        raise ServicoEnderecoIndisponivelError(
+            "Não foi possível consultar o serviço de endereços. Tente novamente em instantes."
+        ) from exc
     except requests.RequestException as exc:
         logger.warning("enderecos upstream inalcançável: %s (%s)", url, exc)
         raise ServicoEnderecoIndisponivelError(
@@ -182,11 +207,17 @@ def reverter_coordenadas(lat: float, lon: float) -> dict:
         return cached
     url = f"{_base_nominatim()}/reverse?format=json&lat={la}&lon={lo}&zoom=10&addressdetails=1"
     try:
-        resposta = requests.get(
-            url,
-            timeout=_timeout(),
-            headers={"User-Agent": "BRDPortalNoticias/1.0 (+https://portal-noticias.com.br)", "Accept": "application/json"},
-        )
+        with _sessao() as sessao:
+            resposta = sessao.get(
+                url,
+                timeout=_timeout(),
+                headers={"User-Agent": "BRDPortalNoticias/1.0 (+https://portal-noticias.com.br)", "Accept": "application/json"},
+            )
+    except EgressBloqueado as exc:
+        logger.error("enderecos reverso bloqueado pela política de saída: %s", exc)
+        raise ServicoEnderecoIndisponivelError(
+            "Não foi possível identificar sua cidade agora. Tente de novo ou digite seu CEP."
+        ) from exc
     except requests.RequestException as exc:
         logger.warning("enderecos reverso inalcançável: %s (%s)", url, exc)
         raise ServicoEnderecoIndisponivelError(
@@ -255,7 +286,13 @@ def localizar_por_ip(ip: str) -> dict:
         return cached
     url = f"{_base_ipapi()}/json/{ip_limpo}?fields=status,city,region,regionName,country,countryCode,zip,query"
     try:
-        resposta = requests.get(url, timeout=_timeout())
+        with _sessao() as sessao:
+            resposta = sessao.get(url, timeout=_timeout())
+    except EgressBloqueado as exc:
+        logger.error("enderecos ip-api bloqueado pela política de saída: %s", exc)
+        raise ServicoEnderecoIndisponivelError(
+            "Não foi possível detectar sua região agora. Digite seu CEP abaixo."
+        ) from exc
     except requests.RequestException as exc:
         logger.warning("enderecos ip-api inalcançável (%s)", exc)
         raise ServicoEnderecoIndisponivelError(

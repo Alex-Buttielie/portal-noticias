@@ -9,6 +9,7 @@ Decisões de configuração relevantes estão documentadas em
 `agentic-framework/state/run-20260901-2135-cadastro-auth/implementation-history.md`.
 """
 
+import logging
 import os
 from pathlib import Path
 
@@ -51,23 +52,150 @@ SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", _SECRET_KEY_FALLBACK)
 # (code-review-contract.md Finding 3).
 DEBUG = env_bool("DJANGO_DEBUG", False)
 
+# Comprimento mínimo da SECRET_KEY em produção. Não é um número escolhido
+# aqui: é o limiar exato do aviso `security.W009` do próprio Django ("Your
+# SECRET_KEY has less than 50 characters, which is not recommended"). O
+# ponto de guardá-lo é que o caminho de release roda `python manage.py check`
+# SEM `--deploy` (`.github/workflows/deploy.yml:322`), então um aviso de
+# `check --deploy` nunca chega a ninguém: medido no item P0-02c, uma chave
+# de 1 caractere subia em produção e o boot real (`import config.wsgi`, o
+# que o Gunicorn executa) terminava sem erro.
+_SECRET_KEY_MIN_LEN_PRODUCAO = 50
+
+
+def _motivo_secret_key_recusada_para_producao(valor: str) -> str | None:
+    """Por que `valor` não serve como SECRET_KEY de produção, ou `None` se
+    serve. Função pura — não lê o ambiente, não imprime, não levanta — para
+    deixar o guard abaixo legível e para poder ser exercitada isolada.
+
+    O guard anterior comparava apenas `SECRET_KEY == _SECRET_KEY_FALLBACK`, e
+    a desigualdadeava buracos. Todos os casos abaixo foram medidos em
+    subprocesso no item P0-02c, com DJANGO_DEBUG=false e o resto do ambiente
+    de produção real: em todos, o boot de produção (`import config.wsgi`)
+    terminava SEM ERRO e `manage.py check` não emitia warning algum.
+      * `DJANGO_SECRET_KEY=""` — a variável existe com valor vazio, e string
+        vazia não é igual ao fallback, logo a trava não disparava. O próprio
+        Django recusa esse caso, mas só DEPOIS e de forma preguiçosa, no
+        primeiro acesso a `settings.SECRET_KEY` ("The SECRET_KEY setting must
+        not be empty") — ou seja, no meio do tráfego, e não no boot;
+      * `DJANGO_SECRET_KEY="   "` — 3 bytes de segredo efetivo. Sessão,
+        cookie de sessão e token de redefinição passam a ser assinados com
+        material trivial de adivinhar;
+      * o valor de fallback com espaços nas pontas (`" django-... "`): a
+        comparação por igualdade falha e a chave publicada no repositório
+        passa;
+      * o valor de fallback em caixa alta: a mesma chave publicada, só com a
+        aparência de ter mudado;
+      * qualquer chave com menos de 50 caracteres (`"x"`, 49 caracteres):
+        nenhuma sinalização fora de `check --deploy`, que o release não roda.
+
+    Vazia/branca e "igual ao fallback (com ou sem variação de caixa ou
+    espaços)" são as maneiras de não ter definido uma chave de verdade; o
+    comprimento trata o resto da classe "chave adivinhável". O valor efetivo
+    NÃO é normalizado, só julgado: reescrever a chave derrubaria toda sessão
+    já assinada do ambiente, e nada aqui quer isso.
+    """
+    if not valor:
+        return "está vazia"
+    sem_branco = valor.strip()
+    if not sem_branco:
+        return "contém apenas espaços em branco"
+    if sem_branco.casefold() == _SECRET_KEY_FALLBACK.casefold():
+        return "é o valor de fallback de desenvolvimento (ou uma variação dele)"
+    if len(sem_branco) < _SECRET_KEY_MIN_LEN_PRODUCAO:
+        return (
+            f"tem apenas {len(sem_branco)} caracteres "
+            f"(mínimo de {_SECRET_KEY_MIN_LEN_PRODUCAO})"
+        )
+    return None
+
+
 # Falha explícita e cedo (na inicialização, não em produção sob ataque) se
-# alguém tentar rodar com DEBUG=False (indicando produção) mas ainda com a
-# SECRET_KEY fraca de fallback — nunca deve ser possível subir "produção"
-# silenciosamente insegura por esquecimento de configurar DJANGO_SECRET_KEY
-# (code-review-contract.md Finding 3).
-if not DEBUG and SECRET_KEY == _SECRET_KEY_FALLBACK:
-    raise ImproperlyConfigured(
-        "DJANGO_SECRET_KEY não foi definida (está usando o valor de fallback "
-        "de desenvolvimento) com DEBUG=False. Defina uma SECRET_KEY forte e "
-        "única via variável de ambiente antes de rodar fora de "
-        "desenvolvimento local (ou defina DJANGO_DEBUG=true apenas para "
-        "desenvolvimento)."
-    )
+# alguém tentar rodar com DEBUG=False (indicando produção) com uma
+# SECRET_KEY ausente, vazia, só com espaços em branco, curta demais, ou igual
+# ao valor de fallback de desenvolvimento — nunca deve ser possível subir
+# "produção" silenciosamente insegura por esquecimento de configurar
+# DJANGO_SECRET_KEY (code-review-contract.md Finding 3; o item P0-02c fechou
+# os contornos que a comparação por igualdade deixava).
+if not DEBUG:
+    _motivo = _motivo_secret_key_recusada_para_producao(SECRET_KEY)
+    if _motivo:
+        raise ImproperlyConfigured(
+            f"DJANGO_SECRET_KEY {_motivo} — recusado com DEBUG=False. Defina "
+            "DJANGO_SECRET_KEY via variável de ambiente com uma chave forte e "
+            f"única de no mínimo {_SECRET_KEY_MIN_LEN_PRODUCAO} caracteres "
+            "(por exemplo "
+            "`python -c 'import secrets; print(secrets.token_urlsafe(50))'`, "
+            "o mesmo valor forte que `.github/workflows/deploy.yml` grava no "
+            "primeiro deploy) antes de rodar fora de desenvolvimento local, "
+            "ou defina DJANGO_DEBUG=true, que é o único caso em que uma chave "
+            "fraca é aceita."
+        )
+
+# Hosts aceitos. O default é a dupla de loopback, e ela só funcionaria se o
+# proxy reverso reescrevesse o cabeçalho Host para localhost — o que nenhum
+# dos dois proxies deste projeto faz: o Nginx de produção encaminha o
+# hostname original (`proxy_set_header Host $host`,
+# `infra/nginx/portal-prod.conf`) e o Caddy preserva o Host no
+# `reverse_proxy web:8000` (`Caddyfile`). O efeito era silencioso e total:
+# sem DJANGO_ALLOWED_HOSTS e com DEBUG=False, todo hostname real recebia
+# DisallowedHost (HTTP 400), sem warning e sem erro no boot (medido no item
+# P0-02c). As travas abaixo dão a esse furo o mesmo tratamento que a
+# SECRET_KEY e o SQLite já recebem: falhar na inicialização, com mensagem que
+# diz o que configurar, em vez de degradar em silêncio.
+_ALLOWED_HOSTS_SO_LOOPBACK = frozenset({"localhost", "127.0.0.1"})
+
+
+def _motivo_allowed_hosts_recusado_para_producao(hosts: list) -> str | None:
+    """Por que `hosts` não pode ser o ALLOWED_HOSTS de produção, ou `None` se
+    pode. Função pura, como as outras deste arquivo.
+
+    Recusa dois estados, ambos medidos no item P0-02c subindo sem warning:
+      * lista vazia — `DJANGO_ALLOWED_HOSTS` ausente NÃO cai aqui (cai no
+        default de loopback), mas vazio, ou só com vírgulas e espaços,
+        produz `[]`, e aí todo hostname é recusado;
+      * só hosts de loopback — é o valor que o próprio
+        `backend/.env.example` sugere e o que o default de código assume; em
+        produção, o domínio real e o IP de acesso ficam em 400.
+
+    Um host além do loopback conta como declaração de intenção do operador e
+    é aceito, mesmo que esteja errado: decidir se aquele host é o correto é
+    papel do smoke test do deploy, que sonda `https://$HOST/healthz`
+    (`.github/workflows/deploy.yml:513`) e falha quando a resposta não é 200.
+    Aqui o objetivo é não deixar a lista ausente passar por implícita.
+    """
+    if not hosts:
+        return (
+            "não define nenhum host (a variável está vazia, ou só com "
+            "vírgulas e espaços)"
+        )
+    if set(hosts) <= _ALLOWED_HOSTS_SO_LOOPBACK:
+        return (
+            "define apenas hosts de loopback (localhost/127.0.0.1), que não "
+            "servem em produção"
+        )
+    return None
+
 
 ALLOWED_HOSTS = [
     h.strip() for h in os.environ.get("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1").split(",") if h.strip()
 ]
+
+if not DEBUG:
+    _motivo_hosts = _motivo_allowed_hosts_recusado_para_producao(ALLOWED_HOSTS)
+    if _motivo_hosts:
+        raise ImproperlyConfigured(
+            f"DJANGO_ALLOWED_HOSTS {_motivo_hosts} — recusado com DEBUG=False. "
+            "Defina DJANGO_ALLOWED_HOSTS via variável de ambiente com o domínio "
+            "do deploy e, se o acesso por IP também for usado, o respectivo IP "
+            "(ex.: `DJANGO_ALLOWED_HOSTS=api.seu-dominio.com.br,SEU_IP,"
+            "localhost,127.0.0.1`, a mesma forma de `.env.production.example` "
+            "e de `.github/workflows/deploy.yml`) antes de rodar fora de "
+            "desenvolvimento local, ou defina DJANGO_DEBUG=true, que é o "
+            "único caso em que o default de loopback é aceito. Sem host "
+            "correto, todo hostname real é recusado com DisallowedHost "
+            "(HTTP 400)."
+        )
 
 # ---------------------------------------------------------------------------
 # Hardening de produção (ARCHITECTURE.md seção "Nova arquitetura de infra" —
@@ -117,6 +245,13 @@ INSTALLED_APPS = [
     "allauth.socialaccount",
     "allauth.socialaccount.providers.google",
     # apps do projeto
+    # `config` entra como app (sem models e sem migrations) para que o
+    # Django discover `config/management/commands/`, onde vive
+    # `saude_filas` (P1-03). Sem estar na lista, o comando de
+    # observabilidade das filas simplesmente não existiria para
+    # `manage.py` — e a "parte consultável" do item de backlog depende
+    # dele. A app do Celery é o mesmo pacote; nada muda para o worker.
+    "config",
     "identidade",
     "catalogo_noticias",
     "feed",
@@ -306,6 +441,26 @@ STORAGES = {
 MEDIA_URL = "media/"
 MEDIA_ROOT = BASE_DIR / "media"
 
+# ---------------------------------------------------------------------------
+# Saúde e prontidão (P0-10, eixo 4)
+# ---------------------------------------------------------------------------
+# Teto de tempo de CADA checagem de dependência em `/readyz`. Precisa ser
+# menor que o `timeoutSeconds` do probe do orquestrador, senão o probe dá
+# timeout e o orquestrador não chega a ler o 503 — que é a informação que
+# ele precisa.
+HEALTH_TIMEOUT_SEGUNDOS = float(os.environ.get("HEALTH_TIMEOUT_SEGUNDOS", "2.0"))
+
+# Segredo de acesso a `/health-detail` e `/metrics`.
+#
+# VAZIO POR PADRITO, E VAZIO = ACESSO POR TOKEN DESABILITADO (fail-closed).
+# Não é descuido: um deploy que esqueça esta variável não pode acabar com
+# detalhe de saúde e métricas abertos na internet. A alternativa (fallback
+# para um valor embutido no código) publicaria o segredo no repositório.
+# Staff autenticado continua tendo acesso em qualquer caso.
+#
+# Gere com: `python -c "import secrets; print(secrets.token_urlsafe(32))"`
+HEALTH_DETAIL_TOKEN = os.environ.get("HEALTH_DETAIL_TOKEN", "")
+
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
@@ -463,6 +618,59 @@ EMAIL_BACKEND = os.environ.get(
 RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
 DEFAULT_FROM_EMAIL = os.environ.get("DJANGO_DEFAULT_FROM_EMAIL", "no-reply@brdportalnoticias.local")
 
+# Backends que NÃO entregam e-mail: imprimem no console, guardam em memória
+# ou descartam. Manter um destes em produção é falha silenciosa de entrega —
+# a verificação de cadastro, a redefinição de senha e a newsletter "saem" com
+# sucesso, aparecem no stdout do container, e o deploy segue reportando
+# sucesso. Este é o único dos três furos do item P0-02c que NÃO pode virar
+# `raise ImproperlyConfigured` ainda: nenhum workflow define
+# DJANGO_EMAIL_BACKEND, o `printf` que cria `backend/.env` no primeiro deploy
+# (`.github/workflows/deploy.yml:277`) não escreve a variável, e
+# `PROD_DECISOES.md` (item 2, "LLM / e-mail / OAuth") registra a integração
+# Resend como "código pronto, aguardando chave Resend do Alex" — decisão de
+# produto em aberto, não um bug. Um guard duro aqui derrubaria TODO deploy até
+# essa credencial existir. O que dá para fazer sem mentir sobre o estado:
+# tornar o furo barulhento no boot, no mesmo lugar onde o e-mail já vaza.
+_EMAIL_BACKENDS_QUE_NAO_ENTREGAM = frozenset(
+    {
+        "django.core.mail.backends.console.EmailBackend",
+        "django.core.mail.backends.locmem.EmailBackend",
+        "django.core.mail.backends.dummy.EmailBackend",
+    }
+)
+
+# O sinal é um log de nível ERROR no import, e não um system check, porque o
+# boot de produção é o `import config.wsgi` do Gunicorn (ver
+# `backend/gunicorn.conf.py` e o job de deploy) — caminho em que o Django NÃO
+# roda os system checks, então um check registrado aqui passaria batido. Neste
+# ponto `LOGGING` (mais abaixo) ainda não foi aplicado: o Django o instala em
+# `django.setup()`, depois do import dos settings. O que resta é o
+# `logging.lastResort` do Python, que escreve nível WARNING+ em stderr — que é
+# o mesmo stream onde o e-mail, e o token de verificação, estavam sendo
+# impressos. Ou seja: a falha deixa de ser invisível exatamente no lugar onde
+# vinha acontecendo, e o operador vê a causa junto do sintoma.
+if not DEBUG and EMAIL_BACKEND in _EMAIL_BACKENDS_QUE_NAO_ENTREGAM:
+    logging.getLogger("config.settings").error(
+        "E-mail em produção não é entregue: DJANGO_EMAIL_BACKEND=%s não envia "
+        "nada — a verificação de cadastro, a redefinição de senha e a "
+        "newsletter só aparecem no stdout deste container, e o deploy continua "
+        "reportando sucesso. Defina "
+        "DJANGO_EMAIL_BACKEND=config.email_resend.ResendEmailBackend e "
+        "RESEND_API_KEY=re_... (chave em https://resend.com/api-keys, com o "
+        "domínio verificado como remetente) antes de tratar o deploy como "
+        "entregue. Estado da integração: PROD_DECISOES.md, item 2.",
+        EMAIL_BACKEND,
+    )
+
+# P1-15b — destino das mensagens do formulário de contato (`contato/`).
+# Endereço que a redação monitora e que recebe as mensagens. VAZIO por
+# propósito: este item não inventa hostname nem domínio, e sem destino
+# configurado o endpoint responde 503 dizendo exatamente o que falta
+# (`contato/services.py:verificar_canal`) em vez de aceitar a mensagem e
+# despejá-la em `console.EmailBackend`. Preencher por ambiente; ver
+# `.env.localhost.example`/`.env.production.example`/`backend/.env.example`.
+CONTATO_DESTINO = os.environ.get("CONTATO_DESTINO_EMAIL", "")
+
 # Front-end (run 20260902-1448-frontend-mvp-web, frontend/ na raiz do
 # projeto) — usado para montar links absolutos nos e-mails de
 # verificação/redefinição de senha (ex.: {FRONTEND_BASE_URL}/verificar-email)
@@ -521,6 +729,64 @@ CELERY_TASK_TRACK_STARTED = True
 # vencimentos depois de uma queda do worker.
 CELERY_WORKER_PREFETCH_MULTIPLIER = 1
 CELERY_WORKER_MAX_TASKS_PER_CHILD = int(os.environ.get("CELERY_WORKER_MAX_TASKS_PER_CHILD", "100"))
+
+# ---------------------------------------------------------------------------
+# Modo de execução das tasks (P1-03, WS-06) — broker vs. inline.
+#
+# PADRÃO = BROKER, e é o que vale em DEV/HOMOLOG/PROD: `.delay()` publica no
+# broker e um `celery -A config worker` separado consome. É o único modo em
+# que "a fila foi consumida" é um fato observável.
+#
+# INLINE (`CELERY_TASK_ALWAYS_EAGER=true`) executa a task no próprio processo
+# que chamou `.delay()`. Existe para desenvolvimento/testes e para um
+# ambiente sem broker; é atalho EXPLÍCITO (opt-in), nunca o default, porque
+# um default inline esconderia a fila justamente no ambiente onde ela
+# importa. Quem lida com essa escolha é `config/filas_saude.py`, que em modo
+# inline responde `desconhecido` — não `ok` — para as sondagens de fila.
+#
+# `task_eager_propagates` fica ligado junto do inline para que uma falha
+# suba como exceção no chamador em vez de virar um resultado "esquentado":
+# em execução local a falha tem de ser visível, não enfileirada para ninguém.
+CELERY_TASK_ALWAYS_EAGER = env_bool("CELERY_TASK_ALWAYS_EAGER", False)
+CELERY_TASK_EAGER_PROPAGATES = env_bool("CELERY_TASK_EAGER_PROPAGATES", CELERY_TASK_ALWAYS_EAGER)
+
+# ---------------------------------------------------------------------------
+# Observabilidade das filas (P1-03, WS-06) — `config/filas_saude.py` +
+# `config/filas_estado.py` + `manage.py saude_filas`.
+#
+# Os limites abaixo são o que transforma "números observados" em veredito.
+# São deliberadamente explícitos (e não constantes escondidas no código) para
+# que o valor de produção seja ajustável por ambiente sem deploy de código.
+# ---------------------------------------------------------------------------
+FILAS_NOME_FILA = os.environ.get("CELERY_QUEUE", "celery")
+
+# Profundidade acima da qual a fila é considerada degradada. Com a ingestão a
+# cada 15 min, centenas de itens pendentes já significam consumo parado, não
+# uma rajada de tráfego.
+FILAS_PROFUNDIDADE_MAXIMA = int(os.environ.get("FILAS_PROFUNDIDADE_MAXIMA", "500"))
+
+# Idade da task em execução mais antiga acima da qual há task travada.
+FILAS_IDADE_MAXIMA_TAREFA_SEGUNDOS = float(
+    os.environ.get("FILAS_IDADE_MAXIMA_TAREFA_SEGUNDOS", "900")
+)
+
+# Intervalo do heartbeat do beat no `CELERY_BEAT_SCHEDULE` e idade máxima
+# aceita para o registro. O limite (900s = 3 intervalos) tolera dois ticks
+# perdidos — reboot, timer atrasado por I/O — antes de entrar em
+# `degradado`. AUMENTAR o intervalo sem aumentar o limite troca um sinal
+# sensível por um sinal atrasado; nunca o contrário.
+FILAS_HEARTBEAT_INTERVALO_SEGUNDOS = int(
+    os.environ.get("FILAS_HEARTBEAT_INTERVALO_SEGUNDOS", "300")
+)
+FILAS_BEAT_MAX_AGE_SEGUNDOS = float(os.environ.get("FILAS_BEAT_MAX_AGE_SEGUNDOS", "900"))
+
+# Task cujo último ciclo é monitorado. É a ingestão porque é o job que
+# produz conteúdo: é o único trabalho do portal em que "não rodou" significa
+# "o portal está parado de atualizar". Um ambiente que ainda não rodou um
+# ciclo de ingestão responde `desconhecido` — e essa é a resposta honesta.
+FILAS_TAREFA_MONITORADA = os.environ.get(
+    "FILAS_TAREFA_MONITORADA", "catalogo_noticias.tasks.ingerir_noticias"
+)
 
 # TTL curto para o vocabulário de autocomplete. O cache é reconstruível a
 # partir de NewsItem/EventoBusca; a ingestão invalida as chaves de catálogo
@@ -587,6 +853,20 @@ CELERY_BEAT_SCHEDULE = {
     "b2b-verificar-alertas": {
         "task": "b2b.tasks.verificar_alertas",
         "schedule": B2B_INTERVALO_VERIFICAR_ALERTAS_MINUTOS * 60,
+    },
+    # P1-03 (WS-06): heartbeat do beat. É a ÚNICA entrada desta agenda cujo
+    # produto é um arquivo, e é o que permite dizer "a agenda rodou" em vez
+    # de "o processo existe". Sem ela, `manage.py saude_filas` só conseguiria
+    # responder `desconhecido` para o estado do beat — sempre.
+    #
+    # `config.tasks.heartbeat_beat` é despachado pelo beat e executado por um
+    # WORKER, então o arquivo só é gravado se as duas pontas estiverem de pé.
+    # (Um producer que roda fora do beat — um timer do systemd, por exemplo —
+    # provaria apenas que o timer está vivo, que é o falso verde que este
+    # item existe para eliminar.)
+    "portal-heartbeat-beat": {
+        "task": "config.tasks.heartbeat_beat",
+        "schedule": FILAS_HEARTBEAT_INTERVALO_SEGUNDOS,
     },
 }
 
@@ -909,6 +1189,61 @@ FEED_CACHE_TTL_SEGUNDOS = int(os.environ.get("FEED_CACHE_TTL_SEGUNDOS", 45))
 # `ConfiguracaoSistema.premium_ativo` + `MeusRecursosView` — ver
 # `gating/services.py`). Mesma ordem de grandeza do cache do feed.
 GATING_CACHE_TTL_SEGUNDOS = int(os.environ.get("GATING_CACHE_TTL_SEGUNDOS", 45))
+
+# ---------------------------------------------------------------------------
+# b2b/ — isolamento, cota e limites de alerta (backlog P1-13 "B2B completo",
+# workstream WS-12). Configuração, não código hardcoded: o comercial ajusta
+# cota/plano e o teto de alertas por ambiente sem alterar código/redeploy do
+# worker, mesmo padrão de `FEED_*`/`GATING_*` acima.
+# ---------------------------------------------------------------------------
+
+# TTL (segundos) do cache do painel B2B (`itens_monitorados` /
+# `resumo_executivo` — as únicas consultas caras do app, uma por critério).
+# A chave carrega OBRIGATORIAMENTE o id da organização (ver
+# `b2b/cache.py`): sem o namespace de tenant no prefixo, a resposta de uma
+# empresa serviria para outra. Invalidação explícita em toda escrita de
+# critério; o TTL cobre falha/evento de invalidação.
+B2B_CACHE_TTL_SEGUNDOS = int(os.environ.get("B2B_CACHE_TTL_SEGUNDOS", 45))
+
+# Cota de critérios de monitoramento por plano comercial. É o teto de trabalho
+# que UMA execução de `verificar_e_enviar_alertas` faz por tenant: cada
+# criterio ativo vira uma varredura de `NewsItem`. Sem cota, uma organização
+# (ou uma conta comprometida) criaria critérios sem limite e transformaria o
+# job periódico em laço de varredura. Derivado de `Organizacao.plano` (campo
+# que já existe — nenhuma migration necessária para esta entrega).
+B2B_COTA_CRITERIOS_BASIC = int(os.environ.get("B2B_COTA_CRITERIOS_BASIC", 5))
+B2B_COTA_CRITERIOS_PRO = int(os.environ.get("B2B_COTA_CRITERIOS_PRO", 25))
+B2B_COTA_CRITERIOS_ENTERPRISE = int(os.environ.get("B2B_COTA_CRITERIOS_ENTERPRISE", 100))
+
+# Teto de itens devolvidos por critério em `itens_monitorados`/`resumo_executivo`.
+# A listagem é materializada em memória e ia sem teto: um critério genérico
+# ("economia") casa com dezenas de milhares de `NewsItem` na janela e serializa
+# tudo numa resposta. `numero_itens` continua sendo o total VERDADEIRO (count
+# escopado na organização) — o teto limita só o corpo da lista.
+B2B_MAX_ITENS_POR_CRITERIO = int(os.environ.get("B2B_MAX_ITENS_POR_CRITERIO", 50))
+
+# Teto de itens por e-mail de alerta (BRD §19) — o destinatário recebe no
+# máximo isto; o resto entra na próxima execução pelo ratchet de
+# `ultimo_alerta_em`.
+B2B_ALERTA_MAX_ITENS = int(os.environ.get("B2B_ALERTA_MAX_ITENS", 20))
+
+# Teto de e-mails de alerta por execução do job, no total. Teto global de
+# storm: mesmo com N organizações e M critérios, uma execução não passa disto
+# (os critérios não processados voltam na próxima — o ratchet de
+# `ultimo_alerta_em` não é consumido por um envio suprimido). O excedente é
+# contado e logado como `total_alertas_suprimidos_por_limite_execucao`.
+B2B_ALERTA_MAX_POR_EXECUCAO = int(os.environ.get("B2B_ALERTA_MAX_POR_EXECUCAO", 50))
+
+# Teto de e-mails de alerta por organização em uma execução. Sem isto, uma
+# organização com muitos critérios concentration o envio e esmaga o restante.
+B2B_ALERTA_MAX_POR_ORGANIZACAO = int(os.environ.get("B2B_ALERTA_MAX_POR_ORGANIZACAO", 3))
+
+# Intervalo mínimo (minutos) entre dois alertas do MESMO critério. O ratchet de
+# `ultimo_alerta_em` só impede reenvio do MESMO item; sem cooldown, um fluxo
+# contínuo de notícias vira um e-mail por execução, por critério. O cooldown
+# adia, não cancela: passado o intervalo, o que entrou desde o último alerta
+# sai na próxima execução.
+B2B_ALERTA_COOLDOWN_MINUTOS = int(os.environ.get("B2B_ALERTA_COOLDOWN_MINUTOS", 240))
 
 
 # ---------------------------------------------------------------------------

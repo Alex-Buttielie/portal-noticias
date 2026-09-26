@@ -59,7 +59,7 @@ class TestResumirEClassificarEmLote:
         )
 
         with patch(
-            "catalogo_noticias.providers.summarization.requests.post",
+            "catalogo_noticias.providers.summarization.SessaoEgress.post",
             return_value=_resposta_chat_completions(conteudo, total_tokens=90),
         ) as mock_post:
             resultados = provider.resumir_e_classificar_em_lote(itens)
@@ -87,7 +87,7 @@ class TestResumirEClassificarEmLote:
         )
 
         with patch(
-            "catalogo_noticias.providers.summarization.requests.post",
+            "catalogo_noticias.providers.summarization.SessaoEgress.post",
             return_value=_resposta_chat_completions(conteudo),
         ) as mock_post:
             provider.resumir_e_classificar_em_lote(itens)
@@ -114,7 +114,7 @@ class TestResumirEClassificarEmLote:
         )
 
         with patch(
-            "catalogo_noticias.providers.summarization.requests.post",
+            "catalogo_noticias.providers.summarization.SessaoEgress.post",
             return_value=_resposta_chat_completions(conteudo),
         ):
             resultados = provider.resumir_e_classificar_em_lote(itens)
@@ -136,7 +136,7 @@ class TestResumirEClassificarEmLote:
         )
 
         with patch(
-            "catalogo_noticias.providers.summarization.requests.post",
+            "catalogo_noticias.providers.summarization.SessaoEgress.post",
             return_value=_resposta_chat_completions(conteudo),
         ):
             resultados = provider.resumir_e_classificar_em_lote(itens)
@@ -150,7 +150,7 @@ class TestResumirEClassificarEmLote:
         conteudo = json.dumps({"resumo": "formato de item unico, nao de lote"})
 
         with patch(
-            "catalogo_noticias.providers.summarization.requests.post",
+            "catalogo_noticias.providers.summarization.SessaoEgress.post",
             return_value=_resposta_chat_completions(conteudo),
         ):
             with pytest.raises(SummarizationProviderError):
@@ -158,7 +158,7 @@ class TestResumirEClassificarEmLote:
 
     def test_lista_vazia_nao_faz_chamada_http(self):
         provider = LLMHttpSummarizationProvider(api_key="chave-de-teste")
-        with patch("catalogo_noticias.providers.summarization.requests.post") as mock_post:
+        with patch("catalogo_noticias.providers.summarization.SessaoEgress.post") as mock_post:
             resultados = provider.resumir_e_classificar_em_lote([])
         assert resultados == []
         mock_post.assert_not_called()
@@ -172,7 +172,7 @@ class TestResumirEClassificarItemUnicoContinuaFuncionando:
         conteudo = json.dumps({"resumo": "Resumo autoral.", "categoria": "geral", "urgente": False})
 
         with patch(
-            "catalogo_noticias.providers.summarization.requests.post",
+            "catalogo_noticias.providers.summarization.SessaoEgress.post",
             return_value=_resposta_chat_completions(conteudo, total_tokens=42),
         ) as mock_post:
             resultado = provider.resumir_e_classificar([_item("Noticia unica")])
@@ -198,7 +198,7 @@ class TestCustoEstimadoUsd:
         conteudo = json.dumps({"resumo": "Resumo autoral.", "categoria": "geral", "urgente": False})
 
         with patch(
-            "catalogo_noticias.providers.summarization.requests.post",
+            "catalogo_noticias.providers.summarization.SessaoEgress.post",
             return_value=_resposta_chat_completions(conteudo, total_tokens=500),
         ):
             resultado = provider.resumir_e_classificar([_item("Noticia unica")])
@@ -212,7 +212,7 @@ class TestCustoEstimadoUsd:
         conteudo = json.dumps({"resumo": "Resumo autoral.", "categoria": "geral", "urgente": False})
 
         with patch(
-            "catalogo_noticias.providers.summarization.requests.post",
+            "catalogo_noticias.providers.summarization.SessaoEgress.post",
             return_value=_resposta_chat_completions(conteudo),  # sem total_tokens
         ):
             resultado = provider.resumir_e_classificar([_item("Noticia unica")])
@@ -239,7 +239,7 @@ class TestCustoEstimadoUsd:
         )
 
         with patch(
-            "catalogo_noticias.providers.summarization.requests.post",
+            "catalogo_noticias.providers.summarization.SessaoEgress.post",
             return_value=_resposta_chat_completions(conteudo, total_tokens=90),
         ):
             resultados = provider.resumir_e_classificar_em_lote(itens)
@@ -260,7 +260,7 @@ class TestCustoEstimadoUsd:
         )
 
         with patch(
-            "catalogo_noticias.providers.summarization.requests.post",
+            "catalogo_noticias.providers.summarization.SessaoEgress.post",
             return_value=_resposta_chat_completions(conteudo),  # sem total_tokens
         ):
             resultados = provider.resumir_e_classificar_em_lote(itens)
@@ -276,7 +276,7 @@ class TestCustoEstimadoUsd:
         conteudo = json.dumps({"resumo": "Resumo autoral.", "categoria": "geral", "urgente": False})
 
         with patch(
-            "catalogo_noticias.providers.summarization.requests.post",
+            "catalogo_noticias.providers.summarization.SessaoEgress.post",
             return_value=_resposta_chat_completions(conteudo, total_tokens=1000),
         ):
             resultado_preco_padrao = provider_preco_padrao.resumir_e_classificar([_item("Noticia unica")])
@@ -286,7 +286,7 @@ class TestCustoEstimadoUsd:
         # Criterio de aceite 2 do contrato: 10000 tokens ao preco default
         # custam 10 x 0.0003 = 0.003 USD (antes da correcao: 1.5).
         with patch(
-            "catalogo_noticias.providers.summarization.requests.post",
+            "catalogo_noticias.providers.summarization.SessaoEgress.post",
             return_value=_resposta_chat_completions(conteudo, total_tokens=10000),
         ):
             resultado_10k = provider_preco_padrao.resumir_e_classificar([_item("Noticia unica")])
@@ -296,7 +296,7 @@ class TestCustoEstimadoUsd:
         with override_settings(CATALOGO_NOTICIAS_LLM_PRECO_USD_POR_1K_TOKENS=1.0):
             provider_preco_alterado = LLMHttpSummarizationProvider(api_key="chave-de-teste")
             with patch(
-                "catalogo_noticias.providers.summarization.requests.post",
+                "catalogo_noticias.providers.summarization.SessaoEgress.post",
                 return_value=_resposta_chat_completions(conteudo, total_tokens=1000),
             ):
                 resultado_preco_alterado = provider_preco_alterado.resumir_e_classificar([_item("Noticia unica")])

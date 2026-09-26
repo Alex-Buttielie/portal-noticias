@@ -1,0 +1,1641 @@
+FFF.FFFF..FFFFFFFFF.FFFFF                                                [100%]
+=================================== FAILURES ===================================
+___ test_regressao_titulo_enorme_nao_derruba_a_execucao_nem_os_itens_validos ___
+
+self = <django.db.backends.utils.CursorWrapper object at 0x7cba1c96db50>
+sql = 'INSERT INTO "catalogo_noticias_newsitem" ("titulo", "resumo_proprio", "conteudo_bruto", "conteudo_completo", "url_fon...S (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING "catalogo_noticias_newsitem"."id"'
+params = ('XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX...oprio do item https://gigante.test/1.', 'Conteudo bruto da fonte.', '', 'https://gigante.test/1', 'Fonte Gigante', ...)
+ignored_wrapper_args = (False, {'connection': <DatabaseWrapper vendor='postgresql' alias='default'>, 'cursor': <django.db.backends.utils.CursorWrapper object at 0x7cba1c96db50>})
+
+    def _execute(self, sql, params, *ignored_wrapper_args):
+        # Raise a warning during app initialization (stored_app_configs is only
+        # ever set during testing).
+        if not apps.ready and not apps.stored_app_configs:
+            warnings.warn(self.APPS_NOT_READY_WARNING_MSG, category=RuntimeWarning)
+        self.db.validate_no_broken_transaction()
+        with self.db.wrap_database_errors:
+            if params is None:
+                # params default might be backend specific.
+                return self.cursor.execute(sql)
+            else:
+>               return self.cursor.execute(sql, params)
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E               psycopg2.errors.StringDataRightTruncation: value too long for type character varying(300)
+
+.venv/lib/python3.14/site-packages/django/db/backends/utils.py:105: StringDataRightTruncation
+
+The above exception was the direct cause of the following exception:
+
+caplog = <_pytest.logging.LogCaptureFixture object at 0x7cba1e1b7e00>
+
+    def test_regressao_titulo_enorme_nao_derruba_a_execucao_nem_os_itens_validos(caplog):
+        """REGRESSAO (falhava na base): um titulo de 5000 chars estourava
+        ``varchar(300)`` de ``NewsItem.titulo`` com ``django.db.DataError`` que
+        PROPAGAVA de ``executar_ingestao`` e matava a execucao inteira — a fonte
+        boa, subsequente, nunca era ingerida.
+    
+        Prova: os DOIS itens entram no banco e o titulo grande fica dentro do
+        `max_length` real.
+        """
+        fontes = [
+            _Fonte(
+                "Fonte Gigante",
+                [_item(titulo="X" * VALOR_ENORME, url="https://gigante.test/1", fonte="Fonte Gigante")],
+            ),
+            _Fonte("Fonte Boa", [_item(titulo="Materia boa", url="https://boa.test/1")]),
+        ]
+    
+        with caplog.at_level(logging.ERROR):
+>           registro = _rodar(fontes)
+                       ^^^^^^^^^^^^^^
+
+catalogo_noticias/tests/test_p1_01_ingestao_limites.py:146: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+catalogo_noticias/tests/test_p1_01_ingestao_limites.py:120: in _rodar
+    return executar_ingestao(fontes=fontes, summarization_provider=provider or _ResumoConfiavel())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/lib/python3.14/contextlib.py:85: in inner
+    return func(*args, **kwds)
+           ^^^^^^^^^^^^^^^^^^^
+catalogo_noticias/services/ingestao.py:1005: in executar_ingestao
+    _persistir_grupo(resultados_por_item)
+/usr/lib/python3.14/contextlib.py:85: in inner
+    return func(*args, **kwds)
+           ^^^^^^^^^^^^^^^^^^^
+catalogo_noticias/services/ingestao.py:538: in _persistir_grupo
+    itens_criados = _persistir_news_items_em_lote(itens_criados)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+catalogo_noticias/services/ingestao.py:413: in _persistir_news_items_em_lote
+    NewsItem.objects.bulk_create(itens_unicos, batch_size=500)
+.venv/lib/python3.14/site-packages/django/db/models/manager.py:87: in manager_method
+    return getattr(self.get_queryset(), name)(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.14/site-packages/django/db/models/query.py:825: in bulk_create
+    returned_columns = self._batched_insert(
+.venv/lib/python3.14/site-packages/django/db/models/query.py:1901: in _batched_insert
+    self._insert(
+.venv/lib/python3.14/site-packages/django/db/models/query.py:1873: in _insert
+    return query.get_compiler(using=using).execute_sql(returning_fields)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.14/site-packages/django/db/models/sql/compiler.py:1882: in execute_sql
+    cursor.execute(sql, params)
+.venv/lib/python3.14/site-packages/django/db/backends/utils.py:79: in execute
+    return self._execute_with_wrappers(
+.venv/lib/python3.14/site-packages/django/db/backends/utils.py:92: in _execute_with_wrappers
+    return executor(sql, params, many, context)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.14/site-packages/django/db/backends/utils.py:100: in _execute
+    with self.db.wrap_database_errors:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.14/site-packages/django/db/utils.py:91: in __exit__
+    raise dj_exc_value.with_traceback(traceback) from exc_value
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <django.db.backends.utils.CursorWrapper object at 0x7cba1c96db50>
+sql = 'INSERT INTO "catalogo_noticias_newsitem" ("titulo", "resumo_proprio", "conteudo_bruto", "conteudo_completo", "url_fon...S (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING "catalogo_noticias_newsitem"."id"'
+params = ('XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX...oprio do item https://gigante.test/1.', 'Conteudo bruto da fonte.', '', 'https://gigante.test/1', 'Fonte Gigante', ...)
+ignored_wrapper_args = (False, {'connection': <DatabaseWrapper vendor='postgresql' alias='default'>, 'cursor': <django.db.backends.utils.CursorWrapper object at 0x7cba1c96db50>})
+
+    def _execute(self, sql, params, *ignored_wrapper_args):
+        # Raise a warning during app initialization (stored_app_configs is only
+        # ever set during testing).
+        if not apps.ready and not apps.stored_app_configs:
+            warnings.warn(self.APPS_NOT_READY_WARNING_MSG, category=RuntimeWarning)
+        self.db.validate_no_broken_transaction()
+        with self.db.wrap_database_errors:
+            if params is None:
+                # params default might be backend specific.
+                return self.cursor.execute(sql)
+            else:
+>               return self.cursor.execute(sql, params)
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E               django.db.utils.DataError: value too long for type character varying(300)
+
+.venv/lib/python3.14/site-packages/django/db/backends/utils.py:105: DataError
+_________ test_regressao_url_enorme_e_registrada_sem_derrubar_o_resto __________
+
+self = <django.db.backends.utils.CursorWrapper object at 0x7cba1cd311f0>
+sql = 'INSERT INTO "catalogo_noticias_newsitem" ("titulo", "resumo_proprio", "conteudo_bruto", "conteudo_completo", "url_fon...S (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING "catalogo_noticias_newsitem"."id"'
+params = ('Materia legitima sobre a cidade', 'Resumo proprio do item https://enorme.test/pppppppppppppppppppppppppppppppppppppp...pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp', 'Fonte Url Enorme', ...)
+ignored_wrapper_args = (False, {'connection': <DatabaseWrapper vendor='postgresql' alias='default'>, 'cursor': <django.db.backends.utils.CursorWrapper object at 0x7cba1cd311f0>})
+
+    def _execute(self, sql, params, *ignored_wrapper_args):
+        # Raise a warning during app initialization (stored_app_configs is only
+        # ever set during testing).
+        if not apps.ready and not apps.stored_app_configs:
+            warnings.warn(self.APPS_NOT_READY_WARNING_MSG, category=RuntimeWarning)
+        self.db.validate_no_broken_transaction()
+        with self.db.wrap_database_errors:
+            if params is None:
+                # params default might be backend specific.
+                return self.cursor.execute(sql)
+            else:
+>               return self.cursor.execute(sql, params)
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E               psycopg2.errors.StringDataRightTruncation: value too long for type character varying(1000)
+
+.venv/lib/python3.14/site-packages/django/db/backends/utils.py:105: StringDataRightTruncation
+
+The above exception was the direct cause of the following exception:
+
+caplog = <_pytest.logging.LogCaptureFixture object at 0x7cba1d386ad0>
+
+    def test_regressao_url_enorme_e_registrada_sem_derrubar_o_resto(caplog):
+        """REGRESSAO (falhava na base): ``url_fonte_original`` e
+        ``varchar(1000) unique`` e vinha do RSS sem teto. Uma URL de 5000 chars
+        estourava o banco.
+    
+        URL nao pode ser truncada: truncar uma URL produz uma URL DIFERENTE e
+        errada (rastreabilidade — BRD secao 18). O item e DESCARTADO e a falha
+        fica registrada com fonte + item + motivo; os demais itens persistem.
+        """
+        url_enorme = "https://enorme.test/" + "p" * VALOR_ENORME
+        fontes = [
+            _Fonte("Fonte Url Enorme", [_item(url=url_enorme, fonte="Fonte Url Enorme")]),
+            _Fonte("Fonte Boa", [_item(titulo="Materia boa", url="https://boa.test/ok")]),
+        ]
+    
+        with caplog.at_level(logging.ERROR):
+>           registro = _rodar(fontes)
+                       ^^^^^^^^^^^^^^
+
+catalogo_noticias/tests/test_p1_01_ingestao_limites.py:171: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+catalogo_noticias/tests/test_p1_01_ingestao_limites.py:120: in _rodar
+    return executar_ingestao(fontes=fontes, summarization_provider=provider or _ResumoConfiavel())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/lib/python3.14/contextlib.py:85: in inner
+    return func(*args, **kwds)
+           ^^^^^^^^^^^^^^^^^^^
+catalogo_noticias/services/ingestao.py:1005: in executar_ingestao
+    _persistir_grupo(resultados_por_item)
+/usr/lib/python3.14/contextlib.py:85: in inner
+    return func(*args, **kwds)
+           ^^^^^^^^^^^^^^^^^^^
+catalogo_noticias/services/ingestao.py:538: in _persistir_grupo
+    itens_criados = _persistir_news_items_em_lote(itens_criados)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+catalogo_noticias/services/ingestao.py:413: in _persistir_news_items_em_lote
+    NewsItem.objects.bulk_create(itens_unicos, batch_size=500)
+.venv/lib/python3.14/site-packages/django/db/models/manager.py:87: in manager_method
+    return getattr(self.get_queryset(), name)(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.14/site-packages/django/db/models/query.py:825: in bulk_create
+    returned_columns = self._batched_insert(
+.venv/lib/python3.14/site-packages/django/db/models/query.py:1901: in _batched_insert
+    self._insert(
+.venv/lib/python3.14/site-packages/django/db/models/query.py:1873: in _insert
+    return query.get_compiler(using=using).execute_sql(returning_fields)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.14/site-packages/django/db/models/sql/compiler.py:1882: in execute_sql
+    cursor.execute(sql, params)
+.venv/lib/python3.14/site-packages/django/db/backends/utils.py:79: in execute
+    return self._execute_with_wrappers(
+.venv/lib/python3.14/site-packages/django/db/backends/utils.py:92: in _execute_with_wrappers
+    return executor(sql, params, many, context)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.14/site-packages/django/db/backends/utils.py:100: in _execute
+    with self.db.wrap_database_errors:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.14/site-packages/django/db/utils.py:91: in __exit__
+    raise dj_exc_value.with_traceback(traceback) from exc_value
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <django.db.backends.utils.CursorWrapper object at 0x7cba1cd311f0>
+sql = 'INSERT INTO "catalogo_noticias_newsitem" ("titulo", "resumo_proprio", "conteudo_bruto", "conteudo_completo", "url_fon...S (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING "catalogo_noticias_newsitem"."id"'
+params = ('Materia legitima sobre a cidade', 'Resumo proprio do item https://enorme.test/pppppppppppppppppppppppppppppppppppppp...pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp', 'Fonte Url Enorme', ...)
+ignored_wrapper_args = (False, {'connection': <DatabaseWrapper vendor='postgresql' alias='default'>, 'cursor': <django.db.backends.utils.CursorWrapper object at 0x7cba1cd311f0>})
+
+    def _execute(self, sql, params, *ignored_wrapper_args):
+        # Raise a warning during app initialization (stored_app_configs is only
+        # ever set during testing).
+        if not apps.ready and not apps.stored_app_configs:
+            warnings.warn(self.APPS_NOT_READY_WARNING_MSG, category=RuntimeWarning)
+        self.db.validate_no_broken_transaction()
+        with self.db.wrap_database_errors:
+            if params is None:
+                # params default might be backend specific.
+                return self.cursor.execute(sql)
+            else:
+>               return self.cursor.execute(sql, params)
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E               django.db.utils.DataError: value too long for type character varying(1000)
+
+.venv/lib/python3.14/site-packages/django/db/backends/utils.py:105: DataError
+________ test_regressao_categoria_enorme_do_llm_nao_derruba_a_execucao _________
+
+self = <django.db.backends.utils.CursorWrapper object at 0x7cba1cbaba10>
+sql = 'INSERT INTO "catalogo_noticias_newsitem" ("titulo", "resumo_proprio", "conteudo_bruto", "conteudo_completo", "url_fon...S (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING "catalogo_noticias_newsitem"."id"'
+params = ('Materia boa', 'Resumo proprio e legitimo do item.', 'Conteudo bruto da fonte.', '', 'https://boa.test/cat', 'Fonte Boa', ...)
+ignored_wrapper_args = (False, {'connection': <DatabaseWrapper vendor='postgresql' alias='default'>, 'cursor': <django.db.backends.utils.CursorWrapper object at 0x7cba1cbaba10>})
+
+    def _execute(self, sql, params, *ignored_wrapper_args):
+        # Raise a warning during app initialization (stored_app_configs is only
+        # ever set during testing).
+        if not apps.ready and not apps.stored_app_configs:
+            warnings.warn(self.APPS_NOT_READY_WARNING_MSG, category=RuntimeWarning)
+        self.db.validate_no_broken_transaction()
+        with self.db.wrap_database_errors:
+            if params is None:
+                # params default might be backend specific.
+                return self.cursor.execute(sql)
+            else:
+>               return self.cursor.execute(sql, params)
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E               psycopg2.errors.StringDataRightTruncation: value too long for type character varying(100)
+
+.venv/lib/python3.14/site-packages/django/db/backends/utils.py:105: StringDataRightTruncation
+
+The above exception was the direct cause of the following exception:
+
+caplog = <_pytest.logging.LogCaptureFixture object at 0x7cba1c700550>
+
+    def test_regressao_categoria_enorme_do_llm_nao_derruba_a_execucao(caplog):
+        """REGRESSAO (falhava na base): a categoria devolvida pelo
+        ``SummarizationProvider`` ia crua para ``NewsItem.categoria``
+        (``varchar(100)``). Um provider que devolve 500 chars derrubava a execucao
+        inteira. O LLM nao e uma fonte confiavel de tamanho.
+        """
+        fontes = [
+            _Fonte("Fonte Boa", [_item(titulo="Materia boa", url="https://boa.test/cat")]),
+        ]
+    
+        with caplog.at_level(logging.ERROR):
+>           _rodar(fontes, provider=_ResumoComCategoria("C" * VALOR_ENORME))
+
+catalogo_noticias/tests/test_p1_01_ingestao_limites.py:196: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+catalogo_noticias/tests/test_p1_01_ingestao_limites.py:120: in _rodar
+    return executar_ingestao(fontes=fontes, summarization_provider=provider or _ResumoConfiavel())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/lib/python3.14/contextlib.py:85: in inner
+    return func(*args, **kwds)
+           ^^^^^^^^^^^^^^^^^^^
+catalogo_noticias/services/ingestao.py:1005: in executar_ingestao
+    _persistir_grupo(resultados_por_item)
+/usr/lib/python3.14/contextlib.py:85: in inner
+    return func(*args, **kwds)
+           ^^^^^^^^^^^^^^^^^^^
+catalogo_noticias/services/ingestao.py:538: in _persistir_grupo
+    itens_criados = _persistir_news_items_em_lote(itens_criados)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+catalogo_noticias/services/ingestao.py:413: in _persistir_news_items_em_lote
+    NewsItem.objects.bulk_create(itens_unicos, batch_size=500)
+.venv/lib/python3.14/site-packages/django/db/models/manager.py:87: in manager_method
+    return getattr(self.get_queryset(), name)(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.14/site-packages/django/db/models/query.py:825: in bulk_create
+    returned_columns = self._batched_insert(
+.venv/lib/python3.14/site-packages/django/db/models/query.py:1901: in _batched_insert
+    self._insert(
+.venv/lib/python3.14/site-packages/django/db/models/query.py:1873: in _insert
+    return query.get_compiler(using=using).execute_sql(returning_fields)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.14/site-packages/django/db/models/sql/compiler.py:1882: in execute_sql
+    cursor.execute(sql, params)
+.venv/lib/python3.14/site-packages/django/db/backends/utils.py:79: in execute
+    return self._execute_with_wrappers(
+.venv/lib/python3.14/site-packages/django/db/backends/utils.py:92: in _execute_with_wrappers
+    return executor(sql, params, many, context)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.14/site-packages/django/db/backends/utils.py:100: in _execute
+    with self.db.wrap_database_errors:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.14/site-packages/django/db/utils.py:91: in __exit__
+    raise dj_exc_value.with_traceback(traceback) from exc_value
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <django.db.backends.utils.CursorWrapper object at 0x7cba1cbaba10>
+sql = 'INSERT INTO "catalogo_noticias_newsitem" ("titulo", "resumo_proprio", "conteudo_bruto", "conteudo_completo", "url_fon...S (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING "catalogo_noticias_newsitem"."id"'
+params = ('Materia boa', 'Resumo proprio e legitimo do item.', 'Conteudo bruto da fonte.', '', 'https://boa.test/cat', 'Fonte Boa', ...)
+ignored_wrapper_args = (False, {'connection': <DatabaseWrapper vendor='postgresql' alias='default'>, 'cursor': <django.db.backends.utils.CursorWrapper object at 0x7cba1cbaba10>})
+
+    def _execute(self, sql, params, *ignored_wrapper_args):
+        # Raise a warning during app initialization (stored_app_configs is only
+        # ever set during testing).
+        if not apps.ready and not apps.stored_app_configs:
+            warnings.warn(self.APPS_NOT_READY_WARNING_MSG, category=RuntimeWarning)
+        self.db.validate_no_broken_transaction()
+        with self.db.wrap_database_errors:
+            if params is None:
+                # params default might be backend specific.
+                return self.cursor.execute(sql)
+            else:
+>               return self.cursor.execute(sql, params)
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E               django.db.utils.DataError: value too long for type character varying(100)
+
+.venv/lib/python3.14/site-packages/django/db/backends/utils.py:105: DataError
+______ test_regressao_imagem_url_enorme_e_descartada_sem_derrubar_o_item _______
+
+self = <django.db.backends.utils.CursorWrapper object at 0x7cba1cbabad0>
+sql = 'INSERT INTO "catalogo_noticias_newsitem" ("titulo", "resumo_proprio", "conteudo_bruto", "conteudo_completo", "url_fon...S (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING "catalogo_noticias_newsitem"."id"'
+params = ('Materia com imagem gigante', 'Resumo proprio do item https://img.test/1.', 'Conteudo bruto da fonte.', '', 'https://img.test/1', 'Fonte Boa', ...)
+ignored_wrapper_args = (False, {'connection': <DatabaseWrapper vendor='postgresql' alias='default'>, 'cursor': <django.db.backends.utils.CursorWrapper object at 0x7cba1cbabad0>})
+
+    def _execute(self, sql, params, *ignored_wrapper_args):
+        # Raise a warning during app initialization (stored_app_configs is only
+        # ever set during testing).
+        if not apps.ready and not apps.stored_app_configs:
+            warnings.warn(self.APPS_NOT_READY_WARNING_MSG, category=RuntimeWarning)
+        self.db.validate_no_broken_transaction()
+        with self.db.wrap_database_errors:
+            if params is None:
+                # params default might be backend specific.
+                return self.cursor.execute(sql)
+            else:
+>               return self.cursor.execute(sql, params)
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E               psycopg2.errors.StringDataRightTruncation: value too long for type character varying(1000)
+
+.venv/lib/python3.14/site-packages/django/db/backends/utils.py:105: StringDataRightTruncation
+
+The above exception was the direct cause of the following exception:
+
+    def test_regressao_imagem_url_enorme_e_descartada_sem_derrubar_o_item():
+        """REGRESSAO (falhava na base): ``imagem_url`` e ``varchar(1000)``.
+        Uma URL de imagem truncada seria uma URL quebrada, entao o campo e
+        DESCARTADO (vira vazio) e o item segue sem imagem — a materia entra.
+        """
+        fontes = [
+            _Fonte(
+                "Fonte Imagem",
+                [
+                    _item(
+                        titulo="Materia com imagem gigante",
+                        url="https://img.test/1",
+                        imagem_url="https://img.test/" + "i" * VALOR_ENORME,
+                    )
+                ],
+            )
+        ]
+    
+>       _rodar(fontes)
+
+catalogo_noticias/tests/test_p1_01_ingestao_limites.py:244: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+catalogo_noticias/tests/test_p1_01_ingestao_limites.py:120: in _rodar
+    return executar_ingestao(fontes=fontes, summarization_provider=provider or _ResumoConfiavel())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/lib/python3.14/contextlib.py:85: in inner
+    return func(*args, **kwds)
+           ^^^^^^^^^^^^^^^^^^^
+catalogo_noticias/services/ingestao.py:1005: in executar_ingestao
+    _persistir_grupo(resultados_por_item)
+/usr/lib/python3.14/contextlib.py:85: in inner
+    return func(*args, **kwds)
+           ^^^^^^^^^^^^^^^^^^^
+catalogo_noticias/services/ingestao.py:538: in _persistir_grupo
+    itens_criados = _persistir_news_items_em_lote(itens_criados)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+catalogo_noticias/services/ingestao.py:413: in _persistir_news_items_em_lote
+    NewsItem.objects.bulk_create(itens_unicos, batch_size=500)
+.venv/lib/python3.14/site-packages/django/db/models/manager.py:87: in manager_method
+    return getattr(self.get_queryset(), name)(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.14/site-packages/django/db/models/query.py:825: in bulk_create
+    returned_columns = self._batched_insert(
+.venv/lib/python3.14/site-packages/django/db/models/query.py:1901: in _batched_insert
+    self._insert(
+.venv/lib/python3.14/site-packages/django/db/models/query.py:1873: in _insert
+    return query.get_compiler(using=using).execute_sql(returning_fields)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.14/site-packages/django/db/models/sql/compiler.py:1882: in execute_sql
+    cursor.execute(sql, params)
+.venv/lib/python3.14/site-packages/django/db/backends/utils.py:79: in execute
+    return self._execute_with_wrappers(
+.venv/lib/python3.14/site-packages/django/db/backends/utils.py:92: in _execute_with_wrappers
+    return executor(sql, params, many, context)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.14/site-packages/django/db/backends/utils.py:100: in _execute
+    with self.db.wrap_database_errors:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.14/site-packages/django/db/utils.py:91: in __exit__
+    raise dj_exc_value.with_traceback(traceback) from exc_value
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <django.db.backends.utils.CursorWrapper object at 0x7cba1cbabad0>
+sql = 'INSERT INTO "catalogo_noticias_newsitem" ("titulo", "resumo_proprio", "conteudo_bruto", "conteudo_completo", "url_fon...S (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING "catalogo_noticias_newsitem"."id"'
+params = ('Materia com imagem gigante', 'Resumo proprio do item https://img.test/1.', 'Conteudo bruto da fonte.', '', 'https://img.test/1', 'Fonte Boa', ...)
+ignored_wrapper_args = (False, {'connection': <DatabaseWrapper vendor='postgresql' alias='default'>, 'cursor': <django.db.backends.utils.CursorWrapper object at 0x7cba1cbabad0>})
+
+    def _execute(self, sql, params, *ignored_wrapper_args):
+        # Raise a warning during app initialization (stored_app_configs is only
+        # ever set during testing).
+        if not apps.ready and not apps.stored_app_configs:
+            warnings.warn(self.APPS_NOT_READY_WARNING_MSG, category=RuntimeWarning)
+        self.db.validate_no_broken_transaction()
+        with self.db.wrap_database_errors:
+            if params is None:
+                # params default might be backend specific.
+                return self.cursor.execute(sql)
+            else:
+>               return self.cursor.execute(sql, params)
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E               django.db.utils.DataError: value too long for type character varying(1000)
+
+.venv/lib/python3.14/site-packages/django/db/backends/utils.py:105: DataError
+_________ test_regressao_nome_fonte_e_localidade_enormes_sao_limitados _________
+
+self = <django.db.backends.utils.CursorWrapper object at 0x7cba1c99d730>
+sql = 'INSERT INTO "catalogo_noticias_newsitem" ("titulo", "resumo_proprio", "conteudo_bruto", "conteudo_completo", "url_fon...S (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING "catalogo_noticias_newsitem"."id"'
+params = ('Materia com recorte enorme', 'Resumo proprio do item https://recorte.test/1.', 'Conteudo bruto da fonte.', '', 'http...FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF', ...)
+ignored_wrapper_args = (False, {'connection': <DatabaseWrapper vendor='postgresql' alias='default'>, 'cursor': <django.db.backends.utils.CursorWrapper object at 0x7cba1c99d730>})
+
+    def _execute(self, sql, params, *ignored_wrapper_args):
+        # Raise a warning during app initialization (stored_app_configs is only
+        # ever set during testing).
+        if not apps.ready and not apps.stored_app_configs:
+            warnings.warn(self.APPS_NOT_READY_WARNING_MSG, category=RuntimeWarning)
+        self.db.validate_no_broken_transaction()
+        with self.db.wrap_database_errors:
+            if params is None:
+                # params default might be backend specific.
+                return self.cursor.execute(sql)
+            else:
+>               return self.cursor.execute(sql, params)
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E               psycopg2.errors.StringDataRightTruncation: value too long for type character varying(150)
+
+.venv/lib/python3.14/site-packages/django/db/backends/utils.py:105: StringDataRightTruncation
+
+The above exception was the direct cause of the following exception:
+
+    def test_regressao_nome_fonte_e_localidade_enormes_sao_limitados():
+        """REGRESSAO (falhava na base): ``nome_fonte`` (150), ``pais`` e
+        ``estado`` (100) vinham do config do provider sem teto.
+        """
+        fontes = [
+            _Fonte(
+                "F" * VALOR_ENORME,
+                [
+                    _item(
+                        titulo="Materia com recorte enorme",
+                        url="https://recorte.test/1",
+                        fonte="F" * VALOR_ENORME,
+                        pais_fonte="P" * VALOR_ENORME,
+                        estado_fonte="E" * VALOR_ENORME,
+                    )
+                ],
+            )
+        ]
+    
+>       _rodar(fontes)
+
+catalogo_noticias/tests/test_p1_01_ingestao_limites.py:270: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+catalogo_noticias/tests/test_p1_01_ingestao_limites.py:120: in _rodar
+    return executar_ingestao(fontes=fontes, summarization_provider=provider or _ResumoConfiavel())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/lib/python3.14/contextlib.py:85: in inner
+    return func(*args, **kwds)
+           ^^^^^^^^^^^^^^^^^^^
+catalogo_noticias/services/ingestao.py:1005: in executar_ingestao
+    _persistir_grupo(resultados_por_item)
+/usr/lib/python3.14/contextlib.py:85: in inner
+    return func(*args, **kwds)
+           ^^^^^^^^^^^^^^^^^^^
+catalogo_noticias/services/ingestao.py:538: in _persistir_grupo
+    itens_criados = _persistir_news_items_em_lote(itens_criados)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+catalogo_noticias/services/ingestao.py:413: in _persistir_news_items_em_lote
+    NewsItem.objects.bulk_create(itens_unicos, batch_size=500)
+.venv/lib/python3.14/site-packages/django/db/models/manager.py:87: in manager_method
+    return getattr(self.get_queryset(), name)(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.14/site-packages/django/db/models/query.py:825: in bulk_create
+    returned_columns = self._batched_insert(
+.venv/lib/python3.14/site-packages/django/db/models/query.py:1901: in _batched_insert
+    self._insert(
+.venv/lib/python3.14/site-packages/django/db/models/query.py:1873: in _insert
+    return query.get_compiler(using=using).execute_sql(returning_fields)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.14/site-packages/django/db/models/sql/compiler.py:1882: in execute_sql
+    cursor.execute(sql, params)
+.venv/lib/python3.14/site-packages/django/db/backends/utils.py:79: in execute
+    return self._execute_with_wrappers(
+.venv/lib/python3.14/site-packages/django/db/backends/utils.py:92: in _execute_with_wrappers
+    return executor(sql, params, many, context)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.14/site-packages/django/db/backends/utils.py:100: in _execute
+    with self.db.wrap_database_errors:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.14/site-packages/django/db/utils.py:91: in __exit__
+    raise dj_exc_value.with_traceback(traceback) from exc_value
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <django.db.backends.utils.CursorWrapper object at 0x7cba1c99d730>
+sql = 'INSERT INTO "catalogo_noticias_newsitem" ("titulo", "resumo_proprio", "conteudo_bruto", "conteudo_completo", "url_fon...S (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING "catalogo_noticias_newsitem"."id"'
+params = ('Materia com recorte enorme', 'Resumo proprio do item https://recorte.test/1.', 'Conteudo bruto da fonte.', '', 'http...FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF', ...)
+ignored_wrapper_args = (False, {'connection': <DatabaseWrapper vendor='postgresql' alias='default'>, 'cursor': <django.db.backends.utils.CursorWrapper object at 0x7cba1c99d730>})
+
+    def _execute(self, sql, params, *ignored_wrapper_args):
+        # Raise a warning during app initialization (stored_app_configs is only
+        # ever set during testing).
+        if not apps.ready and not apps.stored_app_configs:
+            warnings.warn(self.APPS_NOT_READY_WARNING_MSG, category=RuntimeWarning)
+        self.db.validate_no_broken_transaction()
+        with self.db.wrap_database_errors:
+            if params is None:
+                # params default might be backend specific.
+                return self.cursor.execute(sql)
+            else:
+>               return self.cursor.execute(sql, params)
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E               django.db.utils.DataError: value too long for type character varying(150)
+
+.venv/lib/python3.14/site-packages/django/db/backends/utils.py:105: DataError
+________ test_regressao_titulo_de_cluster_enorme_nao_derruba_a_execucao ________
+
+self = <django.db.backends.utils.CursorWrapper object at 0x7cba1c99e6f0>
+sql = 'INSERT INTO "catalogo_noticias_newscluster" ("titulo_acontecimento", "categoria_dominante", "numero_fontes_distintas", "criado_em", "atualizado_em") VALUES (%s, %s, %s, %s, %s) RETURNING "catalogo_noticias_newscluster"."id"'
+params = ('GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG... 498259, tzinfo=datetime.timezone.utc), datetime.datetime(2026, 9, 26, 0, 10, 2, 498290, tzinfo=datetime.timezone.utc))
+ignored_wrapper_args = (False, {'connection': <DatabaseWrapper vendor='postgresql' alias='default'>, 'cursor': <django.db.backends.utils.CursorWrapper object at 0x7cba1c99e6f0>})
+
+    def _execute(self, sql, params, *ignored_wrapper_args):
+        # Raise a warning during app initialization (stored_app_configs is only
+        # ever set during testing).
+        if not apps.ready and not apps.stored_app_configs:
+            warnings.warn(self.APPS_NOT_READY_WARNING_MSG, category=RuntimeWarning)
+        self.db.validate_no_broken_transaction()
+        with self.db.wrap_database_errors:
+            if params is None:
+                # params default might be backend specific.
+                return self.cursor.execute(sql)
+            else:
+>               return self.cursor.execute(sql, params)
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E               psycopg2.errors.StringDataRightTruncation: value too long for type character varying(300)
+
+.venv/lib/python3.14/site-packages/django/db/backends/utils.py:105: StringDataRightTruncation
+
+The above exception was the direct cause of the following exception:
+
+    def test_regressao_titulo_de_cluster_enorme_nao_derruba_a_execucao():
+        """REGRESSAO (falhava na base): quando um grupo tem 2+ fontes, o titulo do
+        primeiro item vira ``NewsCluster.titulo_acontecimento``
+        (``varchar(300)``) em `_persistir_grupo`. Titulo enorme estourava o banco
+        e matava a execucao — sem NENHUM `NewsItem` ser criado.
+        """
+        titulo_gigante = "G" * VALOR_ENORME
+        fontes = [
+            _Fonte("Fonte A", [_item(titulo=titulo_gigante, url="https://a.test/1", fonte="Fonte A")]),
+            _Fonte("Fonte B", [_item(titulo=titulo_gigante, url="https://b.test/1", fonte="Fonte B")]),
+        ]
+    
+>       _rodar(fontes)
+
+catalogo_noticias/tests/test_p1_01_ingestao_limites.py:290: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+catalogo_noticias/tests/test_p1_01_ingestao_limites.py:120: in _rodar
+    return executar_ingestao(fontes=fontes, summarization_provider=provider or _ResumoConfiavel())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/lib/python3.14/contextlib.py:85: in inner
+    return func(*args, **kwds)
+           ^^^^^^^^^^^^^^^^^^^
+catalogo_noticias/services/ingestao.py:1005: in executar_ingestao
+    _persistir_grupo(resultados_por_item)
+/usr/lib/python3.14/contextlib.py:85: in inner
+    return func(*args, **kwds)
+           ^^^^^^^^^^^^^^^^^^^
+catalogo_noticias/services/ingestao.py:485: in _persistir_grupo
+    cluster = NewsCluster.objects.create(
+.venv/lib/python3.14/site-packages/django/db/models/manager.py:87: in manager_method
+    return getattr(self.get_queryset(), name)(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.14/site-packages/django/db/models/query.py:665: in create
+    obj.save(force_insert=True, using=self.db)
+.venv/lib/python3.14/site-packages/django/db/models/base.py:902: in save
+    self.save_base(
+.venv/lib/python3.14/site-packages/django/db/models/base.py:1008: in save_base
+    updated = self._save_table(
+.venv/lib/python3.14/site-packages/django/db/models/base.py:1169: in _save_table
+    results = self._do_insert(
+.venv/lib/python3.14/site-packages/django/db/models/base.py:1210: in _do_insert
+    return manager._insert(
+.venv/lib/python3.14/site-packages/django/db/models/manager.py:87: in manager_method
+    return getattr(self.get_queryset(), name)(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.14/site-packages/django/db/models/query.py:1873: in _insert
+    return query.get_compiler(using=using).execute_sql(returning_fields)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.14/site-packages/django/db/models/sql/compiler.py:1882: in execute_sql
+    cursor.execute(sql, params)
+.venv/lib/python3.14/site-packages/django/db/backends/utils.py:79: in execute
+    return self._execute_with_wrappers(
+.venv/lib/python3.14/site-packages/django/db/backends/utils.py:92: in _execute_with_wrappers
+    return executor(sql, params, many, context)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.14/site-packages/django/db/backends/utils.py:100: in _execute
+    with self.db.wrap_database_errors:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.14/site-packages/django/db/utils.py:91: in __exit__
+    raise dj_exc_value.with_traceback(traceback) from exc_value
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <django.db.backends.utils.CursorWrapper object at 0x7cba1c99e6f0>
+sql = 'INSERT INTO "catalogo_noticias_newscluster" ("titulo_acontecimento", "categoria_dominante", "numero_fontes_distintas", "criado_em", "atualizado_em") VALUES (%s, %s, %s, %s, %s) RETURNING "catalogo_noticias_newscluster"."id"'
+params = ('GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG... 498259, tzinfo=datetime.timezone.utc), datetime.datetime(2026, 9, 26, 0, 10, 2, 498290, tzinfo=datetime.timezone.utc))
+ignored_wrapper_args = (False, {'connection': <DatabaseWrapper vendor='postgresql' alias='default'>, 'cursor': <django.db.backends.utils.CursorWrapper object at 0x7cba1c99e6f0>})
+
+    def _execute(self, sql, params, *ignored_wrapper_args):
+        # Raise a warning during app initialization (stored_app_configs is only
+        # ever set during testing).
+        if not apps.ready and not apps.stored_app_configs:
+            warnings.warn(self.APPS_NOT_READY_WARNING_MSG, category=RuntimeWarning)
+        self.db.validate_no_broken_transaction()
+        with self.db.wrap_database_errors:
+            if params is None:
+                # params default might be backend specific.
+                return self.cursor.execute(sql)
+            else:
+>               return self.cursor.execute(sql, params)
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E               django.db.utils.DataError: value too long for type character varying(300)
+
+.venv/lib/python3.14/site-packages/django/db/backends/utils.py:105: DataError
+_ test_regressao_categoria_dominante_enorme_no_cluster_nao_derruba_a_execucao __
+
+self = <django.db.backends.utils.CursorWrapper object at 0x7cba1ca29670>
+sql = 'INSERT INTO "catalogo_noticias_newscluster" ("titulo_acontecimento", "categoria_dominante", "numero_fontes_distintas", "criado_em", "atualizado_em") VALUES (%s, %s, %s, %s, %s) RETURNING "catalogo_noticias_newscluster"."id"'
+params = ('Fato um', 'ddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd... 111988, tzinfo=datetime.timezone.utc), datetime.datetime(2026, 9, 26, 0, 10, 3, 112022, tzinfo=datetime.timezone.utc))
+ignored_wrapper_args = (False, {'connection': <DatabaseWrapper vendor='postgresql' alias='default'>, 'cursor': <django.db.backends.utils.CursorWrapper object at 0x7cba1ca29670>})
+
+    def _execute(self, sql, params, *ignored_wrapper_args):
+        # Raise a warning during app initialization (stored_app_configs is only
+        # ever set during testing).
+        if not apps.ready and not apps.stored_app_configs:
+            warnings.warn(self.APPS_NOT_READY_WARNING_MSG, category=RuntimeWarning)
+        self.db.validate_no_broken_transaction()
+        with self.db.wrap_database_errors:
+            if params is None:
+                # params default might be backend specific.
+                return self.cursor.execute(sql)
+            else:
+>               return self.cursor.execute(sql, params)
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E               psycopg2.errors.StringDataRightTruncation: value too long for type character varying(100)
+
+.venv/lib/python3.14/site-packages/django/db/backends/utils.py:105: StringDataRightTruncation
+
+The above exception was the direct cause of the following exception:
+
+    def test_regressao_categoria_dominante_enorme_no_cluster_nao_derruba_a_execucao():
+        """REGRESSAO (falhava na base): ``categoria_dominante`` do cluster tambem e
+        ``varchar(100)`` e vinha da categoria (ja sem limite) do provider.
+        """
+        fontes = [
+            _Fonte(
+                "Fonte A",
+                [_item(titulo="Fato um", url="https://a.test/1", fonte="Fonte A")],
+            ),
+            _Fonte(
+                "Fonte B",
+                [_item(titulo="Fato um", url="https://b.test/1", fonte="Fonte B")],
+            ),
+        ]
+    
+>       _rodar(fontes, provider=_ResumoComCategoria("D" * VALOR_ENORME))
+
+catalogo_noticias/tests/test_p1_01_ingestao_limites.py:312: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+catalogo_noticias/tests/test_p1_01_ingestao_limites.py:120: in _rodar
+    return executar_ingestao(fontes=fontes, summarization_provider=provider or _ResumoConfiavel())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/lib/python3.14/contextlib.py:85: in inner
+    return func(*args, **kwds)
+           ^^^^^^^^^^^^^^^^^^^
+catalogo_noticias/services/ingestao.py:1005: in executar_ingestao
+    _persistir_grupo(resultados_por_item)
+/usr/lib/python3.14/contextlib.py:85: in inner
+    return func(*args, **kwds)
+           ^^^^^^^^^^^^^^^^^^^
+catalogo_noticias/services/ingestao.py:485: in _persistir_grupo
+    cluster = NewsCluster.objects.create(
+.venv/lib/python3.14/site-packages/django/db/models/manager.py:87: in manager_method
+    return getattr(self.get_queryset(), name)(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.14/site-packages/django/db/models/query.py:665: in create
+    obj.save(force_insert=True, using=self.db)
+.venv/lib/python3.14/site-packages/django/db/models/base.py:902: in save
+    self.save_base(
+.venv/lib/python3.14/site-packages/django/db/models/base.py:1008: in save_base
+    updated = self._save_table(
+.venv/lib/python3.14/site-packages/django/db/models/base.py:1169: in _save_table
+    results = self._do_insert(
+.venv/lib/python3.14/site-packages/django/db/models/base.py:1210: in _do_insert
+    return manager._insert(
+.venv/lib/python3.14/site-packages/django/db/models/manager.py:87: in manager_method
+    return getattr(self.get_queryset(), name)(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.14/site-packages/django/db/models/query.py:1873: in _insert
+    return query.get_compiler(using=using).execute_sql(returning_fields)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.14/site-packages/django/db/models/sql/compiler.py:1882: in execute_sql
+    cursor.execute(sql, params)
+.venv/lib/python3.14/site-packages/django/db/backends/utils.py:79: in execute
+    return self._execute_with_wrappers(
+.venv/lib/python3.14/site-packages/django/db/backends/utils.py:92: in _execute_with_wrappers
+    return executor(sql, params, many, context)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.14/site-packages/django/db/backends/utils.py:100: in _execute
+    with self.db.wrap_database_errors:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.14/site-packages/django/db/utils.py:91: in __exit__
+    raise dj_exc_value.with_traceback(traceback) from exc_value
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <django.db.backends.utils.CursorWrapper object at 0x7cba1ca29670>
+sql = 'INSERT INTO "catalogo_noticias_newscluster" ("titulo_acontecimento", "categoria_dominante", "numero_fontes_distintas", "criado_em", "atualizado_em") VALUES (%s, %s, %s, %s, %s) RETURNING "catalogo_noticias_newscluster"."id"'
+params = ('Fato um', 'ddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd... 111988, tzinfo=datetime.timezone.utc), datetime.datetime(2026, 9, 26, 0, 10, 3, 112022, tzinfo=datetime.timezone.utc))
+ignored_wrapper_args = (False, {'connection': <DatabaseWrapper vendor='postgresql' alias='default'>, 'cursor': <django.db.backends.utils.CursorWrapper object at 0x7cba1ca29670>})
+
+    def _execute(self, sql, params, *ignored_wrapper_args):
+        # Raise a warning during app initialization (stored_app_configs is only
+        # ever set during testing).
+        if not apps.ready and not apps.stored_app_configs:
+            warnings.warn(self.APPS_NOT_READY_WARNING_MSG, category=RuntimeWarning)
+        self.db.validate_no_broken_transaction()
+        with self.db.wrap_database_errors:
+            if params is None:
+                # params default might be backend specific.
+                return self.cursor.execute(sql)
+            else:
+>               return self.cursor.execute(sql, params)
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E               django.db.utils.DataError: value too long for type character varying(100)
+
+.venv/lib/python3.14/site-packages/django/db/backends/utils.py:105: DataError
+_____________ test_um_caractere_acima_do_limite_e_o_unico_que_muda _____________
+
+self = <django.db.backends.utils.CursorWrapper object at 0x7cba1c863e30>
+sql = 'INSERT INTO "catalogo_noticias_newsitem" ("titulo", "resumo_proprio", "conteudo_bruto", "conteudo_completo", "url_fon...S (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING "catalogo_noticias_newsitem"."id"'
+params = ('AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA...umo proprio do item https://limite.test/2.', 'Conteudo bruto da fonte.', '', 'https://limite.test/2', 'Fonte Boa', ...)
+ignored_wrapper_args = (False, {'connection': <DatabaseWrapper vendor='postgresql' alias='default'>, 'cursor': <django.db.backends.utils.CursorWrapper object at 0x7cba1c863e30>})
+
+    def _execute(self, sql, params, *ignored_wrapper_args):
+        # Raise a warning during app initialization (stored_app_configs is only
+        # ever set during testing).
+        if not apps.ready and not apps.stored_app_configs:
+            warnings.warn(self.APPS_NOT_READY_WARNING_MSG, category=RuntimeWarning)
+        self.db.validate_no_broken_transaction()
+        with self.db.wrap_database_errors:
+            if params is None:
+                # params default might be backend specific.
+                return self.cursor.execute(sql)
+            else:
+>               return self.cursor.execute(sql, params)
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E               psycopg2.errors.StringDataRightTruncation: value too long for type character varying(300)
+
+.venv/lib/python3.14/site-packages/django/db/backends/utils.py:105: StringDataRightTruncation
+
+The above exception was the direct cause of the following exception:
+
+    def test_um_caractere_acima_do_limite_e_o_unico_que_muda():
+        """Contraprova do off-by-one: com ``max_length + 1`` chars, o que sobra
+        e o sufixo de elipse — o resto do texto continua identico.
+        """
+        titulo = "A" * LIMITE_TITULO + "B"
+        fontes = [_Fonte("Fonte Limite", [_item(titulo=titulo, url="https://limite.test/2")])]
+    
+>       _rodar(fontes)
+
+catalogo_noticias/tests/test_p1_01_ingestao_limites.py:357: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+catalogo_noticias/tests/test_p1_01_ingestao_limites.py:120: in _rodar
+    return executar_ingestao(fontes=fontes, summarization_provider=provider or _ResumoConfiavel())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/lib/python3.14/contextlib.py:85: in inner
+    return func(*args, **kwds)
+           ^^^^^^^^^^^^^^^^^^^
+catalogo_noticias/services/ingestao.py:1005: in executar_ingestao
+    _persistir_grupo(resultados_por_item)
+/usr/lib/python3.14/contextlib.py:85: in inner
+    return func(*args, **kwds)
+           ^^^^^^^^^^^^^^^^^^^
+catalogo_noticias/services/ingestao.py:538: in _persistir_grupo
+    itens_criados = _persistir_news_items_em_lote(itens_criados)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+catalogo_noticias/services/ingestao.py:413: in _persistir_news_items_em_lote
+    NewsItem.objects.bulk_create(itens_unicos, batch_size=500)
+.venv/lib/python3.14/site-packages/django/db/models/manager.py:87: in manager_method
+    return getattr(self.get_queryset(), name)(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.14/site-packages/django/db/models/query.py:825: in bulk_create
+    returned_columns = self._batched_insert(
+.venv/lib/python3.14/site-packages/django/db/models/query.py:1901: in _batched_insert
+    self._insert(
+.venv/lib/python3.14/site-packages/django/db/models/query.py:1873: in _insert
+    return query.get_compiler(using=using).execute_sql(returning_fields)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.14/site-packages/django/db/models/sql/compiler.py:1882: in execute_sql
+    cursor.execute(sql, params)
+.venv/lib/python3.14/site-packages/django/db/backends/utils.py:79: in execute
+    return self._execute_with_wrappers(
+.venv/lib/python3.14/site-packages/django/db/backends/utils.py:92: in _execute_with_wrappers
+    return executor(sql, params, many, context)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.14/site-packages/django/db/backends/utils.py:100: in _execute
+    with self.db.wrap_database_errors:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.14/site-packages/django/db/utils.py:91: in __exit__
+    raise dj_exc_value.with_traceback(traceback) from exc_value
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <django.db.backends.utils.CursorWrapper object at 0x7cba1c863e30>
+sql = 'INSERT INTO "catalogo_noticias_newsitem" ("titulo", "resumo_proprio", "conteudo_bruto", "conteudo_completo", "url_fon...S (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING "catalogo_noticias_newsitem"."id"'
+params = ('AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA...umo proprio do item https://limite.test/2.', 'Conteudo bruto da fonte.', '', 'https://limite.test/2', 'Fonte Boa', ...)
+ignored_wrapper_args = (False, {'connection': <DatabaseWrapper vendor='postgresql' alias='default'>, 'cursor': <django.db.backends.utils.CursorWrapper object at 0x7cba1c863e30>})
+
+    def _execute(self, sql, params, *ignored_wrapper_args):
+        # Raise a warning during app initialization (stored_app_configs is only
+        # ever set during testing).
+        if not apps.ready and not apps.stored_app_configs:
+            warnings.warn(self.APPS_NOT_READY_WARNING_MSG, category=RuntimeWarning)
+        self.db.validate_no_broken_transaction()
+        with self.db.wrap_database_errors:
+            if params is None:
+                # params default might be backend specific.
+                return self.cursor.execute(sql)
+            else:
+>               return self.cursor.execute(sql, params)
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E               django.db.utils.DataError: value too long for type character varying(300)
+
+.venv/lib/python3.14/site-packages/django/db/backends/utils.py:105: DataError
+___________ test_truncagem_nao_parte_sequencia_multiponto_de_grafema ___________
+
+self = <django.db.backends.utils.CursorWrapper object at 0x7cba1c7ed190>
+sql = 'INSERT INTO "catalogo_noticias_newsitem" ("titulo", "resumo_proprio", "conteudo_bruto", "conteudo_completo", "url_fon...S (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING "catalogo_noticias_newsitem"."id"'
+params = ('👨\u200d👩\u200d👧 👨\u200d👩\u200d👧 👨\u200d👩\u200d👧 👨\u200d👩\u200d👧 👨\u200d👩\u200d👧 👨\u200d👩\u200d👧 👨\u200d👩\u200d👧 👨\u2...esumo proprio do item https://emoji.test/1.', 'Conteudo bruto da fonte.', '', 'https://emoji.test/1', 'Fonte Boa', ...)
+ignored_wrapper_args = (False, {'connection': <DatabaseWrapper vendor='postgresql' alias='default'>, 'cursor': <django.db.backends.utils.CursorWrapper object at 0x7cba1c7ed190>})
+
+    def _execute(self, sql, params, *ignored_wrapper_args):
+        # Raise a warning during app initialization (stored_app_configs is only
+        # ever set during testing).
+        if not apps.ready and not apps.stored_app_configs:
+            warnings.warn(self.APPS_NOT_READY_WARNING_MSG, category=RuntimeWarning)
+        self.db.validate_no_broken_transaction()
+        with self.db.wrap_database_errors:
+            if params is None:
+                # params default might be backend specific.
+                return self.cursor.execute(sql)
+            else:
+>               return self.cursor.execute(sql, params)
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E               psycopg2.errors.StringDataRightTruncation: value too long for type character varying(300)
+
+.venv/lib/python3.14/site-packages/django/db/backends/utils.py:105: StringDataRightTruncation
+
+The above exception was the direct cause of the following exception:
+
+    def test_truncagem_nao_parte_sequencia_multiponto_de_grafema():
+        """Cortar no meio de um cluster de grafemas (emoji ZWJ, bandeira com 2
+        regional indicators, letra + acento combinante) produz glifo quebrado.
+    
+        Este teste prova que a truncagem RECUA ate um ponto seguro: o texto
+        guardado e UTF-8 valido, nao termina em caractere combinante/ZWJ e nao
+        deixa uma bandeira pela metade.
+        """
+        titulo = ("\U0001f468‍\U0001f469‍\U0001f467 " * 200) + "F" * LIMITE_TITULO
+        fontes = [_Fonte("Fonte Emoji", [_item(titulo=titulo, url="https://emoji.test/1")])]
+    
+>       _rodar(fontes)
+
+catalogo_noticias/tests/test_p1_01_ingestao_limites.py:381: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+catalogo_noticias/tests/test_p1_01_ingestao_limites.py:120: in _rodar
+    return executar_ingestao(fontes=fontes, summarization_provider=provider or _ResumoConfiavel())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/lib/python3.14/contextlib.py:85: in inner
+    return func(*args, **kwds)
+           ^^^^^^^^^^^^^^^^^^^
+catalogo_noticias/services/ingestao.py:1005: in executar_ingestao
+    _persistir_grupo(resultados_por_item)
+/usr/lib/python3.14/contextlib.py:85: in inner
+    return func(*args, **kwds)
+           ^^^^^^^^^^^^^^^^^^^
+catalogo_noticias/services/ingestao.py:538: in _persistir_grupo
+    itens_criados = _persistir_news_items_em_lote(itens_criados)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+catalogo_noticias/services/ingestao.py:413: in _persistir_news_items_em_lote
+    NewsItem.objects.bulk_create(itens_unicos, batch_size=500)
+.venv/lib/python3.14/site-packages/django/db/models/manager.py:87: in manager_method
+    return getattr(self.get_queryset(), name)(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.14/site-packages/django/db/models/query.py:825: in bulk_create
+    returned_columns = self._batched_insert(
+.venv/lib/python3.14/site-packages/django/db/models/query.py:1901: in _batched_insert
+    self._insert(
+.venv/lib/python3.14/site-packages/django/db/models/query.py:1873: in _insert
+    return query.get_compiler(using=using).execute_sql(returning_fields)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.14/site-packages/django/db/models/sql/compiler.py:1882: in execute_sql
+    cursor.execute(sql, params)
+.venv/lib/python3.14/site-packages/django/db/backends/utils.py:79: in execute
+    return self._execute_with_wrappers(
+.venv/lib/python3.14/site-packages/django/db/backends/utils.py:92: in _execute_with_wrappers
+    return executor(sql, params, many, context)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.14/site-packages/django/db/backends/utils.py:100: in _execute
+    with self.db.wrap_database_errors:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.14/site-packages/django/db/utils.py:91: in __exit__
+    raise dj_exc_value.with_traceback(traceback) from exc_value
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <django.db.backends.utils.CursorWrapper object at 0x7cba1c7ed190>
+sql = 'INSERT INTO "catalogo_noticias_newsitem" ("titulo", "resumo_proprio", "conteudo_bruto", "conteudo_completo", "url_fon...S (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING "catalogo_noticias_newsitem"."id"'
+params = ('👨\u200d👩\u200d👧 👨\u200d👩\u200d👧 👨\u200d👩\u200d👧 👨\u200d👩\u200d👧 👨\u200d👩\u200d👧 👨\u200d👩\u200d👧 👨\u200d👩\u200d👧 👨\u2...esumo proprio do item https://emoji.test/1.', 'Conteudo bruto da fonte.', '', 'https://emoji.test/1', 'Fonte Boa', ...)
+ignored_wrapper_args = (False, {'connection': <DatabaseWrapper vendor='postgresql' alias='default'>, 'cursor': <django.db.backends.utils.CursorWrapper object at 0x7cba1c7ed190>})
+
+    def _execute(self, sql, params, *ignored_wrapper_args):
+        # Raise a warning during app initialization (stored_app_configs is only
+        # ever set during testing).
+        if not apps.ready and not apps.stored_app_configs:
+            warnings.warn(self.APPS_NOT_READY_WARNING_MSG, category=RuntimeWarning)
+        self.db.validate_no_broken_transaction()
+        with self.db.wrap_database_errors:
+            if params is None:
+                # params default might be backend specific.
+                return self.cursor.execute(sql)
+            else:
+>               return self.cursor.execute(sql, params)
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E               django.db.utils.DataError: value too long for type character varying(300)
+
+.venv/lib/python3.14/site-packages/django/db/backends/utils.py:105: DataError
+_______ test_html_com_script_no_titulo_e_neutralizado_antes_de_persistir _______
+
+    def test_html_com_script_no_titulo_e_neutralizado_antes_de_persistir():
+        """REGRESSAO (falhava na base): o titulo do RSS ia CRU para o banco.
+        ``<script>alert('xss')</script>`` ficava literalmente em
+        ``NewsItem.titulo`` — e esse titulo chega ao
+        ``<script type="application/ld+json">`` do frontend via
+        ``JSON.stringify`` (que nao escapa ``<``/``/``), ou seja, vetor de XSS
+        armazenado. A ingestao tem de gravar TEXTO, nao markup.
+        """
+        titulo_malicioso = "<script>alert('xss')</script>Titulo da materia"
+        fontes = [
+            _Fonte(
+                "Fonte Hostil",
+                [_item(titulo=titulo_malicioso, url="https://hostil.test/1", fonte="Fonte Hostil")],
+            )
+        ]
+    
+        _rodar(fontes)
+    
+        guardado = NewsItem.objects.get().titulo
+>       assert "<script" not in guardado.lower()
+E       AssertionError: assert '<script' not in '<script>ale...o da materia'
+E         
+E         '<script' is contained here:
+E           <script>alert('xss')</script>titulo da materia
+E         ? +++++++
+
+catalogo_noticias/tests/test_p1_01_ingestao_limites.py:415: AssertionError
+----------------------------- Captured stderr call -----------------------------
+2026-09-25 21:10:04,913 INFO catalogo_noticias.services.ingestao [ingestao] [-] Ingestao concluida: 1 itens novos, 1 grupos, 1 chamadas ao SummarizationProvider, 0 fonte(s) com erro. registro_id=13
+------------------------------ Captured log call -------------------------------
+INFO     catalogo_noticias.services.ingestao:ingestao.py:1047 Ingestao concluida: 1 itens novos, 1 grupos, 1 chamadas ao SummarizationProvider, 0 fonte(s) com erro. registro_id=13
+_____________ test_html_com_script_no_resumo_do_llm_e_neutralizado _____________
+
+    def test_html_com_script_no_resumo_do_llm_e_neutralizado():
+        """O mesmo vale para o ``resumo_proprio``: um provider que devolve HTML
+        (o proprio LLM ecoando markup) nao pode gravar markup renderizavel.
+        """
+        class _ResumoHostil(SummarizationProvider):
+            def resumir_e_classificar(self, itens_brutos):
+                return ResultadoResumo(
+                    resumo="<script>alert('xss')</script><b>Resumo</b> legitimo",
+                    categoria="cidades",
+                )
+    
+        fontes = [_Fonte("Fonte Boa", [_item(url="https://boa.test/resumo")])]
+    
+        _rodar(fontes, provider=_ResumoHostil())
+    
+        resumo = NewsItem.objects.get().resumo_proprio
+>       assert "<script" not in resumo.lower()
+E       AssertionError: assert '<script' not in '<script>ale.../b> legitimo'
+E         
+E         '<script' is contained here:
+E           <script>alert('xss')</script><b>resumo</b> legitimo
+E         ? +++++++
+
+catalogo_noticias/tests/test_p1_01_ingestao_limites.py:437: AssertionError
+----------------------------- Captured stderr call -----------------------------
+2026-09-25 21:10:05,077 INFO catalogo_noticias.services.ingestao [ingestao] [-] Ingestao concluida: 1 itens novos, 1 grupos, 1 chamadas ao SummarizationProvider, 0 fonte(s) com erro. registro_id=14
+------------------------------ Captured log call -------------------------------
+INFO     catalogo_noticias.services.ingestao:ingestao.py:1047 Ingestao concluida: 1 itens novos, 1 grupos, 1 chamadas ao SummarizationProvider, 0 fonte(s) com erro. registro_id=14
+_ test_resumo_ou_conteudo_com_tag_desbalanceada_nao_gera_html_malformado_para_render _
+
+    def test_resumo_ou_conteudo_com_tag_desbalanceada_nao_gera_html_malformado_para_render():
+        """Uma tag aberta e nunca fechada (ou atributo quebrado) nao pode virar
+        texto que, re-renderizado, producira markup malformado. O que vai para o
+        banco e texto puro.
+        """
+        titulo = 'Titulo com <a href="https://exemplo.test">link sem fechar'
+        fontes = [_Fonte("Fonte Quebrada", [_item(titulo=titulo, url="https://quebrada.test/1")])]
+    
+        _rodar(fontes)
+    
+        guardado = NewsItem.objects.get().titulo
+>       assert "<" not in guardado and ">" not in guardado
+E       assert ('<' not in 'Titulo com ...k sem fechar'
+E         
+E         '<' is contained here:
+E           Titulo com <a href="https://exemplo.test">link sem fechar
+E         ?            +)
+
+catalogo_noticias/tests/test_p1_01_ingestao_limites.py:453: AssertionError
+----------------------------- Captured stderr call -----------------------------
+2026-09-25 21:10:05,318 INFO catalogo_noticias.services.ingestao [ingestao] [-] Ingestao concluida: 1 itens novos, 1 grupos, 1 chamadas ao SummarizationProvider, 0 fonte(s) com erro. registro_id=15
+------------------------------ Captured log call -------------------------------
+INFO     catalogo_noticias.services.ingestao:ingestao.py:1047 Ingestao concluida: 1 itens novos, 1 grupos, 1 chamadas ao SummarizationProvider, 0 fonte(s) com erro. registro_id=15
+____ test_regressao_item_invalido_no_meio_de_lote_valido_nao_derruba_o_lote ____
+
+self = <django.db.backends.utils.CursorWrapper object at 0x7cba1cf3a930>
+sql = 'INSERT INTO "catalogo_noticias_newsitem" ("titulo", "resumo_proprio", "conteudo_bruto", "conteudo_completo", "url_fon...S (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING "catalogo_noticias_newsitem"."id"'
+params = ('Materia invalida', 'Resumo proprio do item https://invalido.test/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx...xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx', 'Fonte Mista', ...)
+ignored_wrapper_args = (False, {'connection': <DatabaseWrapper vendor='postgresql' alias='default'>, 'cursor': <django.db.backends.utils.CursorWrapper object at 0x7cba1cf3a930>})
+
+    def _execute(self, sql, params, *ignored_wrapper_args):
+        # Raise a warning during app initialization (stored_app_configs is only
+        # ever set during testing).
+        if not apps.ready and not apps.stored_app_configs:
+            warnings.warn(self.APPS_NOT_READY_WARNING_MSG, category=RuntimeWarning)
+        self.db.validate_no_broken_transaction()
+        with self.db.wrap_database_errors:
+            if params is None:
+                # params default might be backend specific.
+                return self.cursor.execute(sql)
+            else:
+>               return self.cursor.execute(sql, params)
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E               psycopg2.errors.StringDataRightTruncation: value too long for type character varying(1000)
+
+.venv/lib/python3.14/site-packages/django/db/backends/utils.py:105: StringDataRightTruncation
+
+The above exception was the direct cause of the following exception:
+
+caplog = <_pytest.logging.LogCaptureFixture object at 0x7cba1d2c89d0>
+
+    def test_regressao_item_invalido_no_meio_de_lote_valido_nao_derruba_o_lote(caplog):
+        """REGRESSAO (falhava na base): um unico item com URL enorme no MEIO de
+        um lote de itens validos derrubava a execucao inteira (``DataError`` no
+        ``bulk_create`` do grupo) — zero dos itens validos eram persistidos.
+    
+        Prova: os validos entram, o invalido NAO entra, e a falha fica
+        registrada com fonte, item e motivo.
+        """
+        url_enorme = "https://invalido.test/" + "x" * VALOR_ENORME
+        fontes = [
+            _Fonte(
+                "Fonte Mista",
+                [
+                    _item(titulo="Primeira materia valida", url="https://mista.test/1"),
+                    _item(titulo="Materia invalida", url=url_enorme, fonte="Fonte Mista"),
+                    _item(titulo="Terceira materia valida", url="https://mista.test/3"),
+                ],
+            )
+        ]
+    
+        with caplog.at_level(logging.ERROR):
+>           registro = _rodar(fontes)
+                       ^^^^^^^^^^^^^^
+
+catalogo_noticias/tests/test_p1_01_ingestao_limites.py:483: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+catalogo_noticias/tests/test_p1_01_ingestao_limites.py:120: in _rodar
+    return executar_ingestao(fontes=fontes, summarization_provider=provider or _ResumoConfiavel())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/lib/python3.14/contextlib.py:85: in inner
+    return func(*args, **kwds)
+           ^^^^^^^^^^^^^^^^^^^
+catalogo_noticias/services/ingestao.py:1005: in executar_ingestao
+    _persistir_grupo(resultados_por_item)
+/usr/lib/python3.14/contextlib.py:85: in inner
+    return func(*args, **kwds)
+           ^^^^^^^^^^^^^^^^^^^
+catalogo_noticias/services/ingestao.py:538: in _persistir_grupo
+    itens_criados = _persistir_news_items_em_lote(itens_criados)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+catalogo_noticias/services/ingestao.py:413: in _persistir_news_items_em_lote
+    NewsItem.objects.bulk_create(itens_unicos, batch_size=500)
+.venv/lib/python3.14/site-packages/django/db/models/manager.py:87: in manager_method
+    return getattr(self.get_queryset(), name)(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.14/site-packages/django/db/models/query.py:825: in bulk_create
+    returned_columns = self._batched_insert(
+.venv/lib/python3.14/site-packages/django/db/models/query.py:1901: in _batched_insert
+    self._insert(
+.venv/lib/python3.14/site-packages/django/db/models/query.py:1873: in _insert
+    return query.get_compiler(using=using).execute_sql(returning_fields)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.14/site-packages/django/db/models/sql/compiler.py:1882: in execute_sql
+    cursor.execute(sql, params)
+.venv/lib/python3.14/site-packages/django/db/backends/utils.py:79: in execute
+    return self._execute_with_wrappers(
+.venv/lib/python3.14/site-packages/django/db/backends/utils.py:92: in _execute_with_wrappers
+    return executor(sql, params, many, context)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.14/site-packages/django/db/backends/utils.py:100: in _execute
+    with self.db.wrap_database_errors:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.14/site-packages/django/db/utils.py:91: in __exit__
+    raise dj_exc_value.with_traceback(traceback) from exc_value
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <django.db.backends.utils.CursorWrapper object at 0x7cba1cf3a930>
+sql = 'INSERT INTO "catalogo_noticias_newsitem" ("titulo", "resumo_proprio", "conteudo_bruto", "conteudo_completo", "url_fon...S (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING "catalogo_noticias_newsitem"."id"'
+params = ('Materia invalida', 'Resumo proprio do item https://invalido.test/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx...xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx', 'Fonte Mista', ...)
+ignored_wrapper_args = (False, {'connection': <DatabaseWrapper vendor='postgresql' alias='default'>, 'cursor': <django.db.backends.utils.CursorWrapper object at 0x7cba1cf3a930>})
+
+    def _execute(self, sql, params, *ignored_wrapper_args):
+        # Raise a warning during app initialization (stored_app_configs is only
+        # ever set during testing).
+        if not apps.ready and not apps.stored_app_configs:
+            warnings.warn(self.APPS_NOT_READY_WARNING_MSG, category=RuntimeWarning)
+        self.db.validate_no_broken_transaction()
+        with self.db.wrap_database_errors:
+            if params is None:
+                # params default might be backend specific.
+                return self.cursor.execute(sql)
+            else:
+>               return self.cursor.execute(sql, params)
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E               django.db.utils.DataError: value too long for type character varying(1000)
+
+.venv/lib/python3.14/site-packages/django/db/backends/utils.py:105: DataError
+______ test_regressao_grupo_inteiro_invalido_nao_derruba_os_outros_grupos ______
+
+caplog = <_pytest.logging.LogCaptureFixture object at 0x7cba1cfcbad0>
+
+    def test_regressao_grupo_inteiro_invalido_nao_derruba_os_outros_grupos(caplog):
+        """REGRESSAO (falhava na base): o `_persistir_grupo` de um grupo nao era
+        protegido. Um grupo com item inválido derrubava `executar_ingestao` e os
+        grupos restantes nunca eram processados.
+    
+        Aqui o grupo e INVALIDADO de verdade (o provider levanta excecao para
+        aquele item) e provamos que os outros grupos seguem; alem disso o
+        grupo com problema fica registrado como falha.
+        """
+        class _ProviderQueFalhaEmUmItem(SummarizationProvider):
+            """Falha (erro generico, nao SummarizationProviderError) ao resumir
+            um item especifico — o caso de erro inesperado que hoje escapa."""
+    
+            def resumir_e_classificar(self, itens_brutos):
+                if "estoura" in itens_brutos[0].url_fonte_original:
+                    raise RuntimeError("provider explodiu neste item")
+                return ResultadoResumo(resumo="Resumo legitimo.", categoria="cidades")
+    
+        fontes = [
+            _Fonte("Fonte Boa", [_item(titulo="Materia boa um", url="https://boa.test/1")]),
+            _Fonte("Fonte Estoura", [_item(titulo="Materia que estoura", url="https://estoura.test/1", fonte="Fonte Estoura")]),
+            _Fonte("Fonte Boa 2", [_item(titulo="Materia boa dois", url="https://boa.test/2")]),
+        ]
+    
+        with caplog.at_level(logging.ERROR):
+>           registro = _rodar(fontes, provider=_ProviderQueFalhaEmUmItem())
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+catalogo_noticias/tests/test_p1_01_ingestao_limites.py:517: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+catalogo_noticias/tests/test_p1_01_ingestao_limites.py:120: in _rodar
+    return executar_ingestao(fontes=fontes, summarization_provider=provider or _ResumoConfiavel())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/lib/python3.14/contextlib.py:85: in inner
+    return func(*args, **kwds)
+           ^^^^^^^^^^^^^^^^^^^
+catalogo_noticias/services/ingestao.py:945: in executar_ingestao
+    resultados_lote = summarization_provider.resumir_e_classificar_em_lote(lote)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+catalogo_noticias/providers/summarization.py:91: in resumir_e_classificar_em_lote
+    return [self.resumir_e_classificar([item]) for item in itens_brutos]
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <catalogo_noticias.tests.test_p1_01_ingestao_limites.test_regressao_grupo_inteiro_invalido_nao_derruba_os_outros_grupos.<locals>._ProviderQueFalhaEmUmItem object at 0x7cba1d709550>
+itens_brutos = [ItemBruto(titulo='Materia que estoura', url_fonte_original='https://estoura.test/1', nome_fonte='Fonte Estoura', cont...', conteudo_completo='', categoria='', imagem_url='', timestamp_publicacao_fonte=None, estado_fonte='', pais_fonte='')]
+
+    def resumir_e_classificar(self, itens_brutos):
+        if "estoura" in itens_brutos[0].url_fonte_original:
+>           raise RuntimeError("provider explodiu neste item")
+E           RuntimeError: provider explodiu neste item
+
+catalogo_noticias/tests/test_p1_01_ingestao_limites.py:507: RuntimeError
+____________ test_erro_nao_e_engolido_registra_fonte_item_e_motivo _____________
+
+caplog = <_pytest.logging.LogCaptureFixture object at 0x7cba1ce26f10>
+
+    def test_erro_nao_e_engolido_registra_fonte_item_e_motivo(caplog):
+        """A excecao NAO pode ser engolida em silencio: tem de aparecer em log de
+        nivel ERROR (com traceback) e no registro, identificando fonte, item e
+        motivo.
+        """
+        class _ProviderQueExplode(SummarizationProvider):
+            def resumir_e_classificar(self, itens_brutos):
+                raise RuntimeError("falha catastrofica do provider")
+    
+        fontes = [
+            _Fonte("Fonte X", [_item(titulo="Item X", url="https://x.test/1", fonte="Fonte X")]),
+            _Fonte("Fonte Y", [_item(titulo="Item Y", url="https://y.test/1", fonte="Fonte Y")]),
+        ]
+    
+        with caplog.at_level(logging.ERROR):
+>           registro = _rodar(fontes, provider=_ProviderQueExplode())
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+catalogo_noticias/tests/test_p1_01_ingestao_limites.py:540: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+catalogo_noticias/tests/test_p1_01_ingestao_limites.py:120: in _rodar
+    return executar_ingestao(fontes=fontes, summarization_provider=provider or _ResumoConfiavel())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/lib/python3.14/contextlib.py:85: in inner
+    return func(*args, **kwds)
+           ^^^^^^^^^^^^^^^^^^^
+catalogo_noticias/services/ingestao.py:945: in executar_ingestao
+    resultados_lote = summarization_provider.resumir_e_classificar_em_lote(lote)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+catalogo_noticias/providers/summarization.py:91: in resumir_e_classificar_em_lote
+    return [self.resumir_e_classificar([item]) for item in itens_brutos]
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <catalogo_noticias.tests.test_p1_01_ingestao_limites.test_erro_nao_e_engolido_registra_fonte_item_e_motivo.<locals>._ProviderQueExplode object at 0x7cba1d709fd0>
+itens_brutos = [ItemBruto(titulo='Item X', url_fonte_original='https://x.test/1', nome_fonte='Fonte X', conteudo_bruto='Conteudo brut...', conteudo_completo='', categoria='', imagem_url='', timestamp_publicacao_fonte=None, estado_fonte='', pais_fonte='')]
+
+    def resumir_e_classificar(self, itens_brutos):
+>       raise RuntimeError("falha catastrofica do provider")
+E       RuntimeError: falha catastrofica do provider
+
+catalogo_noticias/tests/test_p1_01_ingestao_limites.py:532: RuntimeError
+_____________ test_placar_de_sucesso_e_falha_e_reportado_ao_final ______________
+
+self = <django.db.backends.utils.CursorWrapper object at 0x7cba1d9dec90>
+sql = 'INSERT INTO "catalogo_noticias_newsitem" ("titulo", "resumo_proprio", "conteudo_bruto", "conteudo_completo", "url_fon...S (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING "catalogo_noticias_newsitem"."id"'
+params = ('Ruim', 'Resumo proprio do item https://grande.test/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz...zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz', 'Fonte Ruim', ...)
+ignored_wrapper_args = (False, {'connection': <DatabaseWrapper vendor='postgresql' alias='default'>, 'cursor': <django.db.backends.utils.CursorWrapper object at 0x7cba1d9dec90>})
+
+    def _execute(self, sql, params, *ignored_wrapper_args):
+        # Raise a warning during app initialization (stored_app_configs is only
+        # ever set during testing).
+        if not apps.ready and not apps.stored_app_configs:
+            warnings.warn(self.APPS_NOT_READY_WARNING_MSG, category=RuntimeWarning)
+        self.db.validate_no_broken_transaction()
+        with self.db.wrap_database_errors:
+            if params is None:
+                # params default might be backend specific.
+                return self.cursor.execute(sql)
+            else:
+>               return self.cursor.execute(sql, params)
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E               psycopg2.errors.StringDataRightTruncation: value too long for type character varying(1000)
+
+.venv/lib/python3.14/site-packages/django/db/backends/utils.py:105: StringDataRightTruncation
+
+The above exception was the direct cause of the following exception:
+
+caplog = <_pytest.logging.LogCaptureFixture object at 0x7cba1d96e030>
+
+    def test_placar_de_sucesso_e_falha_e_reportado_ao_final(caplog):
+        """O item pede um placar de sucesso/falha ao final. Este teste prova que
+        o registro distingue o que entrou do que falhou, por fonte.
+        """
+        url_enorme = "https://grande.test/" + "z" * VALOR_ENORME
+        fontes = [
+            _Fonte("Fonte Boa", [_item(titulo="Boa um", url="https://boa.test/1"), _item(titulo="Boa dois", url="https://boa.test/2")]),
+            _Fonte("Fonte Ruim", [_item(titulo="Ruim", url=url_enorme, fonte="Fonte Ruim")]),
+        ]
+    
+        with caplog.at_level(logging.ERROR):
+>           registro = _rodar(fontes)
+                       ^^^^^^^^^^^^^^
+
+catalogo_noticias/tests/test_p1_01_ingestao_limites.py:562: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+catalogo_noticias/tests/test_p1_01_ingestao_limites.py:120: in _rodar
+    return executar_ingestao(fontes=fontes, summarization_provider=provider or _ResumoConfiavel())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/lib/python3.14/contextlib.py:85: in inner
+    return func(*args, **kwds)
+           ^^^^^^^^^^^^^^^^^^^
+catalogo_noticias/services/ingestao.py:1005: in executar_ingestao
+    _persistir_grupo(resultados_por_item)
+/usr/lib/python3.14/contextlib.py:85: in inner
+    return func(*args, **kwds)
+           ^^^^^^^^^^^^^^^^^^^
+catalogo_noticias/services/ingestao.py:538: in _persistir_grupo
+    itens_criados = _persistir_news_items_em_lote(itens_criados)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+catalogo_noticias/services/ingestao.py:413: in _persistir_news_items_em_lote
+    NewsItem.objects.bulk_create(itens_unicos, batch_size=500)
+.venv/lib/python3.14/site-packages/django/db/models/manager.py:87: in manager_method
+    return getattr(self.get_queryset(), name)(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.14/site-packages/django/db/models/query.py:825: in bulk_create
+    returned_columns = self._batched_insert(
+.venv/lib/python3.14/site-packages/django/db/models/query.py:1901: in _batched_insert
+    self._insert(
+.venv/lib/python3.14/site-packages/django/db/models/query.py:1873: in _insert
+    return query.get_compiler(using=using).execute_sql(returning_fields)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.14/site-packages/django/db/models/sql/compiler.py:1882: in execute_sql
+    cursor.execute(sql, params)
+.venv/lib/python3.14/site-packages/django/db/backends/utils.py:79: in execute
+    return self._execute_with_wrappers(
+.venv/lib/python3.14/site-packages/django/db/backends/utils.py:92: in _execute_with_wrappers
+    return executor(sql, params, many, context)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.14/site-packages/django/db/backends/utils.py:100: in _execute
+    with self.db.wrap_database_errors:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.14/site-packages/django/db/utils.py:91: in __exit__
+    raise dj_exc_value.with_traceback(traceback) from exc_value
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <django.db.backends.utils.CursorWrapper object at 0x7cba1d9dec90>
+sql = 'INSERT INTO "catalogo_noticias_newsitem" ("titulo", "resumo_proprio", "conteudo_bruto", "conteudo_completo", "url_fon...S (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING "catalogo_noticias_newsitem"."id"'
+params = ('Ruim', 'Resumo proprio do item https://grande.test/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz...zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz', 'Fonte Ruim', ...)
+ignored_wrapper_args = (False, {'connection': <DatabaseWrapper vendor='postgresql' alias='default'>, 'cursor': <django.db.backends.utils.CursorWrapper object at 0x7cba1d9dec90>})
+
+    def _execute(self, sql, params, *ignored_wrapper_args):
+        # Raise a warning during app initialization (stored_app_configs is only
+        # ever set during testing).
+        if not apps.ready and not apps.stored_app_configs:
+            warnings.warn(self.APPS_NOT_READY_WARNING_MSG, category=RuntimeWarning)
+        self.db.validate_no_broken_transaction()
+        with self.db.wrap_database_errors:
+            if params is None:
+                # params default might be backend specific.
+                return self.cursor.execute(sql)
+            else:
+>               return self.cursor.execute(sql, params)
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E               django.db.utils.DataError: value too long for type character varying(1000)
+
+.venv/lib/python3.14/site-packages/django/db/backends/utils.py:105: DataError
+_______ test_reprocessar_item_enorme_que_foi_limitado_nao_cria_duplicata _______
+
+self = <django.db.backends.utils.CursorWrapper object at 0x7cba1d6eccb0>
+sql = 'INSERT INTO "catalogo_noticias_newsitem" ("titulo", "resumo_proprio", "conteudo_bruto", "conteudo_completo", "url_fon...S (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING "catalogo_noticias_newsitem"."id"'
+params = ('GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG...proprio do item https://idem-g.test/1.', 'Conteudo bruto da fonte.', '', 'https://idem-g.test/1', 'Fonte Gigante', ...)
+ignored_wrapper_args = (False, {'connection': <DatabaseWrapper vendor='postgresql' alias='default'>, 'cursor': <django.db.backends.utils.CursorWrapper object at 0x7cba1d6eccb0>})
+
+    def _execute(self, sql, params, *ignored_wrapper_args):
+        # Raise a warning during app initialization (stored_app_configs is only
+        # ever set during testing).
+        if not apps.ready and not apps.stored_app_configs:
+            warnings.warn(self.APPS_NOT_READY_WARNING_MSG, category=RuntimeWarning)
+        self.db.validate_no_broken_transaction()
+        with self.db.wrap_database_errors:
+            if params is None:
+                # params default might be backend specific.
+                return self.cursor.execute(sql)
+            else:
+>               return self.cursor.execute(sql, params)
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E               psycopg2.errors.StringDataRightTruncation: value too long for type character varying(300)
+
+.venv/lib/python3.14/site-packages/django/db/backends/utils.py:105: StringDataRightTruncation
+
+The above exception was the direct cause of the following exception:
+
+    def test_reprocessar_item_enorme_que_foi_limitado_nao_cria_duplicata():
+        """Idempotencia tambem no caminho ja truncado: reprocessar o mesmo item
+        gigante nao duplica nem faz a segunda rodada estourar o banco."""
+        fontes_in = lambda: [  # noqa: E731
+            _Fonte("Fonte Gigante", [_item(titulo="G" * VALOR_ENORME, url="https://idem-g.test/1", fonte="Fonte Gigante")])
+        ]
+    
+>       _rodar(fontes_in())
+
+catalogo_noticias/tests/test_p1_01_ingestao_limites.py:612: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+catalogo_noticias/tests/test_p1_01_ingestao_limites.py:120: in _rodar
+    return executar_ingestao(fontes=fontes, summarization_provider=provider or _ResumoConfiavel())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/lib/python3.14/contextlib.py:85: in inner
+    return func(*args, **kwds)
+           ^^^^^^^^^^^^^^^^^^^
+catalogo_noticias/services/ingestao.py:1005: in executar_ingestao
+    _persistir_grupo(resultados_por_item)
+/usr/lib/python3.14/contextlib.py:85: in inner
+    return func(*args, **kwds)
+           ^^^^^^^^^^^^^^^^^^^
+catalogo_noticias/services/ingestao.py:538: in _persistir_grupo
+    itens_criados = _persistir_news_items_em_lote(itens_criados)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+catalogo_noticias/services/ingestao.py:413: in _persistir_news_items_em_lote
+    NewsItem.objects.bulk_create(itens_unicos, batch_size=500)
+.venv/lib/python3.14/site-packages/django/db/models/manager.py:87: in manager_method
+    return getattr(self.get_queryset(), name)(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.14/site-packages/django/db/models/query.py:825: in bulk_create
+    returned_columns = self._batched_insert(
+.venv/lib/python3.14/site-packages/django/db/models/query.py:1901: in _batched_insert
+    self._insert(
+.venv/lib/python3.14/site-packages/django/db/models/query.py:1873: in _insert
+    return query.get_compiler(using=using).execute_sql(returning_fields)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.14/site-packages/django/db/models/sql/compiler.py:1882: in execute_sql
+    cursor.execute(sql, params)
+.venv/lib/python3.14/site-packages/django/db/backends/utils.py:79: in execute
+    return self._execute_with_wrappers(
+.venv/lib/python3.14/site-packages/django/db/backends/utils.py:92: in _execute_with_wrappers
+    return executor(sql, params, many, context)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.14/site-packages/django/db/backends/utils.py:100: in _execute
+    with self.db.wrap_database_errors:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.14/site-packages/django/db/utils.py:91: in __exit__
+    raise dj_exc_value.with_traceback(traceback) from exc_value
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <django.db.backends.utils.CursorWrapper object at 0x7cba1d6eccb0>
+sql = 'INSERT INTO "catalogo_noticias_newsitem" ("titulo", "resumo_proprio", "conteudo_bruto", "conteudo_completo", "url_fon...S (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING "catalogo_noticias_newsitem"."id"'
+params = ('GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG...proprio do item https://idem-g.test/1.', 'Conteudo bruto da fonte.', '', 'https://idem-g.test/1', 'Fonte Gigante', ...)
+ignored_wrapper_args = (False, {'connection': <DatabaseWrapper vendor='postgresql' alias='default'>, 'cursor': <django.db.backends.utils.CursorWrapper object at 0x7cba1d6eccb0>})
+
+    def _execute(self, sql, params, *ignored_wrapper_args):
+        # Raise a warning during app initialization (stored_app_configs is only
+        # ever set during testing).
+        if not apps.ready and not apps.stored_app_configs:
+            warnings.warn(self.APPS_NOT_READY_WARNING_MSG, category=RuntimeWarning)
+        self.db.validate_no_broken_transaction()
+        with self.db.wrap_database_errors:
+            if params is None:
+                # params default might be backend specific.
+                return self.cursor.execute(sql)
+            else:
+>               return self.cursor.execute(sql, params)
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E               django.db.utils.DataError: value too long for type character varying(300)
+
+.venv/lib/python3.14/site-packages/django/db/backends/utils.py:105: DataError
+______ test_conteudo_bruto_enorme_e_limitado_em_memoria_e_na_persistencia ______
+
+    def test_conteudo_bruto_enorme_e_limitado_em_memoria_e_na_persistencia():
+        """Um ``conteudo_bruto`` gigante nao pode ser carregado inteiro nem
+        persistido inteiro: o RSS e uma fonte externa e nao ha limite no
+        ``TextField`` do banco. O teto e explicito e vale para o item.
+        """
+>       from catalogo_noticias.services import limites
+E       ImportError: cannot import name 'limites' from 'catalogo_noticias.services' (/tmp/opencode/p101/backend/catalogo_noticias/services/__init__.py)
+
+catalogo_noticias/tests/test_p1_01_ingestao_limites.py:624: ImportError
+_________ test_limpar_html_para_texto_e_limitado_antes_de_materializar _________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7cba1d66eac0>
+
+    def test_limpar_html_para_texto_e_limitado_antes_de_materializar(monkeypatch):
+        """A limpeza de HTML nao pode materializar o blob inteiro: um feed com
+        megabytes de HTML era convertido em megabytes de texto e SO DEPOIS
+        truncado (``extrair_conteudo_completo``), multiplicando o pico de memoria
+        da ingestao. O corte tem de vir ANTES da limpeza, com folga para o
+        caso de expansao por entidades (``&nbsp;`` -> 1 char vira 6).
+        """
+        from catalogo_noticias.providers import news_source as ns
+    
+        entrada_html = "<p>" + ("palavra " * 500_000) + "</p>"
+        assert len(entrada_html) > 1_000_000
+    
+        fornecidos: list[int] = []
+        original = ns.limpar_html_para_texto
+    
+        def _espiao(html):
+            fornecidos.append(len(html))
+            return original(html)
+    
+        monkeypatch.setattr(ns, "limpar_html_para_texto", _espiao)
+        texto = ns.extrair_conteudo_completo(
+            type("Entrada", (), {"content": [{"value": entrada_html}], "summary": ""})()
+        )
+    
+        assert fornecidos, "a limpeza nao foi chamada"
+>       assert fornecidos[0] <= 8 * TETO_CONTEUDO_COMPLETO_CHARS, (
+            f"o HTML de {len(entrada_html)} chars foi entregue inteiro a limpeza "
+            f"({fornecidos[0]} chars) — o corte precisa vir antes"
+        )
+E       AssertionError: o HTML de 4000007 chars foi entregue inteiro a limpeza (4000007 chars) — o corte precisa vir antes
+E       assert 4000007 <= (8 * 8000)
+
+catalogo_noticias/tests/test_p1_01_ingestao_limites.py:662: AssertionError
+_________ test_busca_rss_limita_campos_grandes_no_caminho_do_provider __________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7cba1d66df60>
+
+    def test_busca_rss_limita_campos_grandes_no_caminho_do_provider(monkeypatch):
+        """O provider tambem precisa de teto, para nao segurar um feed enorme em
+        memoria ate o fim da rodada. Confere que um item de RSS com titulo/URL
+        gigantes ja sai limitado do `buscar_itens`.
+        """
+        from catalogo_noticias.providers import news_source as ns
+        from unittest.mock import MagicMock, patch
+    
+        corpo = (
+            "<?xml version='1.0'?><rss version='2.0'><channel><title>F</title>"
+            f"<item><title>{'T' * 100_000}</title>"
+            f"<link>https://rss.test/{'u' * 100_000}</link>"
+            "<description>d</description></item></channel></rss>"
+        ).encode("utf-8")
+        resposta = MagicMock(status_code=200, content=corpo, headers={})
+        resposta.raise_for_status.return_value = None
+        provider = ns.RSSNewsSourceProvider(nome_fonte="RSS Gigante", url_feed="https://rss.test/f")
+    
+        with patch.object(ns.requests, "get", return_value=resposta):
+            itens = provider.buscar_itens()
+    
+        assert len(itens) == 1
+>       assert len(itens[0].titulo) <= LIMITE_TITULO
+E       AssertionError: assert 100000 <= 300
+E        +  where 100000 = len('TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT...TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT')
+E        +    where 'TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT...TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT' = ItemBruto(titulo='TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT...', conteudo_completo='d', categoria='', imagem_url='', timestamp_publicacao_fonte=None, estado_fonte='', pais_fonte='').titulo
+
+catalogo_noticias/tests/test_p1_01_ingestao_limites.py:691: AssertionError
+_____________ test_data_error_do_banco_nao_propaga_da_persistencia _____________
+
+caplog = <_pytest.logging.LogCaptureFixture object at 0x7cba1d2eeb50>
+
+    def test_data_error_do_banco_nao_propaga_da_persistencia(caplog):
+        """Ultima linha de defesa: mesmo que um `DataError`Escape do banco
+        apareca (campo novo sem limite, bug futuro, trigger), a persistencia em
+        lote tem que isolar a linha ruim em vez de perder o grupo inteiro — e
+        registrar qual item foi.
+    
+        O `DataError` e injetado de verdade aqui (`DataError` do Django, a mesma
+        excecao que o psycopg2 produz).
+        """
+        from catalogo_noticias.services import ingestao as svc
+    
+        itens = [
+            NewsItem(titulo="Item ok um", url_fonte_original="https://defesa.test/1", nome_fonte="Fonte"),
+            NewsItem(titulo="Item ok dois", url_fonte_original="https://defesa.test/2", nome_fonte="Fonte"),
+        ]
+        real_bulk_create = NewsItem.objects.bulk_create
+    
+        def _bulk_create_que_explode(objs, *args, **kwargs):
+            # Simula o banco recusando a PRIMEIRA linha do lote.
+            raise DataError("value too long for type character varying(300)")
+    
+        with caplog.at_level(logging.ERROR):
+            with patch.object(NewsItem.objects, "bulk_create", side_effect=_bulk_create_que_explode):
+>               resultado = svc._persistir_news_items_em_lote(itens)
+                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+catalogo_noticias/tests/test_p1_01_ingestao_limites.py:723: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+catalogo_noticias/services/ingestao.py:413: in _persistir_news_items_em_lote
+    NewsItem.objects.bulk_create(itens_unicos, batch_size=500)
+/usr/lib/python3.14/unittest/mock.py:1176: in __call__
+    return self._mock_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/lib/python3.14/unittest/mock.py:1180: in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/lib/python3.14/unittest/mock.py:1247: in _execute_mock_call
+    result = effect(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+objs = [<NewsItem: Item ok um>, <NewsItem: Item ok dois>], args = ()
+kwargs = {'batch_size': 500}
+
+    def _bulk_create_que_explode(objs, *args, **kwargs):
+        # Simula o banco recusando a PRIMEIRA linha do lote.
+>       raise DataError("value too long for type character varying(300)")
+E       django.db.utils.DataError: value too long for type character varying(300)
+
+catalogo_noticias/tests/test_p1_01_ingestao_limites.py:719: DataError
+=============================== warnings summary ===============================
+catalogo_noticias/tests/test_p1_01_ingestao_limites.py::test_busca_rss_limita_campos_grandes_no_caminho_do_provider
+catalogo_noticias/tests/test_p1_01_ingestao_limites.py::test_busca_rss_limita_campos_grandes_no_caminho_do_provider
+  /tmp/opencode/p101/backend/.venv/lib/python3.14/site-packages/feedparser/html.py:152: DeprecationWarning: 'count' is passed as positional argument
+    data = re.sub(r'<!((?!DOCTYPE|--|\[))', r'&lt;!\1', data, re.IGNORECASE)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED catalogo_noticias/tests/test_p1_01_ingestao_limites.py::test_regressao_titulo_enorme_nao_derruba_a_execucao_nem_os_itens_validos
+FAILED catalogo_noticias/tests/test_p1_01_ingestao_limites.py::test_regressao_url_enorme_e_registrada_sem_derrubar_o_resto
+FAILED catalogo_noticias/tests/test_p1_01_ingestao_limites.py::test_regressao_categoria_enorme_do_llm_nao_derruba_a_execucao
+FAILED catalogo_noticias/tests/test_p1_01_ingestao_limites.py::test_regressao_imagem_url_enorme_e_descartada_sem_derrubar_o_item
+FAILED catalogo_noticias/tests/test_p1_01_ingestao_limites.py::test_regressao_nome_fonte_e_localidade_enormes_sao_limitados
+FAILED catalogo_noticias/tests/test_p1_01_ingestao_limites.py::test_regressao_titulo_de_cluster_enorme_nao_derruba_a_execucao
+FAILED catalogo_noticias/tests/test_p1_01_ingestao_limites.py::test_regressao_categoria_dominante_enorme_no_cluster_nao_derruba_a_execucao
+FAILED catalogo_noticias/tests/test_p1_01_ingestao_limites.py::test_um_caractere_acima_do_limite_e_o_unico_que_muda
+FAILED catalogo_noticias/tests/test_p1_01_ingestao_limites.py::test_truncagem_nao_parte_sequencia_multiponto_de_grafema
+FAILED catalogo_noticias/tests/test_p1_01_ingestao_limites.py::test_html_com_script_no_titulo_e_neutralizado_antes_de_persistir
+FAILED catalogo_noticias/tests/test_p1_01_ingestao_limites.py::test_html_com_script_no_resumo_do_llm_e_neutralizado
+FAILED catalogo_noticias/tests/test_p1_01_ingestao_limites.py::test_resumo_ou_conteudo_com_tag_desbalanceada_nao_gera_html_malformado_para_render
+FAILED catalogo_noticias/tests/test_p1_01_ingestao_limites.py::test_regressao_item_invalido_no_meio_de_lote_valido_nao_derruba_o_lote
+FAILED catalogo_noticias/tests/test_p1_01_ingestao_limites.py::test_regressao_grupo_inteiro_invalido_nao_derruba_os_outros_grupos
+FAILED catalogo_noticias/tests/test_p1_01_ingestao_limites.py::test_erro_nao_e_engolido_registra_fonte_item_e_motivo
+FAILED catalogo_noticias/tests/test_p1_01_ingestao_limites.py::test_placar_de_sucesso_e_falha_e_reportado_ao_final
+FAILED catalogo_noticias/tests/test_p1_01_ingestao_limites.py::test_reprocessar_item_enorme_que_foi_limitado_nao_cria_duplicata
+FAILED catalogo_noticias/tests/test_p1_01_ingestao_limites.py::test_conteudo_bruto_enorme_e_limitado_em_memoria_e_na_persistencia
+FAILED catalogo_noticias/tests/test_p1_01_ingestao_limites.py::test_limpar_html_para_texto_e_limitado_antes_de_materializar
+FAILED catalogo_noticias/tests/test_p1_01_ingestao_limites.py::test_busca_rss_limita_campos_grandes_no_caminho_do_provider
+FAILED catalogo_noticias/tests/test_p1_01_ingestao_limites.py::test_data_error_do_banco_nao_propaga_da_persistencia
+21 failed, 4 passed, 2 warnings in 32.36s

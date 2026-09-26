@@ -29,9 +29,13 @@ export const EmAlta = memo(function EmAlta({ feed, limite, categoriaBuscada }: E
   // Sinais locais (localStorage) só após hidratar — senão o ranking diverge
   // do SSR e quebra a hidratação. Ver `useHidratado`.
   const hidratado = useHidratado();
+  // `sinais` depende só do localStorage e da categoria — `feed` não altera
+  // `lerSinaisLocais`/`sinaisNeutros` (não recebem `feed`), então ficou fora
+  // das deps de propósito. `ranking`, que é quem consome `feed`, continua com
+  // `[feed, sinais, limite]`: mudar o feed ainda recalcula o ranking.
   const sinais = useMemo(
     () => (hidratado ? lerSinaisLocais(categoriaBuscada) : sinaisNeutros(categoriaBuscada)),
-    [hidratado, categoriaBuscada, feed]
+    [hidratado, categoriaBuscada]
   );
   const ranking = useMemo(() => ordenarEmAlta(feed, sinais).slice(0, limite), [feed, sinais, limite]);
 

@@ -1,0 +1,366 @@
+........................................................................ [  9%]
+........................................................................ [ 18%]
+........................................................................ [ 27%]
+........................................................................ [ 36%]
+........................................................................ [ 45%]
+........................................................................ [ 54%]
+........................................................................ [ 63%]
+........................................................................ [ 73%]
+........................................................................ [ 82%]
+........................................................................ [ 91%]
+....................................................................     [100%]
+=============================== warnings summary ===============================
+assinatura/tests/test_mercadopago.py: 2 warnings
+assinatura/tests/test_sanity.py: 5 warnings
+b2b/tests/test_criterio_delete.py: 3 warnings
+b2b/tests/test_sanity.py: 3 warnings
+catalogo_noticias/tests/test_p1_01b_admin_limites.py: 7 warnings
+catalogo_noticias/tests/test_robos_admin.py: 10 warnings
+comunidade/tests/test_crud_delete.py: 8 warnings
+comunidade/tests/test_p2_performance.py: 4 warnings
+comunidade/tests/test_sanity.py: 3 warnings
+config/tests/test_health.py: 29 warnings
+config/tests/test_request_id.py: 1 warning
+config/tests/test_sanitizar_html.py: 1 warning
+config/tests/test_throttling.py: 3 warnings
+credenciamento/tests/test_uploads.py: 2 warnings
+feed/tests/test_algoritmos_busca.py: 6 warnings
+feed/tests/test_p1_feed_cache_indices.py: 7 warnings
+feed/tests/test_p2_performance.py: 1 warning
+feed/tests/test_sanity.py: 11 warnings
+gating/tests/test_sanity.py: 3 warnings
+identidade/tests/test_acceptance_criteria.py: 31 warnings
+identidade/tests/test_preferencias_cookies.py: 8 warnings
+identidade/tests/test_primeiro_acesso.py: 4 warnings
+identidade/tests/test_sanity.py: 13 warnings
+landing/tests/test_sanity.py: 3 warnings
+metricas/tests/test_custo_llm.py: 1 warning
+metricas/tests/test_inteligencia.py: 13 warnings
+metricas/tests/test_sanity.py: 3 warnings
+painel_admin/tests/test_plan_delete.py: 3 warnings
+painel_admin/tests/test_sanity.py: 24 warnings
+catalogo_noticias/tests/test_robos_background.py: 1 warning
+enderecos/tests/test_enderecos.py: 3 warnings
+  /tmp/opencode/p101b/backend/.venv/lib/python3.14/site-packages/django/core/handlers/base.py:61: UserWarning: No directory at: /tmp/opencode/p101b/backend/staticfiles/
+    mw_instance = middleware(adapted_handler)
+
+catalogo_noticias/tests/test_acceptance_criteria.py: 15 warnings
+catalogo_noticias/tests/test_p1_01_ingestao_limites.py: 8 warnings
+catalogo_noticias/tests/test_p2_ingestao_performance.py: 12 warnings
+  /tmp/opencode/p101b/backend/.venv/lib/python3.14/site-packages/feedparser/html.py:152: DeprecationWarning: 'count' is passed as positional argument
+    data = re.sub(r'<!((?!DOCTYPE|--|\[))', r'&lt;!\1', data, re.IGNORECASE)
+
+catalogo_noticias/tests/test_p1_01b_admin_limites.py: 32 warnings
+painel_admin/tests/test_sanity.py: 4 warnings
+  /tmp/opencode/p101b/backend/.venv/lib/python3.14/site-packages/django/db/models/fields/__init__.py:1148: RemovedInDjango60Warning: The default scheme will be changed from 'http' to 'https' in Django 6.0. Pass the forms.URLField.assume_scheme argument to silence this warning, or set the FORMS_URLFIELD_ASSUME_HTTPS transitional setting to True to opt into using 'https' as the new default scheme.
+    return form_class(**defaults)
+
+catalogo_noticias/tests/test_p1_01b_admin_limites.py::test_form_do_admin_recusa_url_acima_do_limite_mesmo_sem_max_length_do_campo
+  /tmp/opencode/p101b/backend/catalogo_noticias/tests/test_p1_01b_admin_limites.py:378: RemovedInDjango60Warning: The default scheme will be changed from 'http' to 'https' in Django 6.0. Pass the forms.URLField.assume_scheme argument to silence this warning, or set the FORMS_URLFIELD_ASSUME_HTTPS transitional setting to True to opt into using 'https' as the new default scheme.
+    self.fields["url_fonte_original"] = forms.URLField(required=False)
+
+newsletter/tests/test_tasks.py::test_task_noite_envia_so_periodo_noite
+  /tmp/opencode/p101b/backend:0: PytestWarning: Error when trying to teardown test databases: OperationalError('database "test_brd_portal_noticias" is being accessed by other users\nDETAIL:  There is 1 other session using the database.\n')
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+================================ tests coverage ================================
+_______________ coverage: platform linux, python 3.14.4-final-0 ________________
+
+Name                                                                                                    Stmts   Miss  Cover   Missing
+-------------------------------------------------------------------------------------------------------------------------------------
+assinatura/__init__.py                                                                                      0      0   100%
+assinatura/admin.py                                                                                        35      2    94%   28, 40
+assinatura/apps.py                                                                                          5      0   100%
+assinatura/migrations/0001_initial.py                                                                       7      0   100%
+assinatura/migrations/0002_subscription_assinatura_uma_em_andamento_por_usuario.py                          5      0   100%
+assinatura/migrations/__init__.py                                                                           0      0   100%
+assinatura/models.py                                                                                       93      5    95%   28, 137, 178, 203, 225
+assinatura/providers/__init__.py                                                                            0      0   100%
+assinatura/providers/payment.py                                                                           109     26    76%   74, 77, 138-139, 159-164, 166, 172, 184-189, 191, 193, 204-221
+assinatura/serializers.py                                                                                  17      0   100%
+assinatura/services.py                                                                                     84     12    86%   53, 116-117, 220-239
+assinatura/tasks.py                                                                                         9      0   100%
+assinatura/tests/__init__.py                                                                                0      0   100%
+assinatura/tests/test_gateway_factory.py                                                                   26      0   100%
+assinatura/tests/test_mercadopago.py                                                                       80      0   100%
+assinatura/tests/test_sanity.py                                                                           163      4    98%   45, 48, 56, 59
+assinatura/tests/test_tasks.py                                                                             13      0   100%
+assinatura/urls.py                                                                                          4      0   100%
+assinatura/views.py                                                                                        87     24    72%   45-46, 50-51, 56, 70-85, 92-95, 139, 144-146, 150-152, 162-164
+b2b/__init__.py                                                                                             0      0   100%
+b2b/admin.py                                                                                               16      0   100%
+b2b/apps.py                                                                                                 5      0   100%
+b2b/migrations/0001_initial.py                                                                              7      0   100%
+b2b/migrations/0002_criteriomonitoramento_ultimo_alerta_em.py                                               4      0   100%
+b2b/migrations/__init__.py                                                                                  0      0   100%
+b2b/models.py                                                                                              47      3    94%   25, 43, 76
+b2b/serializers.py                                                                                         13      0   100%
+b2b/services.py                                                                                            83     12    86%   47-48, 62-63, 87, 119, 155, 177-179, 190-191
+b2b/tasks.py                                                                                                9      0   100%
+b2b/tests/__init__.py                                                                                       0      0   100%
+b2b/tests/test_criterio_delete.py                                                                          41      0   100%
+b2b/tests/test_sanity.py                                                                                  101      0   100%
+b2b/tests/test_tasks.py                                                                                    14      0   100%
+b2b/urls.py                                                                                                 4      0   100%
+b2b/views.py                                                                                               92     40    57%   33-36, 39-47, 65-68, 73-76, 83-86, 91, 94, 97-98, 117-129
+catalogo_noticias/__init__.py                                                                               0      0   100%
+catalogo_noticias/admin.py                                                                                 74      3    96%   53, 62-63
+catalogo_noticias/apps.py                                                                                   5      0   100%
+catalogo_noticias/limites_admin.py                                                                         56      0   100%
+catalogo_noticias/limites_texto.py                                                                         55      7    87%   69-70, 93, 110, 112, 115, 129
+catalogo_noticias/management/__init__.py                                                                    0      0   100%
+catalogo_noticias/management/commands/__init__.py                                                           0      0   100%
+catalogo_noticias/management/commands/descobrir_feeds.py                                                   99     99     0%   14-171
+catalogo_noticias/management/commands/ingerir_noticias.py                                                  21      0   100%
+catalogo_noticias/management/commands/sincronizar_fontes_padrao.py                                         52     52     0%   15-81
+catalogo_noticias/migrations/0001_initial.py                                                                6      0   100%
+catalogo_noticias/migrations/0002_newsitem_localidade.py                                                    4      0   100%
+catalogo_noticias/migrations/0003_configuracaorobo_fonterobo.py                                             4      0   100%
+catalogo_noticias/migrations/0004_imagem_url.py                                                             4      0   100%
+catalogo_noticias/migrations/0005_newsitem_conteudo_completo.py                                             4      0   100%
+catalogo_noticias/migrations/0006_newsitem_autoria_tags.py                                                  4      0   100%
+catalogo_noticias/migrations/0007_fonterobo_estado_padrao.py                                                4      0   100%
+catalogo_noticias/migrations/0008_seed_fontes_padrao.py                                                    31     14    55%   25, 32-43, 49
+catalogo_noticias/migrations/0009_newscluster_numero_fontes.py                                             13      1    92%   31
+catalogo_noticias/migrations/0010_newsitem_feed_status_ingestao_and_more.py                                 4      0   100%
+catalogo_noticias/migrations/0011_newsitem_busca_trgm.py                                                   19      0   100%
+catalogo_noticias/migrations/0012_fonterobo_http_validators.py                                              4      0   100%
+catalogo_noticias/migrations/0013_fonterobo_revalidacao_completa.py                                         4      0   100%
+catalogo_noticias/migrations/__init__.py                                                                    0      0   100%
+catalogo_noticias/models.py                                                                               135      4    97%   225, 248, 281, 319
+catalogo_noticias/providers/__init__.py                                                                     0      0   100%
+catalogo_noticias/providers/news_source.py                                                                251     41    84%   64-65, 80-84, 92, 95-101, 244-245, 247-250, 261, 311-314, 332-333, 335, 337, 362, 393-396, 430-431, 478-485, 520-523, 529, 534
+catalogo_noticias/providers/summarization.py                                                              155     37    76%   66, 119-122, 140-143, 155, 162-170, 174, 176, 215-216, 218, 223, 272-282, 308-310, 332, 350-352
+catalogo_noticias/robos_serializers.py                                                                     48     11    77%   15, 61, 65-67, 70-72, 75-77
+catalogo_noticias/robos_urls.py                                                                             3      0   100%
+catalogo_noticias/robos_views.py                                                                           98     13    87%   39-42, 66, 79-80, 84, 87, 95, 98, 114, 137
+catalogo_noticias/services/__init__.py                                                                      0      0   100%
+catalogo_noticias/services/config_robo.py                                                                  51      9    82%   64-65, 74, 110-115
+catalogo_noticias/services/deduplicacao.py                                                                 95      8    92%   228, 241, 274, 286, 294, 308-310
+catalogo_noticias/services/ingestao.py                                                                    409     34    92%   42-48, 114-120, 248, 287, 416, 468-469, 511-525, 550-553, 584, 833-837, 858-870, 974-975, 993-994, 1018, 1167, 1375-1376
+catalogo_noticias/services/limites.py                                                                     126      5    96%   115-117, 225, 255
+catalogo_noticias/services/orcamento.py                                                                    26      2    92%   73-74
+catalogo_noticias/tasks.py                                                                                  9      0   100%
+catalogo_noticias/tests/__init__.py                                                                         0      0   100%
+catalogo_noticias/tests/test_acceptance_criteria.py                                                       607      2    99%   414, 652
+catalogo_noticias/tests/test_command_ingerir_noticias.py                                                   28      0   100%
+catalogo_noticias/tests/test_conteudo_completo.py                                                          32      0   100%
+catalogo_noticias/tests/test_migracao_trgm.py                                                              63      0   100%
+catalogo_noticias/tests/test_orcamento.py                                                                 159      0   100%
+catalogo_noticias/tests/test_p1_01_ingestao_limites.py                                                    361      0   100%
+catalogo_noticias/tests/test_p1_01b_admin_limites.py                                                      251      0   100%
+catalogo_noticias/tests/test_p2_ingestao_performance.py                                                   266      0   100%
+catalogo_noticias/tests/test_robos_admin.py                                                                93      0   100%
+catalogo_noticias/tests/test_robos_background.py                                                           59      4    93%   50, 98, 114, 128
+catalogo_noticias/tests/test_sanity.py                                                                    130      0   100%
+catalogo_noticias/tests/test_summarization_provider.py                                                    128      0   100%
+catalogo_noticias/tests/test_tasks.py                                                                      10      0   100%
+comunidade/__init__.py                                                                                      0      0   100%
+comunidade/admin.py                                                                                        14      0   100%
+comunidade/apps.py                                                                                          5      0   100%
+comunidade/migrations/0001_initial.py                                                                       7      0   100%
+comunidade/migrations/0002_remove_comentario_comentario_exatamente_um_alvo_and_more.py                      5      0   100%
+comunidade/migrations/0003_comentario_ocultado_em_comentario_oculto_and_more.py                             4      0   100%
+comunidade/migrations/__init__.py                                                                           0      0   100%
+comunidade/models.py                                                                                       57      2    96%   115, 129
+comunidade/serializers.py                                                                                  23      2    91%   45-46
+comunidade/services.py                                                                                     67      4    94%   79, 129, 140-142
+comunidade/tests/__init__.py                                                                                0      0   100%
+comunidade/tests/test_crud_delete.py                                                                       97      0   100%
+comunidade/tests/test_p2_performance.py                                                                    52      0   100%
+comunidade/tests/test_sanity.py                                                                           140      0   100%
+comunidade/urls.py                                                                                          4      0   100%
+comunidade/views.py                                                                                       209     87    58%   82, 85, 88, 91, 94, 98, 100, 107, 114, 131-132, 141, 147-162, 183-191, 206, 210-228, 253-256, 259-260, 263-264, 274-288, 295-302, 325-336
+config/__init__.py                                                                                          2      0   100%
+config/asgi.py                                                                                              4      4     0%   10-16
+config/celery.py                                                                                            6      0   100%
+config/egress.py                                                                                          172     22    87%   190-191, 240, 269, 282, 298, 316, 324, 362-363, 377, 398, 449-453, 544, 547, 550, 553, 564
+config/email_resend.py                                                                                     54     16    70%   37, 54, 56, 58, 76-87, 93-94
+config/health.py                                                                                          191     34    82%   136-137, 145, 179-180, 186-189, 197, 219-239, 258-294
+config/middleware.py                                                                                       44      1    98%   80
+config/sanitizar_html.py                                                                                  150     25    83%   167, 174, 178-179, 197, 234, 238-240, 248, 251, 255, 264, 280-287, 314, 329-331, 377-382
+config/settings.py                                                                                        173     32    82%   31-32, 121-123, 185-187, 210-226, 328, 358, 562, 646, 1120-1122, 1125-1126, 1173-1177
+config/settings_test.py                                                                                     8      0   100%
+config/tests/__init__.py                                                                                    0      0   100%
+config/tests/test_cors_extra_origins.py                                                                    10      0   100%
+config/tests/test_egress.py                                                                               205     13    94%   91-96, 133-138, 437, 502
+config/tests/test_email_resend.py                                                                          42      0   100%
+config/tests/test_health.py                                                                               204      2    99%   128, 317
+config/tests/test_request_id.py                                                                           118      0   100%
+config/tests/test_sanitizar_html.py                                                                        96      0   100%
+config/tests/test_settings_producao.py                                                                    202      6    97%   540-544, 560
+config/tests/test_throttling.py                                                                            61      0   100%
+config/throttling.py                                                                                        9      0   100%
+config/uploads.py                                                                                         172     26    85%   304-305, 321-322, 376, 447-451, 454-460, 463, 466, 532, 536-537, 551, 561-564
+config/urls.py                                                                                              4      0   100%
+config/views.py                                                                                            59      3    95%   159-161
+config/wsgi.py                                                                                              4      4     0%   10-16
+conftest.py                                                                                                14      4    71%   26-27, 31-32
+credenciamento/__init__.py                                                                                  0      0   100%
+credenciamento/admin.py                                                                                    23      4    83%   19-20, 29-30
+credenciamento/apps.py                                                                                      5      0   100%
+credenciamento/migrations/0001_initial.py                                                                   8      0   100%
+credenciamento/migrations/0002_perfiljornalista_dados_profissionais_and_more.py                             5      0   100%
+credenciamento/migrations/0003_alter_perfiljornalista_foto_and_more.py                                      5      0   100%
+credenciamento/migrations/__init__.py                                                                       0      0   100%
+credenciamento/models.py                                                                                   56      4    93%   52, 57, 113, 149
+credenciamento/serializers.py                                                                              32      3    91%   56-58
+credenciamento/services.py                                                                                 47      5    89%   91-94, 118
+credenciamento/tests/__init__.py                                                                            0      0   100%
+credenciamento/tests/test_sanity.py                                                                        79      0   100%
+credenciamento/tests/test_uploads.py                                                                      206      0   100%
+credenciamento/urls.py                                                                                      4      0   100%
+credenciamento/views.py                                                                                    62     22    65%   30, 37-38, 49-54, 76-77, 82, 85, 110-113, 116-122
+enderecos/__init__.py                                                                                       0      0   100%
+enderecos/apps.py                                                                                           5      0   100%
+enderecos/services.py                                                                                     179     39    78%   88-89, 98-99, 104-105, 120, 139, 147-148, 159, 170-179, 217-218, 227-228, 233-234, 239, 243, 291-298, 302, 307-308, 319
+enderecos/tests/__init__.py                                                                                 0      0   100%
+enderecos/tests/test_enderecos.py                                                                         139      0   100%
+enderecos/urls.py                                                                                           4      0   100%
+enderecos/views.py                                                                                         62     10    84%   16, 45, 59-60, 70-73, 115-116
+feed/__init__.py                                                                                            0      0   100%
+feed/admin.py                                                                                              18      0   100%
+feed/apps.py                                                                                                5      0   100%
+feed/busca.py                                                                                             281     63    78%   71, 77, 79, 81, 83, 85, 87, 122, 124, 147-149, 171-172, 181, 183, 185, 187, 196-197, 199-200, 202-203, 205-206, 208-209, 226-227, 252-254, 260-261, 338, 341-342, 354, 373, 375, 378-385, 393, 426-427, 436, 446-449, 474-479, 483, 487-488
+feed/migrations/0001_initial.py                                                                             7      0   100%
+feed/migrations/0002_rename_feed_evento_query_n_8f7c1a_idx_feed_evento_query_n_a300f3_idx_and_more.py       4      0   100%
+feed/migrations/0003_eventobusca_request_id.py                                                              4      0   100%
+feed/migrations/__init__.py                                                                                 0      0   100%
+feed/models.py                                                                                             77      7    91%   35, 94-95, 139-140, 149, 151
+feed/recomendacao.py                                                                                      286     42    85%   74, 76, 79, 119, 124, 127-137, 166-167, 188, 190, 211-213, 233, 235, 237, 241, 348, 384-389, 420, 437, 460, 471-472, 477, 516-517
+feed/serializers.py                                                                                        71      0   100%
+feed/services.py                                                                                           82      3    96%   150, 155, 218
+feed/tasks.py                                                                                              33      6    82%   45, 50-51, 57-60, 80
+feed/tests/__init__.py                                                                                      0      0   100%
+feed/tests/test_algoritmos_busca.py                                                                       153      1    99%   47
+feed/tests/test_p1_feed_cache_indices.py                                                                  163      0   100%
+feed/tests/test_p2_performance.py                                                                          80      0   100%
+feed/tests/test_sanity.py                                                                                 114      0   100%
+feed/urls.py                                                                                                4      0   100%
+feed/views.py                                                                                             215     46    79%   26-27, 88-89, 143, 158, 175, 182-184, 200-201, 205, 223-224, 228, 255-256, 274, 282-283, 290, 327-328, 330, 333-334, 343-368
+gating/__init__.py                                                                                          0      0   100%
+gating/admin.py                                                                                            29      2    93%   25-26
+gating/apps.py                                                                                              5      0   100%
+gating/migrations/0001_initial.py                                                                           7      0   100%
+gating/migrations/0002_seed_feature_limits.py                                                              14      3    79%   30-32
+gating/migrations/0003_seed_radar_avancado.py                                                              11      2    82%   19-20
+gating/migrations/0004_configuracao_sistema.py                                                             10      2    80%   11-12
+gating/migrations/__init__.py                                                                               0      0   100%
+gating/models.py                                                                                           79     17    78%   11-12, 65, 73-74, 81-82, 106, 117-118, 121-127, 159
+gating/serializers.py                                                                                       8      0   100%
+gating/services.py                                                                                         69      7    90%   31-32, 45-46, 67-68, 151
+gating/tests/__init__.py                                                                                    0      0   100%
+gating/tests/test_sanity.py                                                                                98      0   100%
+gating/urls.py                                                                                              4      0   100%
+gating/views.py                                                                                            30      0   100%
+identidade/__init__.py                                                                                      0      0   100%
+identidade/adapters.py                                                                                     17      6    65%   20-27
+identidade/admin.py                                                                                        13      0   100%
+identidade/apps.py                                                                                          4      0   100%
+identidade/emails.py                                                                                       13      0   100%
+identidade/management/__init__.py                                                                           0      0   100%
+identidade/management/commands/__init__.py                                                                  0      0   100%
+identidade/management/commands/criar_usuario_carga.py                                                      45      3    93%   57, 61, 73
+identidade/managers.py                                                                                     25      3    88%   11, 30, 32
+identidade/migrations/0001_initial.py                                                                       7      0   100%
+identidade/migrations/0002_user_preferencias_cookies_and_more.py                                            4      0   100%
+identidade/migrations/0003_user_deve_trocar_senha.py                                                        4      0   100%
+identidade/migrations/0004_ensure_admin_buttielle.py                                                       20      7    65%   19-24, 51
+identidade/migrations/__init__.py                                                                           0      0   100%
+identidade/models.py                                                                                       41      1    98%   94
+identidade/permissions.py                                                                                   6      0   100%
+identidade/serializers.py                                                                                  86      1    99%   47
+identidade/services.py                                                                                      9      0   100%
+identidade/tests/__init__.py                                                                                0      0   100%
+identidade/tests/test_acceptance_criteria.py                                                              338      0   100%
+identidade/tests/test_preferencias_cookies.py                                                              96      0   100%
+identidade/tests/test_primeiro_acesso.py                                                                   56      0   100%
+identidade/tests/test_sanity.py                                                                           118      0   100%
+identidade/tokens.py                                                                                       30      0   100%
+identidade/urls.py                                                                                          4      0   100%
+identidade/views.py                                                                                       170      5    97%   86-87, 193-194, 338
+landing/__init__.py                                                                                         0      0   100%
+landing/admin.py                                                                                            7      0   100%
+landing/apps.py                                                                                             5      0   100%
+landing/migrations/0001_initial.py                                                                          5      0   100%
+landing/migrations/__init__.py                                                                              0      0   100%
+landing/models.py                                                                                          25      2    92%   23, 28
+landing/serializers.py                                                                                     12      0   100%
+landing/tests/__init__.py                                                                                   0      0   100%
+landing/tests/test_sanity.py                                                                               21      0   100%
+landing/urls.py                                                                                             4      0   100%
+landing/views.py                                                                                           18      0   100%
+manage.py                                                                                                  11     11     0%   3-22
+metricas/__init__.py                                                                                        0      0   100%
+metricas/apps.py                                                                                            5      0   100%
+metricas/migrations/0001_eventosite.py                                                                      7      0   100%
+metricas/migrations/0002_rename_metricas_ev_tipo_criado_idx_metricas_ev_tipo_0d85e2_idx_and_more.py         4      0   100%
+metricas/migrations/__init__.py                                                                             0      0   100%
+metricas/models.py                                                                                         47      1    98%   104
+metricas/services.py                                                                                      198     61    69%   53, 72-76, 155-156, 164-165, 168-169, 172-173, 176-177, 180-181, 184-185, 188-189, 193-194, 197-198, 201-202, 205-206, 209-210, 213-214, 217-218, 221-222, 225-226, 229-230, 233-234, 237-238, 245-246, 252-253, 257-258, 263-264, 270-271, 277-279, 284-285
+metricas/services_inteligencia.py                                                                         342     84    75%   36-37, 45, 48, 51, 54, 57, 60, 63, 66, 69, 78-79, 87, 89-90, 92-93, 102, 107-108, 114-117, 134-136, 142-145, 149-150, 162-167, 171-172, 189, 202, 213-214, 216-218, 220-221, 260, 293-296, 364, 369-370, 386-387, 403-409, 463-464, 476, 586, 589, 599-601, 622-624, 635-638, 653-654, 666-676, 695, 704-705
+metricas/tests/__init__.py                                                                                  0      0   100%
+metricas/tests/test_custo_llm.py                                                                           38      0   100%
+metricas/tests/test_inteligencia.py                                                                       141      3    98%   22-24
+metricas/tests/test_sanity.py                                                                              40      0   100%
+metricas/urls.py                                                                                            4      0   100%
+metricas/views.py                                                                                         102     22    78%   44, 68, 80-81, 108-109, 130, 133-134, 136, 138-144, 147, 160-166, 176-177
+moderacao/__init__.py                                                                                       0      0   100%
+moderacao/admin.py                                                                                         27      0   100%
+moderacao/apps.py                                                                                           5      0   100%
+moderacao/migrations/0001_initial.py                                                                        7      0   100%
+moderacao/migrations/0002_seed_paginas_legais.py                                                           14      3    79%   126-128
+moderacao/migrations/__init__.py                                                                            0      0   100%
+moderacao/models.py                                                                                       106      8    92%   65, 100, 122, 141, 146, 148, 164, 180
+moderacao/permissions.py                                                                                    4      1    75%   14
+moderacao/serializers.py                                                                                   40      1    98%   85
+moderacao/services.py                                                                                      54      4    93%   26, 46, 150, 158
+moderacao/tests/__init__.py                                                                                 0      0   100%
+moderacao/tests/test_sanity.py                                                                             67      0   100%
+moderacao/urls.py                                                                                           4      0   100%
+moderacao/views.py                                                                                         54     25    54%   23, 32-39, 48-59, 68-74, 85-86, 94-95
+newsletter/__init__.py                                                                                      0      0   100%
+newsletter/admin.py                                                                                        11      0   100%
+newsletter/apps.py                                                                                          5      0   100%
+newsletter/migrations/0001_initial.py                                                                       8      0   100%
+newsletter/migrations/0002_inscricaonewsletter_periodo.py                                                   4      0   100%
+newsletter/migrations/__init__.py                                                                           0      0   100%
+newsletter/models.py                                                                                       37      2    95%   50, 67
+newsletter/services.py                                                                                     66     13    80%   35, 46-49, 51-55, 115-117
+newsletter/tasks.py                                                                                        18      0   100%
+newsletter/tests/__init__.py                                                                                0      0   100%
+newsletter/tests/test_sanity.py                                                                            72      0   100%
+newsletter/tests/test_tasks.py                                                                             27      0   100%
+newsletter/urls.py                                                                                          4      0   100%
+newsletter/views.py                                                                                        27     14    48%   14-21, 27-28, 37-40
+painel_admin/__init__.py                                                                                    0      0   100%
+painel_admin/apps.py                                                                                        5      0   100%
+painel_admin/migrations/0001_initial.py                                                                     7      0   100%
+painel_admin/migrations/0002_regracuradoria.py                                                              6      0   100%
+painel_admin/migrations/__init__.py                                                                         0      0   100%
+painel_admin/models.py                                                                                     55      5    91%   21, 86, 93, 95, 97
+painel_admin/permissions.py                                                                                 9      1    89%   8
+painel_admin/serializers.py                                                                                97      3    97%   108, 110-111
+painel_admin/services.py                                                                                   26      8    69%   16-17, 21-23, 47-49
+painel_admin/services_regras.py                                                                            92     14    85%   42-44, 57-58, 82, 99, 104, 106, 131-135
+painel_admin/tests/__init__.py                                                                              0      0   100%
+painel_admin/tests/test_plan_delete.py                                                                     44      0   100%
+painel_admin/tests/test_sanity.py                                                                         302      0   100%
+painel_admin/urls.py                                                                                        3      0   100%
+painel_admin/views.py                                                                                     370    112    70%   40-43, 56, 78-82, 97-98, 159, 167-168, 183-187, 192-193, 227-228, 235-239, 244-245, 251, 271, 274, 287-288, 315-316, 325, 343-344, 347-363, 383-384, 388, 397-400, 405-406, 432, 437, 443, 462-465, 479-480, 499, 503-504, 508, 511, 526, 529, 539, 559-565, 568-600, 607-612, 615-629, 632-640
+radar/__init__.py                                                                                           0      0   100%
+radar/admin.py                                                                                              5      0   100%
+radar/apps.py                                                                                               5      0   100%
+radar/migrations/0001_initial.py                                                                            7      0   100%
+radar/migrations/__init__.py                                                                                0      0   100%
+radar/models.py                                                                                            14      1    93%   20
+radar/services.py                                                                                          78     13    83%   30, 32, 120-130, 140, 160-162, 168, 170
+radar/tests/__init__.py                                                                                     0      0   100%
+radar/tests/test_sanity.py                                                                                 45      0   100%
+radar/urls.py                                                                                               4      0   100%
+radar/views.py                                                                                             40     12    70%   31-42, 51-52, 57-63, 66-72, 86-87
+-------------------------------------------------------------------------------------------------------------------------------------
+TOTAL                                                                                                   14820   1499    90%
+Required test coverage of 80% reached. Total coverage: 89.89%
+788 passed, 289 warnings in 189.65s (0:03:09)
+EXIT=0

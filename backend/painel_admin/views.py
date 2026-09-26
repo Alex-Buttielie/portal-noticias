@@ -7,6 +7,10 @@ from rest_framework.views import APIView
 
 from assinatura.models import Plan, Subscription, HistoricoPagamento
 from catalogo_noticias.models import NewsItem
+from catalogo_noticias.providers.fallback_local import (
+    motivo_fallback_local,
+    origem_fallback_local,
+)
 from gating.models import ConfiguracaoSistema, FeatureLimit, FeatureLimitAlteracaoLog
 from identidade.models import User
 from moderacao.models import Denuncia
@@ -142,6 +146,12 @@ class FilaListView(APIView):
                 "cluster": it.cluster_id,
                 "cluster_titulo": it.cluster.titulo_acontecimento if it.cluster_id else "",
                 "timestamp_ingestao": it.timestamp_ingestao,
+                # P1-02 (WS-08/GP-5): procedencia do resumo no marcador
+                # tecnico de `NewsItem.tags`. Mantido em paridade com
+                # `FilaItemSerializer` — o editorial precisa ver, na fila, o
+                # que veio do provedor e o que veio do fallback local.
+                "resumo_fallback_local": origem_fallback_local(it.tags),
+                "motivo_fallback_resumo": motivo_fallback_local(it.tags),
             }
             for it in page
         ]

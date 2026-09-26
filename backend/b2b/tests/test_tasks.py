@@ -16,10 +16,19 @@ from b2b import tasks
 
 pytestmark = pytest.mark.django_db
 
+# P1-13: o retorno ganhou o placar de supressões (teto de execução, teto por
+# organização, cooldown) e a lista de anomalias de tenant. O placar é o que
+# distingue "não havia nada a enviar" de "havia, mas o limite segurou" — sem
+# ele, um job que suppresses 100% dos envios por storm seria indistinguível de
+# um job ocioso no log.
 _ZERADO = {
     "total_criterios_verificados": 0,
     "total_alertas_enviados": 0,
     "total_falhas": 0,
+    "total_suprimidos_por_limite_execucao": 0,
+    "total_suprimidos_por_limite_organizacao": 0,
+    "total_suprimidos_por_cooldown": 0,
+    "anomalias": [],
 }
 
 
@@ -28,6 +37,10 @@ def test_verificar_alertas_task_delega_para_o_servico_e_retorna_resultado():
         "total_criterios_verificados": 2,
         "total_alertas_enviados": 1,
         "total_falhas": 0,
+        "total_suprimidos_por_limite_execucao": 3,
+        "total_suprimidos_por_limite_organizacao": 0,
+        "total_suprimidos_por_cooldown": 0,
+        "anomalias": [{"tipo": "cota_atingida", "organizacao_id": 7}],
     }
 
     with patch.object(tasks, "verificar_e_enviar_alertas", return_value=esperado) as mock:

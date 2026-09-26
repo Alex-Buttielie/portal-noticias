@@ -1,0 +1,20 @@
+==============================================================================
+item </script> — HTTP                                | 302
+item </script> — persistiu byte-identico             | True
+item </script> — tem '</script>' no banco            | True
+item </script> — titulo lido do banco                | "Prefeitura anuncia obra </script><script>alert('XSS-ARMADO')</script>"
+cluster </script> — HTTP                             | 302
+cluster </script> — persistiu byte-identico          | True
+cluster </script> — erros do form                    | (sem erros: resposta nao reapresentou o form)
+cluster </script> — titulo lido do banco             | 'Vazamento emacapetuba </script><img src=x onerror=alert(1)>'
+titulo longo — HTTP                                  | 200
+titulo longo — persistiu                             | False
+titulo longo — erros do form                         | ['Certifique-se de que o valor tenha no máximo 300 caracteres (ele possui 420).']
+url longa — tamanho enviado                          | 1205
+url longa — HTTP                                     | 200
+url longa — a URL inteira foi preservada             | False
+url longa — erros do form                            | ['Certifique-se de que o valor tenha no máximo 1000 caracteres (ele possui 1205).  URL da fonte original e obrigatoria (rastreabilidade — BRD secao 18).']
+idempotencia 2o save — titulo inalterado             | True
+idempotencia 2o save — titulo                        | "Prefeitura anuncia obra </script><script>alert('XSS-ARMADO')</script>"
+idempotencia 2o save — status alterado               | True
+==============================================================================

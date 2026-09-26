@@ -16,6 +16,7 @@ import { useState, type ReactNode } from "react";
 import { Newspaper } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ehPicsum, picsum, seedDePicsum, srcSetPicsum } from "@/lib/imagens";
+import { urlSeguraParaImagem } from "@/lib/url-segura";
 
 type Props = {
   src?: string | null;
@@ -43,7 +44,11 @@ export function ImagemNoticia({
   fallback,
   fallbackClassName,
 }: Props) {
-  const original = (src || "").trim();
+  // `src` chega cru de várias rotas (`n.imagem_url` direto do feed), sem
+  // passar por `imagemNoticia()`. Por isso a allowlist é aplicada AQUI,
+  // no último ponto antes do `src`: nenhum caminho pode contornar.
+  // Recusado => cai no picsum, que é sempre uma URL do próprio portal.
+  const original = urlSeguraParaImagem(src) ?? "";
   const [fase, setFase] = useState<"original" | "picsum" | "falhou">(
     original ? "original" : "picsum"
   );
@@ -74,6 +79,22 @@ export function ImagemNoticia({
   const comSrcSet = usandoPicsum || ehPicsum(original);
 
   return (
+    // `<img>` proposital, não descuido. Três motivos, nenhum contornável
+    // trocando a tag:
+    // 1. A cadeia de fallback (original → picsum → placeholder) é dirigida por
+    //    `onError`; o `next/image` tem o próprio ciclo de fallback e
+    //    quebraria a máquina de estados de `fase`.
+    // 2. As imagens vêm de domínios de RSS arbitrários (e justamente
+    //    hostis: hotlink bloqueado, 404, mixed-content). O `next/image` exige
+    //    enumerar cada host em `remotePatterns` — impossível para um portal
+    //    agregador, e o hotlink que hoje é contornado passaria a 400/502.
+    // 3. O `next/image` serve via `/_next/image`, que é exatamente a rota do
+    //    RCE crítico ainda sem patch neste repositório
+    //    (GHSA-2xp9-vwfh-vxw4, faixa >=10.0.0 <15.5.24). Mandar as imagens
+    //    para lá aumentaria a exposição enquanto o Next não for atualizado.
+    // O LCP é tratado com `loading`/`decoding`/`srcSet` acima. Desativação
+    // pontual e justificada, não da regra.
+    // eslint-disable-next-line @next/next/no-img-element
     <img
       src={atual}
       srcSet={comSrcSet ? srcSetPicsum(seedEfetiva) : undefined}

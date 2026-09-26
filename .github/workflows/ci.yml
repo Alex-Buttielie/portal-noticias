@@ -92,6 +92,11 @@ jobs:
         run: |
           TZ=UTC node scripts/verificar-datas-tz.mjs
           TZ=Asia/Tokyo node scripts/verificar-datas-tz.mjs
+      # Política conservadora do cache de cliente (P1-6): valida staleTimes
+      # (público 60s/privado 15s), ausência de persistência e chaves sem
+      # token/PII. Node puro, sem dependências; fail fast antes do tsc/build.
+      - name: Verificar política de cache do query client (TanStack Query)
+        run: node scripts/verificar-query-client.mjs
       - run: npx tsc --noEmit
       - run: npm run build
         env:

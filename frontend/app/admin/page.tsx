@@ -7,8 +7,18 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
+import { EstadoVazio } from "@/components/EstadoVazio";
 import { cn } from "@/lib/utils";
 import * as api from "@/lib/api";
+import {
+  useQueryAdminFila,
+  useQueryAdminUsuarios,
+  useQueryAdminAssinaturas,
+  useQueryAdminFontes,
+  useQueryAdminRoboConfig,
+  useQueryAdminPlanos,
+  useQueryAdminDenuncias,
+} from "@/lib/queries";
 import { formatarDataPorExtenso, formatarNumeroPtBR } from "@/lib/datas";
 import Link from "next/link";
 import {
@@ -124,90 +134,40 @@ const MODULOS_BASE = [
 export default function Page() {
   const { usuario, token, carregando } = useAuth();
   const r = useRouter();
-  const [stats, setStats] = useState<Stats>({
-    pendentes: null,
-    usuarios: null,
-    assinaturas: null,
-    fontes: null,
-    roboAtivo: null,
-    planos: null,
-    denuncias: null,
-  });
-  const [loadingStats, setLoadingStats] = useState(true);
+  const usuarioId = usuario?.id ?? 0;
 
   useEffect(() => {
     if (!carregando && !token) r.replace("/login");
   }, [carregando, token, r]);
 
-  useEffect(() => {
-    if (!token) return;
-    let cancel = false;
-    setLoadingStats(true);
-    (async () => {
-      const tasks: Promise<void>[] = [];
-      tasks.push(
-        api
-          .adminListarFila(token, { status: "pendente" })
-          .then((res) => {
-            if (!cancel) setStats((s) => ({ ...s, pendentes: res.count ?? res.results.length }));
-          })
-          .catch(() => {})
-      );
-      tasks.push(
-        api
-          .adminListarUsuarios(token, {})
-          .then((res) => {
-            if (!cancel) setStats((s) => ({ ...s, usuarios: res.count ?? res.results.length }));
-          })
-          .catch(() => {})
-      );
-      tasks.push(
-        api
-          .adminListarAssinaturas(token, { status: "ativa" })
-          .then((res) => {
-            if (!cancel) setStats((s) => ({ ...s, assinaturas: res.count ?? res.results.length }));
-          })
-          .catch(() => {})
-      );
-      tasks.push(
-        api
-          .robosListarFontes(token)
-          .then((res) => {
-            if (!cancel) setStats((s) => ({ ...s, fontes: res.length }));
-          })
-          .catch(() => {})
-      );
-      tasks.push(
-        api
-          .robosObterConfig(token)
-          .then((res) => {
-            if (!cancel) setStats((s) => ({ ...s, roboAtivo: res.ativo }));
-          })
-          .catch(() => {})
-      );
-      tasks.push(
-        api
-          .adminListarPlanos(token)
-          .then((res) => {
-            if (!cancel) setStats((s) => ({ ...s, planos: res.count ?? (res.results as unknown as unknown[]).length ?? 0 }));
-          })
-          .catch(() => {})
-      );
-      tasks.push(
-        api
-          .adminListarDenuncias(token, { status: "pendente" })
-          .then((res) => {
-            if (!cancel) setStats((s) => ({ ...s, denuncias: res.count ?? res.results.length }));
-          })
-          .catch(() => {})
-      );
-      await Promise.allSettled(tasks);
-      if (!cancel) setLoadingStats(false);
-    })();
-    return () => {
-      cancel = true;
-    };
-  }, [token]);
+  // --- Migração TanStack Query: stats do dashboard derivadas de hooks Admin
+  // (staleTime 0 — telas de decisão). As chaves são as mesmas das telas de
+  // detalhe; o cache é compartilhado entre dashboard e detalhes (dedupe).
+  const filaQuery = useQueryAdminFila({ token, usuarioId, status: "pendente", page: 1 });
+  const usuariosQuery = useQueryAdminUsuarios({ token, usuarioId, busca: null, habilitada: true });
+  const assinaturasQuery = useQueryAdminAssinaturas({ token, usuarioId, filtros: { busca: null, status: "ativa" }, habilitada: true });
+  const fontesQuery = useQueryAdminFontes({ token, usuarioId });
+  const roboConfigQuery = useQueryAdminRoboConfig({ token, usuarioId });
+  const planosQuery = useQueryAdminPlanos({ token, usuarioId });
+  const denunciasQuery = useQueryAdminDenuncias({ token, usuarioId, filtros: { status: "pendente" }, habilitada: true });
+
+  const stats: Stats = {
+    pendentes: filaQuery.data?.count ?? filaQuery.data?.results.length ?? null,
+    usuarios: usuariosQuery.data?.count ?? usuariosQuery.data?.results.length ?? null,
+    assinaturas: assinaturasQuery.data?.count ?? assinaturasQuery.data?.results.length ?? null,
+    fontes: fontesQuery.data?.length ?? null,
+    roboAtivo: roboConfigQuery.data?.ativo ?? null,
+    planos: planosQuery.data?.count ?? (planosQuery.data?.results as unknown as unknown[] | undefined)?.length ?? null,
+    denuncias: denunciasQuery.data?.count ?? denunciasQuery.data?.results.length ?? null,
+  };
+  const loadingStats =
+    filaQuery.isLoading ||
+    usuariosQuery.isLoading ||
+    assinaturasQuery.isLoading ||
+    fontesQuery.isLoading ||
+    roboConfigQuery.isLoading ||
+    planosQuery.isLoading ||
+    denunciasQuery.isLoading;
 
   const saudacao = useMemo(() => {
     const h = new Date().getHours();
@@ -484,48 +444,16 @@ export default function Page() {
             <Separator className="my-4 bg-[var(--cor-borda)]" />
             <div className="relative ml-3 border-l border-[var(--cor-borda)] pl-6">
               <div className="space-y-5">
-                <div className="relative">
-                  <span className="absolute -left-[31px] top-1 flex h-5 w-5 items-center justify-center rounded-full border-2 border-[var(--cor-fundo-card)]" style={{ background: "var(--cor-primaria)" }}>
-                    <CheckCircle2 className="h-3 w-3 text-white" />
-                  </span>
-                  <p className="text-sm font-medium text-[var(--cor-texto)]">“Mercado em alta: bolsa fecha em novo recorde” aprovado</p>
-                  <p className="text-xs text-[var(--cor-texto-suave)]">Fila • por admin@brd.com • há 12 min</p>
-                </div>
-                <div className="relative">
-                  <span className="absolute -left-[31px] top-1 flex h-5 w-5 items-center justify-center rounded-full border-2 border-[var(--cor-fundo-card)]" style={{ background: "var(--cor-neon-violeta)" }}>
-                    <UserPlus className="h-3 w-3 text-white" />
-                  </span>
-                  <p className="text-sm font-medium text-[var(--cor-texto)]">Novo cadastro — marina.oliveira@exemplo.com</p>
-                  <p className="text-xs text-[var(--cor-texto-suave)]">Usuários • plano free • há 34 min</p>
-                </div>
-                <div className="relative">
-                  <span className="absolute -left-[31px] top-1 flex h-5 w-5 items-center justify-center rounded-full border-2 border-[var(--cor-fundo-card)]" style={{ background: "var(--cor-neon-ciano)" }}>
-                    <Bot className="h-3 w-3 text-white" />
-                  </span>
-                  <p className="text-sm font-medium text-[var(--cor-texto)]">Robôs executados — 14 itens ingeridos, 3 grupos formados</p>
-                  <p className="text-xs text-[var(--cor-texto-suave)]">Ingestão • sem erros • há 1 h</p>
-                </div>
-                <div className="relative">
-                  <span className="absolute -left-[31px] top-1 flex h-5 w-5 items-center justify-center rounded-full border-2 border-[var(--cor-fundo-card)]" style={{ background: "var(--cor-alerta)" }}>
-                    <Crown className="h-3 w-3 text-white" />
-                  </span>
-                  <p className="text-sm font-medium text-[var(--cor-texto)]">Assinatura Premium renovada — 2 pagamentos aprovados</p>
-                  <p className="text-xs text-[var(--cor-texto-suave)]">Receita • R$ 59,80 • há 2 h</p>
-                </div>
-                <div className="relative">
-                  <span className="absolute -left-[31px] top-1 flex h-5 w-5 items-center justify-center rounded-full border-2 border-[var(--cor-fundo-card)]" style={{ background: "var(--cor-erro)" }}>
-                    <ShieldAlert className="h-3 w-3 text-white" />
-                  </span>
-                  <p className="text-sm font-medium text-[var(--cor-texto)]">Denúncia resolvida — spam removido e autor notificado</p>
-                  <p className="text-xs text-[var(--cor-texto-suave)]">Moderação • há 3 h</p>
-                </div>
-                <div className="relative">
-                  <span className="absolute -left-[31px] top-1 flex h-5 w-5 items-center justify-center rounded-full border-2 border-[var(--cor-fundo-card)]" style={{ background: "var(--cor-texto-suave)" }}>
-                    <FileText className="h-3 w-3 text-white" />
-                  </span>
-                  <p className="text-sm font-medium text-[var(--cor-texto)]">Plano “Premium Anual” atualizado — duração 365 dias</p>
-                  <p className="text-xs text-[var(--cor-texto-suave)]">Planos • há 5 h</p>
-                </div>
+                {/* P0-08: esta linha do tempo era totalmente fictícia — manchetes
+                    aprovadas, cadastros, pagamentos e renovações inventados, com
+                    valores e horários que pareciam reais. Substituída por um
+                    estado vazio honesto; a atividade real deve vir da API. */}
+                <EstadoVazio
+                  className="border-dashed"
+                  titulo="Nenhuma atividade registrada hoje"
+                  descricao="A Central ainda não retornou eventos para o dia. Nenhum evento foi fabricado para preencher a linha do tempo."
+                  acao={{ rotulo: "Ver métricas", href: "/admin/metricas" }}
+                />
               </div>
             </div>
             <div className="mt-5 flex gap-2">

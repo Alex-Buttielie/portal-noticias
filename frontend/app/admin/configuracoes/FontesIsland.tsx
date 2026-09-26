@@ -1,5 +1,6 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,17 +10,24 @@ import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { useAuth } from "@/lib/auth-context";
 import * as api from "@/lib/api";
+import { useQueryAdminFontes } from "@/lib/queries";
+import { queryKeys } from "@/lib/query-keys";
 import { Newspaper, Plus, Pencil, Trash2, Power, ArrowRight, Loader2 } from "lucide-react";
 
 type Fonte = api.FonteRobo;
 
 export function FontesIsland() {
-  const { token } = useAuth();
+  const { usuario, token } = useAuth();
   const tk = token || "";
-  const [fontes, setFontes] = useState<Fonte[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
+  const cliente = useQueryClient();
+  const consulta = useQueryAdminFontes({ token, usuarioId: usuario?.id ?? 0 });
+  const fontes = consulta.isError ? [] : (consulta.data ?? []);
+  const loading = consulta.isFetching;
+  const erroCarregamento = consulta.isError
+    ? (consulta.error instanceof Error ? consulta.error.message : "Falha ao listar fontes.")
+    : null;
   const [ok, setOk] = useState<string | null>(null);
+  const [erroMutacao, setErroMutacao] = useState<string | null>(null);
   const [nome, setNome] = useState("");
   const [url, setUrl] = useState("");
   const [cat, setCat] = useState("");
@@ -30,29 +38,15 @@ export function FontesIsland() {
   const [editAtivo, setEditAtivo] = useState(true);
   const [removeId, setRemoveId] = useState<number | null>(null);
 
-  const carregar = async () => {
-    if (!tk) return;
-    setLoading(true);
-    setErr(null);
-    try {
-      setFontes(await api.robosListarFontes(tk));
-    } catch (e: unknown) {
-      setErr(e instanceof Error ? e.message : "Falha ao listar fontes.");
-    } finally {
-      setLoading(false);
-    }
-  };
+  const err = erroMutacao ?? erroCarregamento;
 
-  useEffect(() => {
-    if (tk) void carregar();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tk]);
+  const recarregar = () => { void consulta.refetch(); };
 
   const criar = async () => {
-    setErr(null);
+    setErroMutacao(null);
     setOk(null);
     if (!nome.trim() || !url.trim()) {
-      setErr("Informe nome e URL da fonte.");
+      setErroMutacao("Informe nome e URL da fonte.");
       return;
     }
     try {
@@ -61,18 +55,18 @@ export function FontesIsland() {
       setUrl("");
       setCat("");
       setOk("Fonte adicionada.");
-      await carregar();
+      await cliente.invalidateQueries({ queryKey: queryKeys.admin.fontes() });
     } catch (e: unknown) {
-      setErr(e instanceof Error ? e.message : "Falha ao criar fonte.");
+      setErroMutacao(e instanceof Error ? e.message : "Falha ao criar fonte.");
     }
   };
 
   const toggleAtivo = async (f: Fonte) => {
     try {
       await api.robosAtualizarFonte(tk, f.id, { ativo: !f.ativo });
-      await carregar();
+      await cliente.invalidateQueries({ queryKey: queryKeys.admin.fontes() });
     } catch (e: unknown) {
-      setErr(e instanceof Error ? e.message : "Falha ao alternar fonte.");
+      setErroMutacao(e instanceof Error ? e.message : "Falha ao alternar fonte.");
     }
   };
 
@@ -82,9 +76,9 @@ export function FontesIsland() {
       await api.robosAtualizarFonte(tk, editId, { nome: editNome.trim(), url: editUrl.trim(), categoria_padrao: editCat.trim(), ativo: editAtivo });
       setEditId(null);
       setOk("Fonte atualizada.");
-      await carregar();
+      await cliente.invalidateQueries({ queryKey: queryKeys.admin.fontes() });
     } catch (e: unknown) {
-      setErr(e instanceof Error ? e.message : "Falha ao atualizar fonte.");
+      setErroMutacao(e instanceof Error ? e.message : "Falha ao atualizar fonte.");
     }
   };
 
@@ -94,9 +88,9 @@ export function FontesIsland() {
       await api.robosRemoverFonte(tk, removeId);
       setRemoveId(null);
       setOk("Fonte removida.");
-      await carregar();
+      await cliente.invalidateQueries({ queryKey: queryKeys.admin.fontes() });
     } catch (e: unknown) {
-      setErr(e instanceof Error ? e.message : "Falha ao remover fonte.");
+      setErroMutacao(e instanceof Error ? e.message : "Falha ao remover fonte.");
     }
   };
 
@@ -109,7 +103,7 @@ export function FontesIsland() {
       <div className="flex flex-wrap items-center gap-2">
         <p className="flex items-center gap-1.5 text-sm font-semibold text-[var(--cor-texto)]"><Newspaper className="h-4 w-4 text-[var(--cor-primaria)]" /> Minhas fontes — ingestão</p>
         <Badge variant="outline" className="border-[var(--cor-borda)]">{fontes.filter((f) => f.ativo).length} ativas / {fontes.length}</Badge>
-        <Button size="sm" variant="outline" onClick={carregar} disabled={loading} className="ml-auto min-h-[36px] gap-1 border-[var(--cor-borda)]">{loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null} Atualizar</Button>
+        <Button size="sm" variant="outline" onClick={recarregar} disabled={loading} className="ml-auto min-h-[36px] gap-1 border-[var(--cor-borda)]">{loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null} Atualizar</Button>
         <Button asChild size="sm" variant="ghost" className="min-h-[36px] gap-1"><Link href="/admin/robos">Controle completo <ArrowRight className="h-3.5 w-3.5" /></Link></Button>
       </div>
       <p className="text-xs leading-relaxed text-[var(--cor-texto-suave)]">De onde os robôs buscam notícias (RSS). Ative, pause, edite ou adicione — vale na próxima ingestão. Para intervalo, deduplicação e IA, use <Link href="/admin/robos" className="font-medium text-[var(--cor-primaria)] underline">Robôs → Configuração</Link>.</p>

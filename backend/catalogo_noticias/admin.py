@@ -1,6 +1,7 @@
 from django.contrib import admin
 from django.db import transaction
 
+from .limites_admin import LimitesAdminMixin
 from .models import ConfiguracaoRobo, FonteRobo, NewsCluster, NewsItem, RegistroExecucaoIngestao
 
 
@@ -35,7 +36,13 @@ class NewsItemInline(admin.TabularInline):
 
 
 @admin.register(NewsCluster)
-class NewsClusterAdmin(admin.ModelAdmin):
+class NewsClusterAdmin(LimitesAdminMixin, admin.ModelAdmin):
+    # `LimitesAdminMixin` (P1-01b): `titulo_acontecimento` e editavel aqui e o
+    # `save_model` nao aplicava a politica de `services/limites` — medido, um
+    # `</script>` no titulo do cluster persistia byte-identico pelo Admin.
+    # O `NewsItemInline` e totalmente somente leitura (`readonly_fields =
+    # fields`, `extra = 0`, `can_delete = False`), entao ele NAO e um caminho
+    # de escrita de `NewsItem` e nao precisa da politica.
     list_display = ["titulo_acontecimento", "categoria_dominante", "numero_fontes_distintas_admin", "criado_em"]
     list_filter = ["categoria_dominante"]
     search_fields = ["titulo_acontecimento"]
@@ -57,12 +64,19 @@ class NewsClusterAdmin(admin.ModelAdmin):
 
 
 @admin.register(NewsItem)
-class NewsItemAdmin(admin.ModelAdmin):
+class NewsItemAdmin(LimitesAdminMixin, admin.ModelAdmin):
     """
     Expoe a fila de revisao humana de itens de alta relevancia — filtro por
     `status_revisao` exigido em implementation-contract.md ("Areas/arquivos
     esperados"). Operar a fila (aprovar/rejeitar) e feito diretamente pelo
     admin nativo (nao-objetivo desta execucao construir uma UI propria).
+
+    `LimitesAdminMixin` (P1-01b) e o que fecha o caminho de escrita deste
+    Admin: `readonly_fields = ["timestamp_ingestao"]` deixa `titulo`,
+    `resumo_proprio`, `categoria` e `url_fonte_original` editaveis, e antes
+    nenhum deles passava pela politica de `services/limites` — um `titulo` com
+    `</script>` persistia byte-identico. Ver `limites_admin.py` para a decisao
+    de truncar-com-aviso (texto) e recusar-com-mensagem (identificador).
     """
 
     list_display = [

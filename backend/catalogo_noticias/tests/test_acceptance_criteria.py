@@ -31,6 +31,10 @@ from django.test import override_settings
 from django.utils import timezone
 
 from catalogo_noticias.models import NewsCluster, NewsItem, RegistroExecucaoIngestao
+from catalogo_noticias.providers.fallback_local import (
+    motivo_fallback_local,
+    origem_fallback_local,
+)
 from catalogo_noticias.providers.news_source import (
     FonteIndisponivelError,
     ItemBruto,
@@ -113,7 +117,7 @@ class TestAC1ResilienciaDeFontes:
     def test_timeout_de_rede_gera_fonteindisponivelerror_nao_excecao_generica(self):
         provider = RSSNewsSourceProvider(nome_fonte="CNN Brasil", url_feed="https://cnn/feed")
         with patch(
-            "catalogo_noticias.providers.news_source.requests.get",
+            "catalogo_noticias.providers.news_source.SessaoEgress.get",
             side_effect=requests.exceptions.Timeout("timed out"),
         ):
             with pytest.raises(FonteIndisponivelError):
@@ -123,7 +127,7 @@ class TestAC1ResilienciaDeFontes:
         provider = RSSNewsSourceProvider(nome_fonte="G1", url_feed="https://g1/feed")
         resposta = MagicMock()
         resposta.raise_for_status.side_effect = requests.exceptions.HTTPError("500 Server Error")
-        with patch("catalogo_noticias.providers.news_source.requests.get", return_value=resposta):
+        with patch("catalogo_noticias.providers.news_source.SessaoEgress.get", return_value=resposta):
             with pytest.raises(FonteIndisponivelError):
                 provider.buscar_itens()
 
@@ -132,7 +136,7 @@ class TestAC1ResilienciaDeFontes:
         resposta = MagicMock()
         resposta.raise_for_status.side_effect = None
         resposta.content = b"isto definitivamente nao e um XML valido <<<"
-        with patch("catalogo_noticias.providers.news_source.requests.get", return_value=resposta):
+        with patch("catalogo_noticias.providers.news_source.SessaoEgress.get", return_value=resposta):
             with pytest.raises(FonteIndisponivelError):
                 provider.buscar_itens()
 
@@ -166,7 +170,7 @@ class TestAC1ResilienciaDeFontes:
             resposta.content = conteudo_por_url[url]
             return resposta
 
-        with patch("catalogo_noticias.providers.news_source.requests.get", side_effect=fake_get):
+        with patch("catalogo_noticias.providers.news_source.SessaoEgress.get", side_effect=fake_get):
             registro = executar_ingestao(fontes=fontes, summarization_provider=ProviderResumoGenuino())
 
         assert "CNN Brasil" in registro.erros_por_fonte
@@ -878,8 +882,23 @@ class TestAC4ResumoProprioNuncaECopia:
         assert item.status_revisao == NewsItem.STATUS_PENDENTE
         assert item.publicado_automaticamente is False
 
-    def test_provider_falhando_produz_resumo_vazio_nunca_copia_do_bruto_como_fallback(self):
-        """Caso de erro do provider (AC-1/AC-4 combinados): o fallback usa resumo vazio, nunca o bruto."""
+    def test_provider_falhando_usa_fallback_local_nunca_o_bruto_como_resumo(self):
+        """
+        P1-02 (WS-08/GP-5) — caso de erro do provider (AC-1/AC-4 combinados),
+        com MUDANCA DE CONTRATO deliberada.
+
+        O que mudou: o fallback deixou de ser "resumo vazio". Resumo vazio
+        significava `status_revisao=pendente` e, portanto, noticia INVISIVEL
+        no feed — a degradacao apagava a materia em vez de publica-la (o
+        "rascunho fantasma" do backlog). Agora o fallback gera conteudo
+        local deterministico e o item entra no fluxo normal de publicacao.
+
+        O que NAO mudou e o invariants central deste teste (AC-4): o fallback
+        NUNCA usa o `conteudo_bruto` como `resumo_proprio` — nem agora, nem
+        antes. A verificacao foi endurecida: o resumo nao pode ser igual ao
+        bruto, nem conter um trecho de 40 caracteres do bruto, e nao pode
+        inventar digito algum que nao esteja no material de origem.
+        """
 
         class ProviderQuebrado(SummarizationProvider):
             def resumir_e_classificar(self, itens_brutos):
@@ -893,9 +912,28 @@ class TestAC4ResumoProprioNuncaECopia:
         executar_ingestao(fontes=fontes, summarization_provider=ProviderQuebrado())
 
         item = NewsItem.objects.get()
+        # Invariante AC-4 preservada (e reforcada).
         assert item.resumo_proprio != conteudo
-        assert item.resumo_proprio == ""
-        assert item.status_revisao == NewsItem.STATUS_PENDENTE
+        assert conteudo not in item.resumo_proprio
+        assert "jamais deveria" not in item.resumo_proprio
+        # Nenhum digito INVENTADO: todo digito do resumo tem de existir no
+        # material de origem (aqui, o "1" legitimo de "G1"). A propriedade
+        # testada e a do verificador anti-fabricacao, nao "zero digitos".
+        digitos_da_origem = {
+            c
+            for valor in ("Noticia X", "G1", "", "", "")
+            for c in str(valor)
+            if c.isdigit()
+        }
+        assert digitos_da_origem == {"1"}
+        assert {c for c in item.resumo_proprio if c.isdigit()} <= digitos_da_origem
+        # O fallback local produz conteudo e publica no fluxo normal.
+        assert item.resumo_proprio != ""
+        assert "Noticia X" in item.resumo_proprio
+        assert item.publicado_automaticamente is True
+        # Distinguivel: marcador de origem + motivo persistidos.
+        assert origem_fallback_local(item.tags) is True
+        assert motivo_fallback_local(item.tags) == "erro_do_provider"
 
     # -----------------------------------------------------------------------
     # Finding 2 (code-review-contract.md run 20260902-0727-ingestao-noticias,
@@ -1807,7 +1845,7 @@ class TestHomepageCadastradaComoFeed:
         provider = RSSNewsSourceProvider(nome_fonte="BBC", url_feed="https://www.bbc.com/portuguese")
         html = b"<!DOCTYPE html><html lang=\"pt-br\"><head><title>BBC</title></head><body></body></html>"
         with patch(
-            "catalogo_noticias.providers.news_source.requests.get",
+            "catalogo_noticias.providers.news_source.SessaoEgress.get",
             return_value=self._resposta(html),
         ):
             with pytest.raises(FonteIndisponivelError, match="não é um feed RSS/Atom"):
@@ -1817,7 +1855,7 @@ class TestHomepageCadastradaComoFeed:
         provider = RSSNewsSourceProvider(nome_fonte="X", url_feed="https://x/")
         html = b"\xef\xbb\xbf  \n<HTML><BODY>oi</BODY></HTML>"
         with patch(
-            "catalogo_noticias.providers.news_source.requests.get",
+            "catalogo_noticias.providers.news_source.SessaoEgress.get",
             return_value=self._resposta(html),
         ):
             with pytest.raises(FonteIndisponivelError, match="Central > Robôs"):
@@ -1826,7 +1864,7 @@ class TestHomepageCadastradaComoFeed:
     def test_rss_valido_continua_ingerindo(self):
         provider = RSSNewsSourceProvider(nome_fonte="G1", url_feed="https://g1/feed")
         with patch(
-            "catalogo_noticias.providers.news_source.requests.get",
+            "catalogo_noticias.providers.news_source.SessaoEgress.get",
             return_value=self._resposta(_rss_bytes("Título real", "https://g1/n1", "Texto.")),
         ):
             itens = provider.buscar_itens()
@@ -1837,7 +1875,7 @@ class TestHomepageCadastradaComoFeed:
         # é pelo corpo, nunca pelo header, então segue funcionando.
         provider = RSSNewsSourceProvider(nome_fonte="Correios", url_feed="https://correio/feed")
         with patch(
-            "catalogo_noticias.providers.news_source.requests.get",
+            "catalogo_noticias.providers.news_source.SessaoEgress.get",
             return_value=self._resposta(_rss_bytes("T", "https://c/n1", "D")),
         ):
             assert len(provider.buscar_itens()) == 1
@@ -1858,7 +1896,7 @@ class TestFonteRegionalUF:
         resp = MagicMock()
         resp.raise_for_status.side_effect = None
         resp.content = _rss_bytes("Chuva em Goiânia", "https://g1/n-go", "Texto.")
-        with patch("catalogo_noticias.providers.news_source.requests.get", return_value=resp):
+        with patch("catalogo_noticias.providers.news_source.SessaoEgress.get", return_value=resp):
             itens = prov.buscar_itens()
         assert len(itens) == 1
         assert itens[0].estado_fonte == "GO"
@@ -1871,7 +1909,7 @@ class TestFonteRegionalUF:
         resp = MagicMock()
         resp.raise_for_status.side_effect = None
         resp.content = _rss_bytes("T", "https://g1/n1", "D")
-        with patch("catalogo_noticias.providers.news_source.requests.get", return_value=resp):
+        with patch("catalogo_noticias.providers.news_source.SessaoEgress.get", return_value=resp):
             itens = prov.buscar_itens()
         assert itens[0].estado_fonte == "" and itens[0].pais_fonte == ""
 

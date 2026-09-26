@@ -881,3 +881,79 @@ Notas:
   (debug manual pontual, sem valor permanente), as regras Firestore
   (`firestore.rules` — este projeto usa Postgres, não Firestore) e o
   deploy via PM2 (substituído pelo Compose+Caddy aqui).
+
+---
+
+## Lote P0-1 — Gate de proveniência antes de uma release (uso do operador)
+
+> Seção adicionada pelo lote P0-1 da run `20260925-1433-go-live-producao`.
+> Nenhuma seção anterior deste guia foi reescrita. **Nenhum workflow,
+> gatilho, job ou segredo foi alterado por este lote** e nenhuma etapa de
+> deploy descrita acima muda de comportamento.
+
+### O que é
+
+`scripts/release/verificar-proveniencia.sh` é um gate **local, read-only e
+fail-closed** que reprova o release quando o estado do repositório não é
+reproduzível. Ele roda **na sua máquina**, antes de você promover qualquer
+código, e não depende de rede, de VPS, de DNS ou de credencial.
+
+```bash
+# uso típico antes de promover: o SHA esperado é o que você vai publicar
+scripts/release/verificar-proveniencia.sh --expected-sha "$(git rev-parse HEAD)"
+echo "exit=$?"
+
+# forma estruturada, para consumo de ferramenta
+scripts/release/verificar-proveniencia.sh --expected-sha <40-hex> --json
+
+# inspecionar outro repositório
+scripts/release/verificar-proveniencia.sh --repo /caminho/do/repo --expected-sha <40-hex>
+```
+
+| Exit code | Significado | O que o operador faz |
+|---|---|---|
+| `0` | aprovado | pode seguir com a promoção |
+| `1` | reprovado, incompleto ou checagem não executada | **não promover**; leia `ACHADOS` e limpe a causa |
+| `2` | uso incorreto (flag, valor ou `--repo` inválido) | corrija a linha de comando |
+
+Pontos que evitam erro de interpretação:
+
+- **Sem `--expected-sha` o gate reprova (`1`) com resultado incompleto.**
+  Omissão de flag nunca é aprovação automática.
+- O gate reprova arquivo **não rastreado** e reprova árvore **suja**. O
+  diretório `agentic-framework/state/` é não rastreado por decisão de
+  ownership: ele reprova o gate por isso mesmo, e `.gitignore` **não** foi
+  editado para escondê-lo.
+- O gate reprova marcador de conflito, `.py`/`.yml` rastreado que não faz
+  parse, segredo aparente em arquivo rastreado e `skip-worktree`/`assume-unchanged`.
+- A saída **nunca imprime valor de segredo**: ela informa identificador de
+  regra, caminho, linha e que o valor foi omitido (também em `--json`).
+- Se `git`, `python3` ou PyYAML (quando há YAML rastreado) não estiverem
+  disponíveis, o gate **falha** com motivo explícito. Não há bypass.
+
+### Limitações honestas
+
+- **O gate não roda em nenhum pipeline.** Nenhum workflow foi alterado, então
+  ele só é executado quando alguém o invoca.
+- **Ele só bloqueia de fato se** a branch protection do GitHub estiver
+  configurada com PR obrigatório **e** o gate estiver registrado como required
+  status check. Hoje nenhuma das duas existe; configurar branch protection sem
+  registrar o check não torna o gate obrigatório (HD-2/HD-6, ação humana).
+- **Ele não cobre o caminho de deploy por pull request.** O
+  `deploy-homolog.yml` continua disparando em `pull_request` e implantando o
+  head do PR na VPS persistente de HOMOLOG (3102/5102). Esse caminho segue
+  **ativo**; este lote **não** o alterou, **não** o mitigou e **não** é
+  coberto pelo gate. O risco está **ACEITO e ABERTO**, **não bloqueante** para
+  o go-live, e **exige aceite explícito assinado no go/no-go** (R-1). A
+  substituição desse caminho é decisão de lote futuro (HD-1).
+- **R-2 (domínio):** o canônico do programa é `https://portal-noticias.com/`,
+  enquanto os workflows usam `portal-noticias.com.br`. Divergência
+  **registrada**, não corrigida; a correção é lote posterior e não muda
+  estrutura, gatilhos ou comportamento. **Nenhum hostname de ambiente deve ser
+  presumido** por este lote.
+- **Host key / `known_hosts`:** a validação e o *pinning* da host key da VPS
+  **não** são feitos por este lote; pertencem a outro item, com evidência
+  própria.
+
+Evidência do lote:
+`agentic-framework/state/run-20260925-1433-go-live-producao/lote-p0-1-evidencias.md`.

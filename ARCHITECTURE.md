@@ -8,7 +8,7 @@ Este documento cobre o recorte **MVP + Assinatura Premium** (ver seção 31 do B
 
 | Camada | Decisão | Justificativa |
 |---|---|---|
-| Backend | Python — **Django + Django REST Framework** | O BRD exige um painel administrativo pesado desde o MVP (preços configuráveis, parametrização de limites Free/Premium, fila de decisões). O admin nativo do Django reduz drasticamente esse esforço. Alternativa considerada: FastAPI (mais leve, melhor para API pura), descartada por exigir construir o admin do zero. **Decisão em aberto:** confirmar Django+DRF ou preferência explícita por FastAPI + admin próprio. |
+| Backend | Python — **Django + Django REST Framework** | O BRD exige um painel administrativo pesado desde o MVP (preços configuráveis, parametrização de limites Free/Premium, fila de decisões). O admin nativo do Django reduz drasticamente esse esforço. Alternativa considerada: FastAPI (mais leve, melhor para API pura), descartada por exigir construir o admin do zero. **Decisão vigente:** Django+DRF; a alternativa de API pura não será usada como fonte do portal. |
 | Jobs assíncronos | Celery + Redis | Necessário para ingestão periódica de fontes de notícias, chamadas ao provedor de LLM (resumo/classificação), registro assíncrono de `EventoBusca` e envio de e-mails (onboarding, renovação), sem bloquear requisições HTTP. |
 | Frontend | React (Next.js recomendado) | Escolha do usuário. Next.js dá SSR/SEO, importante para um portal de conteúdo. |
 | Banco de dados | PostgreSQL | Escolha do usuário. Usar JSONB para metadados de notícias/fontes e para armazenar snapshots de decisões de dedup/classificação (auditoria). |
@@ -23,6 +23,30 @@ PostgreSQL e Celery formam a única topologia executável de ingestão,
 deduplicação, curadoria e leitura. Não existe um segundo pipeline ou uma API
 alternativa de feed no portal; operações locais, periódicas por Celery e
 gatilhos manais persistem e consultam o mesmo catálogo no PostgreSQL.
+
+**Corte de cache e execução local:** as cinco listagens cacheadas do feed
+(`lista`, `urgentes`, `mais-lidas`, `home` e `destaques`) usam o namespace
+`feed:v2`. Entradas antigas em `feed:v1`, inclusive payloads remotos do pipeline
+removido, não são lidas; elas expiram pelo TTL sem exigir limpeza imediata do
+Redis. O feed não faz fallback de rede. O disparo manual dos robôs permanece
+local: `POST /api/admin/robos/executar/` responde `202 Accepted` imediatamente e
+executa a ingestão em background, enquanto o progresso é consultado em
+`/api/admin/robos/execucoes/`.
+
+**Cache de cliente (2026-09-25, P1-6):** o frontend usa TanStack Query
+(`@tanstack/react-query`) como camada de cache de cliente, com política
+conservadora aprovada: cache somente em memória (sem persistência em
+localStorage/IndexedDB), público `staleTime` 60 s, autenticado 15 s, telas de
+decisão (Admin) 0 s, `refetchOnWindowFocus: false` e polling conforme regras
+existentes (`refetchIntervalInBackground: false`). O client é instanciado por
+árvore cliente (`useState` no provider), sem singleton de módulo — requisições
+SSR nunca compartilham cache e o ISR/SEO do servidor não muda. Chaves de query
+não contêm token nem dados pessoais: queries privadas recebem somente
+`usuario.id` (credenciais ficam no closure do `queryFn`), e o
+`QuerySessionBoundary` cancela queries privadas e limpa o cache no
+logout/troca de usuário. Mutations invalidam as queries afetadas; o check
+`frontend/scripts/verificar-query-client.mjs` valida a política na esteira de
+CI (job `frontend-build`) e como gate `verify` dos deploys.
 
 ## 2. Módulos macro (bounded contexts)
 
@@ -130,6 +154,15 @@ Internet → Cloudflare (opcional: CDN + WAF + DDoS + TLS na borda)
                         → PostgreSQL (dados transacionais, backup off-VPS)
                   → Celery worker + beat (ingestão, e-mails, vencimentos)
 ```
+
+O estado do worker/beat **não** é deduzido de "processo no ar": o beat
+despacha a task `config.tasks.heartbeat_beat` (chave
+`portal-heartbeat-beat` do `CELERY_BEAT_SCHEDULE`) e um worker a executa
+gravando o instante em `PORTAL_FILAS_ESTADO_DIR`. `manage.py saude_filas`
+mede fila, worker, heartbeat e último ciclo e devolve `ok` (0), `degradado`
+(1) ou `desconhecido` (3) — nunca `ok` sem ter verificado tudo. Ver
+`README.md` (seção "Saúde das filas") e `infra/filas/PROVISIONAMENTO.md`
+(o que ainda depende de provisionamento humano, P0-07).
 
 O deploy ativo é feito pelos workflows em `.github/workflows/` para as
 aplicações PM2 e pelos sites em `infra/nginx/`; `docker compose --env-file

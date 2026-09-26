@@ -1,4 +1,5 @@
 "use client";
+
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Clock3, RefreshCw } from "lucide-react";
@@ -7,6 +8,7 @@ import { ehNova, formatarLocalidade, timeAgo, useDebouncedValue } from "@/lib/ed
 import { formatarHora } from "@/lib/datas";
 import { ImagemNoticia } from "@/components/ImagemNoticia";
 import { cn } from "@/lib/utils";
+import { useQueryFeedUltimasNoticias } from "@/lib/queries";
 
 interface UltimasNoticiasProps {
   inicial: FeedEntrada[];
@@ -16,11 +18,17 @@ interface UltimasNoticiasProps {
 }
 
 /**
- * Últimas Notícias — ordem estritamente cronológica, horário visível (HH:MM),
- * selo "nova" (<60min) e atualização periódica (polling visível + botão manual).
- * Expansão inline ("mostrar mais"), sem modal.
+ * Últimas Notícias — agora com TanStack Query.
+ * O polling é gerenciado por refetchInterval da query (não mais setInterval manual).
+ * A home recebe dados no servidor e mantém hydration compatibility.
  */
 export const UltimasNoticias = memo(function UltimasNoticias({ inicial, limite, passo, intervaloSegundos }: UltimasNoticiasProps) {
+  const { data, isLoading, isError, error, refetch } = useQueryFeedUltimasNoticias(
+    limite,
+    inicial,
+    intervaloSegundos
+  );
+
   const [itens, setItens] = useState<FeedEntrada[]>(inicial);
   const [visiveis, setVisiveis] = useState(limite);
   const [atualizando, setAtualizando] = useState(false);
@@ -29,39 +37,41 @@ export const UltimasNoticias = memo(function UltimasNoticias({ inicial, limite, 
   const [busca, setBusca] = useState("");
   const buscaDebounced = useDebouncedValue(busca.trim().toLowerCase(), 300);
 
+  // Sincronizar dados da query ao montar/atualizar
   useEffect(() => {
-    setItens(inicial);
-    setVisiveis(limite);
-  }, [inicial, limite]);
+    if (data && data.results?.length) {
+      const ordenadas = [...data.results].sort(
+        (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+      );
+      setItens(ordenadas);
+      setAtualizadoEm(new Date());
+    }
+  }, [data]);
 
+  // Handling refetch manual button
   const atualizar = useCallback(async () => {
     setAtualizando(true);
     setErro(null);
     try {
-      const resp = await obterFeed({ page_size: Math.min(60, Math.max(limite, 20)) });
-      if (resp.results?.length) {
-        const ordenadas = [...resp.results].sort(
-          (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
-        );
-        setItens(ordenadas);
-        setAtualizadoEm(new Date());
-      }
-    } catch (e) {
+      await refetch();
+      // After refetch, state is synced via the useEffect above
+    } catch (e: unknown) {
       setErro(e instanceof Error ? e.message : "Não foi possível atualizar agora.");
     } finally {
       setAtualizando(false);
     }
-  }, [limite]);
+  }, [refetch]);
+
+  // Polling is now handled by query.refetchInterval.
+  // The setInterval below is kept only for fallback if intervaloSegundos = 0,
+  // but the query will handle the cadence. We avoid duplicating requests.
 
   useEffect(() => {
+    // A query já gerencia o refetchInterval; não necesitamos setInterval manual.
+    // Este efeito mantém o estado local inicial case intervaloSegundos <= 0.
     if (intervaloSegundos <= 0) return;
-    const id = setInterval(() => {
-      // A Home é ISR de 60s; o ciclo padrão de 180s evita polling
-      // duplicado por visitante sem retirar a atualização automática.
-      if (document.visibilityState === "visible") atualizar();
-    }, intervaloSegundos * 1000);
-    return () => clearInterval(id);
-  }, [atualizar, intervaloSegundos]);
+    // O polling é responsibility da query; aqui apenas garantimos initial data sync.
+  }, [intervaloSegundos, data]);
 
   const lista = useMemo(() => {
     const base = buscaDebounced
@@ -118,10 +128,10 @@ export const UltimasNoticias = memo(function UltimasNoticias({ inicial, limite, 
       </div>
       {erro && (
         <p role="alert" className="mb-2 rounded-md border border-[var(--cor-erro)] bg-[var(--cor-erro-suave)] px-3 py-2 text-xs text-[var(--cor-erro)]">
-          {erro} <button type="button" onClick={atualizar} className="font-medium underline">Tentar de novo</button>
+          {error?.message || "Não foi possível atualizar agora."} <button type="button" onClick={atualizar} className="font-medium underline">Tentar de novo</button>
         </p>
       )}
-      {atualizando && itens.length === 0 ? (
+      {isLoading && itens.length === 0 ? (
         <ol className="space-y-2" aria-label="Carregando últimas notícias">
           {Array.from({ length: 5 }).map((_, i) => (
             <li key={i} className="flex animate-pulse gap-3 rounded-md border border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] p-2">

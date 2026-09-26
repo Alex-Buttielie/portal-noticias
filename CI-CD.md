@@ -352,3 +352,113 @@ se quiser isolamento total.
 | `backup/remote-*` | foto do deploy antigo (nunca commitar em cima) | nenhum |
 | `v1.0.0` | tag anulada (script Docker, não usar) | — |
 | `vX.Y.Z` | releases válidas (a partir de `v1.0.1`) | PROD |
+
+---
+
+## Lote P0-1 — Baseline de proveniência e gate de release
+
+> Seção adicionada pelo lote P0-1 da run `20260925-1433-go-live-producao`
+> (contrato: `agentic-framework/state/run-20260925-1433-go-live-producao/lote-p0-1-proveniencia.md`).
+> Nada acima desta linha foi reescrito: **nenhum workflow, gatilho, job ou
+> segredo do CI/CD foi alterado, criado ou removido** por este lote.
+
+### O que foi entregue
+
+Uma ferramenta de linha de comando, versionada no repositório e **não
+registrada em nenhum workflow**:
+
+```bash
+scripts/release/verificar-proveniencia.sh [--expected-sha <40-hex>] [--repo <dir>] [--json]
+scripts/release/verificar-proveniencia.sh --help
+```
+
+O gate é **read-only** (não cria, altera, move nem apaga arquivo; não usa
+arquivo temporário; não executa `git add/commit/push/merge/rebase/reset/clean/
+checkout/switch/stash/restore/apply`), **não acessa a rede**, não consulta
+remoto, não exige e não lê segredo. Ele reprova (fail-closed) quando:
+
+1. o repositório ou uma ferramenta obrigatória não pode ser usado;
+2. `HEAD` é diferente do SHA de release esperado (`--expected-sha`);
+3. há arquivo **rastreado** modificado, removido ou renomeado;
+4. há arquivo **não rastreado** (respeitando `.gitignore`) — o diretório de
+   estado das runs é não rastreado por decisão de ownership e reprova o gate
+   por isso mesmo, sem que `.gitignore` seja editado;
+5. há `assume-unchanged`/`skip-worktree` escondendo estado de arquivo;
+6. há marcador de conflito (`<<<<<<<`, `>>>>>>>`, `=======`) em arquivo rastreado;
+7. há segredo aparente em arquivo **rastreado** (chave privada, AWS, GitHub,
+   Slack, Stripe, Google API, webhook, ou chave/token com valor literal);
+8. há `.py` rastreado que não faz parse;
+9. há `.yml`/`.yaml` rastreado que não faz parse.
+
+### Contrato da CLI
+
+| Exit code | Significado |
+|---|---|
+| `0` | aprovado: todas as checagens passaram **e** `--expected-sha` foi informado e igualou `HEAD` |
+| `1` | reprovado: checagem falhou, não pôde ser executada, **ou o resultado ficou incompleto** |
+| `2` | uso incorreto: flag desconhecida, valor ausente, `--expected-sha` fora de 40 hex, `--repo` inválido |
+
+- Sem `--expected-sha` o resultado fica **incompleto** e a saída é `1`.
+  Ausência da flag nunca é aprovação automática nem aprovação por omissão.
+- `--expected-sha` em formato inválido é **uso incorreto** (`2`), não SHA ausente.
+- Falha fechada: sem `git`, sem `python3`, sem PyYAML (quando há YAML
+  rastreado) ou com erro interno, o gate reprova com motivo explícito; não
+  existe bypass silencioso.
+- A saída é determinística (sem timestamp, sem cor; achados ordenados por
+  checagem, caminho e linha) e **nunca imprime valor de segredo**: o achado
+  traz só identificador de regra, caminho, número da linha e a declaração de
+  que o valor foi omitido — em texto e em `--json`.
+
+### O que o gate **não** cobre (leitura obrigatória)
+
+- **Não roda em pipeline nenhum.** Nenhum workflow foi alterado neste lote,
+  então o gate só executa quando alguém o invoca, local ou externamente. Ele
+  não é today nenhum required status check.
+- **Só bloqueia de fato com branch protection do GitHub configurada** (PR
+  obrigatório) **e** com o gate registrado como required status check. Como
+  este lote não toca em CI/CD, nenhuma das duas condições existe hoje.
+  Configurar branch protection sem um check registrado **não** torna o gate
+  obrigatório. Isso é **HD-2** (configuração humana) e **HD-6** (onde o gate
+  rodará de forma recorrente): pré-requisitos de eficácia, não de entrega.
+- **Não cobre o caminho pull request → VPS de HOMOLOG.** Ver R-1 abaixo.
+- Não valida/pina host key (`known_hosts`) — atribuído a outro lote.
+- Não é `.gitignore` permissivo nem `skip-worktree` que burlam: arquivo
+  ignorado não é analisado (e reprova como não rastreado só se não estiver
+  de fato ignorado), e `skip-worktree`/`assume-unchanged` é achado próprio.
+
+### R-1 — supply chain: caminho PR → VPS (ACEITO e ABERTO)
+
+O caminho continua **ativo e inalterado**:
+`.github/workflows/deploy-homolog.yml` dispara em `pull_request` para `main`,
+delega ao `deploy.yml` e implanta na VPS persistente em
+`/home/apps/portal-homolog` (3102/5102) com `git_mode: pr` e `verify_ref`
+preenchido pelo SHA do head do pull request — isto é, **código de pull request
+não aprovado pode rodar em uma máquina que tem segredos**.
+
+- Situação padronizada: **ACEITO** (decisão do solicitante), **ABERTO**,
+  **NÃO MITIGADO**, **NÃO COBERTO PELO GATE**, **NÃO BLOQUEANTE para o
+  go-live**.
+- Este lote **não** alterou, **não** mitigou, **não** bloqueou e **não**
+  compensou esse caminho, e nenhum artefato deste lote pode marcá-lo como
+  resolvido.
+- Por não bloquear o go-live, ele **exige aceite explícito e assinado no
+  go/no-go**, com a descrição do caminho, o que está sendo aceito, por quanto
+  tempo e quem assinou. A decisão futura sobre substituir esse caminho
+  (branch de promoção, `workflow_dispatch` com SHA explícito, ou desabilitar
+  o deploy por PR) é de um lote próprio, com revisão de CI/CD.
+
+### R-2 — divergência de domínio (ABERTO, registrada)
+
+O único valor de domínio adotado no programa é o canônico
+`https://portal-noticias.com/`. Os workflows existentes usam hoje
+`portal-noticias.com.br` (`dev.`, `homolog.`, raiz de PROD e `www.` em
+`allowed_hosts_extra`). A divergência está **registrada e não foi corrigida**:
+alterar valor de domínio em workflow é lote posterior, sem mudar estrutura,
+gatilhos ou comportamento. Nenhum valor de domínio em workflow foi alterado
+por este lote.
+
+### Evidência
+
+- Baseline re-derivada, inventário atribuído por run e resultados de todos os
+  casos negativos: `agentic-framework/state/run-20260925-1433-go-live-producao/lote-p0-1-evidencias.md`.
+- Histórico do lote: `agentic-framework/state/run-20260925-1433-go-live-producao/implementation-history.md`.

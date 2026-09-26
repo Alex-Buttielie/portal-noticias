@@ -1,0 +1,31 @@
+Traceback (most recent call last):
+  File "/tmp/opencode/p101/backend/.venv/lib/python3.14/site-packages/django/db/backends/utils.py", line 105, in _execute
+    return self.cursor.execute(sql, params)
+           ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+psycopg2.errors.StringDataRightTruncation: value too long for type character varying(300)
+
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/tmp/opencode/p101/backend/_repro_p101.py", line 38, in <module>
+    reg = executar_ingestao(fontes=fontes, summarization_provider=Resumo())
+  File "/usr/lib/python3.14/contextlib.py", line 85, in inner
+    return func(*args, **kwds)
+  File "/tmp/opencode/p101/backend/catalogo_noticias/services/ingestao.py", line 1005, in executar_ingestao
+    _persistir_grupo(resultados_por_item)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/contextlib.py", line 85, in inner
+    return func(*args, **kwds)
+  File "/tmp/opencode/p101/backend/catalogo_noticias/services/ingestao.py", line 538, in _persistir_grupo
+    itens_criados = _persistir_news_items_em_lote(itens_criados)
+  File "/tmp/opencode/p101/backend/catalogo_noticias/services/ingestao.py", line 413, in _persistir_news_items_em_lote
+    NewsItem.objects.bulk_create(itens_unicos, batch_size=500)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+django.db.utils.DataError: value too long for type character varying(300)
+
+limite real do titulo (varchar) = 300
+limite real da url   (varchar) = 1000
+RESULTADO: django.db.utils.DataError: value too long for type character varying(300)
+
+--- traceback (ultimas linhas) ---

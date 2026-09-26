@@ -1,0 +1,87 @@
+{
+  "run_id": "20260924-1721-react-query-migracao",
+  "task_title": "Migrar os 22 sites de backend para cache de cliente com TanStack Query",
+  "status": "done",
+  "current_phase": "closing",
+  "iteration_count": 3,
+  "max_iterations": 3,
+  "requested_by": "humano (Alex), decisão explícita após a run 20260923-1500-p1-6-react-query",
+  "source_spec": "ANALISE_CUSTO_PERFORMANCE.md P1-6 e follow-up da run 20260923-1500-p1-6-react-query",
+  "phases": {
+    "planning": {
+      "status": "done",
+      "agent": "orchestrator",
+      "execution_mode": "delegated",
+      "started_at": "2026-09-24T17:21:00-03:00",
+      "finished_at": "2026-09-24T17:25:00-03:00",
+      "notes": "Política conservadora aprovada pelo solicitante: memória-only, público 60s, autenticado 15s/0s, chaves por identidade sem token, sem persistência. Inventário inicial de 22 sites será confirmado pelo executor e explorer."
+    },
+    "implementation": {
+      "status": "done",
+      "agent": "executor",
+      "execution_mode": "delegated",
+      "started_at": "2026-09-24T17:25:00-03:00",
+      "finished_at": "2026-09-25T00:20:00-03:00",
+      "notes": "Etapa 1 + Etapa 2 concluídas (subagentes com escopos disjuntos + orquestrador). Núcleo: query-client, provider, session guard, 27 hooks de leitura (público/privado/Admin), invalidações, premium. Telas: 8 públicas/Community + jornalista/status (404=null) + 11 Admin. Política: memória-only, 60s/15s/0s, chaves sem token. Fix de tipos (readonly tuples, setEErr). Limpeza de 5 backups órfãos."
+    },
+    "testing": {
+      "status": "done",
+      "agent": "tester",
+      "execution_mode": "orchestrator (subagentes indisponíveis por instabilidade de rede do provedor — validação executada diretamente)",
+      "started_at": "2026-09-25T00:25:00-03:00",
+      "finished_at": "2026-09-25T00:35:00-03:00",
+      "notes": "15/15 critérios de aceite PASSED com evidência (ver Iteração 2 do history). Follow-up do check no CI endereçado na Iteração 3."
+    },
+    "review": {
+      "status": "done",
+      "agent": "reviewer",
+      "execution_mode": "orchestrator (subagentes indisponíveis por instabilidade de rede do provedor de modelo — review executado diretamente)",
+      "started_at": "2026-09-25T00:35:00-03:00",
+      "finished_at": "2026-09-25T00:45:00-03:00",
+      "notes": "Veredito approve_with_comments — 0 blockers, 1 major corrigida durante o review (invalidação no-op com chave crua em comunidade/[id] → refetch), 1 minor (tipos any, follow-up). Ver Iteração 2."
+    },
+    "remediation": {
+      "status": "pending",
+      "agent": "remediator",
+      "execution_mode": "delegated",
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Ativar se findings bloqueantes forem encontrados."
+    },
+    "documentation": {
+      "status": "done",
+      "agent": "documenter",
+      "execution_mode": "orchestrator",
+      "started_at": "2026-09-25T12:20:00-03:00",
+      "finished_at": "2026-09-25T12:40:00-03:00",
+      "notes": "Documentação viva atualizada: ARCHITECTURE.md (parágrafo Cache de cliente 2026-09-25/P1-6, irmão do cache de backend) e PROD_DECISOES.md (entrada 2026-09-25 no Registro de conclusões). Commit 725a43b inclui também pendências de documentação do run 20260924-1535-arquivar-ingestao (mesmos arquivos), registrada de forma transparente. Report/history/code-review completos. ANALISE_CUSTO_PERFORMANCE.md intocado (sem convenção de status)."
+    },
+    "closing": {
+      "status": "done",
+      "agent": "historian",
+      "execution_mode": "orchestrator",
+      "started_at": "2026-09-25T12:40:00-03:00",
+      "finished_at": "2026-09-25T12:45:00-03:00",
+      "notes": "Run fechado como entregue. HISTORY.md com a linha do run. Commits em develop: 948a5b5 (migração), 645aca3 (check CI), 725a43b (docs). Push para origin/develop executado. Follow-ups restantes registrados no report: tipos any em comunidade (dívida técnica), smoke HTTP no CI e suíte de unidade no frontend (escopo decidido fora desta esteira)."
+    }
+  },
+  "findings": {
+    "blocker": 0,
+    "major": 0,
+    "minor": 0,
+    "nit": 0,
+    "resolved": 0
+  },
+  "artifacts": {
+    "task_plan": "task-plan.md",
+    "implementation_contract": "implementation-contract.md"
+  },
+  "blocked_reason": null,
+  "follow_ups": [
+    "Mover o build do frontend para o runner em run separada, conforme decisão já tomada.",
+    "After this run, revisar o tamanho do bundle e requests por rota em produção.",
+    "Limpar branches/refs e commits externos somente com decisão humana; esta run não faz push."
+  ],
+  "created_at": "2026-09-24T17:21:00-03:00",
+  "updated_at": "2026-09-24T17:21:00-03:00"
+}

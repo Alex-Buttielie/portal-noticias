@@ -295,12 +295,31 @@ export function obterUrgentes(limite = 6): Promise<FeedEntrada[]> {
 export function obterMaisLidas(limite = 5): Promise<FeedEntrada[]> {
   return request(`/api/feed/mais-lidas/?limite=${limite}`, { method: "GET" });
 }
-export async function assinarNewsletterPublica(email: string, categoria = "geral"): Promise<{ detail: string }> {
-  try {
-    return await request("/api/newsletter/inscrever-publica/", { method: "POST", body: JSON.stringify({ email, categoria }) });
-  } catch {
-    return request("/api/landing/lista-espera/", { method: "POST", body: JSON.stringify({ nome: email.split("@")[0], email, interesses: [categoria], aceite_comunicacao: true }) });
-  }
+// Inscrição PÚBLICA de newsletter (visitante sem token). ATENÇÃO: o endpoint
+// `/api/newsletter/inscrever/` exige `IsAuthenticated`
+// (backend/newsletter/views.py:9-10), e o caminho público é
+// `POST /api/landing/lista-espera/` (backend/landing/urls.py:8) — o único
+// registro público de e-mail que o backend realmente expõe.
+//
+// Removido aqui o POST para `/api/newsletter/inscrever-publica/`: esse caminho
+// NÃO é declarado em backend/newsletter/urls.py (só `inscrever/` e
+// `descadastrar/` existem), portanto a chamada era um 404 garantido followed by
+// fallback — o que mascarava o erro real e gastava uma ida ao servidor. O
+// contrato enviado abaixo é o de landing/serializers.py:4-17
+// (`aceite_comunicacao` é obrigatório e validado como `True`).
+export function assinarNewsletterPublica(
+  email: string,
+  categoria = "geral"
+): Promise<{ detail: string }> {
+  return request("/api/landing/lista-espera/", {
+    method: "POST",
+    body: JSON.stringify({
+      nome: email.split("@")[0] || email,
+      email,
+      interesses: [categoria],
+      aceite_comunicacao: true,
+    }),
+  });
 }
 
 export interface FonteDetalhe {
@@ -661,7 +680,7 @@ export interface Publicacao {
   news_cluster: number | null;
   news_item: number | null;
   destaque: boolean;
-  /** FRENTE 4 (Comunidade viva): nº de comentários visíveis (backend anotado; mock local pode omitir). */
+  /** FRENTE 4 (Comunidade viva): nº de comentários visíveis, anotado pelo backend. */
   numero_comentarios?: number;
   criado_em: string;
   publicado_em: string | null;
@@ -933,6 +952,17 @@ export function cancelarNewsletter(token: string): Promise<void> {
   return request("/api/newsletter/inscrever/", { method: "DELETE" }, token);
 }
 
+// Descadastro pelo token do e-mail (link de descadastro do envio) —
+// `AllowAny`, sem exigir login: backend/newsletter/views.py:23-31. Responde 400
+// `{"detail": "Token inválido."}` quando o token não casa com nenhuma
+// inscrição, então o erro é real e precisa chegar ao usuário.
+export function descadastrarNewsletter(token: string): Promise<{ detail: string }> {
+  return request("/api/newsletter/descadastrar/", {
+    method: "POST",
+    body: JSON.stringify({ token }),
+  });
+}
+
 // ---------------------------------------------------------------------------
 // landing/ — campos conferidos em landing/serializers.py (run
 // 20260902-1517-landing-lista-espera).
@@ -978,9 +1008,33 @@ export interface ItemMonitorado {
   nome_fonte: string;
 }
 
+export interface CriterioComItens {
+  criterio: { tipo: string; valor: string };
+  itens: ItemMonitorado[];
+  // P1-13: o corpo da lista é limitado por `B2B_MAX_ITENS_POR_CRITERIO` (um
+  // critério genérico casava com a janela inteira e serializava tudo numa
+  // resposta). `total_itens` é o total VERDADEIRO, da mesma query escopada
+  // na organização — é dele que o resumo executivo tira `numero_itens`.
+  total_itens?: number;
+  itens_truncados?: boolean;
+}
+
 export interface ResumoExecutivo {
   organizacao: string;
   criterios: { tipo: TipoCriterioMonitoramento; valor: string; numero_itens: number }[];
+  // P1-13: plano e cota, para o painel mostrar "3/5 critérios" sem outra chamada.
+  plano?: string;
+  cota_criterios?: number;
+  criterios_ativos?: number;
+}
+
+// P1-13: 403 de `POST /api/b2b/criterios/` quando a cota do plano é atingida.
+// A `detail` é acionável (plano, teto, o que fazer) e os números vêm juntos.
+export interface ErroCotaB2B {
+  detail: string;
+  cota_criterios: number;
+  criterios_ativos: number;
+  criterios_remanescentes: number;
 }
 
 export function obterCriteriosB2B(token: string): Promise<CriterioMonitoramento[]> {
@@ -994,9 +1048,7 @@ export function criarCriterioB2B(
   return request("/api/b2b/criterios/", { method: "POST", body: JSON.stringify(dados) }, token);
 }
 
-export function obterItensMonitoradosB2B(
-  token: string
-): Promise<Record<string, { criterio: { tipo: string; valor: string }; itens: ItemMonitorado[] }>> {
+export function obterItensMonitoradosB2B(token: string): Promise<Record<string, CriterioComItens>> {
   return request("/api/b2b/itens-monitorados/", { method: "GET" }, token);
 }
 
