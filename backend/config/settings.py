@@ -117,6 +117,13 @@ INSTALLED_APPS = [
     "allauth.socialaccount",
     "allauth.socialaccount.providers.google",
     # apps do projeto
+    # `config` entra como app (sem models e sem migrations) para que o
+    # Django discover `config/management/commands/`, onde vive
+    # `saude_filas` (P1-03). Sem estar na lista, o comando de
+    # observabilidade das filas simplesmente não existiria para
+    # `manage.py` — e a "parte consultável" do item de backlog depende
+    # dele. A app do Celery é o mesmo pacote; nada muda para o worker.
+    "config",
     "identidade",
     "catalogo_noticias",
     "feed",
@@ -522,6 +529,64 @@ CELERY_TASK_TRACK_STARTED = True
 CELERY_WORKER_PREFETCH_MULTIPLIER = 1
 CELERY_WORKER_MAX_TASKS_PER_CHILD = int(os.environ.get("CELERY_WORKER_MAX_TASKS_PER_CHILD", "100"))
 
+# ---------------------------------------------------------------------------
+# Modo de execução das tasks (P1-03, WS-06) — broker vs. inline.
+#
+# PADRÃO = BROKER, e é o que vale em DEV/HOMOLOG/PROD: `.delay()` publica no
+# broker e um `celery -A config worker` separado consome. É o único modo em
+# que "a fila foi consumida" é um fato observável.
+#
+# INLINE (`CELERY_TASK_ALWAYS_EAGER=true`) executa a task no próprio processo
+# que chamou `.delay()`. Existe para desenvolvimento/testes e para um
+# ambiente sem broker; é atalho EXPLÍCITO (opt-in), nunca o default, porque
+# um default inline esconderia a fila justamente no ambiente onde ela
+# importa. Quem lida com essa escolha é `config/filas_saude.py`, que em modo
+# inline responde `desconhecido` — não `ok` — para as sondagens de fila.
+#
+# `task_eager_propagates` fica ligado junto do inline para que uma falha
+# suba como exceção no chamador em vez de virar um resultado "esquentado":
+# em execução local a falha tem de ser visível, não enfileirada para ninguém.
+CELERY_TASK_ALWAYS_EAGER = env_bool("CELERY_TASK_ALWAYS_EAGER", False)
+CELERY_TASK_EAGER_PROPAGATES = env_bool("CELERY_TASK_EAGER_PROPAGATES", CELERY_TASK_ALWAYS_EAGER)
+
+# ---------------------------------------------------------------------------
+# Observabilidade das filas (P1-03, WS-06) — `config/filas_saude.py` +
+# `config/filas_estado.py` + `manage.py saude_filas`.
+#
+# Os limites abaixo são o que transforma "números observados" em veredito.
+# São deliberadamente explícitos (e não constantes escondidas no código) para
+# que o valor de produção seja ajustável por ambiente sem deploy de código.
+# ---------------------------------------------------------------------------
+FILAS_NOME_FILA = os.environ.get("CELERY_QUEUE", "celery")
+
+# Profundidade acima da qual a fila é considerada degradada. Com a ingestão a
+# cada 15 min, centenas de itens pendentes já significam consumo parado, não
+# uma rajada de tráfego.
+FILAS_PROFUNDIDADE_MAXIMA = int(os.environ.get("FILAS_PROFUNDIDADE_MAXIMA", "500"))
+
+# Idade da task em execução mais antiga acima da qual há task travada.
+FILAS_IDADE_MAXIMA_TAREFA_SEGUNDOS = float(
+    os.environ.get("FILAS_IDADE_MAXIMA_TAREFA_SEGUNDOS", "900")
+)
+
+# Intervalo do heartbeat do beat no `CELERY_BEAT_SCHEDULE` e idade máxima
+# aceita para o registro. O limite (900s = 3 intervalos) tolera dois ticks
+# perdidos — reboot, timer atrasado por I/O — antes de entrar em
+# `degradado`. AUMENTAR o intervalo sem aumentar o limite troca um sinal
+# sensível por um sinal atrasado; nunca o contrário.
+FILAS_HEARTBEAT_INTERVALO_SEGUNDOS = int(
+    os.environ.get("FILAS_HEARTBEAT_INTERVALO_SEGUNDOS", "300")
+)
+FILAS_BEAT_MAX_AGE_SEGUNDOS = float(os.environ.get("FILAS_BEAT_MAX_AGE_SEGUNDOS", "900"))
+
+# Task cujo último ciclo é monitorado. É a ingestão porque é o job que
+# produz conteúdo: é o único trabalho do portal em que "não rodou" significa
+# "o portal está parado de atualizar". Um ambiente que ainda não rodou um
+# ciclo de ingestão responde `desconhecido` — e essa é a resposta honesta.
+FILAS_TAREFA_MONITORADA = os.environ.get(
+    "FILAS_TAREFA_MONITORADA", "catalogo_noticias.tasks.ingerir_noticias"
+)
+
 # TTL curto para o vocabulário de autocomplete. O cache é reconstruível a
 # partir de NewsItem/EventoBusca; a ingestão invalida as chaves de catálogo
 # após uma escrita e o TTL cobre eventos/erros de cache como fallback.
@@ -587,6 +652,20 @@ CELERY_BEAT_SCHEDULE = {
     "b2b-verificar-alertas": {
         "task": "b2b.tasks.verificar_alertas",
         "schedule": B2B_INTERVALO_VERIFICAR_ALERTAS_MINUTOS * 60,
+    },
+    # P1-03 (WS-06): heartbeat do beat. É a ÚNICA entrada desta agenda cujo
+    # produto é um arquivo, e é o que permite dizer "a agenda rodou" em vez
+    # de "o processo existe". Sem ela, `manage.py saude_filas` só conseguiria
+    # responder `desconhecido` para o estado do beat — sempre.
+    #
+    # `config.tasks.heartbeat_beat` é despachado pelo beat e executado por um
+    # WORKER, então o arquivo só é gravado se as duas pontas estiverem de pé.
+    # (Um producer que roda fora do beat — um timer do systemd, por exemplo —
+    # provaria apenas que o timer está vivo, que é o falso verde que este
+    # item existe para eliminar.)
+    "portal-heartbeat-beat": {
+        "task": "config.tasks.heartbeat_beat",
+        "schedule": FILAS_HEARTBEAT_INTERVALO_SEGUNDOS,
     },
 }
 
