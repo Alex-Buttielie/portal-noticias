@@ -333,9 +333,10 @@ o trabalho, `int-v2` recebeu **dois** commits de outros agentes:
    `segredo-chave-valor-literal` que o enunciado me avisava para nao
    introduzir. Ele **existia na base** `4a1b64a` que eu tinha, em
    `backend/config/tests/test_settings_producao.py:714`
-   (`RESEND_API_KEY="re_0000000000000000000000000000000"`): 32 caracteres, 4
-   classes, sem marcador de placeholder. Nao era meu, e nao era eu quem podia
-   consertao.
+   (um literal `RESEND_API_KEY` de 32 caracteres, 4 classes de caractere e
+   nenhum marcador de placeholder — o valor **nao** e reproduzido aqui de
+   proposito, porque reproduzi-lo recriaria o achado dentro do proprio
+   documento que o explica): nao era meu, e nao era eu quem podia consertao.
 2. `411f30d merge(P0-10)` — o hardening de seguranca, incluindo o escape de
    JSON-LD no frontend.
 
