@@ -295,12 +295,31 @@ export function obterUrgentes(limite = 6): Promise<FeedEntrada[]> {
 export function obterMaisLidas(limite = 5): Promise<FeedEntrada[]> {
   return request(`/api/feed/mais-lidas/?limite=${limite}`, { method: "GET" });
 }
-export async function assinarNewsletterPublica(email: string, categoria = "geral"): Promise<{ detail: string }> {
-  try {
-    return await request("/api/newsletter/inscrever-publica/", { method: "POST", body: JSON.stringify({ email, categoria }) });
-  } catch {
-    return request("/api/landing/lista-espera/", { method: "POST", body: JSON.stringify({ nome: email.split("@")[0], email, interesses: [categoria], aceite_comunicacao: true }) });
-  }
+// Inscrição PÚBLICA de newsletter (visitante sem token). ATENÇÃO: o endpoint
+// `/api/newsletter/inscrever/` exige `IsAuthenticated`
+// (backend/newsletter/views.py:9-10), e o caminho público é
+// `POST /api/landing/lista-espera/` (backend/landing/urls.py:8) — o único
+// registro público de e-mail que o backend realmente expõe.
+//
+// Removido aqui o POST para `/api/newsletter/inscrever-publica/`: esse caminho
+// NÃO é declarado em backend/newsletter/urls.py (só `inscrever/` e
+// `descadastrar/` existem), portanto a chamada era um 404 garantido followed by
+// fallback — o que mascarava o erro real e gastava uma ida ao servidor. O
+// contrato enviado abaixo é o de landing/serializers.py:4-17
+// (`aceite_comunicacao` é obrigatório e validado como `True`).
+export function assinarNewsletterPublica(
+  email: string,
+  categoria = "geral"
+): Promise<{ detail: string }> {
+  return request("/api/landing/lista-espera/", {
+    method: "POST",
+    body: JSON.stringify({
+      nome: email.split("@")[0] || email,
+      email,
+      interesses: [categoria],
+      aceite_comunicacao: true,
+    }),
+  });
 }
 
 export interface FonteDetalhe {
@@ -931,6 +950,17 @@ export function inscreverNewsletter(
 
 export function cancelarNewsletter(token: string): Promise<void> {
   return request("/api/newsletter/inscrever/", { method: "DELETE" }, token);
+}
+
+// Descadastro pelo token do e-mail (link de descadastro do envio) —
+// `AllowAny`, sem exigir login: backend/newsletter/views.py:23-31. Responde 400
+// `{"detail": "Token inválido."}` quando o token não casa com nenhuma
+// inscrição, então o erro é real e precisa chegar ao usuário.
+export function descadastrarNewsletter(token: string): Promise<{ detail: string }> {
+  return request("/api/newsletter/descadastrar/", {
+    method: "POST",
+    body: JSON.stringify({ token }),
+  });
 }
 
 // ---------------------------------------------------------------------------
