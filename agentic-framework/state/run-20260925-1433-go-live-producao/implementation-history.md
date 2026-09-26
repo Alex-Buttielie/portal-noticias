@@ -810,3 +810,131 @@ Arquivo removido; a mesma cópia voltou a `exit 0`. O conserto foi no texto e
 **não** derrubou a segurança.
 
 *Nenhum commit, `add` ou `push`: o commit é do orchestrator.*
+
+---
+
+# 14. Remediação do defeito da checagem 7 do gate (append-only; §1–§13 inalteradas)
+
+Escrito pelo subagente de correção do defeito **P0-1**, disparado porque o gate
+de proveniência reprovou a própria branch integrada. O registro completo, com
+saídas literais, está em `lote-p0-1-evidencias.md` §13.
+
+## 14.1 O que aconteceu, em ordem
+
+1. A branch `int-v2` foi integrada até `411f30d` (merge do P0-10).
+2. `bash scripts/release/verificar-proveniencia.sh --repo "$PWD" --expected-sha "$(git rev-parse HEAD)"`
+   retornou **`exit 1`, 22 achados**, todos de `conflict-marker-separador`, em
+   `backend/config/{uploads,egress,health,views}.py` e
+   `backend/config/tests/{test_egress,test_health}.py`.
+3. As 22 linhas são **banners decorativos** de docstring (77 caracteres `=`).
+4. Diagnóstico: a regra `("conflict-marker-separador", re.compile(r"^={7,}$"))`
+   casa com qualquer linha só de `=`, sem exigir contexto de conflito. Falso
+   positivo garantido. **Mesma classe de defeito** do `tag.upper()` da
+   checagem 6, corrigido antes nesta run.
+5. Corrigi o gate, validei com 10 fixtures da checagem 7 e 9 fixtures de
+   não-regressão, e commitei na branch.
+
+## 14.2 Nota de processo — registro com honestidade
+
+**O orchestrador enviou `411f30d` para `origin/develop` antes de ler o resultado
+do gate, e o gate reprovou esse estado.**
+
+Isto é parte do histórico da run e precisa ficar escrito, porque o processo — e
+não o código — foi a primeira causa da exposição:
+
+- **O que aconteceu.** `411f30d` foi publicado antes que a checagem 7 fosse
+  exercitada. O gate reprovou `411f30d` com 22 achados. O commit já estava
+  fora quando o veredito existia.
+- **Por que não é culpa do P0-10 nem do autor do P0-10.** O conteúdo mergeado
+  está correto: a checagem 9 passava, os `.py` faziam parse, e as 22 linhas são
+  texto decorativo. O defeito era **do gate**, não do código.
+- **A lição, em uma frase.** *O gate de proveniência é uma barreira de
+  proveniência; ele precisa ser rodado **antes** do envio, não depois.*
+  Publicar primeiro e verificar depois inverte a barreira: o resultado passa a
+  ser um relatório, não um bloqueio.
+- **O que esta remediação não faz.** Ela conserta o defeito do gate; ela **não**
+  desfaz nem oculta o envio. `411f30d` já está no remoto e o próximo gate,
+  rodado sobre o novo commit, é que dá o veredito do estado atual.
+- **Recomendação de processo para o resto da run** (registro, não
+  implementação): nenhum `push` para `origin/develop` sem
+  `bash scripts/release/verificar-proveniencia.sh --expected-sha <sha>`
+  **rodado com `exit 0` no próprio commit a ser enviado**, com a saída
+  anexada ao registro do lote. Enquanto o gate não for `required status check` na
+  branch protection, ele só é efetivo se alguém o rodar — e se ele só roda
+  depois do envio, ele é decorativo.
+
+## 14.3 A correção, em uma frase
+
+A regra do separador deixou de ser solta e passou a ser **corroborada
+intra-arquivo**: `conflict-marker-separador` só vira achado se o **mesmo
+arquivo** também tiver `<<<<<<<` ou `>>>>>>>` em início de linha — o trio do
+Git nunca atravessa arquivos, então nenhum conflito real escapa.
+
+**O que explicitamente não foi feito**, para quem auditar: a tupla `CONFLITOS`
+continua com as três regras; as duas pontas continuam fail-closed sem
+corroboração nenhuma; não há lista branca, carve-out por caminho,
+`.gitattributes`, exclusão de arquivo ou carve-out por extensão; nenhuma das
+outras 9 checagens foi tocada.
+
+`sha256sum scripts/release/verificar-proveniencia.sh`:
+`133408e55076f4c71fa439ee2588d94b55f540e4d29da3296d0858bd592a9541`
+→ `32ed34b366a5ef8887652e55de6d8c4e028d2268f705a94fb2efc32103b57b59`.
+A mudança é esperada: o conteúdo do gate mudou.
+
+## 14.4 Validações executadas (todas com saída real)
+
+| validação | resultado |
+|---|---|
+| 10 fixtures da checagem 7 (a, a2, b, c, d, e, f, g, h, i) | **0 divergências**; caso (a) reprova com as 3 regras; caso (d) — que o gate **antigo** reprovava — agora aprova |
+| conjunto de achados da checagem 7, antigo vs. novo, nos 6 casos de conflito real | **idêntico** (`diff` sem diferença) |
+| 9 fixtures de não-regressão (checagens 1, 2, 3, 4, 5, 6, 8, 9, 10) | **9 de 9 reprovam**; zero regressões |
+| gate no repositório integrado, depois do commit | **`exit 0`, `achados: 0`** sobre `5f49401ddee7aaa726255cbed1b0d6e6c47d56dc` (era `exit 1`, 22 achados sobre `411f30d`) |
+| `bash -n` no gate | OK |
+| fatiamento do gate em 17 blocos, antigo vs. novo | **14 de 17 byte a byte idênticos**; os 3 diferentes são todos da checagem 7 |
+| suíte do backend com `--cov-fail-under=80` | **`exit 0`, 770 passed, cobertura 89,54%** |
+| `git diff HEAD~1 -- scripts/release/verificar-proveniencia.sh` | 2 hunks, ambos da checagem 7 |
+
+## 14.5 Nenhum push, e a ordem commit → gate
+
+Nenhum `push`, `merge`, `rebase`, `reset`, `clean` ou `stash` foi executado. Um
+`commit` na branch `int-v2`, em `/tmp/opencode/integrate` (worktree exclusiva).
+Nada foi escrito em `/tmp/opencode/int-hard`, `/tmp/opencode/int-hardening`,
+`/tmp/opencode/p101b`, `/tmp/opencode/p103` nem no repositório principal
+`/home/alex-buttielie/repositorios/portal-noticias`.
+
+O gate foi rodado **depois** do commit e com `--expected-sha` do `HEAD` novo: com
+a árvore suja, a checagem 4 (`arvore-limpa`) reprovaria por o próprio arquivo do
+gate modificado, e o resultado seria enganoso.
+
+## 14.6 Suíte do backend
+
+`cd backend && .venv/bin/python -m pytest -q --cov=. --cov-report=term-missing --cov-fail-under=80`
+
+```
+Required test coverage of 80% reached. Total coverage: 89.54%
+770 passed, 248 warnings in 272.54s (0:04:32)
+```
+
+`exit 0`, **770 passed**, cobertura **89,54%**. Saída completa em
+`/tmp/opencode/p0-1-suite.txt`.
+
+Reuso de infraestrutura: `.venv` existente na worktree e **Postgres 16 já em
+execução na porta 15432**. A porta foi escolhida depois de verificar quais
+servidores tinham `test_brd_portal_noticias` criado — 15432 **não** tinha, ou
+seja, não havia outro agente no meio de uma suíte ali; as portas 55432 e 55777
+tinham e foram deixadas de fora de propósito. Nenhum container novo foi
+subido, e nenhuma worktree de outro agente foi tocada.
+
+## 14.7 Os dois commits
+
+| commit | conteúdo | por que separado |
+|---|---|---|
+| `5f49401` | **só** o gate | deixa `git diff HEAD~1 -- scripts/release/verificar-proveniencia.sh` mostrando exatamente a lógica da checagem 7, sem ruído de artefato |
+| (commit dos artefatos) | estes dois `.md`, append-only | evidência da remediação |
+
+Rodar o gate sobre o commit do gate (`5f49401`): **`exit 0`, `achados: 0`**.
+Rodar depois do commit dos artefatos: o mesmo resultado, com o sha novo — a
+saída final está no relatório do subagente.
+
+*Seção acrescentada em 2026-09-25 pelo subagente de correção do defeito da
+checagem 7. Append-only: §1–§13 inalteradas.*

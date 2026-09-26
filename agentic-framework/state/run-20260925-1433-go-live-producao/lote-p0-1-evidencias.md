@@ -1402,3 +1402,539 @@ corretamente um caso que a outra versão rotula errado e documenta errado — e
 
 *Medição acrescentada em 2026-09-25 pelo subagente de remediação do lote P0-1.
 Append-only: §1–§11 inalteradas.*
+
+---
+
+# 13. Defeito no gate de proveniência: `conflict-marker-separador` (append-only; §1–§12 inalteradas)
+
+Seção escrita pelo subagente de correção do defeito **P0-1 / checagem 7**, depois
+que a branch integrada passou a ser reprovada pelo próprio gate de proveniência.
+Escopo: **um** arquivo de código (`scripts/release/verificar-proveniencia.sh`) e
+estes dois artefatos de evidência.
+
+## 13.1 O defeito, medido
+
+Antes da correção, na worktree integrada `/tmp/opencode/integrate`, branch
+`int-v2`, `HEAD 411f30d685779ad67be839b3fabeb890b7877c69` (árvore limpa, 0
+untracked, 0 flags de índice):
+
+```
+bash scripts/release/verificar-proveniencia.sh --repo "$PWD" --expected-sha "$(git rev-parse HEAD)"
+...
+[falha         ] 7 sem-conflito — sem marcadores de conflito em arquivo rastreado
+                 detalhe: 22 marcador(es) de conflito
+...
+TOTAIS
+checagens-ok: 9
+checagens-falha: 1
+achados: 22
+exit-code: 1
+```
+
+Os **22 achados** (exit 1), todos da **mesma** regra `conflict-marker-separador`:
+
+| arquivo | linhas |
+|---|---|
+| `backend/config/uploads.py` | 4, 6, 29, 31, 68, 70 |
+| `backend/config/egress.py` | 4, 6, 16, 18, 46, 48, 64, 66 |
+| `backend/config/health.py` | 4, 6, 30, 32 |
+| `backend/config/tests/test_egress.py` | 5 |
+| `backend/config/tests/test_health.py` | 5 |
+| `backend/config/views.py` | 5, 29 |
+
+## 13.2 A causa-raiz: `^={7,}$` sem corroborar contexto
+
+A regra, em `scripts/release/verificar-proveniencia.sh:540` (numeração
+pré-correção), era a terceira entrada da tupla `CONFLITOS`:
+
+```python
+("conflict-marker-separador", re.compile(r"^={7,}$")),
+```
+
+Ela casa com **qualquer** linha composta só por 7 ou mais `=`, **sem exigir
+nenhum contexto de conflito**. As linhas apontadas são banners decorativos em
+docstrings, por exemplo `backend/config/uploads.py:4` (77 caracteres `=`,
+medidos):
+
+```python
+    =============================================================================
+    INVENTÁRIO (medido nesta base)
+    =============================================================================
+```
+
+Isso é a **mesma classe de defeito** do `tag.upper()` que já foi corrigido nesta
+run: regra permissiva demais que reprova código válido.
+
+### Por que é defeito do gate e não do P0-10 (duas provas independentes)
+
+1. **Prova por parse (checagem 9).** A checagem 9 (`python-valido` — todo `.py`
+   rastreado faz parse) **passava** nesta mesma execução: `[ok] 9 python-valido —
+   todo .py rastreado faz parse`. Conflito real do Git em Python é
+   `SyntaxError`, ou seja, um conflict marker real **não sobrevive ao parse**.
+   Os 22 achados conviviam com "todo `.py` faz parse" — logo não eram conflito.
+2. **Prova estrutural.** O Git grava conflito em **trio**, e todo o trio vive
+   **no mesmo arquivo**: `<<<<<<< HEAD` / `=======` / `>>>>>>> branch`. As duas
+   pontas já têm regra própria e fail-closed (`:538` e `:539`,
+   `^<{7}` e `^>{7}`). A regra do separador, sozinha, é um **falso positivo
+   garantido** contra banners, sublinhados, réguas e separadores de seção —
+   padrões legítimos e comuns em docstrings, comentários, Markdown e ASCII art.
+   **Não** é um P0-10: não há conflicted file nesta branch.
+
+## 13.3 A correção: corroboração intra-arquivo
+
+A regra do separador **não foi removida, relativizada nem carve-out'd**. Ela
+continua no mesmo lugar e passou a exigir **corroboração no mesmo arquivo**: o
+separador só vira achado se o arquivo **também** trouxer `<<<<<<<` ou
+`>>>>>>>` em início de linha.
+
+```python
+# Ponta de conflito: unica evidencia com confianca real. Sem ponta no mesmo
+# arquivo, "=======" e decoracao -- nao e prova de conflito.
+PONTAS_CONFLITO = (re.compile(r"^<{7}"), re.compile(r"^>{7}"))
+
+# Unica regra de CONFLITOS que depende de corroboracao; as pontas sao achado
+# por si, por serem marca de conflito em si.
+REGRA_SEPARADOR = "conflict-marker-separador"
+```
+
+```python
+linhas = texto.splitlines()
+# 7 (corroboracao): o separador "=======" so e achado se o MESMO arquivo
+# trouxer ponta de conflito (<<<<<<< ou >>>>>>>). Sem ponta, e banner/regua
+# decorativo. Ver CONFLITOS acima.
+tem_ponta = any(ponta.search(linha)
+                for linha in linhas for ponta in PONTAS_CONFLITO)
+for numero, linha in enumerate(linhas, 1):
+    achou_especifica = False
+    for regra, padrao in CONFLITOS:
+        if not padrao.search(linha):
+            continue
+        if regra == REGRA_SEPARADOR and not tem_ponta:
+            continue
+        conflitos += 1
+        achado("sem-conflito", rel, numero, regra,
+               "marcador de conflito de merge" if regra != REGRA_SEPARADOR
+               else "marcador de conflito de merge; "
+                    "separador corroborado por ponta no mesmo arquivo")
+```
+
+**Por que isso é estritamente mais seguro, e não mais permissivo:**
+
+- a tupla `CONFLITOS` é **inalterada** — as três regras continuam lá;
+- as duas pontas continuam fail-closed **sem nenhuma corroboração**;
+- a corroboração é **intra-arquivo**, que é como o Git grava (o trio nunca
+  atravessa arquivos);
+- conflito real do Git **sempre** traz a ponta no mesmo arquivo, então **nenhum
+  conflito real escapa**;
+- o achado do separador, quando corroborado, **declara** a corroboração no
+  próprio texto: `separador corroborado por ponta no mesmo arquivo`;
+- não há lista branca, carve-out por caminho, `.gitattributes` nem exclusão.
+
+O **porquê** do comportamento antigo está escrito no próprio gate, no comentário
+acima de `CONFLITOS` (o gate já usava esse estilo no bloco do `tag.upper()` da
+checagem 6), incluindo a medição dos 22 achados e o motivo de eles serem falso
+positivo.
+
+## 13.4 Diff da correção (2 hunks, ambos da checagem 7)
+
+```diff
+--- a/scripts/release/verificar-proveniencia.sh
++++ b/scripts/release/verificar-proveniencia.sh
+@@ -534,12 +534,45 @@ def ler(rel):
+ 
+ 
+ # --- 7. marcadores de conflito
++#
++# O Git grava um conflito como TRIO: "<<<<<<< HEAD" / "=======" / ">>>>>>> branch".
++# So as duas PONTAS sao inequivocas. A linha "=======" do meio, sozinha, e
++# INDISTINGUIVEL de banner, regua, sublinhado ou separador de secao em
++# docstring/comentario -- padrao legitimo, comum e Encoding-compatible.
++#
++# POR QUE A REGRA ANTERIOR ERA DEFEITO (comportamento removido aqui):
++#   `("conflict-marker-separador", re.compile(r"^={7,}$"))` casava com QUALQUER
++#   linha formada so por 7 ou mais "=", sem exigir contexto de conflito. Medido
++#   na branch int-v2 (HEAD 411f30d): 22 achados, TODOS banners decorativos de
++#   docstring em backend/config/{uploads,egress,health,views}.py e
++#   backend/config/tests/*. A branch estava integra e valida -- a checagem 9
++#   (python-valido) passava, e conflito real do Git em .py e SyntaxError, ou
++#   seja, marcador de conflito do Git nao sobrevive ao parse. Logo os 22
++#   achados eram falso positivo garantido: regra permissiva demais que reprova
++#   codigo valido. Mesma classe de defeito do tag.upper() na checagem 6.
++#
++# CORROBORACAO INTRA-ARQUIVO (o que substitui a regra solta):
++#   o separador so vira achado se o MESMO arquivo tambem trouxer ponta de
++#   conflito (<<<<<<< ou >>>>>>>) em inicio de linha. E mais estrito em
++#   CONTEXTO, nao mais permissivo em resultado: conflito real do Git sempre vem
++#   com a ponta no mesmo arquivo, entao nenhum conflito real escapa e a
++#   checagem continua fail-closed. Nao ha lista branca, carve-out por caminho,
++#   .gitattributes nem exclusao -- a unica exigencia acrescentada e a
++#   corroboracao, que e a unica evidencia disponivel de conflito real.
+ CONFLITOS = (
+     ("conflict-marker-inicio", re.compile(r"^<{7}")),
+     ("conflict-marker-fim", re.compile(r"^>{7}")),
+     ("conflict-marker-separador", re.compile(r"^={7,}$")),
+ )
+ 
++# Ponta de conflito: unica evidencia com confianca real. Sem ponta no mesmo
++# arquivo, "=======" e decoracao -- nao e prova de conflito.
++PONTAS_CONFLITO = (re.compile(r"^<{7}"), re.compile(r"^>{7}"))
++
++# Unica regra de CONFLITOS que depende de corroboracao; as pontas sao achado
++# por si, por serem marca de conflito em si.
++REGRA_SEPARADOR = "conflict-marker-separador"
++
+ # --- 8. segredos aparentes
+ REGRAS_ESPECIFICAS = (
+     ("segredo-chave-privada", re.compile(r"-----BEGIN (?:[A-Z0-9 ]+ )?PRIVATE KEY-----")),
+@@ -624,13 +657,24 @@ if not SEM_FERRAMENTAS:
+             except UnicodeDecodeError:
+                 texto = None
+             if texto is not None:
+-                for numero, linha in enumerate(texto.splitlines(), 1):
++                linhas = texto.splitlines()
++                # 7 (corroboracao): o separador "=======" so e achado se o MESMO
++                # arquivo trouxer ponta de conflito (<<<<<<< ou >>>>>>>). Sem
++                # ponta, e banner/regua decorativo. Ver CONFLITOS acima.
++                tem_ponta = any(ponta.search(linha)
++                                for linha in linhas for ponta in PONTAS_CONFLITO)
++                for numero, linha in enumerate(linhas, 1):
+                     achou_especifica = False
+                     for regra, padrao in CONFLITOS:
+-                        if padrao.search(linha):
+-                            conflitos += 1
+-                            achado("sem-conflito", rel, numero, regra,
+-                                   "marcador de conflito de merge")
++                        if not padrao.search(linha):
++                            continue
++                        if regra == REGRA_SEPARADOR and not tem_ponta:
++                            continue
++                        conflitos += 1
++                        achado("sem-conflito", rel, numero, regra,
++                               "marcador de conflito de merge" if regra != REGRA_SEPARADOR
++                               else "marcador de conflito de merge; "
++                                    "separador corroborado por ponta no mesmo arquivo")
+                     for regra, padrao in REGRAS_ESPECIFICAS:
+                         if padrao.search(linha):
+                             achou_especifica = True
+```
+
+O bloco da checagem 8 (segredos), que divide o mesmo laço, está **byte a byte
+intacto** no diff acima — visível na linha de contexto final.
+
+`sha256sum` do gate:
+
+| | valor |
+|---|---|
+| antes | `133408e55076f4c71fa439ee2588d94b55f540e4d29da3296d0858bd592a9541` |
+| depois | `32ed34b366a5ef8887652e55de6d8c4e028d2268f705a94fb2efc32103b57b59` |
+
+A mudança de sha é **esperada e correta**: o conteúdo do gate mudou.
+
+## 13.5 Bateria de fixtures da checagem 7 (exit e saída reais)
+
+Fixtures **descartáveis**, criadas do zero com `git init` fora do repositório,
+em `/tmp/opencode/fx-gate-*`. Cada uma é um repo Git mínimo, com 1 commit,
+árvore limpa e sem untracked — de modo que a única variável é o conteúdo.
+Driver: `/tmp/opencode/fx-gate-bateria.sh`. Saída bruta completa:
+`/tmp/opencode/fx-gate-resultados.txt`. Os marcadores de conflito aparecem
+sempre **inline**, nunca como linha isolada, para não auto-aciocar a própria
+regra do gate.
+
+| caso | conteúdo | esperado | **exit** | obtido |
+|---|---|---|---|---|
+| **(a)** | trio real: `<<<<<<< HEAD` / `=======` / `>>>>>>> int-v2` | reprovado | **1** | reprovado, **3 achados** (inicio + separador corroborado + fim) |
+| (a2) | o mesmo trio em `.py` | reprovado | **1** | reprovado, 3 achados na checagem 7 **e** 1 na checagem 9 |
+| (b) | só `<<<<<<< HEAD` | reprovado | **1** | reprovado, 1 achado `conflict-marker-inicio` |
+| (c) | só `>>>>>>> int-v2` | reprovado | **1** | reprovado, 1 achado `conflict-marker-fim` |
+| (d) | só banner de 77 `=` em docstring `.py` (o caso real do P0-10) | aprovado | **0** | aprovado, **0 achados** |
+| (e) | banner de 40 `=` + `<<<<<<<` no mesmo arquivo | reprovado | **1** | reprovado, 3 achados |
+| (f) | `=======` + `>>>>>>>` no mesmo arquivo | reprovado | **1** | reprovado, 3 achados |
+| (g) | `=======` **dentro** da linha (nunca sozinho) | aprovado | **0** | aprovado, 0 achados |
+| (h) | arquivo limpo | aprovado | **0** | aprovado, 0 achados |
+| (i) | conflito real em `real.md` + banner em `banner.py` (outro arquivo) | reprovado | **1** | reprovado, 3 achados — **só** em `real.md` |
+
+`!! DIVERGENCIA`: **0** em 10 casos.
+
+### 13.5.1 Caso (a) — conflito real completo — **ESTE É O TESTE QUE NÃO PODE REGRESSIR**
+
+Fixture `/tmp/opencode/fx-gate-a`, arquivo `conflito.md`:
+
+```
+[7 sem-conflito] conflito.md:2 :: conflict-marker-inicio :: marcador de conflito de merge
+[7 sem-conflito] conflito.md:4 :: conflict-marker-separador :: marcador de conflito de merge; separador corroborado por ponta no mesmo arquivo
+[7 sem-conflito] conflito.md:6 :: conflict-marker-fim :: marcador de conflito de merge
+
+TOTAIS
+checagens-ok: 9
+checagens-falha: 1
+achados: 3
+exit-code: 1
+```
+
+As **três** regras disparam, incluindo a de separador — corroborada pela ponta no
+mesmo arquivo. `exit 1`. Note que a **checagem 9 passou** neste caso: o arquivo
+é `.md`, o que isola a checagem 7 das demais 9.
+
+### 13.5.2 Caso (a2) — o trio em `.py` (prova de que conflito real mata o parse)
+
+```
+[7 sem-conflito] conflito.py:3 :: conflict-marker-inicio :: marcador de conflito de merge
+[7 sem-conflito] conflito.py:5 :: conflict-marker-separador :: marcador de conflito de merge; separador corroborado por ponta no mesmo arquivo
+[7 sem-conflito] conflito.py:7 :: conflict-marker-fim :: marcador de conflito de merge
+[9 python-valido] conflito.py:3 :: python-syntax-error :: SyntaxError: invalid syntax (linha 3)
+
+exit-code: 1
+```
+
+Confirma a tese da §13.2: em Python, conflito real é `SyntaxError`. Foi
+justamente por isso que os 22 banners não podiam ser conflito — a checagem 9
+passava.
+
+### 13.5.3 Casos (d), (g), (h) — os aprovados
+
+Todos com `resultado: APROVADO`, `checagens-ok: 10`, `achados: 0`,
+`exit-code: 0`. Trecho idêntico nos três:
+
+```
+[ok            ] 7 sem-conflito — sem marcadores de conflito em arquivo rastreado
+                 detalhe: nenhum marcador de conflito
+...
+ACHADOS (ordem: checagem, caminho, linha, regra)
+(nenhum)
+
+TOTAIS
+checagens-ok: 10
+checagens-falha: 0
+achados: 0
+exit-code: 0
+```
+
+No caso (d) o arquivo é um `.py` com **exatamente** a forma do caso real
+(banner de 77 `=` abrindo e fechando a docstring) — e ele faz parse, então
+passa pelas 10 checagens.
+
+### 13.5.4 A prova mais forte: o gate **antigo** reprovava o caso (d)
+
+O gate pré-correção (`git show HEAD:scripts/release/verificar-proveniencia.sh`,
+sha256 `133408e5…`) foi rodado contra as **mesmas** fixtures. Isso prova que a
+fixture (d) reproduz o defeito, e não que ela "passaria de qualquer jeito":
+
+| caso | gate **antigo** | gate **novo** |
+|---|---|---|
+| (a) trio real | exit 1, 3 achados | exit 1, 3 achados |
+| (a2) trio em .py | exit 1, 3 achados | exit 1, 3 achados |
+| (b) só início | exit 1, 1 achado | exit 1, 1 achado |
+| (c) só fim | exit 1, 1 achado | exit 1, 1 achado |
+| **(d) só banner** | **exit 1, 1 achado (falso positivo)** | **exit 0, 0 achados** |
+| (e) banner + início | exit 1, 3 achados | exit 1, 3 achados |
+| (f) separador + fim | exit 1, 3 achados | exit 1, 3 achados |
+| (g) `=` na linha | exit 0 | exit 0 |
+| (h) limpo | exit 0 | exit 0 |
+
+E, caso a caso, o **conjunto** de achados da checagem 7 nos casos de conflito
+real é **idêntico** entre as duas versões (comparado com `diff`, sem a coluna do
+texto do motivo):
+
+```
+FIXTURE a: conjunto de achados da checagem 7 IDENTICO (antigo==novo), 3 achado(s)
+FIXTURE b: conjunto de achados da checagem 7 IDENTICO (antigo==novo), 1 achado(s)
+FIXTURE c: conjunto de achados da checagem 7 IDENTICO (antigo==novo), 1 achado(s)
+FIXTURE e: conjunto de achados da checagem 7 IDENTICO (antigo==novo), 3 achado(s)
+FIXTURE f: conjunto de achados da checagem 7 IDENTICO (antigo==novo), 3 achado(s)
+FIXTURE a2py: conjunto de achados da checagem 7 IDENTICO (antigo==novo), 3 achado(s)
+```
+
+**A única diferença de comportamento entre o gate antigo e o novo, em 10
+fixtures, é o caso (d).** Nenhuma detecção de conflito real foi perdida.
+
+## 13.6 Prova de não-regressão das outras 9 checagens
+
+Cada uma das 9 checagens foi acionada por uma fixture própria e tem de
+**continuar reprovando**. Uma correção que resolve um falso positivo quebrando
+outra checagem é pior que o defeito. Driver:
+`/tmp/opencode/fx-gate-naoregressao.sh`; saídas em
+`/tmp/opencode/fx-gate-naoregressao.txt`.
+
+| checagem | fixture | exit | resultado |
+|---|---|---|---|
+| 1 repo-valido | `--repo` para diretório que não é repo Git | 2 | reprovou (uso incorreto) |
+| 2 ferramentas | `PATH` sem `git` e sem `python3` | 1 | reprovou (falha fechada) |
+| 3 sha-release | `--expected-sha` diferente do `HEAD` | 1 | reprovou |
+| 4 arvore-limpa | arquivo rastreado modificado | 1 | reprovou |
+| 5 sem-untracked | arquivo não rastreado presente | 1 | reprovou |
+| 6 sem-ocultacao | `assume-unchanged` escondendo alteração | 1 | reprovou |
+| 8 sem-segredos | chave com valor literal plausível | 1 | reprovou |
+| 9 python-valido | `.py` rastreado que não faz parse | 1 | reprovou |
+| 10 yaml-valido | `.yml` rastreado que não faz parse | 1 | reprovou |
+
+**9 de 9 reprovando. Zero regressões.**
+
+Dois merecem registro honesto:
+
+- o caso **6** é o cenário de bypass real: o conteúdo do arquivo foi alterado
+  **e** `git update-index --assume-unchanged` foi aplicado, de modo que
+  `git diff` **não** vê a alteração. Se a checagem usasse `tag.upper()` — o
+  defeito corrigido antes nesta run —, este fixture **passaria** com `exit 0`.
+  Ele reprovou.
+- o caso **8** usa um valor sintético de 36 caracteres com 3 classes de
+  caractere e sem nenhum token de placeholder (o filtro de plausibilidade do
+  gate exige 4 classes, ou ≥32 caracteres com 3 classes). O valor **não é
+  transcrito aqui** — nem aqui, nem no log do gate: ele não é segredo real, mas
+  também não precisa ficar exposto em documento.
+
+## 13.7 O gate no repositório integrado, depois do commit
+
+O gate **precisa** ser rodado depois do commit: com a árvore suja, a checagem 4
+(`arvore-limpa`) reprova por qualquer arquivo rastreado modificado — inclusive o
+próprio gate — e o resultado seria enganoso.
+
+Commit da correção (só o gate, commit isolado):
+`5f49401ddee7aaa726255cbed1b0d6e6c47d56dc` — *fix(gate): corroboracao
+intra-arquivo na regra do separador de conflito*. Comando e saída literal:
+
+```
+$ bash scripts/release/verificar-proveniencia.sh --repo "$PWD" --expected-sha "$(git rev-parse HEAD)"
+GATE DE PROVENIENCIA (verificar-proveniencia)
+repo: /tmp/opencode/integrate
+head: 5f49401ddee7aaa726255cbed1b0d6e6c47d56dc
+sha-esperado: 5f49401ddee7aaa726255cbed1b0d6e6c47d56dc
+resultado: APROVADO
+resultado-incompleto: nao
+
+CHECAGENS
+[ok            ] 1 repo-valido — repositorio Git resolvido e legivel
+                 detalhe: /tmp/opencode/integrate
+[ok            ] 2 ferramentas — git e python3 disponiveis (falha fechada se faltar)
+                 detalhe: git e python3 disponiveis
+[ok            ] 3 sha-release — HEAD igual ao SHA de release esperado
+                 detalhe: HEAD igual ao SHA de release esperado
+[ok            ] 4 arvore-limpa — nenhum arquivo rastreado modificado, removido ou renomeado
+                 detalhe: nenhum arquivo rastreado modificado, removido ou renomeado
+[ok            ] 5 sem-untracked — nenhum arquivo nao rastreado (respeitando .gitignore)
+                 detalhe: nenhum arquivo nao rastreado
+[ok            ] 6 sem-ocultacao — nenhum assume-unchanged nem skip-worktree
+                 detalhe: nenhum assume-unchanged nem skip-worktree
+[ok            ] 7 sem-conflito — sem marcadores de conflito em arquivo rastreado
+                 detalhe: nenhum marcador de conflito
+[ok            ] 8 sem-segredos — sem segredo aparente em arquivo rastreado
+                 detalhe: 0 achado(s) de segredo aparente (valor nunca exibido); 130 candidato(s) descartado(s) pelo filtro de placeholder
+[ok            ] 9 python-valido — todo .py rastreado faz parse
+                 detalhe: todo .py rastreado faz parse
+[ok            ] 10 yaml-valido — todo .yml/.yaml rastreado faz parse
+                 detalhe: 8 arquivo(s) .yml/.yaml validado(s)
+
+ACHADOS (ordem: checagem, caminho, linha, regra)
+(nenhum)
+
+TOTAIS
+checagens-ok: 10
+checagens-falha: 0
+checagens-nao-executadas: 0
+checagens-incompletas: 0
+achados: 0
+exit-code: 0
+```
+
+`exit 0`, `achados: 0`. A linha que interessa:
+
+```
+[ok            ] 7 sem-conflito — sem marcadores de conflito em arquivo rastreado
+                 detalhe: nenhum marcador de conflito
+```
+
+**22 achados → 0**, com as outras 9 checagens em `ok`.
+
+A correção está em um commit isolado (só o gate) para que
+`git diff HEAD~1 -- scripts/release/verificar-proveniencia.sh` mostre
+exatamente a lógica da checagem 7. Os artefatos de evidência vêm em um commit
+seguinte; a saída do gate sobre o commit que os contém está no relatório do
+subagente e é reproduzível com o mesmo comando.
+
+`exit 0`, **zero achados**, 22 → 0, com as outras 9 checagens em `ok`.
+
+### 13.7.1 A checagem 4 como indicador honesto da ordem commit → gate
+
+Uma execução intermediária, **antes** do commit dos artefatos (isto é, com os
+dois `.md` ainda modificados na árvore), mostra exatamente por que a ordem
+importa:
+
+```
+[falha         ] 4 arvore-limpa — nenhum arquivo rastreado modificado, removido ou renomeado
+                 detalhe: 2 arquivo(s) rastreado(s) modificado(s)/removido(s)/renomeado(s)
+...
+[ok            ] 7 sem-conflito — sem marcadores de conflito em arquivo rastreado
+                 detalhe: nenhum marcador de conflito
+...
+[4 arvore-limpa] .../implementation-history.md :: rastreado-modificado :: arquivo rastreado difere de HEAD
+[4 arvore-limpa] .../lote-p0-1-evidencias.md :: rastreado-modificado :: arquivo rastreado difere de HEAD
+```
+
+A checagem 7 já estava `ok` e a reprovação era só da 4, por arquivos ainda não
+commitados. Registrado porque é o comportamento correto do gate, e porque
+confundir esse `exit 1` com "a correção não pegou" seria erro de leitura.
+
+## 13.8 Suíte do backend
+
+```
+$ cd backend && .venv/bin/python -m pytest -q --cov=. --cov-report=term-missing --cov-fail-under=80
+...
+Required test coverage of 80% reached. Total coverage: 89.54%
+770 passed, 248 warnings in 272.54s (0:04:32)
+```
+
+`exit 0`, **770 passed**, cobertura total **89,54%** (limite 80%). Saída
+completa: `/tmp/opencode/p0-1-suite.txt`.
+
+Reuso de infraestrutura, conforme instrução: o `.venv` já existente na worktree e
+um **Postgres 16 já em execução na porta 15432** (verificado: sem
+`test_brd_portal_noticias` criado naquele servidor, ou seja, sem corrida com
+outro agente; as portas 55432 e 55777, com banco de teste criado, foram
+evitadas de propósito). **Nenhum container novo foi subido** e nenhuma worktree
+de outro agente foi tocada.
+
+## 13.9 Prova estrutural: só a checagem 7 mudou
+
+Além do `git diff`, o gate antigo e o novo foram fatiados em blocos por
+checagem e comparados **byte a byte** (`/tmp/opencode/fx-gate-blocos.py`):
+
+| bloco | bytes | byte a byte |
+|---|---|---|
+| 1 repo-valido + 2 ferramentas | 425 | IDÊNTICO |
+| 3 sha-release | 648 | IDÊNTICO |
+| 4 arvore-limpa | 914 | IDÊNTICO |
+| 5 sem-untracked | 484 | IDÊNTICO |
+| 6 sem-ocultacao | 1214 | IDÊNTICO |
+| **7 CONFLITOS (definição)** | 213 | **diferente** |
+| **7 pré-pass no laço (`tem_ponta`)** | 312 | **diferente** |
+| **7 execução no laço (CONFLITOS)** | 283 | **diferente** |
+| 8 REGRAS_ESPECIFICAS (def) | 2138 | IDÊNTICO |
+| 8 CHAVE_GENERICA (def) | 567 | IDÊNTICO |
+| 8 valor_plausivel+PLACEHOLDER | 724 | IDÊNTICO |
+| 8 bloco de execução no laço | 1061 | IDÊNTICO |
+| 8 CHAVE_GENERICA execução | 480 | IDÊNTICO |
+| 9 python-valido (execução) | 594 | IDÊNTICO |
+| 10 yaml-valido (execução) | 5342 | IDÊNTICO |
+| wrapper bash (uso, flags, `--help`, exits) | 9147 | IDÊNTICO |
+| epílogo python (saída, `--json`, exit code) | 11 | IDÊNTICO |
+
+**14 de 17 blocos idênticos; os 3 diferentes são todos da checagem 7.** O bloco
+de segredos que divide o mesmo laço de varredura está byte a byte intacto.
+
+## 13.10 Pendência honesta que esta seção não fecha
+
+A correção resolve o **falso positivo**. Ela **não** transforma a checagem 7 em
+detector de conflito com semântica de AST: a corroboração é lexical e
+intra-arquivo, que é exatamente a evidência que o Git deixa. Conflito real
+produzido por outra ferramenta (ou um merge de três vias resolvido à mão, que
+deixe `=======` sem ponta) segue não sendo detectado — comportamento
+**inalterado** em relação ao gate anterior, e declarado aqui em vez de escondido.
+
+*Nenhuma escrita em `/tmp/opencode/int-hard`, `/tmp/opencode/int-hardening`,
+`/tmp/opencode/p101b`, `/tmp/opencode/p103` nem no repositório principal
+`/home/alex-buttielie/repositorios/portal-noticias`. Nenhum `push`, `merge`,
+`rebase`, `reset`, `clean` ou `stash`. Dois `commit`s na branch `int-v2`: um só
+com o gate (para o `git diff HEAD~1` da checagem 7 ficar limpo) e um com estes
+artefatos.
+
+*Seção acrescentada em 2026-09-25 pelo subagente de correção do defeito da
+checagem 7. Append-only: §1–§12 inalteradas.*
