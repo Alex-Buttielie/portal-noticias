@@ -23,6 +23,7 @@ from django.db.models import Count, Q
 from django.utils import timezone
 
 from catalogo_noticias.models import NewsItem
+from catalogo_noticias.providers.fallback_local import eh_tag_tecnica
 
 from .models import EventoBusca
 from .tasks import registrar_evento_busca
@@ -157,7 +158,17 @@ def _ts(item: NewsItem):
 def _relevancia(item: NewsItem, q_norm: str, toks: list[str]) -> tuple[float, list[str]]:
     titulo = (item.titulo or "").lower()
     resumo = (item.resumo_proprio or "").lower()
-    tags = [str(t).lower() for t in (item.tags or []) if str(t).strip()]
+    # P1-02 (WS-08/GP-5): tags TECNICAS de provenance (prefixo reservado
+    # `p1-02:`, ex.: o marcador de "resumo gerado pelo fallback local") ficam
+    # em `NewsItem.tags` e NAO entram no calculo de relevancia. Um marcador
+    # interno de pipeline nao pode influenciar a busca do leitor — `tag in t`
+    # faria o token "local" casar com "p1-02:origem_resumo_fallback_local" e
+    # inflaria a pontuacao de toda noticia degradada.
+    tags = [
+        str(t).lower()
+        for t in (item.tags or [])
+        if str(t).strip() and not eh_tag_tecnica(t)
+    ]
     autor = (item.autor or "").lower()
     categoria = (item.categoria or "").lower()
     fonte = (item.nome_fonte or "").lower()

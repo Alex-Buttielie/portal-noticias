@@ -25,6 +25,11 @@ import pytest
 from django.db import DataError
 
 from catalogo_noticias.models import NewsCluster, NewsItem
+from catalogo_noticias.providers.fallback_local import (
+    MOTIVO_ERRO_DO_PROVIDER,
+    motivo_fallback_local,
+    origem_fallback_local,
+)
 from catalogo_noticias.providers.news_source import (
     TETO_CONTEUDO_COMPLETO_CHARS,
     ItemBruto,
@@ -501,9 +506,21 @@ def test_regressao_grupo_inteiro_invalido_nao_derruba_os_outros_grupos(caplog):
     restantes nunca eram processados.
 
     Aqui o item de uma fonte INTEIRA falha e provamos que os outros grupos
-    seguem; o item que falhou entra em revisao humana (nunca publicado
-    automaticamente — comportamento ja.documentado do
-    `_resultado_fallback_erro`), e a falha fica registrada.
+    seguem; o item que falhou NAO e publicado silenciosamente como se fosse
+    noticia confiavel — ele fica MARCADO como fallback local, o que e o
+    contrato vigente depois do P1-02 —, e a falha fica registrada.
+
+    NOTA DE MERGE (P1-01 x P1-02): a versao anterior deste teste afirmava
+    `status_revisao == pendente` para o item que falhou, porque o fallback de
+    entao (`_resultado_fallback_erro`, hoje removido) devolvia `resumo=""` —
+    e resumo vazio virava pendencia. O P1-02 trocou esse fallback pelo
+    caminho local deterministico, cujo ponto-e-raster EXATAMENTE era deixar de
+    esconder a noticia do leitor. Entao o item que falhou agora entra no fluxo
+    normal — mas sempre MARCADO, o que e o que substitui a garantia antiga de
+    "nao publicado automaticamente": o editorial e a metrica conseguem
+    distinguir. O isolamento por item (a raza de ser deste teste) permanece
+    intocado: os outros dois itens entram, e a excecao continua registrada
+    com fonte, item e motivo.
     """
     class _ProviderQueFalhaEmUmItem(SummarizationProvider):
         """Falha (erro generico, nao `SummarizationProviderError`) ao resumir
@@ -527,11 +544,16 @@ def test_regressao_grupo_inteiro_invalido_nao_derruba_os_outros_grupos(caplog):
     assert NewsItem.objects.filter(
         url_fonte_original__in=["https://boa.test/1", "https://boa.test/2"]
     ).count() == 2
-    # O item que falhou nao e perdido: entra em revisao humana, nunca
-    # publicado por falta de resumo proprio (BRD secao 18 / AC-4).
+    # O item que falhou nao e perdido nem e publicado COMO SE FOSSE noticia
+    # confiavel: ele carrega o marcador de origem do fallback local (P1-02),
+    # que e a garantia substituta da antiga "revisao humana" — ver a nota de
+    # merge no docstring. O isolamento deste teste NAO e sobre publicacao, e
+    # sobre os outros dois grupos terem entrado.
     item_com_falha = NewsItem.objects.get(url_fonte_original="https://estoura.test/1")
-    assert item_com_falha.status_revisao == NewsItem.STATUS_PENDENTE
-    assert not item_com_falha.publicado_automaticamente
+    assert origem_fallback_local(item_com_falha.tags) is True
+    assert motivo_fallback_local(item_com_falha.tags) == MOTIVO_ERRO_DO_PROVIDER
+    # O conteudo local nunca e copia do texto bruto (AC-4, inalterado).
+    assert "Conteudo bruto da fonte." not in item_com_falha.resumo_proprio
     # E a falha de cada fonte/item fica registrada, com motivo.
     assert registro.erros_por_fonte, "a fonte que falhou tem de estar no registro"
     chaves = " ".join(registro.erros_por_fonte)

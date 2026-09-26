@@ -18,6 +18,13 @@ from django.db import DatabaseError, DataError, IntegrityError, transaction
 from django.utils import timezone
 
 from ..models import NewsCluster, NewsItem, RegistroExecucaoIngestao
+from ..providers.fallback_local import (
+    MOTIVO_CONTEUDO_INSUFICIENTE,
+    MOTIVO_ERRO_DO_PROVIDER,
+    MOTIVO_TETO_DE_GASTO,
+    marcadores_tags,
+    normalizar_motivo,
+)
 from ..providers.news_source import (
     FonteIndisponivelError,
     ItemBruto,
@@ -30,8 +37,12 @@ from ..providers.summarization import (
     SummarizationProvider,
     SummarizationProviderError,
 )
+# P1-01: politica de limites de campo e isolamento de falha.
+# P1-02: telemetria rotulada do resultado da sumarizacao.
+# Os dois coexistem: `limites` limita e isola, `telemetria_resumo` observa.
 from . import orcamento
 from . import limites
+from . import telemetria_resumo
 from .config_robo import cache_por_execucao
 from .deduplicacao import agrupar_itens_brutos
 
@@ -574,6 +585,25 @@ def _construir_news_item(
     em uma das copias viraria um `DataError` que so apareceria no caminho de
     mesclagem). Um ponto de construcao = um ponto onde o limite e aplicado.
 
+    P1-02: este tambem e o UNICO ponto onde o marcador de origem do resumo
+    (`NewsItem.tags`) e carregado. A raza de o marcador morar AQUI, e nao em
+    um `NewsItem(...)` inline nos dois loops de persistencia, e a INVARIANTE
+    CRITICA deste merge:
+
+        Um item cujo resumo venha do fallback LOCAL tem de passar pela politica
+        de limites de campo do P1-01.
+
+    Como `resultado.resumo` pode vir de qualquer fonte (provedor externo OU
+    `providers/fallback_local.py`), e o fallback local nao estava no radar do
+    P1-01, o risco concreto e o seguinte: o texto do fallback local e montado
+    por concatenacao do TITULO da fonte, e um feed com titulo/`nome_fonte`/
+    `categoria` enormes produz um `resumo_proprio` enorme. Se o item do
+    fallback fosse construido por um caminho que nao passa por
+    `limites.limitar_textos`, o `StringDataRightTruncation` voltaria e mataria
+    a rodada INTEIRA — exatamente o defeito que o P1-01 fechou. Por isso o
+    marcador entra AQUI, no construtor unico, e nao em uma copia: assim todo
+    item, de qualquer origem, e limitado antes de qualquer escrita.
+
     Levanta `limites.CampoForaDoLimiteError` quando um campo identificador
     passou do limite — nesse caso o item e descartado pelo chamador, que
     registra a falha com o contexto. Nao ha `except` aqui: quem decide o que
@@ -619,6 +649,14 @@ def _construir_news_item(
         urgente=resultado.urgente,
         status_revisao="",  # definido abaixo, depois de decidir
         cluster=cluster,
+        # Marcador de origem do resumo (P1-02): carregado APENAS quando o
+        # resumo veio do fallback local deterministico, para que a UI, a
+        # metrica e o editorial saibam que este item nao passou pelo provedor
+        # externo. No caminho feliz (`fallback=False`) `_tags_com_origem`
+        # devolve `[]` e `NewsItem.tags` fica como sempre ficou — a ausencia do
+        # marcador e o sinal de "resumo do provedor", o que mantem o caminho
+        # feliz inalterado.
+        tags=_tags_com_origem(resultado),
     )
     # Recorte regional herdado da fonte (ex.: G1 Goias -> GO/Brasil) quando o
     # RSS nao informa localidade propria; nunca inventado. `pais`/`estado`
@@ -629,6 +667,13 @@ def _construir_news_item(
     # O limite e aplicado AQUI, no servico, antes de qualquer escrita — e nao
     # na view nem so no provider: assim vale para todas as fontes (RSS hoje,
     # APIlicensed amanha) e para todos os caminhos de escrita.
+    #
+    # INVARIANTE CRITICA DO MERGE P1-01 x P1-02: como o `resumo_proprio` acima
+    # pode ter vindo do FALLBACK LOCAL (P1-02) e nao so do provedor externo,
+    # esta e a unica linha que garante que o fallback local tambem respeita a
+    # politica de limites. Um item do fallback cujo `resumo` (montado a partir
+    # do titulo da fonte) passe do teto e truncado aqui, e nao lancado como
+    # `DataError` no INSERT. Ver o docstring desta funcao.
     limites.limitar_textos(news_item)
 
     return news_item
@@ -716,6 +761,20 @@ def _persistir_grupo(
             or resumo_suspeito_de_copia
             or _eh_alta_relevancia(categoria_item, numero_fontes_distintas)
         )
+        # DISPUTA REAL DE COMPORTAMENTO, resolvida a favor do P1-01.
+        #
+        # O lado P1-02 substituia o construtor unico por um `NewsItem(...)`
+        # inline, so para acrescentar `tags=_tags_com_origem(resultado)`. Aceitar
+        # isso reintroduziria a DUPLICACAO de construcao que o P1-01 eliminou
+        # e, com ela, o defeito que ele fechou: esta copia nao passaria por
+        # `limites.limitar_textos`, e um item com campo fora do limite voltaria
+        # a levantar `DataError` no INSERT — derrubando a rodada INTEIRA.
+        #
+        # O que o P1-02 genuinamente acrescenta (o marcador de origem) e
+        # ENTREGUE pelo construtor unico, em `_construir_news_item`, que e o
+        # unico ponto de construcao de `NewsItem` do pipeline. Assim todo item
+        # — do provedor OU do fallback local — passa pelos limites, e nenhum
+        # caminho de escrita pode contorna-los.
         news_item.status_revisao = (
             NewsItem.STATUS_PENDENTE if alta_relevancia else NewsItem.STATUS_NAO_APLICAVEL
         )
@@ -878,6 +937,14 @@ def _persistir_grupo_mesclado(
             if (sem_resumo_confiavel or resumo_suspeito_de_copia)
             else NewsItem.STATUS_NAO_APLICAVEL
         )
+        # DISPUTA REAL DE COMPORTAMENTO, resolvida a favor do P1-01 — mesma
+        # decisao de `_persistir_grupo`, e pelo mesmo motivo: o lado P1-02
+        # trocava o construtor unico por um `NewsItem(...)` inline (so para
+        # ganhar `tags=_tags_com_origem(resultado)`), o que reintroduziria a
+        # duplicacao de construcao e o `DataError` que matava a rodada. O
+        # marcador de origem entra pelo MESMO construtor unico, com os
+        # limites aplicados — inclusive no caminho de mesclagem, que era
+        # justamente onde um limite esquecido so apareceria em producao.
         itens_criados.append(news_item)
 
     itens_criados = _persistir_news_items_em_lote(itens_criados)
@@ -916,14 +983,111 @@ def _persistir_grupo_mesclado(
     return cluster, itens_criados
 
 
-def _resultado_fallback_erro(grupo: list[ItemBruto]) -> ResultadoResumo:
+def _resultado_fallback_local(item_bruto: ItemBruto, motivo: str) -> ResultadoResumo:
     """
-    Usado quando o `SummarizationProvider` falha para um grupo — em vez de
-    propagar a excecao e perder os itens da execucao inteira, registramos
-    resumo vazio (o que forca `status_revisao=pendente` em `_persistir_grupo`,
-    nunca publicacao automatica) e seguimos para os proximos grupos.
+    Fallback LOCAL deterministico (`providers/fallback_local.py`) para UM item.
+
+    Substitui o antigo `_resultado_fallback_erro`, que devolvia
+    `ResultadoResumo(resumo="")`. Resumo vazio significava
+    `sem_resumo_confiavel=True` em `_persistir_grupo` ->
+    `status_revisao=pendente` -> item INVISIVEL no feed
+    (`feed/services.py::STATUS_PUBLICAVEIS`), ou seja, a noticia simplesmente
+    nao existia para o leitor. Era o "rascunho fantasma" do backlog P1-02.
+
+    Agora o item recebe conteudo honesto, deterministico e sem rede, e o
+    resultado fica marcado (`fallback=True` + `motivo_fallback`) para que a
+    metrica, o log, a UI e o editorial saibam que ele NAO veio do provedor.
+
+    Se o material de origem nao sustenta um resumo honesto (sem TITULO — a
+    manchete e o unico campo que identifica a noticia; `nome_fonte` e
+    obrigatorio por `NewsItem.clean()`), `gerar_resumo_local` devolve
+    `suficiente=False` e aqui o motivo vira `conteudo_insuficiente`: o
+    fallback **sinaliza** a falta em vez de preencher, e o item volta para
+    revisao humana (nenhuma noticia publicada com texto invented).
     """
-    return ResultadoResumo(resumo="", categoria=grupo[0].categoria, urgente=False)
+    from ..providers.fallback_local import gerar_resumo_local
+
+    gerado = gerar_resumo_local(item_bruto)
+    # O motivo do CHAMADOR e preservado; `conteudo_insuficiente` so substitui
+    # ele quando o material de origem realmente nao sustentou um resumo
+    # honesto — e nesse caso o item volta para revisao humana (nenhuma noticia
+    # publicada com texto invented).
+    return ResultadoResumo(
+        resumo=gerado.resumo,
+        categoria=(item_bruto.categoria or "").strip().lower(),
+        urgente=False,
+        fallback=True,
+        motivo_fallback=normalizar_motivo(
+            motivo if gerado.suficiente else MOTIVO_CONTEUDO_INSUFICIENTE
+        ),
+    )
+
+
+def _resultado_sem_resumo_por_teto(item_bruto: ItemBruto) -> ResultadoResumo:
+    """
+    Fail-safe de CUSTO (nao de falha do provedor): quando o teto diario de
+    gasto seria ultrapassado, o provedor externo NAO e chamado.
+
+    Diferente de `_resultado_fallback_local` de proposito: aqui o item
+    continua sem resumo automatico e portanto segue para REVISAO HUMANA,
+    conforme o AC-2/AC-3 ja pactuado em `run 20260903-1211-teto-gasto-diario-llm`
+    (que este item nao reopens). O que esta intervencao acrescenta e a
+    DISTINGUIBILIDADE: o item fica marcado com `motivo_fallback=teto_de_gasto`
+    e a metrica/log passam a registrar o rotulo, de modo que o operador
+    differentiate "custo estourado" de "provedor caiu".
+    """
+    return ResultadoResumo(
+        resumo="",
+        categoria=(item_bruto.categoria or "").strip().lower(),
+        urgente=False,
+        fallback=True,
+        motivo_fallback=MOTIVO_TETO_DE_GASTO,
+    )
+
+
+def _tags_com_origem(resultado: ResultadoResumo) -> list[str]:
+    """
+    Marcador de origem gravado em `NewsItem.tags` (sem migration — ver a
+    justificativa em `providers/fallback_local.py`).
+
+    Quando o resumo veio do provedor externo, o item NAO recebe marcador
+    nenhum (a pipeline nunca populou `NewsItem.tags` ate aqui, e segue assim):
+    a AUSENCIA do marcador e, portanto, o sinal de "resumo do provedor", o
+    que mantem o caminho feliz byte-identico ao comportamento anterior a esta
+    intervencao.
+    """
+    if not getattr(resultado, "fallback", False):
+        return []
+    return marcadores_tags(resultado.motivo_fallback)
+
+
+def _registrar_resultado_lote(resultados: list[ResultadoResumo]) -> None:
+    """
+    Emite a metrica rotulada (`sucesso`/`fallback` + motivo) do LOTE.
+
+    Um lote pode misturar itens com resumo do provedor e itens que caíram no
+    fallback (ex.: `resumir_e_classificar_em_lote` levantou e o lote inteiro
+    virou fallback local), por isso os dois rotulos sao emitidos separadamente,
+    com a contagem de cada um.
+
+    `ResultadoResumo.motivo_fallback` e a fonte da verdade do rotulo quando
+    `fallback=True` — setado no momento em que o resultado e construido, sem
+    rederivacao (nada e rotulado "conteudo_insuficiente" so por ter resumo
+    vazio: o fail-safe de custo tambem produz resumo vazio, com o rotulo
+    `teto_de_gasto`).
+    """
+    if not resultados:
+        return
+    com_resumo_do_provedor = [r for r in resultados if not getattr(r, "fallback", False)]
+    em_fallback = [r for r in resultados if getattr(r, "fallback", False)]
+    if com_resumo_do_provedor:
+        telemetria_resumo.registrar_sucesso(len(com_resumo_do_provedor))
+    contagem_por_motivo: dict[str, int] = {}
+    for resultado in em_fallback:
+        motivo = normalizar_motivo(resultado.motivo_fallback)
+        contagem_por_motivo[motivo] = contagem_por_motivo.get(motivo, 0) + 1
+    for motivo, quantidade in contagem_por_motivo.items():
+        telemetria_resumo.registrar_fallback(motivo, quantidade)
 
 
 @cache_por_execucao()
@@ -1133,11 +1297,14 @@ def executar_ingestao(
                 )
 
         if teto_ja_excedido_nesta_execucao:
-            # Fail-safe de custo (nao de erro do provedor): mesmo fallback
-            # ja usado para falha de rede/parsing (`_resultado_fallback_erro`)
-            # — o item continua sendo ingerido, so sem resumo automatico
-            # (forca status_revisao=pendente em `_persistir_grupo`).
-            resultados_lote = [_resultado_fallback_erro([item]) for item in lote]
+            # Fail-safe de CUSTO (nao de erro do provedor) — ver
+            # `_resultado_sem_resumo_por_teto`: o provedor NAO e chamado e o
+            # item segue para revisao humana (AC-2/AC-3 de
+            # run 20260903-1211-teto-gasto-diario-llm, inalterado). A novelty
+            # do P1-02 aqui e so a distinguish: rotulo `teto_de_gasto` na
+            # metrica, no log e no marcador persistido.
+            resultados_lote = [_resultado_sem_resumo_por_teto(item) for item in lote]
+            _registrar_resultado_lote(resultados_lote)
             for item_bruto, resultado_item in zip(lote, resultados_lote):
                 resultado_por_url[item_bruto.url_fonte_original] = resultado_item
             continue
@@ -1156,6 +1323,10 @@ def executar_ingestao(
             custo=custo_total if algum_custo_conhecido else 0.0,
         )
 
+        # Se a chamada levantar `SummarizationProviderError`, `resultados_lote`
+        # vira fallback local e o motivo viaja em cada `ResultadoResumo`. A
+        # metrica e emitida em UM UNICO ponto (logo abaixo do calculo de
+        # custo), para nunca contar o mesmo lote duas vezes.
         try:
             resultados_lote = summarization_provider.resumir_e_classificar_em_lote(lote)
             if len(resultados_lote) != len(lote):
@@ -1168,27 +1339,53 @@ def executar_ingestao(
                     f"resumir_e_classificar_em_lote devolveu {len(resultados_lote)} "
                     f"resultado(s) para {len(lote)} item(ns) — descartando o lote "
                     "inteiro (revisao humana) em vez de arriscar atribuir um resumo "
-                    "ao item errado."
+                    "ao item errado.",
+                    motivo=MOTIVO_ERRO_DO_PROVIDER,
                 )
         except SummarizationProviderError as exc:
+            # P1-02: o motivo vem do proprio provider quando ele sabe dizer
+            # (`summarization.py` classifica timeout/rate_limit/erro_http/
+            # resposta_invalida/sem_credencial); `erro_do_provider` cobre um
+            # provider de terceiro que levanta a excecao sem motivo. O log
+            # leva o motivo e o TIPO da excecao, nunca o valor da credencial
+            # nem o corpo da resposta do provedor.
+            motivo_do_lote = (
+                getattr(exc, "motivo", "") or MOTIVO_ERRO_DO_PROVIDER
+            )
             logger.error(
-                "Falha do SummarizationProvider para um lote de %d item(ns): %s",
+                "SummarizationProvider falhou para um lote de %d item(ns) — "
+                "motivo=%s erro=%s: %s. Publicando pelo fallback local.",
                 len(lote),
+                motivo_do_lote,
+                type(exc).__name__,
                 exc,
             )
             # A reserva permanece: a chamada foi tentada e pode ter gerado
             # cobrança mesmo sem resposta utilizável.
-            resultados_lote = [_resultado_fallback_erro([item]) for item in lote]
+            # P1-02 vence AQUI: o item do fallback recebe conteudo local
+            # deterministico e MARCADO, em vez de `resumo=""` (que produzia
+            # `status_revisao=pendente` -> noticia INVISIVEL no feed, o
+            # "rascunho fantasma"). O motivo viaja em cada
+            # `ResultadoResumo` para metrica, log e marcador de origem.
+            resultados_lote = [
+                _resultado_fallback_local(item, motivo_do_lote) for item in lote
+            ]
         except Exception as exc:  # noqa: BLE001 — provider inesperado não derruba a rodada
             # ISOLAMENTO POR ITEM (P1-01). Ate aqui so `SummarizationProviderError`
             # era tratado: um `RuntimeError`/bug/timeout inesperado dentro do
             # provider derrubava `executar_ingestao` e TODOS os itens dos outros
             # grupos. Agora o lote em lote cai para item a item: cada item e
-            # resumido isoladamente e so o item que realmente falha vira fallback
-            # de revisao humana.
+            # resumido isoladamente e so o item que realmente falha vira fallback.
             #
             # A excecao NAO e engolida: registrada com traceback e com fonte +
             # identificador do item, e entra no placar de falhas da rodada.
+            #
+            # COEXISTENCIA (P1-01 x P1-02): este `except` largo e do P1-01 e
+            # NAO substitui o `except SummarizationProviderError` acima, que
+            # continua acima e portanto continua classificando o motivo com
+            # precisao. Aqui nao ha motivo classificado (a excecao e
+            # inesperada), logo o fallback local do item que falhar recebe
+            # `erro_do_provider` — o umbrella honesto, e nao um rotulo livre.
             limites.registrar_falha(
                 f"Falha inesperada do SummarizationProvider no lote de {len(lote)} "
                 f"item(ns); refazendo item a item: {exc.__class__.__name__}: {exc}",
@@ -1215,7 +1412,14 @@ def executar_ingestao(
                         escopo="sumarizacao_item",
                         exc=exc_item,
                     )
-                    resultado_individual = _resultado_fallback_erro([item_bruto_do_lote])
+                    # P1-02: mesmo caminho do lote, com o motivo que o item
+                    # conseguiu classificar (ou `erro_do_provider`).
+                    motivo_individual = (
+                        getattr(exc_item, "motivo", "") or MOTIVO_ERRO_DO_PROVIDER
+                    )
+                    resultado_individual = _resultado_fallback_local(
+                        item_bruto_do_lote, motivo_individual
+                    )
                 resultados_lote.append(resultado_individual)
 
         custo_real_lote = 0.0
@@ -1236,6 +1440,15 @@ def executar_ingestao(
             # subnotificar uma cobrança cujo response não voltou.
             custo_total += custo_real_lote - custo_reservado_lote
             algum_custo_conhecido = True
+
+        # P1-02: fecha o ciclo de observabilidade do LOTE, em ponto UNICO.
+        # Caminho feliz -> `resultado=sucesso`. Lote que caiu na excecao acima
+        # -> `resultado=fallback` com o motivo que o provider informou. Itens
+        # cujo id veio invalido do provider (resumo vazio, mas `fallback=False`)
+        # sao contabilizados como `sucesso` e forcam revisao humana em
+        # `_persistir_grupo` pelo caminho ja existente — comportamento
+        # inalterado, apenas agora visivel na metrica.
+        _registrar_resultado_lote(resultados_lote)
 
         _atualizar_metricas_execucao(
             registro,

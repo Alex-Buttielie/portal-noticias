@@ -2,6 +2,10 @@ from rest_framework import serializers
 
 from assinatura.models import Plan, Subscription
 from catalogo_noticias.models import NewsCluster, NewsItem
+from catalogo_noticias.providers.fallback_local import (
+    motivo_fallback_local,
+    origem_fallback_local,
+)
 from gating.models import FeatureLimit
 from moderacao.models import AcaoModeracao, Denuncia
 
@@ -33,6 +37,19 @@ class FilaItemSerializer(serializers.Serializer):
     cluster = serializers.IntegerField(allow_null=True)
     timestamp_ingestao = serializers.DateTimeField()
     cluster_titulo = serializers.CharField(allow_blank=True, required=False)
+    # P1-02 (WS-08/GP-5): procedencia do `resumo_proprio`, lida do marcador
+    # tecnico gravado em `NewsItem.tags` (sem migration). O editorial precisa
+    # distinguir na fila o resumo vindo do provedor externo daquele gerado
+    # pelo fallback local — e saber POR QUE (timeout, sem credencial, ...).
+    # `resumo_fallback_local=False` = resumo do provedor.
+    resumo_fallback_local = serializers.SerializerMethodField()
+    motivo_fallback_resumo = serializers.SerializerMethodField()
+
+    def get_resumo_fallback_local(self, obj) -> bool:
+        return origem_fallback_local(getattr(obj, "tags", None))
+
+    def get_motivo_fallback_resumo(self, obj) -> str:
+        return motivo_fallback_local(getattr(obj, "tags", None))
 
 
 class PlanAdminSerializer(serializers.ModelSerializer):

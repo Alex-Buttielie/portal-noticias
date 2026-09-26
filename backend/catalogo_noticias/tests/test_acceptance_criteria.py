@@ -31,6 +31,10 @@ from django.test import override_settings
 from django.utils import timezone
 
 from catalogo_noticias.models import NewsCluster, NewsItem, RegistroExecucaoIngestao
+from catalogo_noticias.providers.fallback_local import (
+    motivo_fallback_local,
+    origem_fallback_local,
+)
 from catalogo_noticias.providers.news_source import (
     FonteIndisponivelError,
     ItemBruto,
@@ -878,8 +882,23 @@ class TestAC4ResumoProprioNuncaECopia:
         assert item.status_revisao == NewsItem.STATUS_PENDENTE
         assert item.publicado_automaticamente is False
 
-    def test_provider_falhando_produz_resumo_vazio_nunca_copia_do_bruto_como_fallback(self):
-        """Caso de erro do provider (AC-1/AC-4 combinados): o fallback usa resumo vazio, nunca o bruto."""
+    def test_provider_falhando_usa_fallback_local_nunca_o_bruto_como_resumo(self):
+        """
+        P1-02 (WS-08/GP-5) — caso de erro do provider (AC-1/AC-4 combinados),
+        com MUDANCA DE CONTRATO deliberada.
+
+        O que mudou: o fallback deixou de ser "resumo vazio". Resumo vazio
+        significava `status_revisao=pendente` e, portanto, noticia INVISIVEL
+        no feed — a degradacao apagava a materia em vez de publica-la (o
+        "rascunho fantasma" do backlog). Agora o fallback gera conteudo
+        local deterministico e o item entra no fluxo normal de publicacao.
+
+        O que NAO mudou e o invariants central deste teste (AC-4): o fallback
+        NUNCA usa o `conteudo_bruto` como `resumo_proprio` — nem agora, nem
+        antes. A verificacao foi endurecida: o resumo nao pode ser igual ao
+        bruto, nem conter um trecho de 40 caracteres do bruto, e nao pode
+        inventar digito algum que nao esteja no material de origem.
+        """
 
         class ProviderQuebrado(SummarizationProvider):
             def resumir_e_classificar(self, itens_brutos):
@@ -893,9 +912,28 @@ class TestAC4ResumoProprioNuncaECopia:
         executar_ingestao(fontes=fontes, summarization_provider=ProviderQuebrado())
 
         item = NewsItem.objects.get()
+        # Invariante AC-4 preservada (e reforcada).
         assert item.resumo_proprio != conteudo
-        assert item.resumo_proprio == ""
-        assert item.status_revisao == NewsItem.STATUS_PENDENTE
+        assert conteudo not in item.resumo_proprio
+        assert "jamais deveria" not in item.resumo_proprio
+        # Nenhum digito INVENTADO: todo digito do resumo tem de existir no
+        # material de origem (aqui, o "1" legitimo de "G1"). A propriedade
+        # testada e a do verificador anti-fabricacao, nao "zero digitos".
+        digitos_da_origem = {
+            c
+            for valor in ("Noticia X", "G1", "", "", "")
+            for c in str(valor)
+            if c.isdigit()
+        }
+        assert digitos_da_origem == {"1"}
+        assert {c for c in item.resumo_proprio if c.isdigit()} <= digitos_da_origem
+        # O fallback local produz conteudo e publica no fluxo normal.
+        assert item.resumo_proprio != ""
+        assert "Noticia X" in item.resumo_proprio
+        assert item.publicado_automaticamente is True
+        # Distinguivel: marcador de origem + motivo persistidos.
+        assert origem_fallback_local(item.tags) is True
+        assert motivo_fallback_local(item.tags) == "erro_do_provider"
 
     # -----------------------------------------------------------------------
     # Finding 2 (code-review-contract.md run 20260902-0727-ingestao-noticias,
