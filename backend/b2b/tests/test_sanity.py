@@ -82,7 +82,14 @@ def test_membro_comum_nao_convida_via_api():
     assert not MembroOrganizacao.objects.filter(user=alvo).exists()
 
 
-def test_convidar_usuario_ja_pertencente_a_outra_organizacao_retorna_conflito():
+def test_convidar_usuario_ja_pertencente_a_outra_organizacao_nao_revela_qual_organizacao():
+    """
+    P1-13 (mudança de contrato deliberada): era 409 "Este usuário já pertence
+    a uma organização", agora 400 com a mensagem neutra `_CONVITE_NAO_CONCLUIDO`
+    — a MESMA do e-mail não cadastrado. Ver
+    `b2b/tests/test_isolamento_tenant.py::test_falha_de_convite_e_indistinguivel_entre_os_dois_motivos`,
+    que prova a indistinguibilidade.
+    """
     from rest_framework.test import APIClient
 
     admin_a = _usuario("admin-conflito-a@example.com")
@@ -94,7 +101,9 @@ def test_convidar_usuario_ja_pertencente_a_outra_organizacao_retorna_conflito():
     client.force_authenticate(user=admin_a)
     resposta = client.post("/api/b2b/membros/", {"email": admin_b.email}, format="json")
 
-    assert resposta.status_code == 409
+    assert resposta.status_code == 400
+    # A mensagem não pode carregar o nome/indício de nenhuma outra organização.
+    assert "Org Conflito B" not in resposta.json()["detail"]
 
 
 def test_criterio_casa_com_itens_publicaveis():

@@ -1008,9 +1008,33 @@ export interface ItemMonitorado {
   nome_fonte: string;
 }
 
+export interface CriterioComItens {
+  criterio: { tipo: string; valor: string };
+  itens: ItemMonitorado[];
+  // P1-13: o corpo da lista é limitado por `B2B_MAX_ITENS_POR_CRITERIO` (um
+  // critério genérico casava com a janela inteira e serializava tudo numa
+  // resposta). `total_itens` é o total VERDADEIRO, da mesma query escopada
+  // na organização — é dele que o resumo executivo tira `numero_itens`.
+  total_itens?: number;
+  itens_truncados?: boolean;
+}
+
 export interface ResumoExecutivo {
   organizacao: string;
   criterios: { tipo: TipoCriterioMonitoramento; valor: string; numero_itens: number }[];
+  // P1-13: plano e cota, para o painel mostrar "3/5 critérios" sem outra chamada.
+  plano?: string;
+  cota_criterios?: number;
+  criterios_ativos?: number;
+}
+
+// P1-13: 403 de `POST /api/b2b/criterios/` quando a cota do plano é atingida.
+// A `detail` é acionável (plano, teto, o que fazer) e os números vêm juntos.
+export interface ErroCotaB2B {
+  detail: string;
+  cota_criterios: number;
+  criterios_ativos: number;
+  criterios_remanescentes: number;
 }
 
 export function obterCriteriosB2B(token: string): Promise<CriterioMonitoramento[]> {
@@ -1024,9 +1048,7 @@ export function criarCriterioB2B(
   return request("/api/b2b/criterios/", { method: "POST", body: JSON.stringify(dados) }, token);
 }
 
-export function obterItensMonitoradosB2B(
-  token: string
-): Promise<Record<string, { criterio: { tipo: string; valor: string }; itens: ItemMonitorado[] }>> {
+export function obterItensMonitoradosB2B(token: string): Promise<Record<string, CriterioComItens>> {
   return request("/api/b2b/itens-monitorados/", { method: "GET" }, token);
 }
 
