@@ -15,6 +15,26 @@ Cada teste aqui existe para fechar uma forma específica de mentira:
 
 Todos usam `pytest.mark.django_db` por coerência com os demais testes de
 endpoint do projeto, ainda que este endpoint não toque no banco.
+
+ONDE O DUBLÊ DEVE APONTAR (conflito P0-10 x P1-15b)
+-------------------------------------------------
+Este arquivo nasceu no P1-15b, quando `config/email_resend.py` chamava
+`requests.post` direto, e por isso apontava o dublê para `requests.post`. O
+P0-10 (eixo SSRF) trocou essa chamada por `config.egress.SessaoEgress` — o
+requisito do item é que TODO egresso passe pelo módulo único, e um
+redirecionamento do provedor para a rede interna também tem que ser barrado —
+e teve de reidenciar os dubles de
+`catalogo_noticias/tests/test_summarization_provider.py` para
+`SessaoEgress.post` pelo mesmo motivo. O merge dos dois não pode reintroduzir o
+alvo antigo: dublê em `requests.post` deixa de interceptar a chamada e o teste
+passa a exercitar a REDE REAL (o que aconteceu na primeira rodada desta
+resolução: um 401 de `api.resend.com` em vez do 201 simulado, e dois 503 no
+lugar dos 200 esperados).
+
+`_ALVO_POST` abaixo é o alvo correto, e a guarda `_rede_proibida` (autouse,
+neste módulo) cobre TAMBÉM `requests.post`/`requests.get`/`urlopen`, para não
+enfraquecer a garantia: se o código de produção voltar a chamar `requests`
+direto, o teste quebra pelo motivo certo em vez de sair para a internet.
 """
 
 from __future__ import annotations
@@ -22,6 +42,7 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 import requests
@@ -29,6 +50,7 @@ from django.apps import apps
 from django.core import mail
 from rest_framework.test import APIClient
 
+from config.email_resend import RESEND_API_URL
 from contato.tests.backends import (
     EntregaSimuladaBackend,
     ExplodindoBackend,
@@ -42,9 +64,34 @@ URL = "/api/contato/"
 DESTINO = "redacao@exemplo.org"  # endereço fictício de teste, não domínio do projeto
 BACKEND_QUE_ENTREGA = caminho_de(EntregaSimuladaBackend)
 
+#: Alvo real da chamada de saída do `ResendEmailBackend` depois do P0-10
+#: (eixo SSRF): `SessaoEgress.post`, e não `requests.post`. Ver o docstring do
+#: módulo para o porque do merge.
+_ALVO_POST = "config.email_resend.SessaoEgress.post"
+
 # Marcadores únicos: aparecem no corpo da mensagem/log quando algo vaza.
 CORPO = "Mensagem de teste do P1-15b, com tamanho suficiente para passar da validação."
 EMAIL = "leitor@example.com"
+
+
+def _rede_proibida(*args, **kwargs):
+    raise AssertionError(
+        "este teste tentou sair para a rede real; o dublê tem que estar em "
+        f"{_ALVO_POST}"
+    )
+
+
+@pytest.fixture(autouse=True)
+def _nenhum_teste_sai_para_a_rede(monkeypatch):
+    """Nenhum teste deste arquivo abre conexão de rede — por construção.
+
+    Cobre os DOIS alvos: o da sessão de egresso (que os testes reidenciam) e o
+    `requests` cru (que o P0-10 removeu). Um dublê no lugar errado passa a ser
+    um teste que grita, e não um teste que sai para `api.resend.com`.
+    """
+    monkeypatch.setattr("requests.post", _rede_proibida)
+    monkeypatch.setattr("requests.get", _rede_proibida)
+    monkeypatch.setattr("urllib.request.urlopen", _rede_proibida)
 
 
 @pytest.fixture(autouse=True)
@@ -200,20 +247,27 @@ class TestNuncaDoisXxxSemEntrega:
 class TestCaminhoResendDoProjeto:
     """`config/email_resend.py` — o backend que a produção vai usar de fato."""
 
-    def test_sem_chave_responde_503_sem_tocar_a_rede(self, settings, monkeypatch):
+    def test_sem_chave_responde_503_sem_tocar_a_rede(self, settings):
         settings.EMAIL_BACKEND = "config.email_resend.ResendEmailBackend"
         settings.RESEND_API_KEY = ""
         settings.CONTATO_DESTINO = DESTINO
         called = []
-        monkeypatch.setattr(requests, "post", lambda *a, **k: called.append(1))
 
-        resposta = APIClient().post(URL, _payload(), format="json")
+        def _post(*a, **k):
+            # Grava E falha: se a cadeia de portões deixar a mensagem passar,
+            # o teste quebra dizendo que houve tentativa de envio, e não
+            # apenas porque a resposta não foi 200.
+            called.append((a, k))
+            raise AssertionError("sem chave não pode haver tentativa de envio")
+
+        with patch(_ALVO_POST, side_effect=_post):
+            resposta = APIClient().post(URL, _payload(), format="json")
 
         assert resposta.status_code == 503
         assert "RESEND_API_KEY" in resposta.data["detail"]
         assert called == [], "sem chave não pode haver tentativa de rede"
 
-    def test_com_chave_entrega_e_responde_200(self, settings, monkeypatch):
+    def test_com_chave_entrega_e_responde_200(self, settings):
         settings.EMAIL_BACKEND = "config.email_resend.ResendEmailBackend"
         settings.RESEND_API_KEY = "re_chave-de-teste-nao-secreta"
         settings.CONTATO_DESTINO = DESTINO
@@ -229,14 +283,16 @@ class TestCaminhoResendDoProjeto:
             capturado["headers"] = headers
             return _RespostaFake()
 
-        monkeypatch.setattr(requests, "post", _post)
-
-        resposta = APIClient().post(URL, _payload(), format="json")
+        with patch(_ALVO_POST, side_effect=_post):
+            resposta = APIClient().post(URL, _payload(), format="json")
 
         assert resposta.status_code == 200, resposta.data
         assert resposta.data["id"]
         # O corpo entregue ao Resend leva o que a redação precisa, e o
         # cabeçalho de autorização prova que o caminho real foi exercitado.
+        # O destino vem da constante de produção: nenhum hostname é escrito à
+        # mão aqui, então o teste não pode passar por um destino paralelo.
+        assert capturado["url"] == RESEND_API_URL
         assert capturado["json"]["to"] == [DESTINO]
         assert capturado["json"]["reply_to"] == [EMAIL]
         assert "text" in capturado["json"] and "html" not in capturado["json"]
@@ -244,7 +300,7 @@ class TestCaminhoResendDoProjeto:
             settings.RESEND_API_KEY
         )
 
-    def test_resend_recusando_com_http_500_responde_503(self, settings, monkeypatch):
+    def test_resend_recusando_com_http_500_responde_503(self, settings):
         settings.EMAIL_BACKEND = "config.email_resend.ResendEmailBackend"
         settings.RESEND_API_KEY = "re_chave-de-teste"
         settings.CONTATO_DESTINO = DESTINO
@@ -253,14 +309,13 @@ class TestCaminhoResendDoProjeto:
             status_code = 500
             text = "erro interno do provedor"
 
-        monkeypatch.setattr(requests, "post", lambda *a, **k: _RespostaRecusada())
-
-        resposta = APIClient().post(URL, _payload(), format="json")
+        with patch(_ALVO_POST, return_value=_RespostaRecusada()):
+            resposta = APIClient().post(URL, _payload(), format="json")
 
         assert resposta.status_code == 503, resposta.data
         assert not (200 <= resposta.status_code < 300)
 
-    def test_resend_com_erro_de_rede_responde_503(self, settings, monkeypatch):
+    def test_resend_com_erro_de_rede_responde_503(self, settings):
         settings.EMAIL_BACKEND = "config.email_resend.ResendEmailBackend"
         settings.RESEND_API_KEY = "re_chave-de-teste"
         settings.CONTATO_DESTINO = DESTINO
@@ -268,9 +323,8 @@ class TestCaminhoResendDoProjeto:
         def _explode(*a, **k):
             raise requests.ConnectionError("provedor inalcançável")
 
-        monkeypatch.setattr(requests, "post", _explode)
-
-        resposta = APIClient().post(URL, _payload(), format="json")
+        with patch(_ALVO_POST, side_effect=_explode):
+            resposta = APIClient().post(URL, _payload(), format="json")
 
         assert resposta.status_code == 503
 
@@ -302,7 +356,7 @@ class TestLogMinimo:
         for proibido in (CORPO, EMAIL, DESTINO, "Ana Souza"):
             assert proibido not in caplog.text, f"log vazou {proibido!r}"
 
-    def test_log_nao_contem_credencial_do_resend(self, settings, monkeypatch, caplog):
+    def test_log_nao_contem_credencial_do_resend(self, settings, caplog):
         settings.EMAIL_BACKEND = "config.email_resend.ResendEmailBackend"
         settings.RESEND_API_KEY = "re_segredo-que-nao-pode-aparecer"
         settings.CONTATO_DESTINO = DESTINO
@@ -311,10 +365,9 @@ class TestLogMinimo:
             status_code = 201
             text = "{}"
 
-        monkeypatch.setattr(requests, "post", lambda *a, **k: _RespostaFake())
-
-        with caplog.at_level(logging.DEBUG):
-            resposta = APIClient().post(URL, _payload(), format="json")
+        with patch(_ALVO_POST, return_value=_RespostaFake()):
+            with caplog.at_level(logging.DEBUG):
+                resposta = APIClient().post(URL, _payload(), format="json")
 
         assert resposta.status_code == 200
         assert "re_segredo-que-nao-pode-aparecer" not in caplog.text
