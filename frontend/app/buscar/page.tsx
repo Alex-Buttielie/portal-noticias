@@ -139,6 +139,11 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ q
           ) : (
             <ListaResultados itens={itens} termo={q} />
           )}
+          {/* Slot in-feed restaurado: o P0-08 removeu esta linha sem que fosse
+              parte do escopo do lote (que e conteudo ficticio, nao publicidade).
+              A comportamento de anuncios e do item P1-09. Ver
+              implementation-history.md, "Reposicao do AdsSlot in-feed da busca". */}
+          <AdsSlot id="buscar-infeed" formato="in-feed" className="my-6" />
           {itens.length > 6 && <AdsSlot id="buscar-horizontal" formato="horizontal" />}
         </div>
       )}
