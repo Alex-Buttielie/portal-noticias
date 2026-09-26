@@ -21,13 +21,37 @@ export const API_BASE_URL =
 export class ApiError extends Error {
   status: number;
   detail: unknown;
+  /**
+   * `Retry-After` convertido em SEGUNDOS, ou `null` quando o header não veio
+   * (ou veio em formato que não dá para converter com segurança). O throttle do
+   * DRF é o único produtor de 429 aqui (`EscritaPublicaAnonThrottle`), e é o
+   * header — não o corpo — que diz por quanto tempo esperar. Aditivo: quem não
+   * usa este campo continua vendo o mesmo `status`/`detail`/`message`.
+   */
+  retryAfterSegundos: number | null;
 
-  constructor(status: number, detail: unknown, message: string) {
+  constructor(status: number, detail: unknown, message: string, retryAfterSegundos: number | null = null) {
     super(message);
     this.name = "ApiError";
     this.status = status;
     this.detail = detail;
+    this.retryAfterSegundos = retryAfterSegundos;
   }
+}
+
+/**
+ * Lê `Retry-After` em segundos. O formato canônico (RFC 9110 §10.2.3) é um
+ * delta em segundos, mas o mesmo header aceita data HTTP absoluta — as duas
+ * formas são aceitas aqui. Data no passado vira `0` (não negativo: a UI diz
+ * "agora", não "há 5 minutos").
+ */
+function segundosDeRetryAfter(cabecalho: string | null): number | null {
+  if (!cabecalho) return null;
+  const bruto = cabecalho.trim();
+  if (/^\d+$/.test(bruto)) return Number(bruto);
+  const quando = Date.parse(bruto);
+  if (Number.isNaN(quando)) return null;
+  return Math.max(0, Math.round((quando - Date.now()) / 1000));
 }
 
 function extrairMensagemDeErro(corpo: unknown, status: number): string {
@@ -92,7 +116,12 @@ async function request<T>(
   }
 
   if (!resposta.ok) {
-    throw new ApiError(resposta.status, corpo, extrairMensagemDeErro(corpo, resposta.status));
+    throw new ApiError(
+      resposta.status,
+      corpo,
+      extrairMensagemDeErro(corpo, resposta.status),
+      segundosDeRetryAfter(resposta.headers.get("Retry-After"))
+    );
   }
 
   return corpo as T;
@@ -977,6 +1006,45 @@ export function inscreverListaEspera(dados: {
   aceite_comunicacao: boolean;
 }): Promise<{ detail: string }> {
   return request("/api/landing/lista-espera/", { method: "POST", body: JSON.stringify(dados) });
+}
+
+// ---------------------------------------------------------------------------
+// contato/ — contrato lido diretamente de `backend/contato/views.py` e
+// `backend/contato/serializers.py` (item P1-15b), não adivinhado:
+//
+//   rota:      backend/contato/urls.py:19 (`path("", ContatoView...)`)
+//   mounted:   backend/config/urls.py:44 (`path("api/contato/", ...)`)
+//   view:      backend/contato/views.py:115 (POST, `AllowAny` + throttle
+//              `EscritaPublicaAnonThrottle` = 20/min por IP,
+//              config/settings.py:526)
+//   payload:   `{nome, email, mensagem}` (obrigatórios) + `website`, que é o
+//              honeypot: vazio = humano, preenchido = 400 "Requisição
+//              rejeitada." SEM entregar nada (serializers.py:69-84).
+//   respostas: 200 `{detail, id}` — entregue de verdade; 400 `{campo: [...]}`;
+//              429 `{"detail": "Pedido foi limitado. Disponível em N segundos."}`
+//              + `Retry-After`; 503 `{detail, request_id}` — NÃO entregue, e o
+//              `detail` diz exatamente qual configuração falta.
+//
+// Os três corpos são renderizáveis por `extrairMensagemDeErro` (o 503 vira
+// `detail` + `(id: xxxxxxxx)` do `request_id`). O 503 é o caminho que a UI
+// precisa preservar: convertê-lo em sucesso seria mentira, porque nada foi
+// entregue nem gravado.
+// ---------------------------------------------------------------------------
+
+export interface RespostaContato {
+  detail: string;
+  /** Id opaco da mensagem. Serve para a pessoa citar o contato depois. */
+  id?: string;
+}
+
+export function enviarContato(dados: {
+  nome: string;
+  email: string;
+  mensagem: string;
+  /** Honeypot: envie sempre, e vazio. Preenchido, o servidor descarta. */
+  website?: string;
+}): Promise<RespostaContato> {
+  return request("/api/contato/", { method: "POST", body: JSON.stringify(dados) });
 }
 
 // ---------------------------------------------------------------------------
