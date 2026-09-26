@@ -2,6 +2,7 @@ import logging
 
 from django.conf import settings
 from django.contrib.auth import authenticate, get_user_model
+from django.db import transaction
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.authtoken.models import Token
@@ -9,10 +10,20 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from config.email_entrega import (
+    CanalIndisponivel,
+    FalhaDeEntrega,
+    registrar_evento,
+    verificar_canal_email,
+)
 from config.throttling import AuthSensivelAnonThrottle, EscritaPublicaAnonThrottle
 
 from . import services
-from .emails import enviar_email_redefinicao_senha, enviar_email_verificacao
+from .emails import (
+    DESTINO_REDEFINICAO,
+    enviar_email_redefinicao_senha,
+    enviar_email_verificacao,
+)
 from .permissions import IsEmailVerified
 from .serializers import (
     CadastroSerializer,
@@ -39,9 +50,85 @@ MSG_RECUPERACAO_GENERICA = (
     "Se o e-mail informado estiver cadastrado, enviaremos instruções de redefinição de senha."
 )
 
+#: Rótulo da métrica de entrega do fluxo de cadastro.
+DESTINO_CADASTRO = "cadastro"
+
+#: Resposta 201 do cadastro. É uma CONSTANTE de propósito: as respostas de
+#: "conta criada agora" e de "e-mail já tinha conta" precisam ser idênticas,
+#: e a única forma de garantir isso é não interpolar nada vindo do banco.
+DETALHE_CADASTRO_OK = "Cadastro realizado. Verifique seu e-mail para confirmar a conta."
+
+#: 503 do cadastro quando não existe canal de entrega real. Diz o que está
+#: faltando pelo NOME da configuração (nunca o valor) e que nada foi criado,
+#: para a pessoa não ficar achando que a conta existe.
+DETALHE_SEM_CANAL = (
+    "Seu cadastro não foi concluído e nenhuma conta foi criada: o portal ainda "
+    "não está com entrega de e-mail configurada, então o e-mail de verificação "
+    "não sairia. Nada foi gravado — tente novamente em instantes. Motivo: {motivos}"
+)
+
+#: 503 do cadastro quando o canal existe mas o envio concreto falhou.
+DETALHE_FALHA_ENTREGA = (
+    "Seu cadastro não foi concluído e nenhuma conta foi criada: não conseguimos "
+    "entregar o e-mail de verificação. Nada foi gravado — tente novamente em "
+    "instantes."
+)
+
 
 class CadastroView(APIView):
-    """POST /api/auth/cadastro/ — cadastro por e-mail/senha (critério de aceite 1)."""
+    """POST /api/auth/cadastro/ — cadastro por e-mail/senha (critério de aceite 1).
+
+    O QUE ESTE ENDPOINT GARANTE (P1-04)
+    ===================================
+    1. **201 só depois de entregue.** O e-mail de verificação precisa ter saído
+       para um canal de entrega real. Se não há canal (`console.EmailBackend`
+       é o padrão de `config/settings.py:615-617`, e ele só imprime no
+       stdout), a resposta é **503** e **nenhuma conta é criada** — o
+       cadastro não aconteceu, e a pessoa pode tentar de novo. Era o furo do
+       P0-02c: 201 + "Verifique seu e-mail para confirmar a conta" com o
+       e-mail apenas impresso no stdout do container.
+    2. **O e-mail informado não revela se já tem conta.** Antes deste item,
+       `CadastroSerializer.validate_email` devolvia **400** para um e-mail já
+       cadastrado e **201** para um e-mail novo — ou seja, um `POST` com
+       qualquer senha bastava para enumerar a base. Agora os dois casos
+       devolvem a MESMA resposta, byte a byte.
+
+    POR QUE A RESPOSTA NÃO TRAZ MAIS O OBJETO `usuario`
+    ==================================================
+    A resposta 201 é `{"detail": ...}` e nada mais. Com `usuario` dentro dela,
+    as respostas "criado" e "já existia" não podem ser idênticas: o objeto
+    carrega `id`, `papel`, `email_verificado` e `date_joined` da conta
+    existente, e cada um deles é um oráculo de existência (o pior deles,
+    `email_verificado`, distingue "conta criada agora" de "conta já
+    verificada"). Não existe campo de `usuario` que seja simultaneamente
+    honesto e igual nos dois casos.
+
+    O frontend não usa esse campo: `frontend/app/cadastro/page.tsx:18` chama
+    `await api.cadastrar(payload)` e ignora o retorno, usando só o `detail`
+    implícito no `setOk(true)`. A declaração de tipo
+    `frontend/lib/api.ts:132` (`Promise<{ detail: string; usuario: Usuario }>`)
+    passou a descrever um campo que o backend não devolve mais e precisa ser
+    ajustada — follow-up de frontend, fora do escopo deste item (que não pode
+    tocar `frontend/`).
+
+    QUANDO O E-MAIL JÁ EXISTE
+    =========================
+    Nada é criado e nada é sobrescrito (nem papel, nem consentimento, nem
+    senha). Se a conta ainda NÃO foi verificada, o e-mail de verificação é
+    **reenviado**: sem isso, quem se cadastrou, não verificou, esqueceu e
+    tentou de novo receberia um "201, verifique seu e-mail" de um e-mail que
+    nunca sairia — exatamente o beco sem saída que este item existe para
+    fechar. Se a conta já está verificada, não há o que reenviar.
+
+    A falha de envio nesse ramo de duplicidade **não** muda a resposta, e essa
+    é uma escolha deliberada: a alternativa (503 só para e-mail já cadastrado)
+    transforma a falha do provedor em oráculo de existência de conta, que é a
+    propriedade mais importante deste endpoint. A falha é registrada em
+    `logger.error`, em `portal_email_entrega_total{situacao="falha"}` e
+    aparece em `/health-detail`. Já o caso **sistêmico** — não existe canal
+    nenhum — é verificado ANTES de qualquer consulta ao banco, e devolve 503
+    para todo mundo igualmente, sem distinguir nada.
+    """
 
     permission_classes = [AllowAny]
     # Rate limiting (implementation-contract.md run
@@ -52,15 +139,64 @@ class CadastroView(APIView):
     def post(self, request):
         serializer = CadastroSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        user = serializer.save()
-        enviar_email_verificacao(user)
-        return Response(
-            {
-                "detail": "Cadastro realizado. Verifique seu e-mail para confirmar a conta.",
-                "usuario": UserSerializer(user).data,
-            },
-            status=status.HTTP_201_CREATED,
-        )
+
+        # (1) Antes de TUDO, e antes de qualquer consulta ao banco: se não há
+        # canal de entrega real, ninguém é criado e todo mundo recebe o mesmo
+        # 503. Verificar depois da consulta ao banco transformaria a
+        # configuração em oráculo de existência de conta.
+        canal = verificar_canal_email()
+        if not canal.disponivel:
+            registrar_evento(DESTINO_CADASTRO, "sem_canal")
+            logger.error(
+                "cadastro: recusado por ausência de canal de entrega real (motivo=%s)",
+                "; ".join(canal.motivos),
+            )
+            return Response(
+                {"detail": DETALHE_SEM_CANAL.format(motivos="; ".join(canal.motivos))},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        email_normalizado = User.objects.normalize_email(serializer.validated_data["email"])
+        existente = User.objects.filter(email__iexact=email_normalizado).first()
+
+        if existente is not None:
+            return self._responde_a_duplicado(existente)
+
+        # Criar a conta e entregar o e-mail de verificação é UMA operação do
+        # ponto de vista de quem está do outro lado: ou os dois acontecem, ou
+        # nenhum. `transaction.atomic` garante isso — sem ele, uma falha do
+        # provedor deixaria uma conta criada, sem e-mail, e o próximo cadastro
+        # com o mesmo e-mail cairia no ramo de duplicidade acima.
+        try:
+            with transaction.atomic():
+                usuario = serializer.save()
+                enviar_email_verificacao(usuario)
+        except (CanalIndisponivel, FalhaDeEntrega):
+            # A exceção sai do bloco `atomic`: a transação é revertida e a
+            # conta não existe. A resposta é 503, nunca 201.
+            return Response(
+                {"detail": DETALHE_FALHA_ENTREGA},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        logger.info("cadastro: conta criada e e-mail de verificação entregue")
+        return Response({"detail": DETALHE_CADASTRO_OK}, status=status.HTTP_201_CREATED)
+
+    def _responde_a_duplicado(self, existente) -> Response:
+        """Resposta de um e-mail que JÁ tem conta — igual à de um e-mail novo.
+
+        Reenvia a verificação só se a conta ainda não foi verificada, e nunca
+        deixa a falha de envio virar diferença observável na resposta.
+        """
+        if not existente.email_verificado:
+            try:
+                enviar_email_verificacao(existente)
+            except (CanalIndisponivel, FalhaDeEntrega):
+                # Deliberadamente engolido NA RESPOSTA (o log e a métrica já
+                # foram escritos por `identidade.emails`/`config.email_entrega`).
+                # Ver a justificativa no docstring da classe.
+                pass
+        return Response({"detail": DETALHE_CADASTRO_OK}, status=status.HTTP_201_CREATED)
 
 
 class VerificarEmailView(APIView):
@@ -147,8 +283,34 @@ class RecuperarSenhaView(APIView):
     """
     POST /api/auth/recuperar-senha/ — inicia redefinição de senha (critério de aceite 7).
 
-    Sempre responde com a mesma mensagem genérica de sucesso, exista ou não o
-    e-mail — o token só é de fato gerado/enviado se o usuário existir.
+    SEMPRE responde com a mesma mensagem genérica de sucesso, exista ou não o
+    e-mail, e entregue ou não. O token só é de fato gerado/enviado se o
+    usuário existir.
+
+    POR QUE A FALHA DE ENTREGA NÃO VIRA 503 AQUI (e o furo que isso fecha)
+    ======================================================================
+    A resposta tem de ser indistinguível entre "e-mail cadastrado" e "e-mail
+    sem conta". Um 503 para o primeiro caso e 200 para o segundo seria um
+    oráculo de existência de conta — trocaria um e-mail que não chega por uma
+    lista de e-mails com conta, que é bem pior. Por isso a falha de entrega
+    aqui NÃO muda a resposta.
+
+    A resposta também não pode passar a mentir: `MSG_RECUPERACAO_GENERICA` é
+    condicional ("Se o e-mail informado estiver cadastrado, enviaremos
+    instruções"), então ela continua verdadeira mesmo quando nada foi enviado.
+    Esse texto é o que fecha o furo do P0-02c neste caminho — antes ele era
+    o mesmo texto, mas a mensagem de trás ("enviaremos") era uma promessa que
+    o `console.EmailBackend` não podia cumprir.
+
+    O que resta é não deixar a falha invisível: `identidade.emails` escreve
+    `logger.error`, `config.email_entrega` conta em
+    `portal_email_entrega_total{situacao="sem_canal"}` e o canal aparece em
+    `/health-detail`. Um operador vê a falha; um atacante que enumera e-mails
+    não vê diferença nenhuma.
+
+    Eficiência de canal: a checagem vem ANTES da consulta ao banco, para não
+    haver nem diferença de tempo entre os dois casos — uma consulta a mais já
+    seria medível.
     """
 
     permission_classes = [AllowAny]
@@ -162,13 +324,30 @@ class RecuperarSenhaView(APIView):
         serializer.is_valid(raise_exception=True)
         email = serializer.validated_data["email"]
 
+        canal = verificar_canal_email()
+        if not canal.disponivel:
+            registrar_evento(DESTINO_REDEFINICAO, "sem_canal")
+            logger.error(
+                "recuperar-senha: e-mail NÃO enviado por ausência de canal de "
+                "entrega real (motivo=%s)",
+                "; ".join(canal.motivos),
+            )
+            # Resposta neutra de propósito: quem não tem conta e quem tem
+            # recebem exatamente a mesma coisa. Ver o docstring da classe.
+            return Response({"detail": MSG_RECUPERACAO_GENERICA}, status=status.HTTP_200_OK)
+
         try:
             user = User.objects.get(email__iexact=email)
         except User.DoesNotExist:
             user = None
 
         if user is not None:
-            enviar_email_redefinicao_senha(user)
+            try:
+                enviar_email_redefinicao_senha(user)
+            except (CanalIndisponivel, FalhaDeEntrega):
+                # Mesma razão do `return` acima: a resposta não pode depender
+                # de se o e-mail tem conta. O ERROR e a métrica já saíram.
+                pass
 
         return Response({"detail": MSG_RECUPERACAO_GENERICA}, status=status.HTTP_200_OK)
 

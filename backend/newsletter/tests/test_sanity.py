@@ -1,3 +1,14 @@
+"""Sanidade do módulo newsletter/.
+
+P1-04: os testes de ENVIO rodam com `EntregaSimuladaBackend`, não com o
+`locmem` que o `pytest-django` injeta. `locmem` está em
+`BACKENDS_SEM_ENTREGA_REAL` (`config/email_entrega.py`) — ele é um buffer em
+memória, e o gate de entrega (agora aplicado à newsletter, que antes contava
+`total_enviados` para e-mails que ninguém recebia) recusa. Os dois testes que
+contavam `total_enviados == 1` estavam medindo a mentira; agora medem a
+entrega.
+"""
+
 from __future__ import annotations
 
 from django.utils import timezone
@@ -6,6 +17,7 @@ from django.contrib.auth import get_user_model
 from django.core import mail
 
 from catalogo_noticias.models import NewsItem
+from config.tests.backends import EntregaSimuladaBackend, caminho_de
 from gating.models import ConfiguracaoSistema, FeatureLimit
 from newsletter import services
 from newsletter.models import InscricaoNewsletter
@@ -14,12 +26,25 @@ pytestmark = pytest.mark.django_db
 
 User = get_user_model()
 
+#: Backend que entrega de verdade (ver `config/tests/backends.py`).
+BACKEND_QUE_ENTREGA = caminho_de(EntregaSimuladaBackend)
+
 
 @pytest.fixture(autouse=True)
 def _premium_ativo_para_gating():
     """O teste de gating abaixo exige a flag LIGADA (com ela desligada,
     todo mundo navega como Premium)."""
     ConfiguracaoSistema.objects.update_or_create(pk=1, defaults={"premium_ativo": True})
+
+
+@pytest.fixture(autouse=True)
+def _canal_de_entrega_real(settings):
+    """Estes testes verificam QUE a newsletter é enviada; então o backend
+    precisa ser um que envia de verdade."""
+    settings.EMAIL_BACKEND = BACKEND_QUE_ENTREGA
+    EntregaSimuladaBackend.entregues.clear()
+    yield
+    EntregaSimuladaBackend.entregues.clear()
 
 
 def _usuario_consentido(email, papel="free"):
