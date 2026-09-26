@@ -56,7 +56,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <head>
         <script dangerouslySetInnerHTML={{ __html: SCRIPT_TEMA_INICIAL }} />
         <JsonLd dados={organizationJsonLd()} />
-        <AdsScript />
       </head>
       <body className={`${inter.variable} ${serif.variable} min-h-screen bg-[var(--cor-fundo)] font-sans text-[var(--cor-texto)] antialiased`}>
         <PularParaConteudo />
@@ -71,6 +70,19 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <Suspense fallback={null}>
             <AnalyticsTracker />
           </Suspense>
+          {/* P1-09: o `AdsScript` mora AQUI, e não dentro do `<head>`. Motivo:
+              ele decide sozinho se o visitante pode ver anúncio, e essa decisão
+              precisa de `useAuth` (papel premium/free) e de `usePremiumAtivo`
+              (flag global) — que vivem dentro de `AuthProvider` e
+              `QueryClientProvider`, ou seja, dentro de `Providers`. No
+              `<head>` ele era filho de NENHUM provider, e o `next build`
+              reprovava no prerender com "useAuth precisa ser usado dentro de
+              um AuthProvider" em /contato, /jornalista/solicitar e
+              /admin/assinaturas. Nada se perde com a mudança: `next/script`
+              com `strategy="lazyOnload"` injeta o `<script>` em
+              `document.body` de qualquer jeito, e o consentimento continua
+              sendo a única condição para ele existir. */}
+          <AdsScript />
           <TutorialTour />
         </Providers>
       </body>

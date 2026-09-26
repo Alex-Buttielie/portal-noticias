@@ -2,8 +2,10 @@
 
 import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
-import { ADSENSE_CLIENT_ID } from "./AdsScript";
-import { EVENTO_CONSENTIMENTO_ALTERADO, permiteCategoria } from "@/lib/cookie-consent";
+import { EVENTO_CONSENTIMENTO_ALTERADO } from "@/lib/cookie-consent";
+import { useAuth } from "@/lib/auth-context";
+import { usePremiumAtivo } from "@/lib/premium";
+import { ADSENSE_CLIENT_ID, consentiuAnuncio, podeExibirAnuncio } from "@/lib/anuncios";
 
 type Formato = "horizontal" | "retangulo" | "vertical" | "in-feed";
 
@@ -29,6 +31,31 @@ declare global {
   }
 }
 
+/**
+ * Slot de publicidade.
+ *
+ * A decisão "este visitante vê anúncio?" é de `lib/anuncios.ts`
+ * (`podeExibirAnuncio`) e é resolvida AQUI, dentro do componente — não no
+ * ponto de montagem. Isso é deliberado e é a correção principal do P1-09:
+ *
+ * - antes, cada página decidia sozinha. `HomeClient` protegia 5 dos seus 10
+ *   slots com `!premiumGeral` e deixava passar os outros 5
+ *   (`home-pos-bombando`, `home-topo`, `home-sidebar`, `home-sidebar-2`,
+ *   `home-footer`); 6 das 9 páginas que montam `AdsSlot` — inclusive a
+ *   leitura da notícia, `LeituraPremium` — não mencionavam o Premium uma vez
+ *   sequer. Um assinante Premium que tivesse clicado em "Aceitar todos" pelo
+ *   banner recebia anúncio no meio da leitura;
+ * - agora, o Premium é decidido dentro do slot, então um `AdsSlot` esquecido
+ *   numa página nova nasce correto. `!premiumGeral` no chamador continua
+ *   válido (evita reservar espaço para um slot que não vai existir), mas
+ *   deixou de ser a única linha de defesa.
+ *
+ * E o **fallback Free sem ads**: `usePremiumAtivo` devolve `liberado === true`
+ * enquanto o status Premium é `null` (carregando) ou se a consulta falhou. Nesse
+ * estado `premiumGeral` é `true` e o componente devolve `null` — o visitante
+ * não vê anúncio no lugar do Premium que não abriu. É a direção segura, e é o
+ * que o acordo do programa pede.
+ */
 export function AdsSlot({
   id,
   formato,
@@ -41,18 +68,28 @@ export function AdsSlot({
   rotulo?: string;
 }) {
   const ref = useRef<HTMLModElement>(null);
-  const [podeExibir, setPodeExibir] = useState(false);
+  const [consentiu, setConsentiu] = useState(false);
+  const { usuario } = useAuth();
+  const { liberado } = usePremiumAtivo();
+  const isPremium = usuario?.papel === "premium" || usuario?.papel === "admin";
+  const premiumGeral = isPremium || liberado;
   const slot = SLOT_POR_FORMATO[formato];
 
   useEffect(() => {
-    const atualizar = () => setPodeExibir(permiteCategoria("personalizacao"));
+    const atualizar = () => setConsentiu(consentiuAnuncio());
     atualizar();
     window.addEventListener(EVENTO_CONSENTIMENTO_ALTERADO, atualizar);
     return () => window.removeEventListener(EVENTO_CONSENTIMENTO_ALTERADO, atualizar);
   }, []);
 
+  const podeExibir = podeExibirAnuncio({
+    consentiu,
+    premium: premiumGeral,
+    temPublisherId: Boolean(ADSENSE_CLIENT_ID && slot),
+  });
+
   useEffect(() => {
-    if (!podeExibir || !ADSENSE_CLIENT_ID || !slot || !ref.current) return;
+    if (!podeExibir || !ref.current) return;
     try {
       (window.adsbygoogle = window.adsbygoogle || []).push({});
     } catch {
@@ -60,7 +97,12 @@ export function AdsSlot({
     }
   }, [podeExibir, slot]);
 
-  if (ADSENSE_CLIENT_ID && slot && podeExibir) {
+  // Premium (ou status Premium desconhecido): NENHUM nó de anúncio, nem
+  // placeholder, nem espaço reservado. "Premium sem anúncios" quer dizer sem
+  // buraco com a palavra PUBLICIDADE no meio da leitura.
+  if (premiumGeral) return null;
+
+  if (podeExibir) {
     return (
       <div
         role="complementary"
