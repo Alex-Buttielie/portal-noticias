@@ -242,6 +242,78 @@ O pipeline de ingestão (`backend/catalogo_noticias/`) busca notícias de verdad
 
    (em duas janelas separadas; não é necessário para só validar funcionalidades manualmente com o comando `ingerir_noticias` acima.)
 
+### Saúde das filas: `manage.py saude_filas` (P1-03)
+
+O worker e o beat são serviços que "no ar" não provam nada: um beat que
+subiu e não disparou nada produz o mesmo `ps` de um beat saudável. Por isso
+existe um relatório que **mede** em vez de deduzir:
+
+```
+cd backend
+.venv/bin/python manage.py saude_filas            # resumo legível
+.venv/bin/python manage.py saude_filas --json     # uma linha, para monitor
+```
+
+Ele verifica cinco dependências separadamente — registro das tasks da
+agenda, broker (profundidade da fila), worker vivo (`inspect().ping()` +
+idade da task em execução mais antiga), heartbeat do beat e último ciclo da
+task monitorada (`FILAS_TAREFA_MONITORADA`, por padrão a ingestão) — e
+devolve **três** estados, com **três códigos de saída distintos**:
+
+| estado | saída | quando |
+|---|---|---|
+| `ok` | 0 | tudo foi verificado e nada está com problema |
+| `degradado` | 1 | algo foi medido e está ruim (fila funda, beat velho, task travada, último ciclo em falha) |
+| `desconhecido` | 3 | **não foi possível verificar** |
+
+`desconhecido` existe porque "não consegui medir" e "está tudo bem" são
+fatos diferentes, e um monitor que trata os dois como sucesso é um falso
+verde. Nenhum caminho de "não medi" converge para `ok`: broker fora do ar,
+`inspect()` sem resposta, contagem não numérica, arquivo de estado
+ausente/corrompido/sem carimbo e modo inline (em que não existe fila) são
+todos `desconhecido`, com o motivo escrito no relatório. Só um fato negativo
+**medido** promove a `degradado` — e mesmo aí `verificado` continua `false`.
+
+O **heartbeat do beat** é o que fecha a lacuna entre "processo no ar" e
+"agenda rodando": a task `config.tasks.heartbeat_beat` está no
+`CELERY_BEAT_SCHEDULE` (chave `portal-heartbeat-beat`, a cada
+`FILAS_HEARTBEAT_INTERVALO_SEGUNDOS`, padrão 5 min) e grava em disco, de
+cada execução, o instante e o pid de quem rodou. Ela é despachada pelo beat
+e executada por um **worker**, então o arquivo só existe se as duas pontas
+estiverem de pé. A idade vem do carimbo **dentro** do arquivo, nunca do
+`mtime` — um `touch`/`cp -p` externo não fabrica frescor. Passado
+`FILAS_BEAT_MAX_AGE_SEGUNDOS` (padrão 900 s, três intervalos) sem novo
+registro, o estado vira `degradado` com a idade no motivo.
+
+Onde o estado fica gravado é `PORTAL_FILAS_ESTADO_DIR`; sem essa variável o
+padrão é `$XDG_STATE_HOME/portal-noticias` ou um diretório próprio no
+tempdir — **nunca dentro do repositório**. Em DEV/HOMOLOG/PROD aponte para um
+caminho durável e fora do diretório de deploy (ex.: `/var/lib/portal-noticias`),
+criado e com permissão de escrita para o usuário do serviço: sem isso o
+diretório some a cada reboot e o relatório volta (corretamente) para
+`desconhecido` até o primeiro tick pós-boot. Esse provisionamento é
+dependência humana de P0-07, não algo que o código resolva.
+
+**Retry e idempotência da ingestão.** `catalogo_noticias.tasks.ingerir_noticias`
+usa `autoretry_for` com uma lista estreita de falhas *transitórias de
+infraestrutura* (`django.db.OperationalError`, `redis.exceptions.ConnectionError`
+e `TimeoutError`), `max_retries=3`, backoff exponencial com jitter. Erro de
+conteúdo de uma fonte não entra nessa lista: ele já é capturado por fonte
+dentro de `executar_ingestao` e vira `RegistroExecucaoIngestao.erros_por_fonte` —
+um RSS fora do ar não deve reprocessar a ingestão inteira. O número de
+tentativas é observável no log e no estado durável (`tentativas_observadas`,
+zerado por um sucesso). Reprocessar não duplica: `NewsItem.url_fonte_original`
+é `UNIQUE` e a persistência em lote filtra o que já existe antes de escrever,
+de modo que uma execução que grava e só depois falha, seguida de retry,
+deixa itens, clusters **e custo de LLM** exatamente iguais.
+
+**Modo inline (desenvolvimento, atalho explícito).** `CELERY_TASK_ALWAYS_EAGER=true`
+faz `.delay()` executar no próprio processo. É opt-in e **não é o default**,
+porque um default inline esconderia a fila justamente no ambiente onde ela
+importa. Nesse modo o `saude_filas` responde `desconhecido` para as sondagens
+de fila — com o motivo explícito — em vez de fingir que uma fila saudável foi
+observada.
+
 ### Reduzindo custo/número de chamadas ao provedor de LLM
 
 Por padrão, o pipeline resume os itens novos de uma execução em **lotes** de `CATALOGO_NOTICIAS_LLM_TAMANHO_LOTE` (padrão 10) — uma única chamada HTTP cobre até 10 notícias independentes, em vez de uma chamada por notícia. Cada notícia continua recebendo um resumo gerado exclusivamente a partir do seu próprio conteúdo (nenhum resumo é compartilhado/combinado entre notícias diferentes — a mesma garantia contra atribuição incorreta de conteúdo de antes, só que aplicada a N itens por chamada). Dois parâmetros em `backend/.env` controlam isso:

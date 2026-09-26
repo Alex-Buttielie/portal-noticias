@@ -155,6 +155,15 @@ Internet → Cloudflare (opcional: CDN + WAF + DDoS + TLS na borda)
                   → Celery worker + beat (ingestão, e-mails, vencimentos)
 ```
 
+O estado do worker/beat **não** é deduzido de "processo no ar": o beat
+despacha a task `config.tasks.heartbeat_beat` (chave
+`portal-heartbeat-beat` do `CELERY_BEAT_SCHEDULE`) e um worker a executa
+gravando o instante em `PORTAL_FILAS_ESTADO_DIR`. `manage.py saude_filas`
+mede fila, worker, heartbeat e último ciclo e devolve `ok` (0), `degradado`
+(1) ou `desconhecido` (3) — nunca `ok` sem ter verificado tudo. Ver
+`README.md` (seção "Saúde das filas") e `infra/filas/PROVISIONAMENTO.md`
+(o que ainda depende de provisionamento humano, P0-07).
+
 O deploy ativo é feito pelos workflows em `.github/workflows/` para as
 aplicações PM2 e pelos sites em `infra/nginx/`; `docker compose --env-file
 .env.production up -d --build` e o `Caddyfile` descrevem somente a variante
