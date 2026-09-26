@@ -534,11 +534,44 @@ def ler(rel):
 
 
 # --- 7. marcadores de conflito
+#
+# O Git grava um conflito como TRIO: "<<<<<<< HEAD" / "=======" / ">>>>>>> branch".
+# So as duas PONTAS sao inequivocas. A linha "=======" do meio, sozinha, e
+# INDISTINGUIVEL de banner, regua, sublinhado ou separador de secao em
+# docstring/comentario -- padrao legitimo, comum e Encoding-compatible.
+#
+# POR QUE A REGRA ANTERIOR ERA DEFEITO (comportamento removido aqui):
+#   `("conflict-marker-separador", re.compile(r"^={7,}$"))` casava com QUALQUER
+#   linha formada so por 7 ou mais "=", sem exigir contexto de conflito. Medido
+#   na branch int-v2 (HEAD 411f30d): 22 achados, TODOS banners decorativos de
+#   docstring em backend/config/{uploads,egress,health,views}.py e
+#   backend/config/tests/*. A branch estava integra e valida -- a checagem 9
+#   (python-valido) passava, e conflito real do Git em .py e SyntaxError, ou
+#   seja, marcador de conflito do Git nao sobrevive ao parse. Logo os 22
+#   achados eram falso positivo garantido: regra permissiva demais que reprova
+#   codigo valido. Mesma classe de defeito do tag.upper() na checagem 6.
+#
+# CORROBORACAO INTRA-ARQUIVO (o que substitui a regra solta):
+#   o separador so vira achado se o MESMO arquivo tambem trouxer ponta de
+#   conflito (<<<<<<< ou >>>>>>>) em inicio de linha. E mais estrito em
+#   CONTEXTO, nao mais permissivo em resultado: conflito real do Git sempre vem
+#   com a ponta no mesmo arquivo, entao nenhum conflito real escapa e a
+#   checagem continua fail-closed. Nao ha lista branca, carve-out por caminho,
+#   .gitattributes nem exclusao -- a unica exigencia acrescentada e a
+#   corroboracao, que e a unica evidencia disponivel de conflito real.
 CONFLITOS = (
     ("conflict-marker-inicio", re.compile(r"^<{7}")),
     ("conflict-marker-fim", re.compile(r"^>{7}")),
     ("conflict-marker-separador", re.compile(r"^={7,}$")),
 )
+
+# Ponta de conflito: unica evidencia com confianca real. Sem ponta no mesmo
+# arquivo, "=======" e decoracao -- nao e prova de conflito.
+PONTAS_CONFLITO = (re.compile(r"^<{7}"), re.compile(r"^>{7}"))
+
+# Unica regra de CONFLITOS que depende de corroboracao; as pontas sao achado
+# por si, por serem marca de conflito em si.
+REGRA_SEPARADOR = "conflict-marker-separador"
 
 # --- 8. segredos aparentes
 REGRAS_ESPECIFICAS = (
@@ -624,13 +657,24 @@ if not SEM_FERRAMENTAS:
             except UnicodeDecodeError:
                 texto = None
             if texto is not None:
-                for numero, linha in enumerate(texto.splitlines(), 1):
+                linhas = texto.splitlines()
+                # 7 (corroboracao): o separador "=======" so e achado se o MESMO
+                # arquivo trouxer ponta de conflito (<<<<<<< ou >>>>>>>). Sem
+                # ponta, e banner/regua decorativo. Ver CONFLITOS acima.
+                tem_ponta = any(ponta.search(linha)
+                                for linha in linhas for ponta in PONTAS_CONFLITO)
+                for numero, linha in enumerate(linhas, 1):
                     achou_especifica = False
                     for regra, padrao in CONFLITOS:
-                        if padrao.search(linha):
-                            conflitos += 1
-                            achado("sem-conflito", rel, numero, regra,
-                                   "marcador de conflito de merge")
+                        if not padrao.search(linha):
+                            continue
+                        if regra == REGRA_SEPARADOR and not tem_ponta:
+                            continue
+                        conflitos += 1
+                        achado("sem-conflito", rel, numero, regra,
+                               "marcador de conflito de merge" if regra != REGRA_SEPARADOR
+                               else "marcador de conflito de merge; "
+                                    "separador corroborado por ponta no mesmo arquivo")
                     for regra, padrao in REGRAS_ESPECIFICAS:
                         if padrao.search(linha):
                             achou_especifica = True
