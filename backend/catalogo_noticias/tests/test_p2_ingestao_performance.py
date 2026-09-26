@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import timedelta
 from unittest.mock import MagicMock, patch
 
@@ -144,7 +145,13 @@ def test_pipeline_confirma_validators_somente_apos_persistir_itens():
     assert NewsItem.objects.filter(url_fonte_original="https://p2.test/pipeline-item").count() == 1
 
 
-def test_validator_nao_avanca_se_a_persistencia_do_lote_falhar():
+def test_validator_nao_avanca_se_a_persistencia_do_lote_falhar(caplog):
+    """P1-01 mudou o COMO (a falha do grupo nao derruba mais a execucao) mas
+    nao o QUE: o ETag da fonte cujo grupo nao foi persistido NAO pode
+    avancar, senao a proxima rodada receberia um 304 e os itens perdidos
+    nunca mais seriam baixados. A garantia e agora explicita em
+    `executar_ingestao` (`fontes_com_persistencia_falha`).
+    """
     fonte = FonteRobo.objects.create(
         nome="Fonte worker perdido P2",
         url="https://p2.test/worker-perdido",
@@ -164,23 +171,32 @@ def test_validator_nao_avanca_se_a_persistencia_do_lote_falhar():
         url_feed=fonte.url,
         fonte_robo=fonte,
     )
-    with patch(
-        "catalogo_noticias.providers.news_source.requests.get",
-        return_value=resposta,
-    ):
+    with caplog.at_level(logging.WARNING):
         with patch(
-            "catalogo_noticias.services.ingestao._persistir_grupo",
-            side_effect=RuntimeError("worker caiu"),
+            "catalogo_noticias.providers.news_source.requests.get",
+            return_value=resposta,
         ):
-            with pytest.raises(RuntimeError, match="worker caiu"):
-                executar_ingestao(
+            with patch(
+                "catalogo_noticias.services.ingestao._persistir_grupo",
+                side_effect=RuntimeError("worker caiu"),
+            ):
+                registro = executar_ingestao(
                     fontes=[provider],
                     summarization_provider=_ResumoFake(),
                 )
 
+    # A falha foi ISOLADA e registrada, nao engolida e nao propagada.
+    assert registro.erros_por_fonte
+    assert any("worker caiu" in str(v) for v in registro.erros_por_fonte.values())
+    # E o mais importante: o validator NAO avancou.
     fonte.refresh_from_db()
     assert fonte.etag == ""
     assert fonte.last_modified == ""
+    avisos = " ".join(
+        r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING
+    )
+    assert "NAO sera confirmado" in avisos
+    assert fonte.nome in avisos
 
 
 def test_troca_de_url_invalida_validators_http():
@@ -595,14 +611,22 @@ class _ResumoQueCaiDepoisDaReserva(_ResumoComReserva):
         raise RuntimeError("worker caiu depois da resposta do LLM")
 
 
-def test_custo_llm_e_reservado_antes_da_chamada_e_sobrevive_a_queda():
+def test_custo_llm_e_reservado_antes_da_chamada_e_sobrevive_a_queda(caplog):
+    """A reserva de custo e gravada ANTES da chamada externa, entao sobrevive
+    a uma queda do worker — inclusive depois do isolamento por item do P1-01,
+    que hoje converte a excecao em "item em revisao humana" em vez de derrubar
+    a rodada.
+
+    O que este teste protege e o ORCAMENTO, nao a propagacao: uma chamada que
+    pode ter gerado cobranca nunca pode desaparecer do teto diario.
+    """
     item = ItemBruto(
         titulo="Custo reservado",
         url_fonte_original="https://p2.test/custo-reservado",
         nome_fonte="Fonte Custo",
         conteudo_bruto="Texto bruto.",
     )
-    with pytest.raises(RuntimeError, match="worker caiu"):
+    with caplog.at_level(logging.ERROR):
         executar_ingestao(
             fontes=[_FonteFake(item)],
             summarization_provider=_ResumoQueCaiDepoisDaReserva(),
@@ -612,6 +636,11 @@ def test_custo_llm_e_reservado_antes_da_chamada_e_sobrevive_a_queda():
     assert registro is not None
     assert registro.custo_estimado_summarization_usd == pytest.approx(0.25)
     assert registro.chamadas_summarization_provider == 1
+    # A queda foi registrada com contexto (fonte, item, motivo), nao engolida.
+    assert registro.erros_por_fonte
+    assert any(
+        "worker caiu" in str(v) for v in registro.erros_por_fonte.values()
+    )
 
 
 @pytest.mark.django_db(transaction=True)

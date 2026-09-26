@@ -15,13 +15,22 @@ import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone as dt_timezone
-from html.parser import HTMLParser
 from typing import Optional
 
 import feedparser
 import requests
 from django.conf import settings
 from django.utils import timezone as django_timezone
+
+# P1-01: os utilitarios de texto (limpeza de HTML + truncagem segura) vivem em
+# `catalogo_noticias/limites_texto.py`, sem dependencia de models, para que o
+# provider e o servico de ingestao compartilhem a MESMA implementacao — duas
+# copias divergentes fariam um dos caminhos aceitar o que o outro recusa.
+from ..limites_texto import (
+    FOLGA_ANTES_DE_LIMPAR_HTML,
+    limpar_html_para_texto,
+    truncar,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -88,41 +97,90 @@ def extrair_imagem_url(entrada) -> str:
     return ""
 
 
-class _StripperDeHtml(HTMLParser):
-    """Remove tags HTML mantendo o texto (stdlib, sem dependência nova)."""
-
-    def __init__(self):
-        super().__init__()
-        self._partes: list[str] = []
-
-    def handle_data(self, data: str):
-        self._partes.append(data)
-
-    def texto(self) -> str:
-        return "".join(self._partes)
-
-
-def limpar_html_para_texto(html: str) -> str:
-    """Converte HTML do RSS em texto puro: remove tags/scripts, decodifica
-    entidades e colapsa espaços. Nunca lança exceção (best-effort)."""
-    import html as _html
-    import re as _re
-
-    bruto = html or ""
-    try:
-        sem_script = _re.sub(r"(?is)<(script|style)[^>]*>.*?</\1>", " ", bruto)
-        com_quebras = _re.sub(r"(?i)<\s*(br|p|div|li|h[1-6])[^>]*>", "\n", sem_script)
-        stripper = _StripperDeHtml()
-        stripper.feed(com_quebras)
-        texto = _html.unescape(stripper.texto())
-    except Exception:
-        texto = _re.sub(r"<[^>]+>", " ", bruto)
-    texto = _re.sub(r"[ \t\xa0]+", " ", texto)
-    texto = _re.sub(r"\n\s*\n+", "\n\n", texto)
-    return texto.strip()
-
-
 TETO_CONTEUDO_COMPLETO_CHARS = 8000
+
+# ---------------------------------------------------------------------------
+# Tetos do provider (P1-01) — o FRONT de memoria do pipeline.
+#
+# estes numeros reproduzem os `max_length` REAIS do modelo `NewsItem`. Sao
+# declarados aqui, e nao lidos de `_meta`, porque este modulo e a camada de
+# FONTE e nao deve depender de `django.db.models`; a garantia de que eles nao
+# divergem do DDL esta em
+# `tests/test_p1_01_ingestao_limites.py::test_tetos_do_provider_batem_com_o_modelo`.
+#
+# O provider nao e o lugar onde o limite e GARANTIDO: um feed pode vir de
+# qualquer fonte, e `services/limites.py` reaplica tudo no servico antes de
+# qualquer escrita. Aqui o objetivo e outro e mais fraco: nao segurar um feed
+# gigante em memoria ate o fim da rodada, e nao alimentar o `SequenceMatcher`
+# do agrupamento com titulos enormes.
+# ---------------------------------------------------------------------------
+_LIMITE_TITULO = 300
+_LIMITE_URL = 1000
+_LIMITE_NOME_FONTE = 150
+_LIMITE_CATEGORIA = 100
+_LIMITE_ESTADO = 100
+_LIMITE_PAIS = 100
+_LIMITE_IMAGEM_URL = 1000
+_TETO_CONTEUDO_BRUTO = 20_000
+
+
+def _limitar_url(url: str, nome_fonte: str) -> str:
+    """URL acima do `max_length` e um item INUTILIZAVEL, nao um item para
+    truncar: truncar produziria outra URL, que nao e a materia da fonte.
+
+    O item e descartado aqui (vazio), e o servico nunca chega a tentar
+    persistir uma URL invalida. O motivo fica registrado no log de WARNING
+    porque o operador precisa saber que o feed trouxe algo descartavel —
+    e no placar de falhas da rodada, no servico.
+    """
+    if len(url) <= _LIMITE_URL:
+        return url
+    logger.warning(
+        "Item do feed '%s' descartado: url_fonte_original tem %d caracteres e o "
+        "limite e %d (truncar fabricaria outra URL).",
+        nome_fonte,
+        len(url),
+        _LIMITE_URL,
+    )
+    return ""
+
+
+def _limitar_imagem(url: str) -> str:
+    """URL de imagem acima do `max_length` e descartada (vira ""): uma URL
+    cortada aponta para um recurso inexistente, que e pior que nao ter
+    imagem — o item entra sem imagem em vez de nao entrar."""
+    if len(url) <= _LIMITE_IMAGEM_URL:
+        return url
+    logger.warning(
+        "imagem_url com %d caracteres (limite %d) descartada; o item segue sem imagem.",
+        len(url),
+        _LIMITE_IMAGEM_URL,
+    )
+    return ""
+
+
+def _cortar_html_bruto(html: str) -> str:
+    """Corta o HTML bruto ANTES da limpeza, para nao materializar o feed
+    inteiro so para descartar quase tudo logo em seguida.
+
+    Antes o corte vinha depois: um `content:encoded` de 3 MB virava 3 MB de
+    texto e so entao era truncado para 8.000 chars — o pico de memoria da
+    ingestao crescia com o tamanho do feed, nao com o teto do campo. A folga
+    de `FOLGA_ANTES_DE_LIMPAR_HTML` cobre o caso em que a limpeza INFLА o
+    texto por expansao de entidades, e nunca resulta em menos texto util do
+    que antes, porque o corte final em `TETO_CONTEUDO_COMPLETO_CHARS` segue
+    valendo.
+    """
+    teto = TETO_CONTEUDO_COMPLETO_CHARS * FOLGA_ANTES_DE_LIMPAR_HTML
+    if len(html) <= teto:
+        return html
+    # O corte e no ultimo `>` para nao deixar markup pela metade, que a
+    # limpeza depois transformaria em texto solto sem sentido.
+    cortado = html[:teto]
+    ultimo_fim_de_tag = cortado.rfind(">")
+    if ultimo_fim_de_tag > teto // 2:
+        return cortado[: ultimo_fim_de_tag + 1]
+    return cortado
 
 
 def extrair_conteudo_completo(entrada) -> str:
@@ -140,7 +198,7 @@ def extrair_conteudo_completo(entrada) -> str:
                 html_completo = valor
     if not html_completo.strip():
         html_completo = getattr(entrada, "summary", "") or getattr(entrada, "description", "") or ""
-    texto = limpar_html_para_texto(html_completo)
+    texto = limpar_html_para_texto(_cortar_html_bruto(html_completo))
     return texto[:TETO_CONTEUDO_COMPLETO_CHARS].strip()
 
 
@@ -447,18 +505,48 @@ class RSSNewsSourceProvider(NewsSourceProvider):
                     calendar.timegm(published_parsed), tz=dt_timezone.utc
                 )
 
+            # P1-01: a URL e tratada ANTES de montar o `ItemBruto`, porque um
+            # item sem URL utilizavel nao e publicavel (criterio de aceite 3) e
+            # nao adianta limitador nenhum: ele acabaria recusado la no
+            # `NewsItem.clean()`. Descartar aqui mantem o item malformado
+            # longe do lote, no mesmo caminho (e com o mesmo log) do item sem
+            # titulo/URL acima.
+            url_limitada = _limitar_url(url_item.strip(), self.nome_fonte)
+            if not url_limitada:
+                continue
+
+            # P1-01: teto no proprio provider, para que um feed enorme nao
+            # seja segurado em memoria ate o fim da rodada. A garantia
+            # DEFINITIVA de que nada grande chega ao banco e a aplicacao em
+            # `services/limites.py` (o servico), que cobre qualquer fonte —
+            # aqui o ponto e so reduzir o pico de memoria e o custo de CPU do
+            # agrupamento (que compara titulos com `SequenceMatcher`).
             itens.append(
                 ItemBruto(
-                    titulo=titulo_item.strip(),
-                    url_fonte_original=url_item.strip(),
-                    nome_fonte=self.nome_fonte,
-                    conteudo_bruto=conteudo.strip(),
+                    titulo=truncar(
+                        limpar_html_para_texto(titulo_item.strip()),
+                        _LIMITE_TITULO,
+                    ),
+                    url_fonte_original=url_limitada,
+                    nome_fonte=truncar(
+                        limpar_html_para_texto(self.nome_fonte), _LIMITE_NOME_FONTE
+                    ),
+                    conteudo_bruto=truncar(
+                        conteudo.strip(), _TETO_CONTEUDO_BRUTO
+                    ),
                     conteudo_completo=extrair_conteudo_completo(entrada),
-                    categoria=categoria.strip().lower(),
-                    imagem_url=extrair_imagem_url(entrada),
+                    categoria=truncar(
+                        limpar_html_para_texto(categoria.strip().lower()),
+                        _LIMITE_CATEGORIA,
+                    ),
+                    imagem_url=_limitar_imagem(extrair_imagem_url(entrada)),
                     timestamp_publicacao_fonte=timestamp_publicacao,
-                    estado_fonte=self.estado_fonte,
-                    pais_fonte=self.pais_fonte,
+                    estado_fonte=truncar(
+                        limpar_html_para_texto(self.estado_fonte), _LIMITE_ESTADO
+                    ),
+                    pais_fonte=truncar(
+                        limpar_html_para_texto(self.pais_fonte), _LIMITE_PAIS
+                    ),
                 )
             )
         # Só capturamos validators depois de um parse válido. A gravação no
