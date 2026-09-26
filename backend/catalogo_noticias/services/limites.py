@@ -349,6 +349,30 @@ def aplicar_limites_news_cluster(cluster) -> None:
     limitar_textos(cluster)
 
 
+def checar_campos_recusaveis(instancia) -> None:
+    """So a metade da politica que **nao se pode corrigir em silencio**, sem
+    mutar nada: levanta ``CampoForaDoLimiteError`` se algum campo de
+    ``CAMPOS_RECURSAVEIS`` passou do limite.
+
+    Existe para os caminhos que precisam **recusar com mensagem** em vez de
+    truncar — hoje, o ``ModelForm`` do Admin (P1-01b,
+    ``catalogo_noticias/limites_admin.py``). Um ``ModelAdmin.save_model`` que
+    levantasse a excecao devolveria HTTP 500 ao operador; um formulario que a
+    converte em erro de campo mostra a mensagem no lugar certo. O que o
+    formulario exibe ao operador e o que a ingestao faz com o item e a mesma
+    decisao, so que dita um passo antes: aqui quem recusa e o formulario,
+    la quem recusa e a ingestao.
+
+    Deliberadamente NAO duplica a regra: reusa ``_recusar_item`` e
+    ``limite_de``, entao o teto vem da mesma metadada que gera o DDL. Um
+    ``max_length`` alterado no modelo vale aqui e na ingestao sem ninguem
+    editar dois arquivos.
+    """
+    for campo in CAMPOS_RECURSAVEIS:
+        if _tem_campo(instancia, campo):
+            _recusar_item(instancia, campo)
+
+
 def mensagem_para_erro(exc: BaseException, *, nome_fonte: str = "", identificador: str = "") -> str:
     """Mensagem de log estruturada de uma falha de limite, com o contexto
     minimo para diagnosticar sem reabrir o feed: fonte, identificador do item,
@@ -459,6 +483,7 @@ __all__ = [
     "TRUNCAR",
     "aplicar_limites_news_cluster",
     "aplicar_limites_news_item",
+    "checar_campos_recusaveis",
     "cortar_em_limite_seguro",
     "limite_de",
     "limitar_textos",
