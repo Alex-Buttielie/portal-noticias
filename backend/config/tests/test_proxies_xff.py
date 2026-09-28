@@ -511,6 +511,49 @@ class TestBordes:
         """NEGATIVO: IPv6 não abre uma exceção para o fail-closed."""
         assert _ident(ReqAnon(IPV6_CLIENTE, "1.1.1.1")) == IPV6_CLIENTE
 
+    def test_remote_addr_ausente_nao_levanta(self, com_proxy_declarado):
+        """`REMOTE_ADDR` ausente não pode derrubar a requisição.
+
+        Numa topologia malformada (ou um `META` incompleto), o
+        comportamento tem de ser uma identidade — que pode ser a string
+        vazia, o que resta de `REMOTE_ADDR` — e nunca uma exceção no meio do
+        tráfego. `''` ainda serve de chave de balde, e vazio não é um IP, o
+        que é coerente com "sem proxy declarado, ignore o cabeçalho".
+        """
+        req = ReqAnon("")
+        assert _ident(req) == ""
+
+    def test_remote_addr_que_nao_e_ip_nao_confere_com_o_conjunto(self, settings):
+        """NEGATIVO: `REMOTE_ADDR` não-IP nunca casa com um proxy declarado.
+
+        Sem esta guarda, um `REMOTE_ADDR` textual seria comparado como se
+        fosse endereço e poderia — num `in` malfeito — ser aceito por um
+        proxy declarado. O efeito correto é recusar e devolver o próprio
+        valor.
+        """
+        settings.TRUSTED_PROXY_IPS = PROXY
+        req = ReqAnon("nao-e-um-endereco", "1.1.1.1")
+        assert _ident(req) == "nao-e-um-endereco"
+
+    def test_ultimo_elemento_em_branco_cai_para_remoto_addr(self, com_proxy_declarado):
+        """NEGATIVO: `"1.1.1.1, "` (vírgula final) não vira identidade.
+
+        O último elemento é branco: ou não há cabeçalho confiável, ou o
+        proxy escreveu uma cadeia malformada. Nos dois casos a resposta é
+        `REMOTE_ADDR`, nunca o valor que o cliente escolheu.
+        """
+        assert _ident(ReqAnon(PROXY, "1.1.1.1, ")) == PROXY
+
+    def test_entrada_em_branco_na_configuracao_nao_vira_proxy(self, settings):
+        """NEGATIVO de borda: vírgula sobrando não cria um proxy.
+
+        Um valor de configuração com vírgula/trailing em branco é comum
+        (`TRUSTED_PROXY_IPS=127.0.0.1,`). Ele precisa continuar valendo
+        exatamente o que o operador escreveu, sem item fantasma.
+        """
+        settings.TRUSTED_PROXY_IPS = f"{PROXY}, ,"
+        assert _ident(ReqAnon(PROXY, "1.1.1.1")) == "1.1.1.1"
+
     def test_identidade_e_sempre_string(self, com_proxy_declarado):
         """Contrato: `get_ident` sempre devolve string (é o que vira a chave)."""
         for remote, xff in [
@@ -635,3 +678,18 @@ class TestCheckDeConfiguracao:
         settings.TRUSTED_PROXY_IPS = "nao-e-um-ip"
         ids = [e.id for e in run_checks()]
         assert "config.E001" in ids, f"config.E001 não apareceu em {ids}"
+
+    def test_check_ignora_entrada_em_branco(self, settings):
+        """Uma vírgula sobrando não pode virar erro de deploy.
+
+        `TRUSTED_PROXY_IPS=127.0.0.1,` é configuração normal de quem
+        editou a lista; reprovar o deploy por isso seria um falso positivo
+        que treina o operador a ignorar o gate.
+        """
+        settings.TRUSTED_PROXY_IPS = f"{PROXY}, ,"
+        assert self._rodar_check(None) == []
+
+    def test_check_ignora_todos_os_espacos(self, settings):
+        """Só de espaços/vírgulas não é erro — é a configuração vazia."""
+        settings.TRUSTED_PROXY_IPS = " , , "
+        assert self._rodar_check(None) == []

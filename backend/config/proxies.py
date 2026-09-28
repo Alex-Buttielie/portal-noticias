@@ -208,7 +208,7 @@ def get_ident(request) -> str:
     return _resolver_endereco(str(candidato))
 
 
-def _falhar_se_configuracao_invalida() -> None:  # pragma: no cover - usada no check
+def _falhar_se_configuracao_invalida() -> None:
     """Levanta se `TRUSTED_PROXY_IPS` tiver alguma entrada não interpretável.
 
     Chamado por um `manage.py check` customizado (ver
