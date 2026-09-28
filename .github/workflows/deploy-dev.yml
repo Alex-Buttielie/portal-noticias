@@ -27,8 +27,25 @@ jobs:
       db_name: brd_portal_dev
       db_user: portal_dev
       strict_validate: false
+      # Gate de usuários de teste (o mesmo `criar_usuario_carga` do
+      # `subir-localhost.sh`, mas com `--sem-senha`): cria uma conta por perfil
+      # (free/premium/admin) sem senha em lugar nenhum. O primeiro acesso é
+      # /recuperar-senha, e a senha é definida por quem entra. Aqui o e-mail de
+      # teste é seguro justamente porque não há senha conhecida.
+      usuarios_teste: true
     secrets:
       VPS_HOST: ${{ secrets.VPS_HOST }}
       VPS_USER: ${{ secrets.VPS_USER }}
       VPS_PASSWORD: ${{ secrets.VPS_PASSWORD }}
       VPS_PORT: ${{ secrets.VPS_PORT }}
+      # Autenticação por chave dedicada e impressão digital do host (C2.6).
+      # Ambos OPCIONAIS: sem eles, o caminho por senha é idêntico ao anterior.
+      VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+      VPS_HOST_FINGERPRINT: ${{ secrets.VPS_HOST_FINGERPRINT }}
+      # Sentry (C2.4): opcionais, usados só para o upload de source map do
+      # `verify`. Sem eles, o passo é pulado (fail-open) e o CI segue verde —
+      # comportamento CORRETO em dev (D1: só PROD exige credencial).
+      SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+      SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+      SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
+      SENTRY_URL: ${{ secrets.SENTRY_URL }}
