@@ -183,6 +183,91 @@ export function logout(token: string): Promise<{ detail: string }> {
   return request("/api/auth/logout/", { method: "POST" }, token);
 }
 
+// ---------------------------------------------------------------------------
+// Login social via Google (P1-05b) — contrato lido de
+// `backend/identidade/views.py` (`GoogleLoginIniciarView` e `GoogleLoginView`),
+// `backend/identidade/serializers.py` (`GoogleLoginSerializer`) e
+// `backend/identidade/oauth_google.py`. Nada aqui é adivinhado.
+//
+// O handshake tem TRÊS passos e a ORDEM é o que segura a conta:
+//
+//   1. POST /api/auth/google/iniciar/  ->  200 {nonce, expira_em_segundos}
+//                                          503 {detail} (backend sem
+//                                              GOOGLE_OAUTH_CLIENT_ID)
+//   2. o front passa o `nonce` ao Google Identity Services, que o devolve
+//      ASSINADO no claim `nonce` do `id_token`
+//   3. POST /api/auth/google/  ->  200 {token, usuario, criado_agora}
+//                                400 "Token do Google inválido."  (assinatura/
+//                                      aud/exp do id_token recusados pelo allauth)
+//                                400 "…aceitar os termos…"        (conta nova sem aceite)
+//                                403 {detail}                     (nonce ausente,
+//                                      inválido, EXPIRADO, claim divergente,
+//                                      e-mail não verificado no provedor, ou
+//                                      conta local sem e-mail confirmado —
+//                                      todas de propósito com a MESMA mensagem,
+//                                      para o endpoint não ser oráculo de
+//                                      "esta conta existe")
+//                                403 "Conta inativa."
+//                                503 {detail}  (provedor não configurado)
+//
+// POR QUE `credentials: "include"` É OBRIGATÓRIO NAS DUAS CHAMADAS
+// O nonce não é um valor que o front possa guardar e reenviar: ele é atrelado
+// à SESSÃO do backend (`request.session[CHAVE_SESSAO_NONCE]`, em
+// `oauth_google.py:emitir_nonce`). Sem o cookie de sessão, o passo 1 é
+// aceito e o passo 3 volta 403 `nonce_ausente` — o login quebraria em
+// silêncio, com uma mensagem que manda a pessoa entrar com e-mail e senha sem
+// dizer por quê.
+//
+// POR QUE O CAMINHO É RELATIVO (`/api/...`) E NUNCA UMA URL ABSOLUTA
+// O cookie de sessão tem `SESSION_COOKIE_SAMESITE = "Lax"`
+// (`backend/config/settings.py:217`), e Lax só entrega o cookie em requisição
+// de mesma origem ou de mesmo site (mesmo domínio registrável; porta diferente
+// não conta). Cruzar de origem — inclusive `NEXT_PUBLIC_API_BASE_URL` apontando
+// para OUTRO domínio — faz o cookie não viajar e o nonce deixar de existir do
+// lado do backend. No navegador em produção `API_BASE_URL` já resolve para ""
+// (mesma origem, via o route handler `app/api/[...path]/route.ts`), então o
+// caminho relativo é o que garante o mesmo comportamento em DEV/HOMOLOG/PROD
+// sem depender de configuração. `lib/google-oauth.ts` ainda checa isso em
+// tempo de execução e falha com mensagem clara em vez de deixar quebrar calado.
+// ---------------------------------------------------------------------------
+
+export interface NonceGoogle {
+  nonce: string;
+  expira_em_segundos: number;
+}
+
+/** Passo 1 do handshake: emite o `state`/nonce e o amarra à sessão. */
+export function iniciarLoginGoogle(): Promise<NonceGoogle> {
+  return request("/api/auth/google/iniciar/", {
+    method: "POST",
+    credentials: "include",
+  });
+}
+
+export interface RespostaLoginGoogle extends LoginResposta {
+  /** `true` quando o login acabou de criar a conta (`criado_agora`). */
+  criado_agora: boolean;
+}
+
+/**
+ * Passo 3 do handshake: o `id_token` do Google **e** o `nonce` que o backend
+ * emitiu no passo 1. O `aceite_termos` é obrigatório só para conta nova, e o
+ * front não sabe se a conta é nova antes de consultar o backend — por isso ele
+ * é sempre enviado (o valor do checkbox) e a recusa do backend é mostrada
+ * como falha, nunca como sucesso.
+ */
+export function concluirLoginGoogle(dados: {
+  id_token: string;
+  nonce: string;
+  aceite_termos: boolean;
+}): Promise<RespostaLoginGoogle> {
+  return request("/api/auth/google/", {
+    method: "POST",
+    credentials: "include",
+    body: JSON.stringify(dados),
+  });
+}
+
 export function recuperarSenha(email: string): Promise<{ detail: string }> {
   return request("/api/auth/recuperar-senha/", {
     method: "POST",

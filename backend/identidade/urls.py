@@ -7,6 +7,7 @@ app_name = "identidade"
 urlpatterns = [
     path("auth/cadastro/", views.CadastroView.as_view(), name="cadastro"),
     path("auth/verificar-email/", views.VerificarEmailView.as_view(), name="verificar-email"),
+    path("auth/google/iniciar/", views.GoogleLoginIniciarView.as_view(), name="google-login-iniciar"),
     path("auth/google/", views.GoogleLoginView.as_view(), name="google-login"),
     path("auth/login/", views.LoginView.as_view(), name="login"),
     path("auth/logout/", views.LogoutView.as_view(), name="logout"),

@@ -64,3 +64,29 @@ HEALTH_DETAIL_TOKEN = "token-de-teste-p0-10-nao-usar-fora-da-suite"
 CELERY_BROKER_URL = "memory://"
 CELERY_RESULT_BACKEND = "cache+memory://"
 CELERY_TASK_ALWAYS_EAGER = False
+
+# P1-05 — identificador de cliente **fictício** do Google para a suíte.
+#
+# O `client_id` é o `aud` que o allauth exige no `id_token`. Sem ele
+# configurado, o PyJWT rejeita todos os tokens e `POST /api/auth/google/`
+# responde 503 (ver `identidade/oauth_google.client_id_configurado`) — o
+# que faria a suíte de login social não exercitar nada.
+#
+# Nenhum teste fala com o Google: a chave pública usada para conferir a
+# assinatura é injetada por dublê em `jwtkit.fetch_key`
+# (`identidade/tests/test_p1_05_google_oauth.py`), e o par
+# assinatura/chave é gerado na hora pelo próprio teste. Este valor serve
+# só de audience esperado. Em um ambiente real, `GOOGLE_OAUTH_CLIENT_ID`
+# do ambiente tem prioridade.
+_SOCIALACCOUNT_PROVIDERS_DE_TESTE = {
+    **SOCIALACCOUNT_PROVIDERS,
+    "google": {
+        **SOCIALACCOUNT_PROVIDERS["google"],
+        "APP": {
+            **SOCIALACCOUNT_PROVIDERS["google"]["APP"],
+            "client_id": os.environ.get("GOOGLE_OAUTH_CLIENT_ID")
+            or "client-id-de-teste.apps.googleusercontent.com",
+        },
+    },
+}
+SOCIALACCOUNT_PROVIDERS = _SOCIALACCOUNT_PROVIDERS_DE_TESTE

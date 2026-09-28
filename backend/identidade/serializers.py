@@ -162,6 +162,13 @@ class GoogleLoginSerializer(serializers.Serializer):
     # de consultar o banco (ver GoogleLoginView.post, Finding 1/2 do
     # code-review-contract.md).
     aceite_termos = serializers.BooleanField(required=False, default=False)
+    # `state`/`nonce` do anti-CSRF e anti-replay deste fluxo. Emitido por
+    # `POST /api/auth/google/iniciar/`, atrelado à sessão do navegador e de
+    # uso único; o MESMO valor precisa aparecer, assinado, no claim `nonce`
+    # do `id_token`. Obrigatório — a ausência é tratada como recusa, e não
+    # como "login sem CSRF". Ver `identidade/oauth_google.py` para o porquê
+    # de um fluxo sem redirect precisar (e precisar) deste par.
+    nonce = serializers.CharField(allow_blank=False, trim_whitespace=False)
 
 
 class OnboardingSerializer(serializers.ModelSerializer):
