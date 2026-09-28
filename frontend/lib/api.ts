@@ -128,6 +128,51 @@ async function request<T>(
 }
 
 // ---------------------------------------------------------------------------
+// >>> PENDÊNCIA MARCADA — `corpo as T` é uma AFIRMAÇÃO, não uma verificação
+// ---------------------------------------------------------------------------
+// ESTA LINHA É O MAIOR BURACO DE TIPO DO CLIENTE, E ELA É SABIDA.
+//
+// `T` aqui é um parâmetro de tipo que o TypeScript apaga em tempo de
+// execução. Nada confere que o JSON que veio do backend tem a forma de `T`.
+// O `tsc` portanto não pode acusar o tipo errado — e historicamente não
+// acusa.
+//
+// O caso que já aconteceu: `cadastrar()` declarava
+// `Promise<{ detail: string; usuario: Usuario }>` quando o backend (P1-04)
+// tinha parado de devolver `usuario` (o campo carregava `id`, `papel` e
+// `email_verificado` — oráculos de existência de conta). O único
+// consumidor descartava o resultado, então nada quebrou; o `.usuario`
+// devolveria `undefined` em runtime para o primeiro código que o lesse,
+// com o compilador calado.
+//
+// ALCANCE REAL DESTA PENDÊNCIA
+// ===========================
+// Não é o cadastro: são ~103 tipos de resposta neste arquivo, e TODOS
+// passam por esta linha. Corrigir o cadastro não fechou a classe — a
+// classe está aberta.
+//
+// Fechar de verdade significa uma de duas coisas, e nenhuma é barata:
+//   1. validação em RUNTIME dos formatos (zod/valibot), que implica
+//      mexer em `package.json` — fora do escopo do lote que corrigiu o
+//      cadastro; ou
+//   2. geração de contrato a partir dos serializers do backend, o que é
+//      trabalho de Onda própria, não um conserto.
+//
+// O QUE JÁ ESTÁ PRESO
+// ==================
+// O caso do cadastro tem guarda mecânica em
+// `backend/config/tests/test_p1_04_contrato_frontend.py`: os campos
+// declarados são extraídos deste arquivo e comparados com a resposta real
+// do endpoint, nos dois sentidos. Aquele é um ponto, não uma classe.
+//
+// QUANDO ESCREVER UM `T` AQUI
+// ===========================
+// Trate `T` como uma HIPÓTESE, não como um fato. Antes de ler um campo do
+// resultado, confirme que o endpoint realmente o devolve — no serializer do
+// backend, na docstring da view, ou no teste do contrato.
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
 // identidade/
 // ---------------------------------------------------------------------------
 
@@ -153,13 +198,38 @@ export interface LoginResposta {
   usuario: Usuario;
 }
 
+/**
+ * Resposta de `POST /api/auth/cadastro/`.
+ *
+ * A resposta é `{"detail": ...}` e NADA MAIS — e isso é uma decisão de
+ * segurança do backend (P1-04), não um esquecimento. Trazendo `usuario`
+ * dentro dela, as respostas "criado agora" e "e-mail já tinha conta"
+ * deixariam de ser idênticas: o objeto carrega `id`, `papel`,
+ * `email_verificado` e `date_joined` da conta existente, e cada um
+ * desses é um oráculo de existência de conta (`email_verificado`
+ * distingue "criada agora" de "já verificada").
+ *
+ * Este tipo declarava `usuario: Usuario` mesmo assim. Como `request<T>`
+ * devolve `corpo as T` (uma AFIRMAÇÃO, não uma verificação), o TypeScript
+ * não tinha como reclamar: o primeiro código que lesse `.usuario` receberia
+ * `undefined` em runtime, com o compilador calado.
+ *
+ * A correção do tipo é a parte fácil. A parte que não é trivia é a
+ * GUARDA: `backend/config/tests/test_p1_04_contrato_frontend.py` extrai
+ * estes campos mecanicamente deste arquivo e compara com a resposta real
+ * do endpoint — então voltar a prometer `usuario` aqui reprova a suíte.
+ */
+export interface CadastroResposta {
+  detail: string;
+}
+
 export function cadastrar(dados: {
   email: string;
   senha: string;
   nome?: string;
   aceite_termos: boolean;
-}): Promise<{ detail: string; usuario: Usuario }> {
-  return request("/api/auth/cadastro/", {
+}): Promise<CadastroResposta> {
+  return request<CadastroResposta>("/api/auth/cadastro/", {
     method: "POST",
     body: JSON.stringify(dados),
   });
