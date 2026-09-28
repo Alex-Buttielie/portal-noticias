@@ -1,4 +1,36 @@
-"""Serviço de domínio B2B (run 20260902-1519-b2b-corporativo)."""
+"""Serviço de domínio B2B (run 20260902-1519-b2b-corporativo).
+
+O ALERTA B2B PASSA PELO GATE DE E-MAIL (este item)
+==================================================
+Até aqui `verificar_e_enviar_alertas` chamava `django.core.mail.send_mail`
+direto (`b2b/services.py:459` na base `623a0e9`) e era o ÚNICO lugar do projeto
+que ainda contornava `config/email_entrega.py`. O `identidade/emails.py` também
+chama `send_mail` no nome, mas é o adaptador fino que o P1-04 criou — ele
+NÃO contorna o gate, ele **é** o gate para aquele fluxo.
+
+O buraco era o mesmo que o P0-02c documentou, com dois agravantes que só
+aparecem quando se olha para este arquivo:
+
+1. **A resposta HTTP não existe aqui.** O `contato` mentia num 200; a
+   newsletter mentia num `total_enviados` gravado. O B2B mente num **log de
+   task** (`b2b/tasks.py:10`: "%d alerta(s) enviado(s)") e num placar que
+   volta para o Beat. O operador lê "1 alerta enviado" e conclui que o
+   monitoramento do cliente funciona.
+2. **O ratchet anda mesmo quando nada foi entregue.** `ultimo_alerta_em` era
+   gravado DEPOIS do `send_mail` e sem olhar o retorno: com
+   `DJANGO_EMAIL_BACKEND=console.EmailBackend` (o default de
+   `config/settings.py:652-654`), `send_mail` devolvia 1 depois de imprimir no
+   stdout, o ratchet avançava, e as notícias ficavam **para sempre** marcadas
+   como já alertadas. Medido antes desta correção, com `console`:
+   `total_alertas_enviados=1`, `total_falhas=0`, `ultimo_alerta_em` gravado, e
+   um e-mail inteiro impresso no stdout do container. Um cliente que nunca
+   recebe o alerta e nunca o recebe de novo, com o job reportando sucesso.
+
+O que mudou: o envio passa por `config.email_entrega.entregar_email` (fonte
+única do projeto, P1-04), e há um portão de canal ANTES do laço — nada é
+montado, nada é impresso, nenhum ratchet anda quando não existe para quem
+entregar. Quem é avisado, e como, está em `entregar_alerta`.
+"""
 
 from __future__ import annotations
 
@@ -6,11 +38,19 @@ import logging
 from datetime import timedelta
 
 from django.conf import settings
-from django.core.mail import send_mail
+from django.core.mail import EmailMessage
 from django.db.models import Count, Q
 from django.utils import timezone
 
 from catalogo_noticias.models import NewsItem
+from config.email_entrega import (
+    CanalIndisponivel,
+    FalhaDeEntrega,
+    entregar_email,
+    orientacao_de_configuracao,
+    registrar_evento,
+    verificar_canal_email,
+)
 
 from . import cache as cache_b2b
 from . import limites
@@ -19,6 +59,11 @@ from .models import CriterioMonitoramento, MembroOrganizacao, Organizacao
 from .permissions import PermissaoNegadaError, exigir
 
 logger = logging.getLogger(__name__)
+
+#: Rótulo da métrica `portal_email_entrega_total` deste fluxo. É rótulo, não
+#: dado: nenhum endereço de membro, nome de organização ou título de notícia
+#: entra nele. Sai para `/metrics` como `destino="b2b_alerta"`.
+DESTINO_ALERTA_B2B = "b2b_alerta"
 
 # Reexportado para quem já importava daqui (e para as views, que traduzem o
 # erro em 403). A implementação da matriz está em `b2b/permissions.py`.
@@ -32,6 +77,7 @@ __all__ = [
     "criar_criterio",
     "criar_organizacao",
     "criar_organizacao_com_admin",
+    "entregar_alerta",
     "invalidar_cache_da_organizacao",
     "itens_monitorados",
     "organizacao_do_usuario",
@@ -359,6 +405,53 @@ def _anomalias_de_cota_e_higiene() -> list:
     return anomalias
 
 
+def _corpo_do_alerta(criterio: CriterioMonitoramento, itens_novos: list) -> str:
+    """Corpo text/plain do alerta. Nenhum header carrega dado de membro."""
+    linhas = [
+        f"Novidades para o critério '{criterio.valor}' ({criterio.get_tipo_display()}) "
+        f"— {criterio.organizacao.nome}:",
+        "",
+    ]
+    for item in itens_novos:
+        linhas.append(f"- {item['titulo']} ({item['nome_fonte']}): {item['url_fonte_original']}")
+    linhas.append("")
+    linhas.append(f"Painel completo: {settings.FRONTEND_BASE_URL}/empresa")
+    return "\n".join(linhas)
+
+
+def entregar_alerta(
+    criterio: CriterioMonitoramento, itens_novos: list, destinatarios: list
+) -> int:
+    """Entrega UM alerta de critério. Devolve o que foi entregue, ou levanta.
+
+    Esta é a **costura de transporte** do `b2b`, e ela existe por um motivo
+   duplo:
+
+    * a política (recusa de backend que não entrega, e exigência de ≥ 1
+      devolvida pelo provedor) NÃO é reimplementada aqui — é o
+      `config.email_entrega.entregar_email`, o mesmo objeto que `contato`,
+      `identidade` e `newsletter` usam;
+    * ela é o ponto de aplicação dos dublês de
+      `b2b/tests/test_p1_04_entrega.py`: substituir este atributo simula o
+      provedor recusando ou estourando, sem que o teste precise saber nada
+      do backend.
+
+    `EmailMessage` e não `send_mail`: o corpo é text/plain e não há parte
+    HTML. O assunto carrega o nome da organização e o valor do critério — que
+    são dados do contrato B2B, não do membro — e nenhum endereço de destinatário
+    vai em header, o que também não deixa superfície de injeção de header.
+    """
+    return entregar_email(
+        EmailMessage(
+            subject=f"[Alerta] {criterio.organizacao.nome} — novidades em '{criterio.valor}'",
+            body=_corpo_do_alerta(criterio, itens_novos),
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            to=list(destinatarios),
+        ),
+        destino=DESTINO_ALERTA_B2B,
+    )
+
+
 def verificar_e_enviar_alertas() -> dict:
     """
     BRD §19 — "Alertas" quando novo conteúdo bate em um critério monitorado
@@ -385,6 +478,44 @@ def verificar_e_enviar_alertas() -> dict:
     3. **Sem sinal de anomalia de tenant.** Uma organização órfã, sem
        destinatário, no teto da cota ou desativada com critérios pendentes era
        pulada em silêncio. Ver `_anomalias_de_cota_e_higiene`.
+
+    P1-17 — O PLACAR NÃO PODE MENTIR (o gate de e-mail)
+    ====================================================
+    Este era o ÚNICO fluxo de e-mail do projeto que não passava por
+    `config.email_entrega.py`, e ele mentia de um jeito que os outros três não
+    conseguiam mentir: ** advancing the ratchet**. Os outros contam errado; este
+    perdia o alerta. `ultimo_alerta_em` era gravado depois de um `send_mail` cujo
+    retorno ninguém olhava, então com `console.EmailBackend` (o default de
+    `config/settings.py:652-654`) o critério era marcado como "já alertado" sem
+    que nada tivesse saído — e `_itens_novos_para_criterio` corta por esse
+    campo, então aquelas notícias **nunca mais** entravam em alerta, nem depois
+    que a configuração fosse corrigida. O cliente pagava por um monitoramento que
+    nunca avisou, e o job logava "1 alerta(s) enviado(s)".
+
+    O que este item faz, e o que ele NÃO faz:
+
+    * **Portão de canal, uma vez por execução, ANTES do laço.** Sem canal de
+      entrega real, nenhum e-mail é montado (nada vaza no stdout), nenhum
+      ratchet anda, e um único `ERROR` diz qual configuração falta e o que
+      fazer — o mesmo formato de `newsletter.enviar_newsletters` e de
+      `identidade/emails.py`, e a mesma fonte (`config/email_entrega`).
+    * **O ratchet só anda depois de uma entrega aceita.** O
+      `criterio.save(update_fields=["ultimo_alerta_em"])` está DEPOIS do
+      `entregar_email`, e uma recusa cai no `except` sem gravá-lo. É a
+      inversão que fecha o buraco: falha de entrega adia o alerta, não o
+      consome.
+    * **"Enviado" passa a significar entregue.** `total_alertas_enviados`
+      incrementa só depois de `entregar_email` devolver, e
+      `total_alertas_enviados` é o número que `b2b/tasks.py` loga.
+    * **O que NÃO é responsabilidade deste módulo.** Quem recebe é o conjunto de
+      `MembroOrganizacao` da organização (`_entrega_para`), não o solicitante de
+      um request: este caminho não é autenticado nem público — é a task
+      periódica do Beat, sem endpoint. A lista de destinatários continua
+      sendo montada exatamente como era (mesma query, mesmo filtro), porque o
+      que estava errado não era QUEM recebia, era o "entregue" que não era
+      entrega. Nenhum endereço de membro, nome de organização ou título de
+      notícia entra no log: só o id do critério e o da organização, que já eram
+      o identificador do operador antes deste item.
     """
     agora = timezone.now()
     total_criterios_verificados = 0
@@ -396,6 +527,33 @@ def verificar_e_enviar_alertas() -> dict:
     enviados_por_organizacao: dict[int, int] = {}
 
     anomalias = _anomalias_de_cota_e_higiene()
+
+    # P1-17 — PORTÃO DE CANAL, uma vez por execução, ANTES de qualquer
+    # montagem. O motivo é o mesmo para todos os critérios e repetir a frase
+    # por critério só inflaria o log com o mesmo texto, então o ERROR é único.
+    #
+    # O portão NÃO retorna aqui, e essa é a parte que levou a duas correções
+    # durante a implementação: um `return` aqui contaria TODOS os critérios
+    # ativos como `total_falhas`, e isso é mentira do outro lado — um
+    # critério sem novidade nenhuma, ou sem destinatário, não "falhou": não
+    # tinha o que entregar. O placar que o operador lê é
+    # `total_falhas`/`total_alertas_enviados` por CRITÉRIO, então a contagem
+    # honesta só existe depois de saber quais critérios tinham algo a enviar
+    # (ver `_registrar_falha_por_sem_canal`, chamado no ponto exato do envio).
+    #
+    # O que o portão garante, e é o que o `console` medido antes desta
+    # correção não garantia: NENHUM e-mail é montado (nada vaza no stdout),
+    # e NENHUM ratchet anda. O que se perde é adiado, não consumido.
+    canal = verificar_canal_email()
+    sem_canal = not canal.disponivel
+    if sem_canal:
+        registrar_evento(DESTINO_ALERTA_B2B, "sem_canal")
+        logger.error(
+            "b2b: NENHUM alerta entregue por ausência de canal de entrega real "
+            "(motivo=%s). %s",
+            "; ".join(canal.motivos),
+            orientacao_de_configuracao(),
+        )
 
     criterios = CriterioMonitoramento.objects.filter(ativo=True, organizacao__ativo=True).select_related(
         "organizacao"
@@ -446,27 +604,54 @@ def verificar_e_enviar_alertas() -> dict:
                 # é só o curto-circuito (nada a enviar).
                 continue
 
-            linhas = [
-                f"Novidades para o critério '{criterio.valor}' ({criterio.get_tipo_display()}) "
-                f"— {criterio.organizacao.nome}:",
-                "",
-            ]
-            for item in itens_novos:
-                linhas.append(f"- {item['titulo']} ({item['nome_fonte']}): {item['url_fonte_original']}")
-            linhas.append("")
-            linhas.append(f"Painel completo: {settings.FRONTEND_BASE_URL}/empresa")
+            # P1-17: o envio passa pela costura de transporte, que é o
+            # `config.email_entrega.entregar_email`. O ratchet é gravado
+            # DEPOIS e só se o envio foi aceito — a inversão que fecha o
+            # buraco deste módulo (com `console`, o ratchet avançava sem
+            # entrega e a notícia nunca mais era alertada).
+            if sem_canal:
+                # Ponto exato do envio: aqui já se sabe que HÁ o que enviar
+                # (item novo) e HÁ para quem enviar (membro com e-mail), então
+                # este é o único lugar onde "falha" é a palavra honesta. Nada
+                # é montado, nada é impresso, e o ratchet não é tocado — o
+                # alerta fica pendente e sai inteiro na próxima execução com
+                # canal.
+                total_falhas += 1
+                _registrar_anomalia(
+                    anomalias,
+                    "falha_ao_enviar",
+                    criterio.organizacao,
+                    f"alerta do critério {criterio.id} não saiu: o projeto não "
+                    "tem canal de e-mail que entregue (ver ERROR desta execução).",
+                )
+                continue
 
-            send_mail(
-                subject=f"[Alerta] {criterio.organizacao.nome} — novidades em '{criterio.valor}'",
-                message="\n".join(linhas),
-                from_email=settings.DEFAULT_FROM_EMAIL,
-                recipient_list=destinatarios,
-                fail_silently=False,
-            )
+            entregar_alerta(criterio, itens_novos, destinatarios)
             criterio.ultimo_alerta_em = timezone.now()
             criterio.save(update_fields=["ultimo_alerta_em"])
             total_alertas_enviados += 1
             enviados_por_organizacao[criterio.organizacao_id] = enviados_org + 1
+        except (CanalIndisponivel, FalhaDeEntrega) as exc:
+            # `CanalIndisponivel`/`FalhaDeEntrega` são do gate, e são o
+            # caso mais provável aqui: o canal caiu entre o portão do topo e
+            # este envio. Não há traceback de propósito — o texto de um
+            # provedor real ecoa o payload, e o payload aqui carrega título de
+            # notícia e nome de organização; `logger.error` com o TIPO e o
+            # destino, nada mais. O ratchet NÃO é tocado: o alerta fica
+            # pendente e sai na próxima execução.
+            logger.error(
+                "b2b: alerta do critério %s NÃO foi entregue (organizacao_id=%s, tipo=%s)",
+                criterio.id,
+                criterio.organizacao_id,
+                type(exc).__name__,
+            )
+            total_falhas += 1
+            _registrar_anomalia(
+                anomalias,
+                "falha_ao_enviar",
+                criterio.organizacao,
+                f"falha ao enviar o alerta do critério {criterio.id}: ver log.",
+            )
         except Exception:
             logger.exception(
                 "Falha ao verificar/enviar alerta do critério %s (organizacao_id=%s)",
