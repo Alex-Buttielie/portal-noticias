@@ -97,7 +97,7 @@ def _recuperar_e_redefinir(email: str, nova_senha: str = SENHA_RECUPERADA):
 # ---------------------------------------------------------------------------
 
 
-def test_redeploy_apos_recuperar_mas_antes_do_login_mantem_a_troca_pendente():
+def test_redeploy_apos_recuperar_mas_antes_do_login_mantem_a_troca_pendente(canal_entregando):
     """Estado intermediário que a suíte do executor não cobre: a pessoa passou
     pela recuperação/redefinição, mas ainda NÃO logou nem trocou a senha.
 
@@ -131,7 +131,7 @@ def test_redeploy_apos_recuperar_mas_antes_do_login_mantem_a_troca_pendente():
     assert login.data["usuario"]["deve_trocar_senha"] is True
 
 
-def test_redeploy_nao_reimpoe_a_troca_nem_apaga_a_senha_apos_o_primeiro_acesso():
+def test_redeploy_nao_reimpoe_a_troca_nem_apaga_a_senha_apos_o_primeiro_acesso(canal_entregando):
     """O outro estado: primeiro acesso CONCLUÍDO (login + troca). O redeploy
     tem de preservar senha nova E `deve_trocar_senha=False` — se reimpusesse
     `True`, a pessoa seria obrigada a trocar a senha a cada push."""
@@ -160,7 +160,7 @@ def test_redeploy_nao_reimpoe_a_troca_nem_apaga_a_senha_apos_o_primeiro_acesso()
     assert _login(email, SENHA_TROCADA).data["usuario"]["deve_trocar_senha"] is False
 
 
-def test_tres_redeploysseguidos_preservam_a_senha_e_nao_reimpoem_a_troca():
+def test_tres_redeploysseguidos_preservam_a_senha_e_nao_reimpoem_a_troca(canal_entregando):
     """O gate roda a cada push. A idempotência tem de valer para 2º, 3º, 4º
     deploy — não só para o primeiro."""
     email = "teste-premium@homolog.portal-noticias.com.br"

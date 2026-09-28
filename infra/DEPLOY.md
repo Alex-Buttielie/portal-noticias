@@ -957,3 +957,174 @@ Pontos que evitam erro de interpretação:
 
 Evidência do lote:
 `agentic-framework/state/run-20260925-1433-go-live-producao/lote-p0-1-evidencias.md`.
+
+## As contas de teste de DEV e HOMOLOG (o gate `usuarios_teste`)
+
+Depois de qualquer deploy de **DEV** ou **HOMOLOG** existem três contas de
+teste, uma por perfil. Elas não nascem com senha: nascem **sem senha
+utilizável**, e quem entra é a pessoa que está testando, definindo a senha dela.
+A senha não existe em lugar nenhum — nem no log do run, nem no `argv` do
+comando, nem no `backend/.env`, nem no banco. (Se o log do deploy disser `N de 3`
+em vez de `3 de 3`, uma das contas não ficou: o aviso por perfil e a receita para
+criá-la à mão estão na última subseção desta página, *O que um redeploy faz (e o
+que ele não faz)*.)
+
+| Ambiente | E-mail | Papel | Staff (`/admin` e Central) |
+|---|---|---|---|
+| DEV | `teste-free@dev.portal-noticias.com.br` | `free` | não |
+| DEV | `teste-premium@dev.portal-noticias.com.br` | `premium` | não |
+| DEV | `teste-admin@dev.portal-noticias.com.br` | `admin` | **sim** (superuser) |
+| HOMOLOG | `teste-free@homolog.portal-noticias.com.br` | `free` | não |
+| HOMOLOG | `teste-premium@homolog.portal-noticias.com.br` | `premium` | não |
+| HOMOLOG | `teste-admin@homolog.portal-noticias.com.br` | `admin` | **sim** (superuser) |
+
+Só o perfil `admin` vira superuser. O link de redefinição é uma credencial da
+conta e o stdout do processo web é legível por quem tem shell na VPS: com as
+três contas staff, qualquer uma dessas pessoas ganharia acesso ao `/admin` e à
+Central. O prefixo `teste-` e o domínio do ambiente existem para que uma conta
+de homologação nunca seja confundida com conta real.
+
+**PROD não tem conta de teste, e ligar o gate lá é erro.** O `deploy-prod.yml`
+declara `usuarios_teste: false` de forma explícita — a proteção é fail-closed
+**e visível em revisão**, não só implícita — e o `rollback.yml` nem declara o
+input, ficando no padrão `false` do `deploy.yml`. O `.env` da VPS **também não**
+consegue ligar o gate: o valor do input do workflow é reatribuído **depois** do
+`set -a; . ./.env`, justamente porque esse arquivo é um texto arbitrário que
+atribui ao shell qualquer chave que exista nele. Quem decide é só o workflow.
+
+### Como entrar (passo a passo)
+
+1. Abra `/recuperar-senha` no ambiente e informe o e-mail da conta
+   (`http://dev.portal-noticias.com.br/recuperar-senha`; o esquema segue
+   `tls_enabled`, então é `https` depois que o TLS for ativado na §3A).
+2. A tela responde sucesso — **mas hoje o e-mail não chega em nenhuma caixa de
+   entrada**. Veja *O e-mail de recuperação sai no log da API* abaixo.
+3. Pegue o link onde ele sai, na VPS:
+
+   ```bash
+   # O corpo do e-mail é impresso em texto puro; o assunto sai codificado
+   # (RFC 2047), por isso o grep é pelo link e não pelo assunto.
+   pm2 logs portal-api-dev --lines 200 --nostream | grep -A8 'redefinir-senha?uid='
+   # Ou direto no arquivo que o PM2 mantém (o `pm2 logs` é só uma visão dele):
+   grep -A8 'redefinir-senha?uid=' ~/.pm2/logs/portal-api-dev-out.log
+   # Troque `dev` por `homolog` no ambiente de homologação.
+   ```
+
+4. O link é `{FRONTEND_BASE_URL}/redefinir-senha?uid=…&token=…` (o `uid` e o
+   `token` também vêm soltos no corpo do e-mail). Abra e **defina uma senha** —
+   mínimo de 8 caracteres e tem que passar nos validadores do Django. O link
+   expira em **1 hora** (`PASSWORD_RESET_TIMEOUT`, padrão
+   `PASSWORD_RESET_TIMEOUT_SECONDS=3600` em `backend/config/settings.py`).
+5. Entre em `/login` com essa senha. Como a conta ainda está marcada para troca
+   de primeiro acesso, o portal **redireciona para `/trocar-senha`** e pede a
+   troca de novo (senha atual = a que você acabou de definir). Só depois disso a
+   conta é uma conta normal.
+
+Nenhuma senha é aceita antes disso: enquanto a conta não tem senha utilizável,
+qualquer tentativa de login volta `401` e não emite token de API. Não existe
+"senha padrão" destas contas.
+
+Para conferir o estado das contas sem alterar nada:
+
+```bash
+SUF=dev            # ou homolog
+cd "/home/apps/portal-$SUF/backend"
+. .venv/bin/activate
+set -a; . ./.env; set +a
+python manage.py shell -c "
+from django.contrib.auth import get_user_model
+U = get_user_model()
+for p in ('free', 'premium', 'admin'):
+    u = U.objects.filter(email='teste-%s@$SUF.portal-noticias.com.br' % p).first()
+    print(p, 'inexistente' if not u else 'papel=%s superuser=%s tem_senha=%s deve_trocar=%s'
+          % (u.papel, u.is_superuser, u.has_usable_password(), u.deve_trocar_senha))
+"
+```
+
+`tem_senha=False` é o estado de quem ainda **não** entrou — e é o estado que o
+próximo deploy **preserva**. `tem_senha=True` com `deve_trocar=False` é quem já
+fez o primeiro acesso.
+
+### O e-mail de recuperação sai no log da API (e isso ainda é uma pendência do projeto)
+
+O `.env` que o deploy cria na VPS não escreve `DJANGO_EMAIL_BACKEND`, e o
+padrão do Django é o backend de console (a chave `EMAIL_BACKEND`, em
+`backend/config/settings.py`). Consequência honesta: **nada é entregue a nenhum
+inbox** — a tela de `/recuperar-senha` responde `200`, o token é gerado, e o
+e-mail é impresso no stdout do gunicorn, que o PM2 captura em
+`~/.pm2/logs/portal-api-<env>-out.log`. O próprio log do deploy avisa isso no
+final do bloco, e avisa o segundo ponto: **o `uid`/`token` desse e-mail é uma
+credencial utilizável da conta** (a `teste-admin` é superuser) enquanto o link
+valer. Trate essa linha de log como segredo: não a cole em issue, PR ou ticket
+aberto.
+
+Isso é pendência conhecida do projeto, não efeito do gate: o backend Resend já
+está implementado (`backend/config/email_resend.py`) e o que falta é a
+credencial — ver `PROD_DECISOES.md`, item 2 ("E-mail: backend Resend
+implementado… aguardando chave Resend"). Quando `DJANGO_EMAIL_BACKEND` e
+`RESEND_API_KEY` estiverem no `backend/.env` do ambiente, o log do deploy passa
+a dizer qual backend está em uso e o link chega por e-mail. As duas
+configurações convivem: o bloco do gate não muda de comportamento, só o texto
+do log e para onde o e-mail sai.
+
+### Se o link se perdeu (log truncado ou já rotacionado)
+
+Hoje o link de redefinição existe em **um** lugar de verdade: o arquivo de log
+da API. Se a linha saiu dele (ou se você nunca guardou o link), o que existe é:
+
+- **Peça um novo link.** O formulário de `/recuperar-senha` aceita o mesmo
+  e-mail quantas vezes quiser e **cada pedido gera um token novo**, que aparece
+  no log de novo. Não existe comando de management que emita o link: ele só é
+  produzido por `POST /api/auth/recuperar-senha/`.
+- **Um link antigo ainda no arquivo continua valendo** até a senha mudar ou o
+  timeout de 1 h estourar, porque o token é derivado do estado da conta, não de
+  um registro de pedidos. Logo, grep no arquivo antes de pedir outro.
+- **Se você precisa entrar agora e o log não tem nada**, defina a senha
+  direto, no terminal da VPS:
+
+  ```bash
+  SUF=dev            # ou homolog
+  cd "/home/apps/portal-$SUF/backend"
+  . .venv/bin/activate
+  set -a; . ./.env; set +a
+  python manage.py changepassword "teste-free@$SUF.portal-noticias.com.br"
+  ```
+
+  `changepassword` é o comando do próprio Django (existe porque
+  `django.contrib.auth` está instalado) e pergunta a senha no terminal, sem
+  eco, sem histórico. Dois avisos honestos: (1) ele **não** mexe em
+  `deve_trocar_senha`, então o primeiro login continua passando por
+  `/trocar-senha`; (2) ele quebra a premissa do gate **para aquela conta** — a
+  senha passa a ser uma senha escolhida por você, e o próximo deploy a
+  **preserva** em vez de apagar. Isso é o comportamento correto (o gate é
+  idempotente), mas significa que a conta deixa de ter a propriedade "a senha
+  não existe em lugar nenhum" a partir de então. Use para destravar o acesso,
+  não como rotina.
+
+### O que um redeploy faz (e o que ele não faz)
+
+O gate roda a **cada** push para DEV/HOMOLOG, e ele é idempotente de propósito:
+aplicar "sem senha" cegamente a cada deploy apagaria a senha que alguém acabou
+de definir e trancaria fora quem já entrou. Então, no redeploy:
+
+- quem **já** fez o primeiro acesso **continua entrando** com a senha que
+  definiu, e não é obrigado a trocar de novo a cada push;
+- quem **ainda não** entrou continua sem senha utilizável, esperando o
+  `/recuperar-senha`;
+- papel, `is_active`, `email_verificado` e o superuser do `admin` são
+  normalizados de novo — é para isso que o comando é "criar ou atualizar".
+
+Falha ao criar uma das contas **não derruba o deploy**: sai um `AVISO:` nomeado
+por perfil e um resumo `N de 3 contas prontas`, e o código continua no ar. A
+mesma receita que aparece nesse aviso, para criar as contas à mão:
+
+```bash
+SUF=dev            # ou homolog
+cd "/home/apps/portal-$SUF/backend"
+. .venv/bin/activate
+set -a; . ./.env; set +a
+python manage.py criar_usuario_carga \
+  --email "teste-free@$SUF.portal-noticias.com.br" --sem-senha --papel free
+# Troque `free` por `premium` ou `admin` nas outras duas. O sufixo de PROD
+# (`prod`) não usa essas contas — ver o início desta seção.
+```

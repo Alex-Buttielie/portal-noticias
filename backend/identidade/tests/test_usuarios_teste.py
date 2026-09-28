@@ -134,7 +134,7 @@ def test_sem_senha_com_papel_admin_e_superuser_so_no_admin():
 # ---------------------------------------------------------------------------
 
 
-def test_redeploy_preserva_a_senha_que_a_pessoa_definiu_na_recuperacao():
+def test_redeploy_preserva_a_senha_que_a_pessoa_definiu_na_recuperacao(canal_entregando):
     """O gate roda a cada push: a 2ª execução não pode apagar o acesso de quem
     já passou pela recuperação, redefinition e troca de senha."""
     email = "teste-admin@homolog.portal-noticias.com.br"
@@ -176,7 +176,7 @@ def test_redeploy_preserva_a_senha_que_a_pessoa_definiu_na_recuperacao():
     assert "preservada" in saida
 
 
-def test_redeploy_preserva_ate_o_token_de_quem_ja_estava_logado():
+def test_redeploy_preserva_ate_o_token_de_quem_ja_estava_logado(canal_entregando):
     """Como a credencial continua valendo, derrubar o `Token` só deslogaria
     quem está usando o ambiente de teste — sem ganho de segurança nenhum."""
     email = "teste-free@dev.portal-noticias.com.br"
@@ -352,7 +352,7 @@ def test_login_com_qualquer_senha_na_conta_sem_senha_utilizavel_falha(senha):
 # ---------------------------------------------------------------------------
 
 
-def test_fluxo_completo_de_primeiro_acesso_da_conta_de_teste():
+def test_fluxo_completo_de_primeiro_acesso_da_conta_de_teste(canal_entregando):
     email = "teste-premium@homolog.portal-noticias.com.br"
     _carga(email=email, sem_senha=True, papel="premium")
 
