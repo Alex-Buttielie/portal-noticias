@@ -281,15 +281,23 @@ loki.process "app" {
 // verdade que é a do próprio backend — e NÃO um segundo mecanismo de estado
 // de fila.
 //
-// O cron que produz o arquivo é de provisionamento (ver
-// `infra/filas/PROVISIONAMENTO.md` §2.3):
-//   */5 * * * * --path=/home/apps/portal-<env> \
-//     .venv/bin/python manage.py saude_filas --json \
-//     >> /var/lib/portal-noticias/saude_filas.jsonl
+// O PRODUTOR deste arquivo é `infra/filas/pingar-filas.sh`, que existe e é
+// testado (ver infra/observability/pingers/README.md). Ele substitui a linha
+// de cron de 4 linhas que o `infra/filas/PROVISIONAMENTO.md` §2.3 propunha, e
+// a troca não é cosmética: o wrapper também dá o heartbeat ao cron monitor do
+// Better Stack e ROTACIONA o arquivo para que ele não cresça sem limite.
+//   3 * * * * /home/apps/portal-<env>/infra/filas/pingar-filas.sh \
+//       >> /var/log/portal/filas-pinger.log 2>&1
 //
-// Sem esse cron o arquivo não existe e o `verificar-env.sh` reprova — o que é
-// o comportamento certo: é melhor o instalante ver "falta o arquivo" do que
-// ver um painel de filas vazio e ler "nenhuma fila acumulada".
+// Sem ele o arquivo não existe e o `verificar-env.sh` reprova — o que é o
+// comportamento certo: é melhor o instalante ver "falta o arquivo" do que ver
+// um painel de filas vazio e ler "nenhuma fila acumulada".
+//
+// NOTA DE ROTACAO: o wrapper renomeia o arquivo para `<arquivo>.1` e cria um
+// novo quando atinge o teto de linhas. O `.1` anterior é descartado. Isso é
+// o comportamento de rotação de log, e é por isso que a janela de 24 h do
+// `ignore_older_than` abaixo é maior que a cobertura do teto: o que sai na
+// rotação já estava fora da janela de leitura.
 loki.source.file "filas" {
     targets = [
         {
