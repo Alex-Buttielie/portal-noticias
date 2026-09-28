@@ -268,20 +268,40 @@ def test_token_e_de_uso_unico_secredo_e_rotacionado_no_primeiro_uso():
 
 def test_token_antigo_deixa_de_valer_apos_reinscricao():
     """Reinscrever gera segredo novo; o link guardado no e-mail antigo não volta
-    a valer — nem consegue cancelar a inscrição que a pessoa refez."""
+    a valer — nem consegue cancelar a inscrição que a pessoa refez.
+
+    A retenção mudou o que "reinscrever" significa, e o teste mudou junto: como
+    o descadastro agora CORTA o vínculo com a pessoa (`user=None`), a
+    reinscrição não pode reaproveitar a linha antiga — ela cria uma NOVA, que é
+    o modelo correto (cada ato de consentimento é um registro próprio). Por isso
+    o teste guarda a referência do usuário ANTES de revogar: depois do
+    descadastro, `inscricao.user` é `None` de propósito, e um teste que
+    dependesse dele estaria medindo o vazio.
+    """
     inscricao = _inscricao()
+    usuario = inscricao.user
     token_antigo = gerar_token_descadastro(inscricao)
     _postar(token_antigo)
     inscricao.refresh_from_db()
     assert inscricao.ativa is False
 
-    services.inscrever(inscricao.user, InscricaoNewsletter.TIPO_PADRAO)
-    inscricao.refresh_from_db()
-    assert inscricao.ativa is True
+    services.inscrever(usuario, InscricaoNewsletter.TIPO_PADRAO)
+
+    # A linha antiga continua sendo a prova da revogação, e a nova é a da nova
+    # concessão. São duas linhas, de propósito.
+    assert inscricao.ativa is False, "a linha revogada não pode ser reativada"
+    nova = InscricaoNewsletter.objects.get(user=usuario)
+    assert nova.pk != inscricao.pk
+    assert nova.ativa is True
+    assert nova.consentimento_aceito_em is not None
+    assert nova.consentimento_revogado_em is None
 
     _postar(token_antigo)
-    inscricao.refresh_from_db()
-    assert inscricao.ativa is True, (
+
+    # O token já usado não alcança a inscrição nova — que é o ponto do teste.
+    assert inscricao.ativa is False
+    nova.refresh_from_db()
+    assert nova.ativa is True, (
         "um token já usado conseguiu cancelar a inscrição — o cancelamento não é de uso único"
     )
 

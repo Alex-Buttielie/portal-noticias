@@ -756,6 +756,21 @@ NEWSLETTER_TOKEN_DESCADASTRO_MAX_AGE_SECONDS = int(
 # explícito (LGPD) — registrada em User.consentimento_versao_termos.
 TERMOS_VERSAO_ATUAL = os.environ.get("TERMOS_VERSAO_ATUAL", "1.0")
 
+# Versão do texto de consentimento DA NEWSLETTER — registrada em
+# InscricaoNewsletter.versao_consentimento, e gravada no ato da inscrição.
+#
+# O default é VAZIO de propósito. A LGPD distingue finalidades, e o aceite dos
+# Termos no cadastro NÃO é o consentimento da newsletter: gravar
+# `TERMOS_VERSAO_ATUAL` aqui afirmaria que a pessoa leu e aceitou um texto de
+# newsletter que ainda não foi escrito, e "1.0" seria fabricar um artefato
+# jurídico. Enquanto for vazio, `newsletter.versao_consentimento` fica vazio —
+# e o teste
+# `newsletter/tests/test_p1_06_bordas_e_pendencia.py::test_versao_do_texto_de_consentimento_da_newsletter_continua_pendente`
+# continua reprovando de propósito, que é o sinal de que a pendência ficou de
+# pé. Definir isto aqui, com o texto correspondente publicado, é decisão de
+# produto/jurídico — não de código.
+NEWSLETTER_VERSAO_CONSENTIMENTO = os.environ.get("NEWSLETTER_VERSAO_CONSENTIMENTO", "")
+
 
 # ---------------------------------------------------------------------------
 # Celery + Redis (ARCHITECTURE.md seção 1) — jobs assíncronos. Usado hoje

@@ -176,13 +176,20 @@ def test_revogacao_e_registrada_com_o_id_da_inscricao(caplog):
 
 def test_revogacao_registra_se_ja_estava_desativada(caplog):
     """Distingue "a pessoa cancelou agora" de "já estava desligada, o link foi
-    usado de novo" — informação de auditoria, sem dado pessoal."""
+    usado de novo" — informação de auditoria, sem dado pessoal.
+
+    A retenção mudou o que a reinscrição faz: como o descadastro corta o
+    vínculo com a pessoa, a reinscrição cria uma linha NOVA, e o teste guarda a
+    referência do usuário antes de revogar. Ver
+    `test_reinscrever_apos_desativar_cria_um_novo_registro_de_consentimento`.
+    """
     inscricao = _inscrito("reuso-de-token@example.com")
+    usuario = inscricao.user
     token = gerar_token_descadastro(inscricao)
     APIClient().post(URL_DESCADASTRO, {"token": token}, format="json")
 
     # Reinscreve, usa o MESMO token de novo (já rotacionado, então não casa).
-    services.inscrever(inscricao.user, InscricaoNewsletter.TIPO_PADRAO)
+    services.inscrever(usuario, InscricaoNewsletter.TIPO_PADRAO)
     caplog.clear()  # só o que vier depois da reinscrição interessa
     with caplog.at_level(logging.INFO, logger="newsletter.services"):
         APIClient().post(URL_DESCADASTRO, {"token": token}, format="json")
@@ -190,7 +197,9 @@ def test_revogacao_registra_se_ja_estava_desativada(caplog):
     # O token já usado não revoga nada, então nem entra no log de revogação.
     assert "revogado" not in _todo_o_log(caplog)
     inscricao.refresh_from_db()
-    assert inscricao.ativa is True
+    assert inscricao.ativa is False, "a linha antiga continua revogada"
+    assert inscricao.user_id is None, "e continua sem vínculo com a pessoa"
+    assert InscricaoNewsletter.objects.get(user=usuario).ativa is True
 
 
 def test_inscricao_criada_e_registrada_sem_e_mail(caplog):

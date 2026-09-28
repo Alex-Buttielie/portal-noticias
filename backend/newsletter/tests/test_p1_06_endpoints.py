@@ -148,22 +148,47 @@ def test_reinscricao_atualiza_as_escolhas_sem_criar_linha():
     assert InscricaoNewsletter.objects.filter(user=user).count() == 1
 
 
-def test_reinscrever_reativa_uma_inscricao_desativada():
+def test_reinscrever_apos_desativar_cria_um_novo_registro_de_consentimento():
     """Cenário real: a pessoa se descadastrou e depois se inscreve de novo pelo
-    formulário. Uma linha, `ativa=True` de novo."""
+    formulário.
+
+    A retenção mudou o que "inscrever de novo" significa, e este é o lugar onde
+    isso aparece. O descadastro agora CORTA o vínculo com a pessoa
+    (`user=None`), então a reinscrição não pode — e não deve — reaproveitar a
+    linha antiga: ela cria uma NOVA, com a sua própria data de concessão, e a
+    linha antiga fica como a prova de que houve consentimento e de que foi
+    revogado.
+
+    Isso é o modelo correto do ponto de vista do titular: um ato de consentimento
+    é um registro imutável, não um campo que liga e desliga. A linha antiga não
+    "volta": ela permanece, revogada, e é a evidência.
+    """
     user = _consentido("volta@example.com")
     cliente = _cliente(user)
     cliente.post(INSCRIVER, {"tipo": "padrao"}, format="json")
     services.cancelar_inscricao(user)
-    assert not InscricaoNewsletter.objects.get(user=user).ativa
+
+    # Depois do cancelamento, a linha não responde mais por ninguém.
+    assert not InscricaoNewsletter.objects.filter(user=user).exists()
+    revogada = InscricaoNewsletter.objects.get(consentimento_revogado_em__isnull=False)
+    assert revogada.ativa is False
+    assert revogada.consentimento_aceito_em is not None
 
     resposta = cliente.post(INSCRIVER, {"tipo": "padrao"}, format="json")
 
-    inscricao = InscricaoNewsletter.objects.get(user=user)
-    assert inscricao.ativa is True
-    assert resposta.status_code == 200
+    # 201 e não 200 desta vez: uma linha NOVA foi de fato criada, e anunciar 200
+    # ("atualizada") seria dizer que um recurso foi modificado quando o que
+    # existe é outro recurso.
+    assert resposta.status_code == 201
     assert resposta.json()["ativa"] is True
-    assert InscricaoNewsletter.objects.filter(user=user).count() == 1
+    nova = InscricaoNewsletter.objects.get(user=user)
+    assert nova.pk != revogada.pk
+    assert nova.consentimento_aceito_em >= revogada.consentimento_aceito_em
+    assert nova.consentimento_revogado_em is None
+    # O registro antigo segue lá, revogado e anonimizado.
+    revogada.refresh_from_db()
+    assert revogada.ativa is False
+    assert revogada.anonimizado_em is not None
 
 
 def test_periodo_e_tipo_passao_pelo_endpoint():
@@ -214,15 +239,32 @@ def test_tipo_personalizada_com_premium_responde_201(fabrica_usuario_premium):
 
 
 def test_delete_desativa_a_inscricao_e_responde_204():
+    """
+    O `DELETE` autenticado é o MESMO ato jurídico do descadastro pelo link do
+    e-mail, e produz o mesmo registro: revogado, datado e com o vínculo com a
+    pessoa cortado. Se ele só fizesse `ativa=False`, existiria um caminho para
+    revogar o consentimento sem anonimizar — e um caminho é tudo que a
+    anonimização não pode ter.
+    """
     user = _consentido("cancela@example.com")
     cliente = _cliente(user)
     cliente.post(INSCRIVER, {"tipo": "padrao"}, format="json")
+    inscricao = InscricaoNewsletter.objects.get(user=user)
 
     resposta = cliente.delete(INSCRIVER)
 
     assert resposta.status_code == 204
     assert resposta.content == b""
-    assert InscricaoNewsletter.objects.get(user=user).ativa is False
+    inscricao.refresh_from_db()
+    assert inscricao.ativa is False
+    assert inscricao.consentimento_revogado_em is not None
+    assert inscricao.consentimento_aceito_em is not None
+    assert inscricao.anonimizado_em is not None
+    # O vínculo com a pessoa foi cortado — a linha continua, mas não responde
+    # mais a nenhuma consulta por usuário.
+    assert inscricao.user_id is None
+    assert inscricao.user is None
+    assert not InscricaoNewsletter.objects.filter(user=user).exists()
 
 
 def test_delete_de_quem_nao_tem_inscricao_responde_204():

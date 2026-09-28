@@ -216,24 +216,33 @@ def test_descadastro_revoga_o_efeito_do_consentimento():
 
 
 def test_revogacao_registra_o_instante():
-    """A data da revogação é observável em `atualizado_em` (auto_now).
+    """A data da revogação é observável — em `consentimento_revogado_em`.
 
-    É um PROXY, não um campo de primeira classe — ver
-    `test_pendencia_juridica_*.py`. O teste existe para deixar explícito o que
-    hoje dá para responder a um titular que pergunta "quando cancelei?".
+    Este teste antes afirmava que a data era observável em `atualizado_em`
+    (auto_now), e o teste passava: `assert inscricao.atualizado_em >= antes` é
+    verdadeiro justamente porque **nada muda**. Ele provava o contrário do que
+    dizia, que é como uma afirmação falsa sobrevive tanto tempo na base.
+
+    `auto_now` é aplicado por `Model.save()`, e o descadastro é um
+    `QuerySet.update()`. Hoje a data está em `consentimento_revogado_em`, que é
+    de primeira classe. A prova de que o `atualizado_em` nunca recebeu nada
+    está em `test_p1_06_bordas_e_pendencia.py::test_a_data_da_revogacao_sobrevive_a_uma_reescrita_da_linha`.
     """
     from newsletter.tokens import gerar_token_descadastro
 
     inscricao = services.inscrever(
         _consentido("quando@example.com"), InscricaoNewsletter.TIPO_PADRAO
     )
-    antes = inscricao.atualizado_em
+    antes = inscricao.criado_em
 
     services.descadastrar_por_token(gerar_token_descadastro(inscricao))
 
     inscricao.refresh_from_db()
-    assert inscricao.atualizado_em >= antes
     assert inscricao.ativa is False
+    assert inscricao.consentimento_revogado_em is not None
+    assert inscricao.consentimento_revogado_em >= antes
+    # E a concessão continua lá: as duas datas juntas são o registro.
+    assert inscricao.consentimento_aceito_em is not None
 
 
 # ---------------------------------------------------------------------------
