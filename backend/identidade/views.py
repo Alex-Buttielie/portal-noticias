@@ -120,11 +120,22 @@ class CadastroView(APIView):
 
     O frontend não usa esse campo: `frontend/app/cadastro/page.tsx:18` chama
     `await api.cadastrar(payload)` e ignora o retorno, usando só o `detail`
-    implícito no `setOk(true)`. A declaração de tipo
-    `frontend/lib/api.ts:132` (`Promise<{ detail: string; usuario: Usuario }>`)
-    passou a descrever um campo que o backend não devolve mais e precisa ser
-    ajustada — follow-up de frontend, fora do escopo deste item (que não pode
-    tocar `frontend/`).
+    implícito no `setOk(true)`.
+
+    A declaração de tipo do frontend foi AJUSTADA depois (era um follow-up
+    que este item não podia fazer, por não poder tocar `frontend/`):
+    `cadastrar()` agora devolve `CadastroResposta`, que é só `{ detail }`.
+    O `usuario: Usuario` que ainda estava no tipo era uma armadilha armada —
+    `request<T>` faz `return corpo as T`, que é uma AFIRMAÇÃO, e não uma
+    verificação, então o TypeScript não podia reclamar. O primeiro código que
+    lesse `.usuario` receberia `undefined` em runtime, com o compilador
+    calado.
+
+    E agora isso está PRESO, não só corrigido:
+    `config/tests/test_p1_04_contrato_frontend.py` extrai mecanicamente os
+    campos declarados de `frontend/lib/api.ts` e compara com a resposta real
+    deste endpoint, nos dois sentidos. Reintroduzir `usuario` no tipo
+    reprova a suíte.
 
     QUANDO O E-MAIL JÁ EXISTE
     =========================

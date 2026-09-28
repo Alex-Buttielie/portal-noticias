@@ -1023,6 +1023,349 @@ def test_reconciliacao_nao_transiciona_quando_o_provedor_falha():
     assert subscription.status == Subscription.STATUS_PAGAMENTO_PENDENTE
 
 
+# ======================================================================
+# 6. LACUNAS DE GUARDA PERMANENTE — achadas DEPOIS do "verde"
+# ======================================================================
+# Estas três lacunas foram provadas com testes descartáveis, fora do
+# repositório: elas passavam com a guarda AUSENTE, o que é a definição de
+# lacuna. Estão aqui porque a suíte é o que fica.
+#
+# L1 está em `config/tests/test_p1_04_email_entrega.py`
+# (`TestL1NewsletterUsaAMesmaListaDeBackends`) — a identidade de
+# `BACKENDS_SEM_ENTREGA_REAL` entre `newsletter.services` e
+# `config.email_entrega`, que valia sem nada prendendo.
+#
+# L2 e L3 estão abaixo, e são do MESMO tear: o caminho que FUNCIONA do
+# webhook. A suíte cobria o caminho forjado (o recusa e não mexe em nada),
+# que é a garantia mais fácil e a menos informativa numa trilha de auditoria
+# de dinheiro: o que importa é o que ficou escrito quando a requisição era
+# de verdade.
+
+
+# ---------------------------------------------------------------- L2
+class TestL2AuditoriaNoCaminhoAutenticado:
+    """
+    O log de auditoria no caminho AUTENTICADO do webhook.
+
+    O que a suíte já provava, antes desta lacuna: que um webhook FORJADO não
+    move dinheiro (`test_webhook_sem_assinatura_nao_move_dinheiro_e_nao_chega_ao_provedor`)
+    e não chega ao provedor. O que NÃO provava: que a transição legítima
+    deixara rastro em `AssinaturaMudancaEstadoLog`.
+
+    Numa trilha de auditoria de dinheiro, "não grava quando não deve" e
+    "grava quando deve" são o mesmo contrato visto dos dois lados. Sem o
+    segundo, um `logger` engolido, um `_transicionar` que parou de chamar
+    `_registrar_mudanca_estado`, ou um `transaction.atomic` que engoliu a
+    escrita, deixariam a suíte VERDE com a tabela vazia — e a primeira
+    pregunta de qualquer auditoria ("quem mudou isso, e por quê?") sem
+    resposta.
+    """
+
+    @override_settings(**MP_CONFIG)
+    def test_transicao_legitima_e_auditada_com_o_motivo(self):
+        """HMAC válido + provedor `authorized` ⇒ UMA linha de auditoria,
+        dizendo de onde para onde e por quê."""
+        subscription = _assinatura_pendente(referencia="pre-1")
+
+        with _mp_get():
+            resposta = _webhook("pre-1")
+        assert resposta.status_code == 200
+
+        logs = list(AssinaturaMudancaEstadoLog.objects.filter(subscription=subscription))
+        assert len(logs) == 1, f"a transição legítima não foi auditada: {len(logs)} linha(s)"
+        log = logs[0]
+        assert log.estado_anterior == Subscription.STATUS_PAGAMENTO_PENDENTE
+        assert log.estado_novo == Subscription.STATUS_ATIVA
+        # O motivo é o que responde "por quê" numa auditoria. Tem que dizer
+        # que foi o gateway, não ser um placeholder vazio.
+        assert "gateway" in log.motivo.lower(), f"motivo de auditoria inútil: {log.motivo!r}"
+
+    @override_settings(**MP_CONFIG)
+    def test_a_auditoria_registra_uma_recusa_tambem(self):
+        """A recusa do gateway é decisão financeira e também é registrada.
+        Sem isto, um provedor recusando pagamentos não deixaria rastro."""
+        subscription = _assinatura_pendente(referencia="pre-1")
+
+        with _mp_get(status="cancelled"):
+            _webhook("pre-1")
+
+        logs = list(AssinaturaMudancaEstadoLog.objects.filter(subscription=subscription))
+        assert len(logs) == 1
+        assert logs[0].estado_novo == Subscription.STATUS_INADIMPLENTE
+
+    @override_settings(**MP_CONFIG)
+    def test_webhook_forjado_nao_deixa_linha_de_auditoria(self):
+        """
+        O outro lado do contrato, e o complemento do que já existia.
+
+        `test_webhook_sem_assinatura_nao_move_dinheiro` provava que o
+        ESTADO não muda. Não provava que a TABELA fica limpa — e é a tabela
+        que alguém leria para tentar reconstruir um ataque. Uma linha de
+        auditoria criada por uma requisição recusada seria, ela própria, um
+        bug: a trilha passou a afirmar que aconteceu algo que não
+        aconteceu.
+        """
+        subscription = _assinatura_pendente(referencia="pre-alvo")
+
+        with _mp_get() as get:
+            resposta = _webhook("pre-alvo", signed=False)
+
+        assert resposta.status_code == 200
+        assert AssinaturaMudancaEstadoLog.objects.filter(subscription=subscription).count() == 0
+        assert get.call_count == 0
+
+    @override_settings(**MP_CONFIG)
+    def test_o_motivo_auditado_nao_carrega_segredo_nem_payload(self):
+        """A auditoria é consultável por quem opera o sistema: o `motivo`
+        pode dizer o PORQUÃ, nunca o segredo nem o corpo do provedor."""
+        subscription = _assinatura_pendente(referencia="pre-1")
+
+        with patch(
+            "assinatura.providers.payment.SessaoEgress.get",
+            return_value=_resposta(500, CORPO_DO_PROVEDOR),
+        ):
+            _webhook("pre-1")
+
+        # O provedor falhou: nada transitioned, logo nada auditado. E o que
+        # existisse não teria o corpo.
+        for log in AssinaturaMudancaEstadoLog.objects.filter(subscription=subscription):
+            assert MARCADOR_CORPO not in log.motivo
+            assert SEGREDO not in log.motivo
+            assert TOKEN not in log.motivo
+
+    @override_settings(**MP_CONFIG)
+    def test_reconciliacao_tambem_e_auditada(self):
+        """
+        A reconciliação é o OUTRO caminho que escreve estado financeiro, e
+        ele não passa pela view do webhook. Se a auditoria vale para o
+        webhook, vale para os dois — senão um pagamento reconciliado fica
+        sem rastro, que é o caso mais difícil de investigar depois.
+        """
+        subscription = _assinatura_pendente(referencia="pre-1")
+        gateway = _GatewayDuble()
+        gateway.consultar_cobranca = MagicMock(
+            return_value=_cobranca(status="aprovado", referencia="pre-1")
+        )
+
+        resultado = services.reconciliar_com_provedor(payment_gateway=gateway)
+
+        assert resultado["confirmadas"] == 1
+        logs = list(AssinaturaMudancaEstadoLog.objects.filter(subscription=subscription))
+        assert len(logs) == 1, "a reconciliação moveu dinheiro sem auditar"
+        assert logs[0].estado_novo == Subscription.STATUS_ATIVA
+
+
+# ---------------------------------------------------------------- L3
+class TestL3WebhookAutenticoEstendeAssinaturaVencida:
+    """
+    A costura exata entre P1-07 (webhook) e P1-08 (Premium/gating), e o
+    lugar onde o validador teve que TROCAR A PREMISSA.
+
+    O que acontece, e é CORRETO: com HMAC válido e o provedor reportando
+    `authorized`, o webhook ESTENDE o `vencimento` e o Premium abre. A
+    primeira leitura era "expirar é fechar a porta para sempre"; a
+    verdade é o contrário — o provedor é a fonte da verdade do dinheiro,
+    e negar o período pago seria COBRAR E NÃO ENTREGAR.
+
+    Por que isso é risco: `vencimento` é o que `gating` lê para liberar o
+    Premium. Um caminho que o estende é um caminho que muda o que o
+    usuário pode acessar. Se ele abrir para quem não tem o segredo, é
+    entrada de graça; se abrir de novo no replay, é tempo grátis infinito.
+
+    A garantia que de fato importa é mais estreita que "o webhook estende":
+      (a) a janela só pode ser reaberta por quem tem o segredo;
+      (b) o replay não estende de novo.
+    """
+
+    @override_settings(**MP_CONFIG)
+    def test_webhook_autentico_extende_a_janela_e_abre_o_premium(self):
+        """O comportamento correto, escrito primeiro — para que os testes
+        negativos abaixo tenham contra o que falhar."""
+        subscription = _assinatura_ativa(
+            referencia="pre-1", vencimento_em_dias=-1, email="vencida@example.com"
+        )
+        antes = subscription.vencimento
+        # Um ciclo pago em aberto: é a cobrança que o webhook vai fechar.
+        HistoricoPagamento.objects.create(
+            subscription=subscription,
+            valor=Decimal("29.90"),
+            status=HistoricoPagamento.STATUS_PENDENTE,
+            referencia_gateway="pre-1",
+        )
+        assert subscription.deveria_ter_acesso_premium is False, "premissa do teste: expirada"
+
+        with _mp_get():
+            resposta = _webhook("pre-1")
+
+        assert resposta.status_code == 200
+        subscription.refresh_from_db()
+        assert subscription.vencimento > antes, "o webhook autêntico não estendeu a janela"
+        assert subscription.deveria_ter_acesso_premium is True, "o Premium não abriu com o período pago"
+
+    @override_settings(**MP_CONFIG)
+    def test_sem_o_segredo_a_janela_nao_abre(self):
+        """
+        (a) A garantia que importa: SEM o segredo, a janela NÃO abre.
+
+        Este é o teste que segura a porta. Sem ele, o "estender" acima é
+        indistinguível de uma brecha.
+        """
+        subscription = _assinatura_ativa(
+            referencia="pre-alvo", vencimento_em_dias=-1, email="vencida2@example.com"
+        )
+        antes = subscription.vencimento
+        HistoricoPagamento.objects.create(
+            subscription=subscription,
+            valor=Decimal("29.90"),
+            status=HistoricoPagamento.STATUS_PENDENTE,
+            referencia_gateway="pre-alvo",
+        )
+
+        with _mp_get() as get:
+            resposta = _webhook("pre-alvo", signed=False)
+
+        assert resposta.status_code == 200
+        subscription.refresh_from_db()
+        assert subscription.vencimento == antes, "requisição FORJADA estendeu a janela de tempo"
+        assert subscription.deveria_ter_acesso_premium is False
+        assert get.call_count == 0
+
+    @override_settings(**MP_CONFIG)
+    def test_assinatura_v1_de_outra_referencia_nao_extende(self):
+        """
+        (a) O mesmo por outro caminho: um `v1` válido, mas calculado sobre
+        OUTRA referência, não abre a janela de ESTA. Sem isto, um segredo
+        visto numa requisição resolveria todas as outras — o `id` da
+        preapproval é sequencial, então adivinhar é quase free.
+        """
+        subscription = _assinatura_ativa(
+            referencia="pre-alvo", vencimento_em_dias=-1, email="vencida3@example.com"
+        )
+        antes = subscription.vencimento
+        HistoricoPagamento.objects.create(
+            subscription=subscription,
+            valor=Decimal("29.90"),
+            status=HistoricoPagamento.STATUS_PENDENTE,
+            referencia_gateway="pre-alvo",
+        )
+
+        # HMAC válido — mas para "pre-outra".
+        v1_de_outra = assinar_cabecalho_webhook("pre-outra", SEGREDO, "req-1")
+        with _mp_get() as get:
+            resposta = _webhook(
+                "pre-alvo",
+                signed=False,
+                **{
+                    HEADER_ASSINATURA: v1_de_outra,
+                    HEADER_REQUEST_ID: "req-1",
+                },
+            )
+
+        assert resposta.status_code == 200
+        subscription.refresh_from_db()
+        assert subscription.vencimento == antes, "assinatura de outra referência estendeu a janela"
+        assert subscription.deveria_ter_acesso_premium is False
+        assert get.call_count == 0
+
+    @override_settings(**MP_CONFIG)
+    def test_o_replay_nao_estende_de_novo(self):
+        """
+        (b) O replay não estende. Este é o que separa "o provedor é a fonte
+        da verdade" de "cada POST do MP é um mês grátis": o MP reenvia a
+        mesma notificação até 8 vezes ao longo de ~4 dias, e cada reenvio
+        é assinado de novo — portanto, para o validador, é uma requisição
+        autêntica nova.
+        """
+        subscription = _assinatura_ativa(
+            referencia="pre-1", vencimento_em_dias=-1, email="vencida4@example.com"
+        )
+        HistoricoPagamento.objects.create(
+            subscription=subscription,
+            valor=Decimal("29.90"),
+            status=HistoricoPagamento.STATUS_PENDENTE,
+            referencia_gateway="pre-1",
+        )
+
+        with _mp_get():
+            _webhook("pre-1")
+        subscription.refresh_from_db()
+        apos_primeiro = subscription.vencimento
+        assert subscription.deveria_ter_acesso_premium is True
+
+        # Três reenvios autenticados, como o MP faz.
+        for _ in range(3):
+            with _mp_get():
+                resposta = _webhook("pre-1")
+            assert resposta.status_code == 200
+            subscription.refresh_from_db()
+            assert subscription.vencimento == apos_primeiro, (
+                "o replay do webhook estendeu a janela de novo — tempo grátis infinito"
+            )
+
+    @override_settings(**MP_CONFIG)
+    def test_o_replay_nao_cria_auditoria_extra(self):
+        """
+        O mesmo (b), visto pela trilha: três reenvios autenticados deixam
+        UMA transição registrada. Reenvio do MP não é um segundo
+        pagamento.
+        """
+        subscription = _assinatura_ativa(
+            referencia="pre-1", vencimento_em_dias=-1, email="vencida5@example.com"
+        )
+        HistoricoPagamento.objects.create(
+            subscription=subscription,
+            valor=Decimal("29.90"),
+            status=HistoricoPagamento.STATUS_PENDENTE,
+            referencia_gateway="pre-1",
+        )
+
+        with _mp_get():
+            _webhook("pre-1")
+        for _ in range(3):
+            with _mp_get():
+                _webhook("pre-1")
+
+        logs = AssinaturaMudancaEstadoLog.objects.filter(subscription=subscription)
+        assert logs.count() == 1, f"reenvio do MP gerou {logs.count()} transições de auditoria"
+        assert (
+            HistoricoPagamento.objects.filter(
+                subscription=subscription, status=HistoricoPagamento.STATUS_PENDENTE
+            ).count()
+            == 0
+        )
+
+    @override_settings(**MP_CONFIG)
+    def test_gating_ve_o_premium_pelo_vencimento_estendido(self):
+        """
+        O outro lado da costura, P1-08: o que o webhook estende é exatamente
+        o que `gating` lê. Se os dois discordassem, o teste acima passaria
+        e o usuário continuaria sem Premium — um teste verde sobre uma
+        garantia que não existe.
+        """
+        subscription = _assinatura_ativa(
+            referencia="pre-1", vencimento_em_dias=-1, email="vencida6@example.com"
+        )
+        HistoricoPagamento.objects.create(
+            subscription=subscription,
+            valor=Decimal("29.90"),
+            status=HistoricoPagamento.STATUS_PENDENTE,
+            referencia_gateway="pre-1",
+        )
+        usuario = subscription.user
+        assert subscription.deveria_ter_acesso_premium is False
+
+        with _mp_get():
+            _webhook("pre-1")
+
+        subscription.refresh_from_db()
+        usuario.refresh_from_db()
+        assert subscription.deveria_ter_acesso_premium is True
+        assert usuario.papel == "premium", "o papel do usuário não acompanhou a janela reaberta"
+        # A janela estendida é a que o gating lê — e ela é o `vencimento`.
+        assert subscription.vencimento > timezone.now()
+
+
+
 @override_settings(**MP_CONFIG)
 def test_reconciliacao_nao_reativa_estado_terminal():
     """`expirada`/`encerrada` são o fim da linha — nem o provedor
@@ -1106,27 +1449,187 @@ def test_nenhum_log_contem_assinatura_recebida_nem_payload(caplog):
     assert get.call_count == 0
 
 
+# Marcadores INVENTADOS aqui, que o corpo do dublê carrega de verdade. Não
+# são segredos reais: servem para que qualquer eco do corpo no log ou na
+# auditoria apareça como "achado", e não como coincidência de palavra.
+MARCADOR_CORPO = "MP_TRECHO_DE_SEGREDO_QUE_NAO_PODE_VAZAR"
+MARCADOR_CORPO_2 = "MP_PAYER_EMAIL_QUE_NAO_PODE_VAZAR"
+
+#: Corpo que o Mercado Pago devolveria num erro. realisticamente traz o
+#: `payer_email` e o `id` do pagador — ou seja, dado de terceiro — e é
+#: exatamente isso que não pode ir para o log nem para a auditoria.
+CORPO_DO_PROVEDOR = {
+    "message": "token invalido",
+    "cause": [{"code": 3000, "description": MARCADOR_CORPO}],
+    "payer_email": MARCADOR_CORPO_2,
+}
+
+
+def _assercoes_de_nao_vazamento(texto: str) -> None:
+    """
+    O que o nome `test_nenhum_log_contem_token_nem_corpo_do_provedor_no_erro`
+    PROMETE, verificado item a item.
+
+    Este helper existia para documentar o que o teste esquecia de
+    verificar: o corpo do provedor. A versão anterior do teste checava
+    token, segredo e "Bearer" — e passava mesmo com `resposta.text[:300]`
+    embutido na exceção, porque o nome promete uma propriedade que ele não
+    media. A propriedade era FALSA: o corpo do MP chegava ao log pelo
+    traceback do `logger.exception`.
+    """
+    # --- credenciais (o que já era conferido) ---
+    assert TOKEN not in texto, "o Access Token do MP apareceu no log"
+    assert SEGREDO not in texto, "o segredo do webhook apareceu no log"
+    assert "Bearer" not in texto, "cabeçalho de autorização apareceu no log"
+
+    # --- o CORPO do provedor (o que faltava de verdade) ---
+    assert MARCADOR_CORPO not in texto, "trecho do corpo do provedor vazou para o log"
+    assert MARCADOR_CORPO_2 not in texto, "payer_email do corpo do provedor vazou para o log"
+    assert "token invalido" not in texto, "mensagem de erro do MP vazou para o log"
+
+    # --- a assinatura da requisição (o v1) ---
+    # O `v1` que o provedor nos manda é a prova de posse do segredo. Ele
+    # entra no log se alguém logar o cabeçalho de assinatura cru.
+    _, _, v1 = assinar_cabecalho_webhook("pre-1", SEGREDO, "req-1").partition("v1=")
+    assert v1 not in texto, "o v1 da assinatura do webhook vazou para o log"
+    assert "x-signature" not in texto.lower(), "cabeçalho de assinatura citado no log"
+
+    # --- a trilha de auditoria em disco (tabela de dinheiro) ---
+    for log in AssinaturaMudancaEstadoLog.objects.all():
+        auditoria = f"{log.estado_anterior} {log.estado_novo} {log.motivo}"
+        for vazamento, rotulo in (
+            (TOKEN, "token"),
+            (SEGREDO, "segredo"),
+            (MARCADOR_CORPO, "corpo do provedor"),
+            (MARCADOR_CORPO_2, "payer_email do provedor"),
+            (v1, "v1 da assinatura"),
+        ):
+            assert vazamento not in auditoria, f"{rotulo} vazou para AssinaturaMudancaEstadoLog"
+    for pagamento in HistoricoPagamento.objects.all():
+        for campo in (pagamento.status, pagamento.referencia_gateway):
+            assert MARCADOR_CORPO not in campo
+            assert TOKEN not in campo
+
+
 @override_settings(**MP_CONFIG)
 def test_nenhum_log_contem_token_nem_corpo_do_provedor_no_erro(caplog):
     """
-    Notificacao AUTENTICADA, mas o provedor responde erro: o
-    `ProvedorPagamentoError` carrega o corpo da resposta do MP. O log
-    pode trazer o erro, nunca o token nem o corpo cru.
+    Notificação AUTENTICADA, e o provedor responde ERRO carrying um corpo
+    com dado de terceiro.
+
+    O nome do teste é a afirmação: nenhum log contém o token NEM o corpo do
+    provedor. Antes este teste só verificava token/segredo/`Bearer` e
+    passava com o corpo vazando — a propriedade prometida era falsa. Agora
+    `_assercoes_de_nao_vazamento` confere o corpo, o `v1` da assinatura e a
+    tabela de auditoria.
+    """
+    _assinatura_pendente(referencia="pre-1")
+
+    with caplog.at_level(logging.DEBUG):
+        with patch(
+            "assinatura.providers.payment.SessaoEgress.get",
+            return_value=_resposta(500, CORPO_DO_PROVEDOR),
+        ):
+            resposta = _webhook("pre-1")
+
+    assert resposta.status_code == 200
+    _assercoes_de_nao_vazamento(caplog.text)
+
+
+@override_settings(**MP_CONFIG)
+def test_corpo_do_provedor_nao_vaza_em_outros_codigos_http(caplog):
+    """
+    O vazamento não era do 500: era de QUALQUER status não-2xx, porque a
+    mensagem embutia `resposta.text[:300]` em todos eles. Parametrizado para
+    que a propriedade não dependa de um número escolhido a dedo.
+    """
+    for status in (400, 401, 403, 404, 409, 422, 429, 502, 503):
+        caplog.clear()
+        _assinatura_pendente(referencia=f"pre-{status}", email=f"http-{status}@example.com")
+
+        with caplog.at_level(logging.DEBUG):
+            with patch(
+                "assinatura.providers.payment.SessaoEgress.get",
+                return_value=_resposta(status, CORPO_DO_PROVEDOR),
+            ):
+                resposta = _webhook(f"pre-{status}")
+
+        assert resposta.status_code == 200, f"HTTP {status}: o webhook não respondeu 200"
+        _assercoes_de_nao_vazamento(caplog.text)
+
+
+@override_settings(**MP_CONFIG)
+def test_log_do_erro_traz_status_e_tipo_e_nao_a_mensagem(caplog):
+    """
+    O positivo do anterior: o log continua sendo útil. Type e status HTTP
+    são o que o operador precisa para diagnosticar; a mensagem da exceção
+    (que é controle do provedor) é o que ele não pode receber.
     """
     _assinatura_pendente(referencia="pre-1")
 
     with caplog.at_level(logging.ERROR):
         with patch(
             "assinatura.providers.payment.SessaoEgress.get",
-            return_value=_resposta(500, {"message": "token invalido", "cause": [{"code": "3000"}]}),
+            return_value=_resposta(503, CORPO_DO_PROVEDOR),
         ):
-            resposta = _webhook("pre-1")
+            _webhook("pre-1")
 
-    assert resposta.status_code == 200
     texto = caplog.text
-    assert TOKEN not in texto
-    assert SEGREDO not in texto
-    assert "Bearer" not in texto
+    assert "ProvedorPagamentoError" in texto, "o log deixou de dizer o TIPO do erro"
+    assert "503" in texto, "o log deixou de trazer o STATUS HTTP do provedor"
+    assert "obter_preapproval" in texto, "o log deixou de dizer a OPERAÇÃO que falhou"
+    # `traceback` no log é o caminho pelo qual a mensagem chegava: a
+    # primeira linha de um traceback é `Tipo: mensagem`.
+    assert "Traceback" not in texto, "o log voltou a imprimir traceback (e com ele a mensagem)"
+
+
+@override_settings(**MP_CONFIG)
+def test_mensagem_da_excecao_do_provedor_nao_carrega_corpo_nem_str_da_excecao_de_rede():
+    """
+    A mesma propriedade, olhada de dentro do `providers/payment.py` -- sem
+    passar pela view. Antes, os tres `raise` embutiam `resposta.text[:300]`
+    e o `{exc}` das excecoes de rede/egress.
+    """
+    from assinatura.providers.payment import (
+        MercadoPagoGatewayProvider,
+        ProvedorPagamentoError,
+    )
+
+    corpo = CORPO_DO_PROVEDOR
+
+    # (a) resposta HTTP nao-2xx: so status, nunca o corpo.
+    resposta_500 = _resposta(500, corpo)
+    with patch(
+        "assinatura.providers.payment.SessaoEgress.get",
+        return_value=resposta_500,
+    ):
+        with pytest.raises(ProvedorPagamentoError) as erro:
+            MercadoPagoGatewayProvider()._obter_preapproval("pre-1")
+    mensagem = str(erro.value)
+    assert "token invalido" not in mensagem
+    assert "payer_email" not in mensagem
+    for causa in corpo["cause"]:
+        assert causa["description"] not in mensagem
+    # O que substituiu o corpo: status HTTP e operacao, como atributos.
+    assert erro.value.status_http == 500, "o status HTTP deixou de estar disponivel como atributo"
+    assert erro.value.origem == "obter_preapproval"
+
+    # (b) excecao de rede: so o TIPO vai na mensagem, nunca `str(exc)` --
+    # que carrega a URL e, em alguns casos, o corpo.
+    import requests as _requests
+
+    mensagem_que_nao_pode_vazar = "MARKER_REDE_" + str(resposta_500.status_code)
+    erro_rede = _requests.RequestException(mensagem_que_nao_pode_vazar)
+    with patch(
+        "assinatura.providers.payment.SessaoEgress.get",
+        side_effect=erro_rede,
+    ):
+        with pytest.raises(ProvedorPagamentoError) as erro_envolvido:
+            MercadoPagoGatewayProvider()._obter_preapproval("pre-1")
+    assert mensagem_que_nao_pode_vazar not in str(erro_envolvido.value)
+    assert erro_envolvido.value.status_http is None
+    assert erro_envolvido.value.origem == "rede"
+
 
 def test_credencial_do_mp_nao_existe_em_arquivo_do_repositorio():
     """

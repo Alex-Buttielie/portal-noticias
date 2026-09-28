@@ -31,7 +31,34 @@ from .providers.payment import (
 
 logger = logging.getLogger(__name__)
 
-logger = logging.getLogger(__name__)
+
+def _log_falha_de_provedor(etapa: str, exc: BaseException, *contexto: object) -> None:
+    """
+    Registra falha de comunicação com o provedor com TIPO e STATUS — nunca
+    `str(exc)`, nunca traceback.
+
+    Mesmo motivo de `views.MercadoPagoWebhookView.post` e de
+    `config/email_entrega.py` (P1-04): a primeira linha de um traceback é
+    `Tipo: mensagem`, e a mensagem do `ProvedorPagamentoError` é
+    controle do provedor. Aqui `tipo`, `origem` e `status_http` são
+    atributos estruturados do próprio erro, então o log continua útil sem
+    tocar no texto.
+
+    Fica num helper só para que a invariante "o caminho de dinheiro nunca
+    imprime traceback" seja UMA regra com UM lugar, em vez de quatro
+    call sites que alguém pode divergir.
+    """
+    status = getattr(exc, "status_http", None)
+    logger.error(
+        "%s (tipo=%s origem=%s http=%s%s). Nenhum detalhe do provedor é registrado.",
+        etapa,
+        type(exc).__name__,
+        getattr(exc, "origem", "") or "-",
+        status if status is not None else "-",
+        ("; " + ", ".join(f"{k}={v}" for k, v in zip(("assinatura", "referência"), contexto)))
+        if contexto
+        else "",
+    )
 
 
 class AssinaturaJaExisteError(Exception):
@@ -428,11 +455,12 @@ def cancelar_assinatura(
     if payment_gateway is not None and subscription.gateway_referencia and not ja_cancelado_no_provedor:
         try:
             payment_gateway.cancelar(subscription.gateway_referencia)
-        except ProvedorPagamentoError:
-            logger.exception(
-                "Falha ao cancelar a assinatura %s no provedor (referência %s): "
-                "o cancelamento local prossegue e a conciliação tentará de novo. "
-                "Enquanto isso o provedor ainda pode debitar.",
+        except ProvedorPagamentoError as exc:
+            _log_falha_de_provedor(
+                "Falha ao cancelar a assinatura no provedor: o cancelamento local "
+                "prossegue e a conciliação tentará de novo. Enquanto isso o provedor "
+                "ainda pode debitar",
+                exc,
                 subscription.pk,
                 subscription.gateway_referencia,
             )
@@ -629,13 +657,13 @@ def processar_vencimentos_e_grace_periods(payment_gateway: PaymentGatewayProvide
                 resultado["renovacoes_ja_em_aberto"] += 1
             elif acao == "renovacao_recusada":
                 resultado["renovacoes_recusadas"] += 1
-        except Exception:
+        except Exception as exc:
             resultado["erros"] += 1
-            logger.exception(
-                "Falha ao processar o vencimento da assinatura %s (usuário %s): "
-                "a varredura continua para as demais. O acesso Premium deste "
-                "usuário NÃO é concedido por causa desta falha — o gating "
-                "nega pelo `vencimento` no momento da requisição.",
+            _log_falha_de_provedor(
+                "Falha ao processar o vencimento da assinatura: a varredura continua "
+                "para as demais. O acesso Premium deste usuário NÃO é concedido por "
+                "causa desta falha — o gating nega pelo `vencimento` no momento da requisição",
+                exc,
                 subscription.pk,
                 subscription.user_id,
             )
@@ -700,12 +728,13 @@ def reconciliar_com_provedor(payment_gateway: PaymentGatewayProvider | None = No
         contadores["consultadas"] += 1
         try:
             cobranca = payment_gateway.consultar_cobranca(subscription.gateway_referencia)
-        except ProvedorPagamentoError:
+        except ProvedorPagamentoError as exc:
             # Uma falha de rede com o provedor NÃO pode virar mudança de
             # estado financeiro: conta como erro e segue.
             contadores["erros"] += 1
-            logger.exception(
-                "Conciliação: falha ao consultar a assinatura %s (referência %s) no provedor.",
+            _log_falha_de_provedor(
+                "Conciliação: falha ao consultar a assinatura no provedor.",
+                exc,
                 subscription.pk,
                 subscription.gateway_referencia,
             )
@@ -740,10 +769,11 @@ def reconciliar_com_provedor(payment_gateway: PaymentGatewayProvider | None = No
                     "reporta o acordo como ativo: cancelamento reenviado.",
                     subscription.pk,
                 )
-            except ProvedorPagamentoError:
+            except ProvedorPagamentoError as exc:
                 contadores["erros"] += 1
-                logger.exception(
-                    "Conciliação: falha ao reenviar o cancelamento da assinatura %s (referência %s).",
+                _log_falha_de_provedor(
+                    "Conciliação: falha ao reenviar o cancelamento da assinatura no provedor.",
+                    exc,
                     subscription.pk,
                     subscription.gateway_referencia,
                 )

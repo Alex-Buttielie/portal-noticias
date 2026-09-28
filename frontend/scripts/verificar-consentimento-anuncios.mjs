@@ -77,6 +77,11 @@ process.on("warning", (aviso) => {
 });
 
 const violacoes = [];
+
+/** Concordância simples para as linhas de inventário (a guarda é em pt-BR). */
+function plural(n, um, muitos) {
+  return `${n} ${n === 1 ? um : muitos}`;
+}
 const autotestes = [];
 
 function registrar(nome, ok, detalhes) {
@@ -567,6 +572,57 @@ async function main() {
     problemas.length === 0 ? `${varridos} arquivo(s) varridos, 0 violação(ões)` : `${problemas.length} violação(ões):\n    - ${problemas.join("\n    - ")}`
   );
 
+  // ---- A10: INVENTARIO de hosts de TERCERO de imagem (PENDENCIA) ---------
+  // Por que este bloco existe, e o que ele NAO faz
+  // =================================================
+  // ate aqui a guarda varrida `REGEX_HOST_EXTERNO`, que so conhece host de
+  // ANUNCIO e MEDICAO do Google, e a conclusao final afirmava "nada externo
+  // antes do consentimento". Isso era uma afirmacao FALSA: o placeholder de
+  // imagem (`lib/imagens.ts`) aponta para `picsum.photos`, que e um servico
+  // de TERCERO, e e requisitado antes de qualquer consentimento.
+  //
+  // Este bloco NAO escolha a correcao. As duas saidas — asset local
+  // versionado, ou carregar o placeholder atras do portao de consentimento —
+  // sao as DUAS DECISOES DE PRODUTO, com consequencias opostas de design
+  // (a primeira tira a variedade visual dos placeholders; a segunda esconde
+  // a miniatura da noticia ate a pessoa aceitar "publicidade", que nao e
+  // publicidade). Escolher entre elas nao e engenharia.
+  //
+  // O que este bloco faz e o minimo honesto: conta, e nao deixa a
+  // verificacao dizer "nada externo" enquanto o numero e diferente de zero.
+  // Uma pendencia que ninguem consegue ver e uma pendencia que ninguem cumpre.
+  const fontesComPlaceholder = [];
+  for (const dir of DIRETORIOS_VARRIDOS) {
+    const arquivos = (await arquivosRecursivos(path.join(dirFrontend, dir))).filter((a) =>
+      EXTENSOES_FONTE.test(a)
+    );
+    for (const arquivo of arquivos) {
+      const fonte = removerComentarios(await readFile(arquivo, "utf8"));
+      const ocorrencias = (fonte.match(/(?:https?:\/\/)?(?:www\.)?picsum\.photos\//g) || []).length;
+      if (ocorrencias > 0) {
+        fontesComPlaceholder.push(`${path.relative(dirFrontend, arquivo)} (${plural(ocorrencias, "referência", "referências")})`);
+      }
+    }
+  }
+  const TEM_PLACEHOLDER_DE_TERCEIRO = fontesComPlaceholder.length > 0;
+  console.log("\nA10) Inventario de saida externa de IMAGEM (pendencia de produto):\n");
+  if (TEM_PLACEHOLDER_DE_TERCEIRO) {
+    console.log(
+      `    ATENCAO: ${plural(fontesComPlaceholder.length, "arquivo emite", "arquivos emitem")} placeholder para picsum.photos,\n` +
+        `    host de TERCERO, requisitado ANTES de qualquer consentimento.`
+    );
+    for (const linha of fontesComPlaceholder) console.log(`      - ${linha}`);
+    console.log(
+      "    MEDIDO no build de producao (SSR, backend de verdade, sem consentimento dado):\n" +
+        "    ver o numero em frontend/lib/imagens.ts (PENDENCIA no topo do arquivo).\n" +
+        "    As duas saidas (asset local x portao de consentimento) sao DECISAO DE PRODUTO.\n" +
+        "    Enquanto isso, a afirmacao de ZERO saida externa ate o consentimento NAO\n" +
+        "    e verdade para imagem. O numero medido esta em `frontend/lib/imagens.ts`."
+    );
+  } else {
+    console.log("    Nenhum placeholder de terceiro: nenhuma saida externa de imagem.");
+  }
+
   rodarAutotestes();
 
   const falhasAutoteste = autotestes.filter((a) => !a.ok).length;
@@ -577,7 +633,19 @@ async function main() {
     console.error(`\n${violacoes.length} verificação(ões) em VIOLAÇÃO de P1-09 (AdSense/Premium).`);
     process.exit(1);
   }
-  console.log("\nP1-09 OK — nada externo antes do consentimento, Premium sem anúncios, fallback Free sem anúncios.");
+  // A conclusao e escrita em duas partes DE PROPÓSITO. A primeira e o que
+  // a guarda realmente prova (anuncio e medicao). A segunda e o que ela
+  // NAO prova, e que antes desta correcao ela afirmava junto — a guarda
+  // dizia "nada externo" com o picsum na tela, e foi esse o mesmo defeito
+  // do comentario falso em `lib/imagens.ts`.
+  console.log("\nP1-09 OK — nada de ANUNCIO ou MEDICAO sai antes do consentimento; Premium sem anúncios; fallback Free sem anúncios.");
+  if (TEM_PLACEHOLDER_DE_TERCEIRO) {
+    console.log(
+      "ATENCAO — isto NAO e 'nada externo': o placeholder de imagem (`picsum.photos`)\n" +
+        "           e host de TERCERO e sai antes do consentimento. PENDENCIA de produto,\n" +
+        "           registrada em `frontend/lib/imagens.ts`."
+    );
+  }
 }
 
 main().catch((erro) => {

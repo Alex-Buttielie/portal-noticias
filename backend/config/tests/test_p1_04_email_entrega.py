@@ -35,6 +35,7 @@ import logging
 import pytest
 from django.core import mail
 from django.core.mail import EmailMessage
+from django.test import override_settings
 
 from config.email_entrega import (
     BACKEND_RESEND,
@@ -43,6 +44,8 @@ from config.email_entrega import (
     FalhaDeEntrega,
     MOTIVO_FALHA_GENERICO,
     entregar_email,
+    orientacao_de_configuracao,
+    registrar_evento,
     verificar_canal_email,
 )
 from config.health import METRICAS
@@ -158,6 +161,94 @@ class TestBackendsSemEntregaReal:
         assert contato_services.BACKENDS_SEM_ENTREGA_REAL is BACKENDS_SEM_ENTREGA_REAL
         assert contato_services.CanalIndisponivel is CanalIndisponivel
         assert contato_services.FalhaDeEntrega is FalhaDeEntrega
+
+
+# ---------------------------------------------------------------------------
+# LACUNA L1 — a MESMA lista, no `newsletter/`, presa por IDENTIDADE
+# ---------------------------------------------------------------------------
+# POR QUE ESTE BLOCO EXISTE
+# ========================
+# A resolução do conflito P1-06 × P1-04 é: `config/email_entrega.py` é a
+# fonte única da lista, e `newsletter/` importa dela em vez de ter a sua.
+# Essa decisão valia — e NÃO estava presa por nada.
+#
+# O que existia antes deste bloco, em `newsletter/tests/`:
+#
+#   - `test_lista_de_backends_que_nao_entregam_do_newsletter_contem_a_do_settings`
+#     — compara `config.settings._EMAIL_BACKENDS_QUE_NAO_ENTREGAM` com
+#     `contato.services.BACKENDS_SEM_ENTREGA_REAL` por SUBCONJUNTO (`<=`).
+#     Passaria igual com o `newsletter` tendo a sua própria lista;
+#   - `test_locmem_e_console_sao_reconhecidos_como_nao_entregantes` e
+#     `test_resend_e_o_unico_backend_de_verdade_que_o_projeto_conhece` —
+#     leem de `contato.services`, nunca de `newsletter.services`, e
+#     exercitam comportamento, não identidade.
+#
+# Nenhum teste afirmava `newsletter.services.BACKENDS_SEM_ENTREGA_REAL is
+# config.email_entrega.BACKENDS_SEM_ENTREGA_REAL`. Alguém podia escrever
+# `BACKENDS_SEM_ENTREGA_REAL = frozenset({...})` no `newsletter/services.py`
+# e a suíte inteira passava. Este bloco é o que fecha a porta.
+#
+# Por que `is` e não `==`: duas listas com o mesmo conteúdo divergem no
+# primeiro item corrigido só num dos lados. `is` prende a FONTE, que é
+# exatamente a propriedade que a resolução do conflito travou.
+
+
+class TestL1NewsletterUsaAMesmaListaDeBackends:
+    def test_newsletter_importa_a_mesma_lista_e_nao_a_duplica(self):
+        """A identidade é a garantia. `==` deixaria passar uma cópia igual
+        hoje e divergente amanhã."""
+        from newsletter import services as newsletter_services
+
+        assert newsletter_services.BACKENDS_SEM_ENTREGA_REAL is BACKENDS_SEM_ENTREGA_REAL
+
+    def test_newsletter_reexporta_as_mesmas_funcoes_de_entrega(self):
+        """
+        O `newsletter/services.py` importa da MESMA fonte nao so a lista,
+        mas tambem as funcoes de entrega. A garantia que importa no caminho
+        do dinheiro e a da ENTREGA: se `newsletter` passar a ter a sua
+        propria `entregar_email`, o portao de "so conta como entrega se
+        entregou de verdade" (P1-04) deixa de valer para a newsletter —
+        e o bug volta a ser invisivel, porque `total_enviados` voltaria a
+        contar entregas que foram so para um dicionario em memoria.
+        """
+        from newsletter import services as newsletter_services
+
+        assert newsletter_services.entregar_email is entregar_email
+        assert newsletter_services.verificar_canal_email is verificar_canal_email
+        assert newsletter_services.registrar_evento is registrar_evento
+        assert newsletter_services.orientacao_de_configuracao is orientacao_de_configuracao
+
+    def test_o_predicado_do_newsletter_consulta_a_lista_por_identidade(self, settings):
+        """
+        Comportamento, não só identidade: o predicado
+        `canal_entrega_real()` precisa ler a MESMA lista. Se alguém
+        trocasse o predicado por um conjunto literal, os testes de
+        identidade acima continuariam verdes e este reprovaria.
+        """
+        from newsletter import services as newsletter_services
+
+        for backend in sorted(BACKENDS_SEM_ENTREGA_REAL):
+            with override_settings(EMAIL_BACKEND=backend):
+                assert newsletter_services.canal_entrega_real() is False, backend
+        with override_settings(EMAIL_BACKEND=BACKEND_RESEND):
+            assert newsletter_services.canal_entrega_real() is True
+
+    def test_nenhum_dos_tres_modulos_de_fonte_une_redireciona_a_lista(self):
+        """
+        A lista não pode ser trocada em tempo de execução: se
+        `newsletter.services.BACKENDS_SEM_ENTREGA_REAL` virar uma reatribuição
+        depois do import, a identidade do teste acima quebra — mas só depois
+        que alguém já estiver lendo o objeto trocado. Esta é a rede contra o
+        `monkeypatch` de produção e o `settings` forjado.
+        """
+        from newsletter import services as newsletter_services
+
+        assert newsletter_services.BACKENDS_SEM_ENTREGA_REAL is BACKENDS_SEM_ENTREGA_REAL
+        # `contato` e `newsletter` resolvem o MESMO objeto entre si, sem
+        # passar por `config` de novo: a identidade dos três.
+        from contato import services as contato_services
+
+        assert newsletter_services.BACKENDS_SEM_ENTREGA_REAL is contato_services.BACKENDS_SEM_ENTREGA_REAL
 
 
 # ---------------------------------------------------------------------------
