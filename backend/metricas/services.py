@@ -229,7 +229,14 @@ def painel(dias: int = 30) -> dict:
     except Exception:
         distribuicao_credenciamento_status = []
     try:
-        distribuicao_newsletter_tipo = _top_distribuicao(InscricaoNewsletter.objects.all(), "tipo", limite=3)
+        distribuicao_newsletter_tipo = _top_distribuicao(
+            # Só as inscrições de verdade: o `tipo` que se distribuía é o que a
+            # pessoa escolheu receber, e um registro revogado e anonimizado não
+            # é mais ninguém recebendo nada.
+            InscricaoNewsletter.objects.filter(user__isnull=False),
+            "tipo",
+            limite=3,
+        )
     except Exception:
         distribuicao_newsletter_tipo = []
     try:
@@ -262,10 +269,20 @@ def painel(dias: int = 30) -> dict:
         lista_espera_total = 0
 
     try:
+        # `newsletter_ativas` não muda de semântica: um registro revogado tem
+        # `ativa=False` desde antes da anonimização.
+        #
+        # `newsletter_total` muda, e a mudança é a honesta. Um registro
+        # anonimizado tem `user_id is None` e não é mais inscrição de ninguém —
+        # é um registro de consentimento revogado. Contá-lo como "total de
+        # inscritos" inflaria a base com linhas que não correspondem a pessoa
+        # alguma, e o número cresceria para sempre só porque as pessoas se
+        # descadastram. Os dois números ficam explícitos no KPI.
         newsletter_ativas = InscricaoNewsletter.objects.filter(ativa=True).count()
-        newsletter_total = InscricaoNewsletter.objects.count()
+        newsletter_total = InscricaoNewsletter.objects.filter(user__isnull=False).count()
+        newsletter_anonimizadas = InscricaoNewsletter.objects.filter(user__isnull=True).count()
     except Exception:
-        newsletter_ativas = newsletter_total = 0
+        newsletter_ativas = newsletter_total = newsletter_anonimizadas = 0
 
     try:
         orgs_ativas = Organizacao.objects.filter(ativo=True).count()
@@ -383,7 +400,15 @@ def painel(dias: int = 30) -> dict:
                 "acoes_total": acoes_total,
             },
             "lista_espera": {"total": lista_espera_total},
-            "newsletter": {"ativas": newsletter_ativas, "total": newsletter_total},
+            "newsletter": {
+                "ativas": newsletter_ativas,
+                "total": newsletter_total,
+                # Registros de consentimento revogado, com o vínculo com a
+                # pessoa cortado. Não são inscritos — são a prova de que houve
+                # consentimento e de que foi revogado, e por isso têm número
+                # próprio em vez de inflar `total`.
+                "anonimizadas": newsletter_anonimizadas,
+            },
             "b2b": {"ativas": orgs_ativas, "total": orgs_total, "criterios_ativos": criterios_ativos},
             "ingestao": {
                 "noticias_periodo": noticias_periodo,

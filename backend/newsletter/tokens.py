@@ -38,13 +38,32 @@ expiração + campo de "usado em") tem o mesmo custo. O par
 secret-no-banco + hash assinado entrega as duas propriedades sem tocar em
 migration — e reaproveita o padrão que o projeto já provou em `identidade/`.
 
-O que este módulo NÃO faz (e é Pendência jurídica, não bug)
-============================================================
-Não há registro datado da **revogação** do consentimento. O que existe é
-`InscricaoNewsletter.ativa=False` + `atualizado_em` (auto_now), que é um
-proxy — se algo reescrever a inscrição depois, a data da revogação se perde.
-Um `consentimento_revogado_em` de verdade exige migration; ver o relatório do
-P1-06.
+O que este módulo NÃO faz (e o que mudou)
+========================================
+Este módulo continua sem token próprio em tabela: o par segredo-no-banco +
+hash assinado entrega expiração e uso único sem tocar em schema, e é o desenho
+que o projeto já provou em `identidade/`.
+
+O que mudou é uma CORREÇÃO DE UMA AFIRMAÇÃO QUE ESTAVA FALSA AQUI. A versão
+anterior deste docstring dizia que "`atualizado_em` (auto_now) recebe o instante
+da revogação" e que a data da revogação existia "como um proxy".
+
+Não recebia, e não existia. O descadastro é feito com
+`InscricaoNewsletter.objects.filter(...).update(...)`, e `auto_now` é aplicado
+por `Model.save()`, não por update de queryset
+(`django/db/models/fields/__init__.py`: `DateTimeField.pre_save` só é chamado
+no caminho do `save()`). Medido nesta suíte: `atualizado_em` é byte a byte o
+mesmo antes e depois do descadastro. Duas docstrings do projeto afirmavam o
+contrário, e nenhum teste perguntava.
+
+Hoje existe `InscricaoNewsletter.consentimento_revogado_em`, gravado no mesmo
+`UPDATE`: de primeira classe, e sobrevive a qualquer reescrita posterior da
+linha. A prova de que o `atualizado_em` nunca serviu está em
+`newsletter/tests/test_p1_06_bordas_e_pendencia.py::test_a_data_da_revogacao_sobrevive_a_uma_reescrita_da_linha`.
+
+Continua pendente, e é decisão de produto/jurídico: a versão do texto de
+consentimento da newsletter (a coluna `versao_consentimento` existe, mas
+`NEWSLETTER_VERSAO_CONSENTIMENTO` é vazio por padrão) e o double opt-in.
 """
 
 from __future__ import annotations

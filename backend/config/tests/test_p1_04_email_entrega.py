@@ -30,7 +30,9 @@ dois alvos justamente para essa saída ser um teste que grita.
 
 from __future__ import annotations
 
+import ast
 import logging
+from pathlib import Path
 
 import pytest
 from django.core import mail
@@ -446,3 +448,403 @@ class TestCaminhoFeliz:
         assert "leitor@example.com" not in renderizado
         assert SEGREDO not in renderizado
         assert 'destino="cadastro"' in renderizado
+
+
+# ===========================================================================
+# LACUNA L2 — A GARANTIA É ESTRUTURAL, E NÃO POR BOA VONTADE
+# ===========================================================================
+# POR QUE ESTE BLOCO EXISTE
+# ========================
+# O gate acima é perfeito e mesmo assim o `b2b/services.py` ficou anos
+# chamando `django.core.mail.send_mail` direto, e a suíte inteira ficava
+# verde. Nenhum teste comportamental pega isso: cada módulo tem os seus
+# testes, e cada um deles passa — o `b2b` só **contava** uma entrega que não
+# acontecia, o que é invisível de dentro do próprio módulo.
+#
+# Quem achou o `b2b` foi quem revisou, não quem escreveu o módulo. Isso é a
+# definição de uma garantia que depende de boa vontade: ela vale até alguém
+# escrever o próximo `send_mail`.
+#
+# O que este bloco trava é a **ESTRUTURA**: no código de produção, fora de
+# `config/email_entrega.py`, NENHUM módulo pode obter a posse de uma mensagem
+# que sai do processo por um caminho que não seja `entregar_email`. Ele é o
+# que o `contato` ganhou do P0-02c e que faltava para os outros três módulos.
+#
+# O QUE É PROIBIDO, E POR QUE CADA REGRA
+# ======================================
+# 1. **Importar o transporte de `django.core.mail`.** `send_mail`,
+#    `send_mass_mail`, `mail_admins`, `mail_managers` e `get_connection` são
+#    atalhos que pulam a checagem de canal e a de pós-envio. `EmailMessage`
+#    NÃO está na lista: ele é o *envelope*, não o *transporte* — construí-lo
+#    é obrigatório, porque `entregar_email` recebe um.
+# 2. **Chamar o transporte por qualquer receptor.** `mail.send_mail(...)`,
+#    `django.core.mail.send_mail(...)`, `services.get_connection()`. A
+#    assinatura é a mesma em todos, então a regra olha o NOME da chamada, não
+#    a origem do objeto.
+# 3. **Chamar `.send()` com `fail_silently`.** É a assinatura exata de
+#    `EmailMessage.send()`, e o `fail_silently=True` é justamente o
+#    mecanismo que transforma falha de entrega em sucesso silencioso — o
+#    defeito que `entregar_email` existe para matar. É o dublê exato que
+#    `config/egress.py:537` (`super().send(request, **kwargs)`) NÃO dispara,
+#    porque `requests` não tem essa palavra-chave.
+# 4. **Definir uma costureira `send_mail` que não seja um repasse.** O
+#    `newsletter/services.py:298` define uma função chamada `send_mail` — e
+#    isso é legítimo, é a costura de transporte daquele app, Testada por
+#    identidade em `TestL1NewsletterUsaAMesmaListaDeBackends`. Mas a
+#    autorização precisa ser **verificada**, não presumida: a função tem que
+#    chamar `entregar_email` no corpo. Se alguém reescrever a costura para
+#    fazer o que quiser, a regra 4 reprova.
+
+#: O único módulo autorizado a falar com o transporte. `config/email_resend.py`
+#: também é transporte — ele É o provedor, implementa `send_messages` e é
+#: chamado pelo Django, não por um fluxo de negócio. Nenhum dos dois é um
+#: "contorno": são as duas pontas legítimas do caminho.
+MODULOS_COM_TRANSPORTE = frozenset(
+    {
+        Path("config") / "email_entrega.py",
+        Path("config") / "email_resend.py",
+    }
+)
+
+#: `django.core` é amplo demais para casar por prefixo de string
+#: (`django.core.files`, `django.core.signing`...), então o módulo importado é
+#: comparado por nome de tuple.
+APP_EMAIL = "django.core.mail"
+APP_CORE = "django.core"
+
+#: Atalhos de transporte do Django. `EmailMessage` e `EmailMultiAlternatives`
+#: NÃO estão aqui: são classes de envelope, não funções que entregam.
+TRANSPORTE_PROIBIDO = frozenset(
+    {"send_mail", "send_mass_mail", "mail_admins", "mail_managers", "get_connection"}
+)
+
+BACKEND_DIR = Path(__file__).resolve().parents[2]
+
+
+def _modulos_de_producao():
+    """Todo `.py` de produção do backend, menos o que não roda em produção."""
+    for caminho in sorted(BACKEND_DIR.rglob("*.py")):
+        partes = set(caminho.relative_to(BACKEND_DIR).parts)
+        if partes & {"migrations", "tests", "__pycache__", "management"}:
+            continue
+        yield caminho
+
+
+def _arvore(caminho: Path):
+    # `utf-8-sig`: alguns módulos versionados começam com BOM (ex.:
+    # `painel_admin/__init__.py`) e `ast.parse` rejeita U+FEFF.
+    return ast.parse(caminho.read_text(encoding="utf-8-sig"))
+
+
+def _chamadas(no):
+    """Todo `ast.Call` da árvore."""
+    return (n for n in ast.walk(no) if isinstance(n, ast.Call))
+
+
+def _nome_da_chamada(chamada: ast.Call) -> str | None:
+    """O nome do callable, venha de `Nome` (`send_mail(...)`) ou de
+    `Atributo` (`mail.send_mail(...)`)."""
+    func = chamada.func
+    if isinstance(func, ast.Name):
+        return func.id
+    if isinstance(func, ast.Attribute):
+        return func.attr
+    return None
+
+
+def _infracoes_do_modulo(arvore: ast.AST) -> list[str]:
+    """As infrações de UM módulo. Função pura: recebe a árvore, devolve a lista.
+
+    Ela é pura de propósito. Uma varredura que só existe embutida no teste que
+    a roda não pode ser testada sozinha — e uma varredura não testada é uma
+    varredura que pode estar olhando para o vazio sem ninguém perceber. O
+    "o sensor funciona?" é `TestASensorDaVarreduraEnxerga`, abaixo.
+    """
+    infracoes: list[str] = []
+
+    # `def` do próprio módulo — as costuras locais, que a regra 4 julga.
+    defs_locais = {
+        no.name for no in ast.walk(arvore) if isinstance(no, ast.FunctionDef)
+    }
+
+    # Regra 1 — o import do transporte.
+    for no in ast.walk(arvore):
+        if isinstance(no, ast.ImportFrom) and no.module == APP_EMAIL:
+            for alias in no.names:
+                if alias.name in TRANSPORTE_PROIBIDO:
+                    infracoes.append(
+                        f"linha {no.lineno} importa {alias.name} de {APP_EMAIL}"
+                    )
+        # `from django.core import mail` — o módulo inteiro, que dá acesso a
+        # `mail.send_mail` e `mail.get_connection` sem nome qualificado.
+        if isinstance(no, ast.ImportFrom) and no.module == APP_CORE:
+            for alias in no.names:
+                if alias.name == "mail":
+                    infracoes.append(f"linha {no.lineno} importa `mail` de {APP_CORE}")
+
+    # Regras 2 e 3 — as chamadas.
+    #
+    # A distinção que resolve o único falso positivo legítimo do projeto: uma
+    # chamada a `send_mail` como NOME SOLTO (`send_mail(...)`) só é
+    # admissível se o próprio módulo DEFINE essa função — porque aí não é o
+    # transporte do Django, é a costura local do app (que a regra 4 verifica
+    # ser um repasse ao gate). Uma chamada como ATRIBUTO
+    # (`mail.send_mail(...)`, `django.core.mail.send_mail(...)`) é sempre
+    # infração: não existe como ela ser a costura local.
+    for chamada in _chamadas(arvore):
+        nome = _nome_da_chamada(chamada)
+        if nome in TRANSPORTE_PROIBIDO:
+            e_costura_local = isinstance(chamada.func, ast.Name) and nome in defs_locais
+            if not e_costura_local:
+                infracoes.append(f"linha {chamada.lineno} chama {nome}()")
+        if nome == "send" and any(kw.arg == "fail_silently" for kw in chamada.keywords):
+            infracoes.append(
+                f"linha {chamada.lineno} chama .send(fail_silently=...) — é a "
+                "assinatura de EmailMessage.send() e o que engole falha de entrega"
+            )
+    return infracoes
+
+
+def _costuras_que_nao_repassam(arvore: ast.AST) -> list[str]:
+    """Regra 4: `def send_mail` que não chama `entregar_email` no corpo."""
+    infracoes = []
+    for no in ast.walk(arvore):
+        if not isinstance(no, ast.FunctionDef) or no.name != "send_mail":
+            continue
+        repasse = any(
+            isinstance(interno, ast.Name) and interno.id == "entregar_email"
+            for interno in ast.walk(no)
+        )
+        if not repasse:
+            infracoes.append(
+                f"linha {no.lineno} define `send_mail` sem chamar `entregar_email` "
+                "— ou não é uma costura, ou é um contorno"
+            )
+    return infracoes
+
+
+class TestNenhumModuloContornaOGateDeEmail:
+    """A varredura de código de produção. Ver o docstring do bloco acima."""
+
+    def test_nenhum_modulo_de_producao_chama_o_transporte_fora_do_gate(self):
+        """
+        Falha se qualquer módulo de produção — FORA de `config/email_entrega.py`
+        e `config/email_resend.py` — tocar o transporte de e-mail do Django.
+
+        Esta é a regra que teria reprovado o `b2b/services.py` da base
+        `623a0e9` no mesmo dia em que ele foi escrito.
+        """
+        infracoes = []
+        for caminho in _modulos_de_producao():
+            where = caminho.relative_to(BACKEND_DIR)
+            if where in MODULOS_COM_TRANSPORTE:
+                continue
+            infracoes += [f"{where}: {i}" for i in _infracoes_do_modulo(_arvore(caminho))]
+
+        assert infracoes == [], (
+            "módulos de produção contornando `config.email_entrega`:\n  "
+            + "\n  ".join(infracoes)
+            + "\n\nEntregar e-mail por fora do gate é o furo do P0-02c: com "
+            "`EMAIL_BACKEND=console` o código responde que entregou e imprimeu "
+            "num stdout que ninguém lê. Passe por "
+            "`config.email_entrega.entregar_email`."
+        )
+
+    def test_toda_costureira_send_mail_local_e_um_repasso_ao_gate(self):
+        """
+        Regra 4. Um módulo pode DEFINIR uma função chamada `send_mail` — o
+        `newsletter/services.py:298` faz isso, e é legítimo, porque ela é a
+        costura de transporte daquele app.
+
+        O que não é legítimo é a função não ser um repasse. Se alguém
+        reescrever a costura para imprimir, engole a exceção ou chamar o
+        Django direto, a função deixa de ser uma costura e vira um contorno
+        com um nome que engana a leitura.
+        """
+        infracoes = []
+        for caminho in _modulos_de_producao():
+            where = caminho.relative_to(BACKEND_DIR)
+            if where in MODULOS_COM_TRANSPORTE:
+                continue
+            infracoes += [
+                f"{where}: {i}" for i in _costuras_que_nao_repassam(_arvore(caminho))
+            ]
+
+        assert infracoes == [], (
+            "costuras `send_mail` que não repassam ao gate:\n  " + "\n  ".join(infracoes)
+        )
+
+    def test_a_costura_do_newsletter_e_reconhecida_como_costura(self):
+        """
+        O contra-teste da resolução do falso positivo: a costura do `newsletter`
+        passa, e a identidade dela com o gate continua provada por
+        `TestL1NewsletterUsaAMesmaListaDeBackends`. Uma regra estrutural que
+        obrigasse o `newsletter` a duplicar `entregar_email` seria uma regra
+        que empurraria o código para fora do gate, não para dentro dele.
+        """
+        from newsletter import services as newsletter_services
+
+        arvore = ast.parse(Path(newsletter_services.__file__).read_text(encoding="utf-8"))
+        assert _infracoes_do_modulo(arvore) == [], (
+            "a costura `send_mail` do newsletter foi confundida com o transporte "
+            "do Django"
+        )
+        assert _costuras_que_nao_repassam(arvore) == []
+
+    def test_a_varredura_enxerga_o_b2b_na_base(self):
+        """
+        A varredura NÃO pode estar vazia por acidente.
+
+        Este teste a exercita com o que a base `623a0e9` realmente tinha em
+        `b2b/services.py` — o import e a chamada — e afirma que a regra marca.
+        Sem isto, uma refatoração que quebrasse a regra (trocar `ast.Call` por
+        outra coisa, ampliar a exceção, errar o `parents`, casar o nome errado)
+        deixaria a varredura aprovando o vazio e ela continuaria verde. Um
+        alarme que não testa o próprio sensor não é alarme.
+        """
+        # O `b2b` da base, literal.
+        infracoes = _infracoes_do_modulo(
+            ast.parse(
+                "from django.core.mail import send_mail\n"
+                "\n"
+                "def alerta(criterio, itens, destinatarios):\n"
+                "    send_mail(subject='x', message='y', from_email='a@b.c',\n"
+                "               recipient_list=destinatarios, fail_silently=False)\n"
+            )
+        )
+        assert len(infracoes) == 2, infracoes
+        assert any("importa send_mail" in i for i in infracoes)
+        assert any("chama send_mail()" in i for i in infracoes)
+
+    @pytest.mark.parametrize(
+        "fonte,trecho_que_deve_ser_marcado",
+        [
+            # Cada uma das quatro regras, com a fonte mínima que a dispara.
+            (
+                "from django.core.mail import get_connection\n",
+                "importa get_connection",
+            ),
+            (
+                "from django.core.mail import mail_admins\n",
+                "importa mail_admins",
+            ),
+            (
+                "from django.core import mail\n",
+                "importa `mail`",
+            ),
+            (
+                "import django.core.mail\ndjango.core.mail.send_mail( subject='a')\n",
+                "chama send_mail()",
+            ),
+            (
+                "from django.core import mail\nmail.send_mail(subject='a')\n",
+                "chama send_mail()",
+            ),
+            # O alias não escapa: a REGRA 1 pega no import, que é onde o nome
+            # original ainda está. É por isso que a regra 1 existe separada da
+            # regra 2 — `import send_mail as _sm` chama `_sm()` e a regra 2,
+            # que olha o nome da chamada, não veria nada.
+            (
+                "from django.core.mail import send_mail as _sm\n_sm(subject='a')\n",
+                "importa send_mail",
+            ),
+            (
+                "conexao = get_connection()\n",
+                "chama get_connection()",
+            ),
+            # A regra 3, com a assinatura exata de `EmailMessage.send()`.
+            (
+                "mensagem.send(fail_silently=False)\n",
+                ".send(fail_silently=...)",
+            ),
+            (
+                "EmailMessage(...).send(fail_silently=True)\n",
+                ".send(fail_silently=...)",
+            ),
+        ],
+    )
+    def test_cada_regra_dispara_no_escopo_delegado(self, fonte, trecho_que_deve_ser_marcado):
+        """Uma regra por linha, e cada uma com o seu caso."""
+        infracoes = _infracoes_do_modulo(ast.parse(fonte))
+        assert any(trecho_que_deve_ser_marcado in i for i in infracoes), (
+            f"a regra parou de enxergar: {fonte!r} produziu {infracoes!r}"
+        )
+
+    @pytest.mark.parametrize(
+        "fonte",
+        [
+            # `config/egress.py:537` — `requests`, que NÃO tem `fail_silently`.
+            "def send(self, request, **kwargs):\n    return super().send(request, **kwargs)\n",
+            # A costura legítima do newsletter: `def` local que repasssa.
+            "from config.email_entrega import entregar_email\n"
+            "def send_mail(*, subject, message, from_email, recipient_list):\n"
+            "    return entregar_email(montar(), destino='newsletter')\n"
+            "def enviar():\n"
+            "    send_mail(subject='a', message='b', from_email='c', recipient_list=[])\n",
+            # O caminho felix: constrói o envelope e entrega pelo gate.
+            "from django.core.mail import EmailMessage\n"
+            "from config.email_entrega import entregar_email\n"
+            "def enviar(destinatarios):\n"
+            "    return entregar_email(EmailMessage(subject='a', body='b',\n"
+            "        from_email='c', to=destinatarios), destino='b2b_alerta')\n",
+        ],
+    )
+    def test_o_que_e_legitimo_nao_e_marcado(self, fonte):
+        """
+        O contra-teste, e ele vale tanto quanto o anterior.
+
+        Uma regra que reprova o caminho correto empurra o código para fora do
+        gate — e o sintoma disso é pior que o bug original: um módulo que
+        precisa contornar a regra para funcionar. `EmailMessage` (envelope),
+        a costura local que repasssa e a chamada a `entregar_email` têm que
+        passar.
+        """
+        assert _infracoes_do_modulo(ast.parse(fonte)) == []
+        assert _costuras_que_nao_repassam(ast.parse(fonte)) == []
+
+    def test_uma_costura_que_deixa_de_repassar_e_marcada(self):
+        """
+        O outro lado da regra 4: a costura que para de ser costura.
+
+        Este é o contorno "de boa-fé" — alguém reescreve a costura do
+        newsletter para tratar a exceção e devolver 0, e o nome `send_mail`
+        continua fazendo o código parecer em conformidade. A regra 4 pega
+        porque olha o CORPO da função, não o nome.
+        """
+        fonte = (
+            "from django.core.mail import get_connection\n"
+            "def send_mail(*, subject, message, from_email, recipient_list):\n"
+            "    conexao = get_connection()\n"
+            "    return conexao.send_messages([])\n"
+        )
+        assert _costuras_que_nao_repassam(ast.parse(fonte)), (
+            "uma `def send_mail` que não chama `entregar_email` precisa ser marcada"
+        )
+        assert _infracoes_do_modulo(ast.parse(fonte)), (
+            "e o transporte que ela usa também precisa ser marcado"
+        )
+
+    def test_o_gate_e_o_resend_sao_os_unicos_com_transporte(self):
+        """A lista de autorização é explícita e mínima. Ela crescer é decisão,
+        não consequência."""
+        assert MODULOS_COM_TRANSPORTE == {
+            Path("config") / "email_entrega.py",
+            Path("config") / "email_resend.py",
+        }
+        for relativo in MODULOS_COM_TRANSPORTE:
+            assert (BACKEND_DIR / relativo).exists(), relativo
+
+    def test_a_varredura_esta_de_fato_olhando_para_o_projeto(self):
+        """
+        O sensor não pode estar apontando para o nada.
+
+        Um `BACKEND_DIR` errado (por exemplo, `parents[3]`, que é a raiz do
+        repositório e não tem nenhum `.py` de produção) faria a varredura
+        encontrar zero arquivos e passar. Este teste conta os módulos que ela
+        vê e exige que sejam os apps reais.
+        """
+        vistos = {c.relative_to(BACKEND_DIR).parts[0] for c in _modulos_de_producao()}
+        for app in ("b2b", "contato", "identidade", "newsletter", "config"):
+            assert app in vistos, f"a varredura não enxergou o app `{app}`"
+        # E nenhum arquivo de teste entrou na contagem.
+        assert not any("tests" in p.parts for p in _modulos_de_producao())

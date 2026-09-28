@@ -37,15 +37,37 @@ os dois continuam apontando para o **mesmo objeto** de lista — o que
 `config/tests/test_p1_04_email_entrega.py` trava por identidade, e o que
 impede as duas cópias de divergirem na primeira correção parcial de uma delas.
 
-O QUE ESTE MÓDULO NÃO CONSEGUE GARANTIR (Pendência jurídica, ver relatório P1-06)
-===============================================================================
-Não existe registro datado da revogação do consentimento, nem da versão do
-texto aceitoSpecifically para a newsletter. O que existe é
-`InscricaoNewsletter.ativa=False` (o efeito, que é real e é o que impede o
-envio) e `atualizado_em` (auto_now) como **proxy** da data da revogação — que se
-perde se algo reescrever a inscrição depois. `User.consentimento_aceito_em` +
-`User.consentimento_versao_termos` datam o aceite dos Termos no cadastro, que é
-outra finalidade. Fechar isso exige migration, que este item não pode criar.
+O QUE ESTE MÓDULO NÃO CONSEGUE GARANTIR (e o que mudou)
+========================================================
+Pendência jurídica do P1-06, fechada neste item para 1 e 2, aberta para 3 e 4.
+
+FECHADO: o registro datado do consentimento, e a anonimização do descadastro.
+
+`InscricaoNewsletter` ganhou `consentimento_aceito_em`,
+`consentimento_revogado_em`, `anonimizado_em` e `referencia_opaca`, e o
+descadastro passou a cortar o vínculo com a pessoa (`user=None`). A linha
+sobrevive como prova — houve consentimento? quando? foi revogado? quando? — sem
+apontar para ninguém. Ver `descadastrar_por_token` e `models.py`.
+
+O detalhe que mudou a forma da solução, e que vale registrar porque a
+instrução original partia de outra premissa: **este modelo nunca guardou o
+endereço de e-mail.** Não havia "endereço a anonimizar" aqui — havia um
+VÍNCULO com `identidade.User`, onde `email` é `unique=True` e é o
+`USERNAME_FIELD`. Por isso a anonimização é cortar o vínculo, e não trocar uma
+string por um hash.
+
+ABERTO (e por quê, não por preguiça):
+
+3. **Versão do texto de consentimento da newsletter.** A coluna
+   `versao_consentimento` existe e é gravada a partir de
+   `NEWSLETTER_VERSAO_CONSENTIMENTO`, mas o default é VAZIO: ainda não existe
+   um texto de consentimento PRÓPRIO da newsletter. `User.consentimento_versao_termos`
+   data o aceite dos **Termos** no cadastro, que é outra finalidade (a LGPD
+   distingue finalidades), e gravar o número dele aqui seria afirmar que a
+   pessoa leu um texto que não leu. Escrever "1.0" seria fabricar um artefato
+   jurídico. A decisão é de produto/jurídico; o campo está pronto para ela.
+4. **Double opt-in.** A inscrição é imediata, no mesmo POST. Mudar isso é
+   mudança de fluxo e de produto, não de retenção.
 """
 
 from __future__ import annotations
@@ -55,6 +77,7 @@ import logging
 
 from django.conf import settings
 from django.core.mail import EmailMessage
+from django.utils import timezone
 
 from config.email_entrega import (
     BACKENDS_SEM_ENTREGA_REAL,
@@ -120,20 +143,81 @@ def inscrever_com_status(user, tipo, categorias=None, periodo=None):
         )
     if tipo == InscricaoNewsletter.TIPO_PERSONALIZADA and not has_feature(user, "newsletter_personalizada"):
         raise RecursoGatedError("Newsletter personalizada é um recurso Premium.")
-    defaults = {"tipo": tipo, "categorias": categorias or [], "ativa": True}
+    agora = timezone.now()
+    defaults = {
+        "tipo": tipo,
+        "categorias": categorias or [],
+        "ativa": True,
+        # A RETENÇÃO (este item): cada inscrição passa a ser um REGISTRO de
+        # consentimento de primeira classe, com a data em que foi concedido.
+        # `update_or_create` só encontra uma linha já VINCULADA a este usuário —
+        # uma inscrição revogada fica com `user=NULL` e não é reencontrada
+        # (ver `descadastrar_por_token`), então `criado=True` significa sempre
+        # "um novo ato de consentimento", nunca "reativei o antigo".
+        "consentimento_aceito_em": agora,
+        "consentimento_revogado_em": None,
+        "anonimizado_em": None,
+        "versao_consentimento": _versao_do_consentimento(),
+    }
     if periodo:
         defaults["periodo"] = periodo
     inscricao, criado = InscricaoNewsletter.objects.update_or_create(user=user, defaults=defaults)
     if criado:
         # Auditoria do ato de consentir, sem e-mail e sem token: o `request_id`
         # já entra em toda linha pelo `RequestIdLogFilter`, e a origem do
-        # consentimento é `User.consentimento_aceito_em`, consultável e datado.
+        # consentimento é a própria data que acabou de ser gravada.
         logger.info("newsletter: inscrição criada (inscricao=%s)", inscricao.pk)
     return inscricao, criado
 
 
+def _versao_do_consentimento() -> str:
+    """Versão do texto de consentimento da newsletter, ou "" se não houver.
+
+    Deliberadamente vazio por padrão: ainda não existe texto de consentimento
+    PRÓPRIO da newsletter (o que existe é o aceite dos Termos no cadastro, que
+    é outra finalidade). Gravar "1.0" aqui seria fabricar um artefato jurídico
+    que ninguém aprovou — o oposto de honesto. A pendência aberta está
+    registrada em `newsletter/tests/test_p1_06_bordas_e_pendencia.py`, e a
+    coluna já existe para que a decisão versionada só precise gravar o valor.
+    """
+    return (getattr(settings, "NEWSLETTER_VERSAO_CONSENTIMENTO", "") or "").strip()
+
+
 def cancelar_inscricao(user) -> None:
-    InscricaoNewsletter.objects.filter(user=user).update(ativa=False)
+    """Revoga o consentimento pelo endpoint autenticado (`DELETE /inscrever/`).
+
+    Faz a MESMA coisa que `descadastrar_por_token` — e essa é a razão de ser
+    desta função ter deixado de ser um simples `.update(ativa=False)`: os dois
+    caminhos são o mesmo ato jurídico (art. 8º, V da LGPD), e um caminho que
+    preservasse o vínculo com a pessoa seria um contorno do outro. Um titular
+    que se descadastra pelo link do e-mail e outro que cancela pelo formulário
+    autenticado precisam ter o mesmo direito exercido do mesmo jeito.
+    """
+    InscricaoNewsletter.objects.filter(user=user).update(
+        **_campos_de_revogacao(gerar_token())
+    )
+
+
+def _campos_de_revogacao(segredo_novo: str) -> dict:
+    """O `UPDATE` de revogação, usado pelos DOIS caminhos.
+
+    Fica em um único lugar de propósito: é o que garante que o descadastro pelo
+    token e o cancelamento autenticado produzam exatamente o mesmo registro. Do
+    jeito que estava, cada um tinha o seu `UPDATE` e bastava um deles ficar
+    para trás para existir um caminho que não anonimiza.
+
+    `user=None` é a anonimização: corta o vínculo com a pessoa identificável e
+    deixa a linha como prova. `anonimizado_em` é o carimbo do ato. Nenhum dos
+    dois é reversível pelo código — não há função que ligue a linha de volta a
+    um `User`.
+    """
+    return {
+        "ativa": False,
+        "token_descadastro": segredo_novo,
+        "consentimento_revogado_em": timezone.now(),
+        "user": None,
+        "anonimizado_em": timezone.now(),
+    }
 
 
 def _localizar_por_hash(hash_assinado: str):
@@ -143,8 +227,17 @@ def _localizar_por_hash(hash_assinado: str):
     para o hash: a comparação é feita em Python, sobre as inscrições candidatas.
     A lista é pequena por construção (um segredo por inscrição) e o custo é
     irrelevante ao lado do envio de e-mail que vem depois.
+
+    Linhas já anonimizadas (`user_id is None`, de um descadastro anterior) NÃO
+    são puladas, e isso é deliberado: o token delas ainda está no banco e ainda
+    parece utilizável, e um segredo que parece utilizável é um segredo que
+    volta a ser testado. Casá-lo e rotacioná-lo é higiene — o efeito do `UPDATE`
+    sobre uma linha já revogada e já anonimizada é neutro, e o retorno da função
+    não muda (`True` para "token apresentado e casado", que já era o caso de uma
+    linha apenas revogada). Pular aqui deixaria o segredo antigo vivo para
+    sempre numa linha que ninguém mais pode usar.
     """
-    for inscricao in InscricaoNewsletter.objects.only("pk", "token_descadastro", "ativa"):
+    for inscricao in InscricaoNewsletter.objects.only("pk", "token_descadastro", "ativa", "user_id"):
         segredo = inscricao.token_descadastro
         if not segredo:
             continue
@@ -164,11 +257,47 @@ def descadastrar_por_token(token: str) -> bool:
 
     `True` significa "pedido processado", **não** "havia inscrição".
 
-    Uso único: o mesmo `UPDATE` que grava `ativa=False` rotaciona
+    Uso único: o mesmo `UPDATE` que grava a revogação rotaciona
     `token_descadastro`. O filtro do `UPDATE` é o segredo ANTIGO, então a
     operação é atômica — dois POSTs simultâneos do mesmo token não podem
-    revogar duas vezes nem reverter nada. `atualizado_em` (auto_now) recebe o
-    instante da revogação.
+    revogar duas vezes nem reverter nada.
+
+    A RETENÇÃO (este item)
+    ====================
+    Este `UPDATE` passou a fazer quatro coisas além de desativar, e as quatro
+    são o registro datado do consentimento:
+
+    1. `consentimento_revogado_em` — a data da revogação, de primeira classe.
+       Antes só havia `atualizado_em` (auto_now) como PROXY, e proxy se perde:
+       qualquer reescrita posterior da inscrição move a data, e o momento em que
+       a pessoa revogou deixa de existir. Uma revogação que não sobrevive a uma
+       reescrita de linha não é registro de revogação, é palpite.
+    2. `user=None` — **a anonimização**. A linha deixa de apontar para uma
+       pessoa identificável. Este modelo nunca guardou o endereço de e-mail: o
+       que guardava era o vínculo com `identidade.User`, onde `email` é
+       `unique=True` e é o `USERNAME_FIELD`. Enquanto o vínculo existe, o
+       endereço sai com um JOIN.
+    3. `anonimizado_em` — o carimbo de quando a minimização aconteceu, que é o
+       que um encarregado de dados pede para provar.
+    4. A rotação do segredo, que já existia.
+
+    O QUE ESTE ITEM NÃO FAZ, e a decisão precisa ser explícita
+    ===========================================================
+    Ele **não** apaga `User.email`. O endereço continua no cadastro, porque a
+    conta existe e a conta precisa dele para login, redefinição de senha e
+    todo o resto (`identidade/models.py:86`, `USERNAME_FIELD = "email"`).
+
+    Apagar o endereço da conta é o **direito à eliminação** (art. 18 da LGPD) —
+    um direito diferente do direito de revogar o consentimento de newsletter
+    (art. 8º, V) — e com consequências de produto sérias: destrói o acesso da
+    pessoa, o histórico e o cadastro dela em Communities. Forçar isso aqui
+    seria apagar a conta de quem pediu apenas para parar de receber newsletter,
+    que é muito pior que o problema que este item fecha.
+
+    A garantia que fica, e ela é verificável: **a partir do registro
+    anonimizado, nenhum caminho do código chega a um endereço de e-mail.** O
+    que existe no cadastro é um OUTRO registro, com outra base legal, e que
+    este módulo não tem autoridade para apagar.
     """
     hash_assinado = ler_hash_do_token(token)
     if hash_assinado is None:
@@ -179,9 +308,12 @@ def descadastrar_por_token(token: str) -> bool:
         return False
 
     ja_estava_inativa = not inscricao.ativa
+    # O segredo ANTIGO entra no filtro e o NOVO no `set`: é isso que torna a
+    # operação atômica e o token de uso único, e continua valendo agora que o
+    # `set` também anonimiza.
     rotacionado = InscricaoNewsletter.objects.filter(
         pk=inscricao.pk, token_descadastro=inscricao.token_descadastro
-    ).update(ativa=False, token_descadastro=gerar_token())
+    ).update(**_campos_de_revogacao(gerar_token()))
     if not rotacionado:
         # Corrida: outra requisição rotacionou o segredo entre o SELECT e o
         # UPDATE. O efeito desejado já foi alcançado por ela.
@@ -190,9 +322,12 @@ def descadastrar_por_token(token: str) -> bool:
     # O que o operador precisa: que houve revogação, e de qual inscrição. O que
     # ele NÃO precisa: o e-mail, o token, ou o corpo do e-mail enviado. Este
     # log é o que faltava — sem ele não há "quando" nem "quem" para responder a
-    # um titular que pergunta por que ainda recebe.
+    # um titular que pergunta por que ainda recebe. Depois deste item o "quem"
+    # é o id da inscrição, e o id do usuário não é mais recuperável a partir
+    # dela — é por isso que esta linha não tem nenhum dos dois.
     logger.info(
-        "newsletter: consentimento revogado por token (inscricao=%s, ja_estava_inativa=%s)",
+        "newsletter: consentimento revogado por token (inscricao=%s, "
+        "ja_estava_inativa=%s, vinculo_com_pessoa_cortado=True)",
         inscricao.pk,
         ja_estava_inativa,
     )
@@ -410,7 +545,15 @@ def enviar_newsletters(periodo: str | None = None) -> EnvioNewsletter:
       `portal_email_entrega_total{destino="newsletter",situacao=...}` em
       `sem_canal`/`entregue`/`falha`, e o canal aparece no health-detail.
     """
-    filtros = {"ativa": True, "user__consentimento_aceito_em__isnull": False}
+    # `user__isnull=False` é redundante — uma linha revogada tem `ativa=False` e
+    # já sai no filtro — e mesmo assim está escrito, porque a próxima pessoa a
+    # mexer aqui não deveria precisar saber disso para não mandar um e-mail
+    # para um registro de consentimento anonimizado.
+    filtros = {
+        "ativa": True,
+        "user__isnull": False,
+        "user__consentimento_aceito_em__isnull": False,
+    }
     if periodo:
         filtros["periodo"] = periodo
     inscricoes = list(InscricaoNewsletter.objects.filter(**filtros).select_related("user"))

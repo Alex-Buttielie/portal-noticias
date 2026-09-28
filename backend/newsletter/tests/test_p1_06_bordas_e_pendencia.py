@@ -224,45 +224,184 @@ def test_admin_de_inscricao_nao_expoe_o_token_descadastro():
 # ---------------------------------------------------------------------------
 # 4. PENDÊNCIA JURÍDICA — escrita como teste, para não ser esquecida
 # ---------------------------------------------------------------------------
+# ESTE BLOCO JÁ FOI REFORMULADO UMA VEZ, e a história dele é o registro
+# ========================================================================
+# A primeira versão se chamava
+# `test_pendencia_juridica_consentimento_da_newsletter_nao_tem_registro_proprio`
+# e afirmava que as colunas de consentimento NÃO existiam. Ele passava por
+# mérito porque afirmava uma ausência, e a convenção era: se alguém criasse as
+# colunas, ele quebraria de propósito, e a quebra seria o aviso de que a
+# Pendência foi resolvida e a documentação precisa acompanhar.
+#
+# A colunas existem agora (migration `newsletter/0003_retencao_consentimento_e
+# _anonimizacao.py`), então essa convenção se inverteu: o teste passa por
+#mérito, e passa porque AFFIRMA QUE A COISA ESTÁ FEITA. Ele é o que impede a
+# retenção de regredir — e a assimetria é proposital: um teste que afirma a
+# ausência só diz que ninguém agiu; um que afirma a presença diz que a ação
+# continua feita.
+#
+# O item 4 (double opt-in) continua aberto e, por isso, ganhou um teste
+# próprio, com a convenção antiga — porque ainda é verdade que a pendência
+# está de pé.
 
 
-def test_pendencia_juridica_consentimento_da_newsletter_nao_tem_registro_proprio():
-    """NÃO É UM TESTE QUE DEVE PASSAR POR MERITO — é o registro do que falta.
+def test_registro_datado_do_consentimento_existe_e_e_preenchido():
+    """
+    AS TRÊS COISAS QUE IMPORTAM, e as três são de primeira classe.
 
-    Ele passa hoje porque o que ele afirma é a **ausência** do registro. Se
-    alguém algum dia criar a coluna, este teste quebra de propósito, e a quebra
-    é o sinal de que a Pendência foi resolvida e a documentação
-    (`newsletter/tokens.py`, docstring de `newsletter/services.py`, relatório do
-    P1-06) precisa ser atualizada junto.
-
-    O QUE FALTA
-    -----------
-    A LGPD distingue finalidades. O consentimento que hoje autoriza o envio da
-    newsletter é `User.consentimento_aceito_em` / `consentimento_versao_termos`,
-    gravados no **cadastro**, para os **Termos**. Receber newsletter é outra
-    finalidade, e o que existe hoje é:
-
-    1. nenhuma data de consentimento *da newsletter* (a que se tem é a do
-       aceite dos Termos no cadastro);
-    2. nenhuma data de *revogação* — só `ativa=False` e `atualizado_em`, que é
-       proxy e se perde se a inscrição for reescrita depois;
-    3. nenhuma versão do texto de consentimento específico da newsletter;
-    4. nenhuma double opt-in (a inscrição é imediata, no mesmo POST).
-
-    Fechar 1–3 exige migration em `newsletter/models.py` (ex.:
-    `consentimento_aceito_em`, `consentimento_revogado_em`,
-    `versao_consentimento`), e este item **não pode** criar migration.
+    1. **Data de concessão.** `User.consentimento_aceito_em` data o aceite dos
+       TERMOS no cadastro, que é outra finalidade (a LGPD distingue
+       finalidades). Quem consentiu em receber newsletter tem que ter um
+       registro próprio, datado.
+    2. **Data de revogação.** Antes só havia `ativa=False` e `atualizado_em`
+       (auto_now) como PROXY — e proxy se perde: qualquer reescrita posterior da
+       inscrição move a data, e o momento da revogação deixa de existir. Um
+       titular que pergunta "quando cancelei?" não pode receber uma resposta
+       que muda com a próxima escrita na linha.
+    3. **O e-mail não é recuperável depois do descadastro.** Este é o ponto que
+       a instrução original do item supunha existir e não existia: a tabela da
+       newsletter NUNCA guardou o endereço. O que guardava era o vínculo com
+       `identidade.User`, onde `email` é o `USERNAME_FIELD`. Anonimizar, aqui,
+       é cortar esse vínculo.
     """
     campos = {f.name for f in InscricaoNewsletter._meta.get_fields()}
-    assert "consentimento_aceito_em" not in campos, (
-        "a Pendência jurídica do P1-06 foi resolvida: atualize a docstring de "
-        "newsletter/services.py, o docstring de newsletter/tokens.py e o "
-        "relatório do item antes de remover esta asserção"
-    )
-    assert "consentimento_revogado_em" not in campos
-    assert "versao_consentimento" not in campos
 
-    # O que existe em lugar disso, e é o que sustenta a revogação hoje:
-    assert "ativa" in campos
-    assert "criado_em" in campos
-    assert "atualizado_em" in campos
+    assert "consentimento_aceito_em" in campos
+    assert "consentimento_revogado_em" in campos
+    assert "anonimizado_em" in campos
+    assert "referencia_opaca" in campos
+
+    inscricao = services.inscrever(
+        _consentido("datas@example.com"), InscricaoNewsletter.TIPO_PADRAO
+    )
+    # A concessão é gravada no ato da inscrição, e não é o aceite dos Termos.
+    assert inscricao.consentimento_aceito_em is not None
+    # `timezone.now()` é avaliado no Python antes do INSERT, então a concessão
+    # é de microsegundos anterior a `criado_em`. O que importa é que as duas
+    # dizem a mesma coisa: "agora".
+    assert abs(inscricao.consentimento_aceito_em - inscricao.criado_em).total_seconds() < 5
+    assert inscricao.consentimento_revogado_em is None
+    assert inscricao.anonimizado_em is None
+
+    services.descadastrar_por_token(gerar_token_descadastro(inscricao))
+
+    inscricao.refresh_from_db()
+    # A revogação é datada, e é uma data de primeira classe: sobrevive a
+    # qualquer reescrita posterior da linha.
+    assert inscricao.consentimento_revogado_em is not None
+    # E a concessão NÃO some: as duas datas convivem, que é o que prova que
+    # houve consentimento E que ele acabou.
+    assert inscricao.consentimento_aceito_em is not None
+    assert inscricao.consentimento_aceito_em < inscricao.consentimento_revogado_em
+    assert inscricao.anonimizado_em is not None
+
+
+def test_a_data_da_revogacao_sobrevive_a_uma_reescrita_da_linha():
+    """
+    O motivo de `consentimento_revogado_em` existir, e o que `atualizado_em`
+    (auto_now) **não** garantia.
+
+    Este teste encontrou uma afirmação FALSA que estava na documentação do
+    projeto. `newsletter/tokens.py` e a docstring de `descadastrar_por_token`
+    afirmavam que `atualizado_em` (auto_now) recebia "o instante da revogação".
+    NÃO recebia: o descadastro é feito com `QuerySet.update()`, e `auto_now` é
+    aplicado por `Model.save()`, não por update de queryset
+    (`django/db/models/fields/__init__.py` — `DateTimeField.pre_save` só é
+    chamado no caminho do `save()`). Medido nesta suíte: o valor de
+    `atualizado_em` é byte a byte o mesmo antes e depois do descadastro.
+
+    Ou seja: **antes deste item não existia data de revogação nenhuma** — nem
+    de primeira classe, nem como proxy. Um titular que perguntasse "quando
+    cancelei?" não tinha resposta, e a documentação dizia que tinha.
+    """
+    inscricao = services.inscrever(
+        _consentido("proxy@example.com"), InscricaoNewsletter.TIPO_PADRAO
+    )
+    antes_do_descadastro = inscricao.atualizado_em
+    services.descadastrar_por_token(gerar_token_descadastro(inscricao))
+    inscricao.refresh_from_db()
+    revogada_em = inscricao.consentimento_revogado_em
+
+    # O que a documentação antiga afirmava, e o que é falso.
+    assert inscricao.atualizado_em == antes_do_descadastro, (
+        "`auto_now` passou a ser aplicado por `QuerySet.update()`; se este teste "
+        "quebrar, `atualizado_em` voltou a ser um proxy utilizável e "
+        "`consentimento_revogado_em` pode ser reavaliado"
+    )
+    assert revogada_em is not None, "a data da revogação precisa existir em algum lugar"
+    assert revogada_em > antes_do_descadastro, (
+        "e precisa estar depois da inscrição — é o único lugar onde ela existe"
+    )
+
+    # Reescreve a linha depois. A data da revogação não pode se mover.
+    InscricaoNewsletter.objects.filter(pk=inscricao.pk).update(categorias=["geral"])
+    inscricao.refresh_from_db()
+
+    assert inscricao.consentimento_revogado_em == revogada_em, (
+        "a data da revogação mudou por causa de uma escrita que não foi revogação"
+    )
+
+
+def test_o_vinculo_com_a_pessoa_e_cortado_nos_dois_caminhos_de_revogacao():
+    """
+    O `DELETE` autenticado e o descadastro pelo link são o MESMO ato jurídico
+    (art. 8º, V). Se só um deles cortasse o vínculo, existiria um caminho para
+    revogar o consentimento mantendo o endereço linkedado — e um caminho é
+    exatamente o que uma anonimização não pode ter.
+    """
+    por_token = services.inscrever(
+        _consentido("token@example.com"), InscricaoNewsletter.TIPO_PADRAO
+    )
+    services.descadastrar_por_token(gerar_token_descadastro(por_token))
+    por_token.refresh_from_db()
+    assert por_token.user_id is None, "descadastro por token não cortou o vínculo"
+
+    por_endpoint = services.inscrever(
+        _consentido("endpoint@example.com"), InscricaoNewsletter.TIPO_PADRAO
+    )
+    services.cancelar_inscricao(por_endpoint.user)
+    por_endpoint.refresh_from_db()
+    assert por_endpoint.user_id is None, "cancelamento autenticado não cortou o vínculo"
+
+
+def test_versao_do_texto_de_consentimento_da_newsletter_continua_pendente():
+    """
+    NÃO É UM TESTE QUE DEVE PASSAR POR MERITO — é o registro do que ainda
+    falta. Passa porque afirma a AUSÊNCIA de uma decisão, e quebra de propósito
+    no dia em que a decisão for tomada e gravada.
+
+    A coluna `versao_consentimento` JÁ EXISTE (migration 0003) e é gravada a
+    partir de `NEWSLETTER_VERSAO_CONSENTIMENTO` — que tem default VAZIO de
+    propósito. Por quê?
+
+    * ainda não existe um texto de consentimento PRÓPRIO da newsletter;
+    * `User.consentimento_versao_termos` data o aceite dos **Termos** no
+      cadastro, que é outra finalidade, e gravá-lo aqui afirmaria que a pessoa
+      leu e aceitou um texto de newsletter que não existe;
+    * escrever "1.0" à mão seria **fabricar um artefato jurídico** — a pior
+      forma de fechar uma pendência jurídica.
+
+    Quando o texto existir e for publicado, o caminho é: definir
+    `NEWSLETTER_VERSAO_CONSENTIMENTO` no ambiente e quebrar este teste de
+    propósito, junto com a atualização desta docstring.
+
+    O que continua pendente além deste item: **double opt-in**. A inscrição é
+    imediata, no mesmo POST — mudar isso é mudança de fluxo e de produto, não
+    de retenção, e por isso não é coberto por teste aqui.
+    """
+    inscricao = services.inscrever(
+        _consentido("versao@example.com"), InscricaoNewsletter.TIPO_PADRAO
+    )
+
+    from django.conf import settings
+
+    assert not settings.NEWSLETTER_VERSAO_CONSENTIMENTO, (
+        "NEWSLETTER_VERSAO_CONSENTIMENTO foi definida: existe agora um texto de "
+        "consentimento da newsletter versionado. Atualize esta docstring, a de "
+        "`newsletter/services.py` e a de `config/settings.py` antes de remover "
+        "esta asserção."
+    )
+    assert inscricao.versao_consentimento == "", (
+        "a versão do consentimento foi gravada sem que exista um texto "
+        "correspondente — isso é fabricar um registro jurídico"
+    )
