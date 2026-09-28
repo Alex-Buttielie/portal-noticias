@@ -1,0 +1,70 @@
+{
+  "run_id": "20260925-1836-usuarios-teste-dev-homolog",
+  "task_title": "Usuários de teste (um por perfil) criados no deploy de DEV e HOMOLOG",
+  "status": "closed",
+  "current_phase": "closing",
+  "iteration_count": 2,
+  "max_iterations": 3,
+  "requested_by": "humano (sessão de chat)",
+  "source_spec": null,
+  "phases": {
+    "planning": {
+      "status": "done",
+      "agent": "orchestrator",
+      "execution_mode": "delegated",
+      "started_at": "2026-09-25T18:36:12-03:00",
+      "finished_at": "2026-09-25T18:52:00-03:00",
+      "notes": "Pedido avaliado e 3 decisões confirmadas com o solicitante: (1) sem senha fixa no repo — fluxo de recuperação de senha, com troca de senha solicitada no primeiro login; (2) um usuário por perfil (free/premium/admin); (3) feature -> develop -> PR para main. Fluxo verificado no código antes de fechar o contrato: RedefinirSenhaView grava só 'password' (flag deve_trocar_senha sobrevive), login/page.tsx:18 redireciona para /trocar-senha, e as telas /recuperar-senha e /redefinir-senha já existem."
+    },
+    "implementation": {
+      "status": "done",
+      "agent": "executor",
+      "execution_mode": "delegated",
+      "started_at": "2026-09-25T18:41:00-03:00",
+      "finished_at": "2026-09-25T19:05:00-03:00",
+      "notes": "Flag --sem-senha no criar_usuario_carga (idempotente: só reescreve senha quando a conta ainda nao tem senha utilizavel); 17 testes em backend/identidade/tests/test_usuarios_teste.py; input usuarios_teste (default false) + funcao provisionar_usuarios_teste no deploy.yml; dev/homolog true, prod false explicito, rollback nao declara. Reportou 76 passed em identidade/ e 834 passed na suite completa. Nao tocou em subir-localhost, models, serializers, views, migrations nem frontend."
+    },
+    "testing": {
+      "status": "done",
+      "agent": "tester",
+      "execution_mode": "delegated",
+      "started_at": "2026-09-25T19:06:00-03:00",
+      "finished_at": "2026-09-25T19:48:00-03:00",
+      "notes": "passed 12/12. Reproduziu o gate do CI de verdade (Postgres 16): 841 passed, cobertura 91.15%, criar_usuario_carga.py 97%. ACHADO: buraco real na suite do executor - a mutacao 'deve_trocar_senha=False no ramo que preserva a senha' passa os 17 testes do executor (o proprio test_redeploy ja espera False) e so morre nos 7 testes que ele mesmo adicionou em test_usuarios_teste_complemento_tester.py. VERIFICADO INDEPENDENTEMENTE pelo orchestrator: mutacao exata -> 17 passed no executor, 2 failed no complemento. Critério 4 provado por diff contra git HEAD em 9 cenários legados (diff vazio, inclui o caminho do getpass e do subir-localhost.sh). Critérios 5/6/9/10/11 por execucao do bloco literal do YAML extraido com yaml.safe_load, com argv/env gravados. RESSALVA (FLY-1): test_command_agendar_ingestao.py::test_sigterm... e flaky de outra run (arquivo untracked da run 20260925-2136); o criterio 12 so fica verde por margem hoje."
+    },
+    "review": {
+      "status": "done",
+      "agent": "reviewer",
+      "execution_mode": "delegated",
+      "started_at": "2026-09-25T19:06:00-03:00",
+      "finished_at": "2026-09-25T19:52:00-03:00",
+      "notes": "changes_requested: 0 blocker / 1 major / 1 minor / 2 nit. MAJOR (security, deploy.yml:262/294-297/618/640): o valor que o gate USA nao e o valor que o gate VALIDA - 'set -a; . ./.env' (linha 618) roda DEPOIS do case (294) e ANTES do gate ler USUARIOS_TESTE (640), entao uma linha USUARIOS_TESTE=true no .env da VPS (chmod 600, nunca sobrescrito) sobrepoe o input e LIGA o gate em PROD, sem diff nem aviso. VERIFICADO INDEPENDENTEMENTE pelo orchestrator: reproduzido em dash, 'RESULTADO: gate RODOU'. MINOR (deploy.yml:667 + settings.py:476): o unico caminho de entrada depende de backend de e-mail real, que nada configura (bootstrap do .env nao traz DJANGO_EMAIL_BACKEND) - o e-mail nao chega e o uid/token fica no log do PM2. Confirmados ambos por leitura independente. O reviewer tambem CONFIRMOU como corretos: ausencia de vazamento de senha, retrocompatibilidade do --password default=None, idempotencia sem estado que tranque ninguem, criterio 9 e o $extra sem aspas, PROD/rollback fail-closed por omissao, e os testes."
+    },
+    "remediation": { "status": "done", "agent": "remediator", "execution_mode": "delegated", "started_at": "2026-09-25T19:55:00-03:00", "finished_at": "2026-09-28T19:07:39-03:00", "notes": "Iteracao 1. Fechando o major (fronteira de PROD) e o minor (caminho de entrada). [CORRIGIDO PELO HISTORIAN NO FECHAMENTO] As 4 notas abaixo sao do agente; o historian NAO as reescreveu, so acrescentou. 1a passagem (19:55 -> 2026-09-25 20:20, implementation-history.md Iteracao 3): fechou os 4 findings da revisao 1 -- selo pos-`.env` em deploy.yml:658-663 (reatribui USUARIOS_TESTE e SUF depois do `set -a; . ./.env` da L618, com `case` revalidado), log honesto sobre DJANGO_EMAIL_BACKEND (deploy.yml:723-727), `return 1` real tratado pelo `if !` da L742, e o lixo de tokenizer do Finding 4. Deu/scripts/verificar-gate-usuarios-teste.sh (659 linhas) + o pytest que o roda, porque o major so pode ser provado por execucao do shell em dash. 2a passagem (sem horario proprio registrado em nenhum artefato; o codigo que a fecha esta no commit 1581b50, 2026-09-28 19:07:39, e por isso e esse o finished_at): fechou os 3 minor da revisao 2 -- R1 (pyyaml==6.0.3 em backend/requirements-dev.txt + o pytest passa a FALHAR em vez de pular quando PyYAML falta), R2 (a auto-mutacao do harness virou estrutural, com desfecho 'NAO APLICAVEL' distinguivel pelo pytest), R3 (SUF lacrado depois do source em deploy.yml:663 + 4 assercoes novas no harness + o comentario do selo reescrito). VERIFICACAO INDEPENDENTE DO HISTORIAN NESTA BASE (somente leitura): harness 25/25 RESULTADO: OK; pytest test_gate_deploy_usuarios_teste.py 1 passed; sha256 de criar_usuario_carga.py = 12acc7f0e512eb84...c8db609 (identico ao hash congelado pelo tester e reconferido pelo reviewer, ou seja, o comando nao foi tocado). LACUNA DE REGISTRO, sinalizada e nao corrigida: a 2a passagem NAO tem secao no implementation-history.md (o diario tem Iteracao 1=executor, 2=tester, 3=remediator-1a-passagem e acaba). Quem pode corrigir e o remediator, nao o historian." },
+    "documentation": { "status": "done", "agent": "documenter", "execution_mode": "delegated", "started_at": null, "finished_at": null, "notes": "[PREENCHIDO PELO HISTORIAN NO FECHAMENTO] documentation-update.md existe e esta completo (118 linhas), mas nenhum artefato da fase carrega horario -- nao invento um. O que e datavel: o contrato entrou no commit 1581b50 (2026-09-28 19:07:39), logo a fase e anterior a isso; o texto que ela produziu em infra/DEPLOY.md e CI-CD.md foi portado da branch de observabilidade no commit 1ba4c97 (2026-09-28 19:30). Escopo: secao nova em infra/DEPLOY.md (as 6 contas, passo a passo de entrada, o fato de o e-mail de recuperacao NAO chegar a nenhum inbox e sair no stdout do gunicorn, o que fazer se o link se perdeu, o que um redeploy preserva) + 4 edicoes em CI-CD.md (paragrafo 'Contas de teste por ambiente', coluna Trigger/gate da tabela de workflows, subsecao do gate em P1-6, e DJANGO_EMAIL_BACKEND nas pendencias abertas). DIVERGENCIA A REGISTRAR: o documentation-update.md chama a secao de §9.7; ao ser portada para o develop ela virou secao de topo `## As contas de teste de DEV e HOMOLOG` (infra/DEPLOY.md:961), porque o pai '## 9. topologia ATIVA' so existe na branch de observabilidade. O conteudo e o que o documenter escreveu; so a numeracao mudou na base de destino." },
+    "closing": { "status": "done", "agent": "historian", "execution_mode": "delegated", "started_at": "2026-09-28T19:30:00-03:00", "finished_at": "2026-09-28T19:36:00-03:00", "notes": "[PREENCHIDO PELO HISTORIAN] report.md criado a partir de contracts/report.md; UMA linha acrescentada ao fim de agentic-framework/state/HISTORY.md (append-only, verificado com git diff --numstat = 1 linha adicionada e 0 removida); este run-state.json corrigido, que estava com status/current_phase/fases fora de sincronia com a realidade. Resultado final: entregue (tester passed 12/12; reviewer approve_with_comments na revisao 2; 7 findings, 0 aberto). Pendencias reais deixadas no report.md e no campo follow_ups: DJANGO_EMAIL_BACKEND ausente (o e-mail de recuperacao nao chega em nenhum inbox e o uid/token sai no stdout do gunicorn, sendo credencial da conta -- depende de credencial humana), o perigo de SUF no bloco de PM2 (preexistente, fechado por consequencia para o gate mas sem revisao propria), N1 (.env executado como shell), N2 (WEB_RUNTIME/CELERY_SYSTEMD sobrescreviveis), R2 residual (as 4 camadas de fail-closed de PROD nao tem teste de CI), FLY-1 (teste flaky de outra run) e a branch de observabilidade ainda fora do develop (24 commits, verificado nesta base). O historian tambem registrou no report.md uma secao de inconsistencias de registro encontradas: a 2a passagem da remediacao sem secao no diario, os horarios do diario divergentes deste arquivo, e o HISTORY.md desta branch 2 entradas atrasado em relacao ao develop (nao acrescentei as linhas alheias: o ledger e append-only e as entradas de outras runs nao sao minhas)." }
+  },
+  "findings": { "blocker": 0, "major": 0, "minor": 0, "nit": 0, "resolved": 7 },
+  "artifacts": {
+    "task_plan": "task-plan.md",
+    "implementation_contract": "implementation-contract.md",
+    "implementation_history": "implementation-history.md",
+    "code_review_contract": "code-review-contract.md",
+    "documentation_update": "documentation-update.md",
+    "report": "report.md"
+  },
+  "blocked_reason": null,
+  "follow_ups": [
+    "Provedor de e-mail de verdade: DJANGO_EMAIL_BACKEND nao esta configurado em nenhum ambiente (default Django = console backend, backend/config/settings.py:627-629, e o printf que cria o backend/.env no primeiro deploy nao escreve a chave). O e-mail de recuperacao de senha NAO chega em nenhum inbox: sai no stdout do gunicorn (pm2 logs portal-api-<suf>) carregando o uid/token, que e credencial da conta. O codigo do Resend ja existe (backend/config/email_resend.py); falta a credencial humana (HD-E da run 20260925-1433-go-live-producao, PROD_DECISOES.md item 2). O gate ja avisa no log qual backend esta em uso (deploy.yml:723-727) e a documentacao registra a pendencia como pendencia, sem afirmar entrega. Enquanto isso nao existir, o caminho de entrada documentado so funciona por log.",
+    "SUF controlado pelo .env no bloco de PM2 (preexistente, anterior a esta run, NAO revisado): SUF=prod no backend/.env de DEV faz o deploy chegar a restart_or_start portal-web-prod / portal-api-prod, ou seja, reiniciar o processo de producao com o codigo de DEV. Na 2a passagem da remediacao isso foi fechado por consequencia para o gate (SUF=\"${{ inputs.pm_suffix }}\" em deploy.yml:663) e coberto por 4 assercoes do harness, mas o bloco de PM2 merece a propria run, com o dono daquele bloco. Raio de impacto maior que o major corrigido.",
+    "N1 (preexistente, prioridade): o `set -a; . ./.env` executa o backend/.env com semantica de shell -- uma linha com $(...) roda comando arbitrario no deploy, e um `exit 0` ali faz o script do job sair 0 ali mesmo (medido em dash pelo reviewer), ou seja, um .env pode fingir um deploy verde. Vale tambem para DJANGO_SECRET_KEY e DJANGO_DB_PASSWORD. Corrigir e redesenhar o carregamento de ambiente no script inteiro (parse seguro, ou grep por chave em vez de source).",
+    "N2: WEB_RUNTIME e CELERY_SYSTEMD sao lidos depois do source e sao sobrescreviveis pelo .env; TLS_ENABLED e GIT_MODE NAO sao (o deploy.yml e modelar em TLS_ENABLED, que valida o valor do input contra o que esta no .env depois de escrever -- exatamente o padrao que faltava ao gate). A decisao de nao mexer nos dois expostos e defensavel (nao criam conta em PROD nem mexem em credencial), mas precisa virar item de backlog, nao anotacao.",
+    "R2 residual: as 4 camadas de fail-closed de PROD nao tem teste de CI -- deploy-prod.yml:61 com false explicito, rollback.yml sem declarar o input, o default: false do input (deploy.yml:150-154) e o selo pos-source (deploy.yml:658-663). A suite de Python nao enxerga YAML nenhum. Fix candidato, nao aplicado por escopo: scripts/verificar-yaml.sh com grep sobre os 5 workflows (1 passo de pipeline, zero dependencia) ou uma asercao de parse com o PyYAML ja declarado.",
+    "FLY-1: a suite completa nao e deterministica. catalogo_noticias/tests/test_command_agendar_ingestao.py::test_sigterm_em_processo_real_encerra_sem_traceback_e_rapido falhou em 1 de 3 execucoes do tester. E arquivo untracked da run 20260924-2136-ingestao-noticias, nao menciona esta run (grep 20260925-1836 -> 0) e mede tempo de processo real. Hoje o criterio 12 da suite completa fica verde por margem, nao por construcao.",
+    "A run de observabilidade (20260925-1020) segue fora do develop: 24 commits em observability-20260925-1020 ainda nao estao no develop (verificado nesta base) e a mesclagem foi relatada com 54 conflitos. Nao e escopo desta run; registrado porque a base de entrega desta run passou por essa branch. Reconciliar tambem o HISTORY.md, que nesta branch esta 2 entradas atrasado em relacao ao develop (faltam 20260924-2136-ingestao-noticias e 20260925-1020-observabilidade).",
+    "Imprecisao do contrato, sem impacto: a secao 'Interfaces afetadas' do implementation-contract.md lista subir-localhost.bat como consumidor de criar_usuario_carga; ele chama ensure_local_admin.py. So subir-localhost.sh (linhas 383 e 492) e a migration 0004 (docstring) citam o comando."
+  ],
+  "created_at": "2026-09-25T18:36:12-03:00",
+  "updated_at": "2026-09-28T19:36:00-03:00",
+  "finished_at": "2026-09-28T19:36:00-03:00"
+}
