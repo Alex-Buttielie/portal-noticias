@@ -27,6 +27,7 @@ jobs:
       db_name: brd_portal_dev
       db_user: portal_dev
       strict_validate: false
+      usuarios_teste: true
     secrets:
       VPS_HOST: ${{ secrets.VPS_HOST }}
       VPS_USER: ${{ secrets.VPS_USER }}
