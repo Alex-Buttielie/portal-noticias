@@ -17,6 +17,37 @@ on:
         required: false
         type: string
         default: ""
+      # Declarado porque o job `verify` do deploy.yml o passa: um `workflow_call`
+      # que recebe input ou secret NÃO declarado no workflow chamado é rejeitado
+      # pelo GitHub com "workflow file issue" — o run inteiro morre antes de
+      # qualquer job, sem log. Foi exatamente o que aconteceu quando o
+      # `deploy.yml` da run de observabilidade (que passa `sentry_exigido` e os
+      # secrets do Sentry) foi mesclado sobre este `ci.yml`, que é o do
+      # `develop` e não os declarava. O Deploy DEV passou a falhar em 0s.
+      #
+      # ATENÇÃO: o passo que CONSOME isto (upload de source map do Sentry) ainda
+      # não existe neste `ci.yml` — nem aqui nem na branch de observabilidade.
+      # Enquanto isso, o default `false` e os secrets opcionais significam
+      # fail-open, que é o comportamento correto para fork/PR. Implementar o
+      # upload é pendência da run de observabilidade, não desta.
+      sentry_exigido:
+        description: "true = ausência de credencial do Sentry reprova o verify. Só PROD liga."
+        required: false
+        type: boolean
+        default: false
+    secrets:
+      # Secrets de baixo valor (upload de mapa e DSN) e OPCIONAIS: sem eles o
+      # verify segue verde. Mover para cá em vez de tirar do `deploy.yml`
+      # preserva o contrato que a run de observabilidade desenhou, em vez de
+      # apagar o trabalho dela. Ver a nota acima sobre o passo consumidor.
+      SENTRY_AUTH_TOKEN:
+        required: false
+      SENTRY_ORG:
+        required: false
+      SENTRY_PROJECT:
+        required: false
+      SENTRY_URL:
+        required: false
   push:
     branches: [develop, main]
   pull_request:
