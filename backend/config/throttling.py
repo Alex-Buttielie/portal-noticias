@@ -16,12 +16,44 @@ publicação (`comunidade`) e lista de espera (`landing`).
 `AnonRateThrottle` só limita requisições de clientes NÃO autenticados
 (`request.user.is_authenticated is False`) — usuários autenticados não são
 afetados por esta classe.
+
+MAJOR-1 (Onda 2): as 3 classes anônimas passam a resolver a identidade do
+balde por `config.proxies.get_ident`, e não pelo `get_ident` do DRF. Com
+`NUM_PROXIES` ausente, o do DRF devolve o `X-Forwarded-For` cru — que o
+cliente escolhe. `DenunciaUserThrottle` NÃO é afetada: ela é `UserRateThrottle`
+(exige `IsAuthenticated`) e o DRF já usa `request.user.pk` como chave, que o
+cliente não pode forjar. Por isso ela fica como está, de propósito.
 """
 
 from rest_framework.throttling import AnonRateThrottle, UserRateThrottle
 
+from config.proxies import get_ident as _identidade_do_cliente
 
-class EscritaPublicaAnonThrottle(AnonRateThrottle):
+
+class _AnonThrottleIdentidadeDeclarada(AnonRateThrottle):
+    """Base das classes de throttle anônimo deste arquivo.
+
+    MAJOR-1 (Onda 2): o `get_ident` do DRF usa o `X-Forwarded-For` cru
+    quando `REST_FRAMEWORK["NUM_PROXIES"]` não está definido — e esse
+    cabeçalho é escolhido pelo cliente. Medido nesta base: 12 valores de XFF
+    com o mesmo `REMOTE_ADDR` abriram 12 baldes e "zeraram" o limite de
+    10/min do login. `NUM_PROXIES: 0` não serve (tudo vira `127.0.0.1` e um
+    atacante causa 429 global); `NUM_PROXIES: 1` não serve (o Nginx repassa
+    o cabeçalho verbatim, então o último elemento é do cliente).
+
+    Aqui a identidade vem de `config.proxies.get_ident`, que só lê o
+    cabeçalho quando o `REMOTE_ADDR` pertence ao conjunto declarado em
+    `TRUSTED_PROXY_IPS`, toma o último elemento e exige que ele seja um IP
+    válido — caindo em `REMOTE_ADDR` em qualquer outro caso. Todo caminho
+    de falha mantém o comportamento correto por IP, então um cabeçalho
+    malformado não vira balde novo nem derruba tráfego legítimo.
+    """
+
+    def get_ident(self, request) -> str:
+        return _identidade_do_cliente(request)
+
+
+class EscritaPublicaAnonThrottle(_AnonThrottleIdentidadeDeclarada):
     """
     Throttle conservador (folgado o bastante para uso legítimo, apertado o
     bastante para dificultar abuso automatizado) para endpoints públicos de
@@ -34,7 +66,7 @@ class EscritaPublicaAnonThrottle(AnonRateThrottle):
     scope = "escrita_publica"
 
 
-class AuthSensivelAnonThrottle(AnonRateThrottle):
+class AuthSensivelAnonThrottle(_AnonThrottleIdentidadeDeclarada):
     """
     Achado de revisão de segurança (major): login e os demais endpoints de
     autenticação (recuperação/redefinição de senha, verificação de e-mail,
@@ -61,7 +93,7 @@ class DenunciaUserThrottle(UserRateThrottle):
     scope = "denuncia"
 
 
-class EnderecosAnonThrottle(AnonRateThrottle):
+class EnderecosAnonThrottle(_AnonThrottleIdentidadeDeclarada):
     """
     FRENTE 5 — proxy de endereços (`enderecos/`): endpoints públicos de
     LEITURA com upstream externo (ViaCEP/IBGE). Sem throttle, um único

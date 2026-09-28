@@ -251,7 +251,9 @@ INSTALLED_APPS = [
     # observabilidade das filas simplesmente não existiria para
     # `manage.py` — e a "parte consultável" do item de backlog depende
     # dele. A app do Celery é o mesmo pacote; nada muda para o worker.
-    "config",
+    # `config.apps.ConfigAppConfig` e não a string `"config"`: é o AppConfig
+    # que registra o system check de `TRUSTED_PROXY_IPS` (MAJOR-1, Onda 2).
+    "config.apps.ConfigAppConfig",
     "identidade",
     "catalogo_noticias",
     "feed",
@@ -538,6 +540,29 @@ REST_FRAMEWORK = {
         "enderecos": os.environ.get("THROTTLE_ENDERECOS_RATE", "60/min"),
     },
 }
+
+# MAJOR-1 (Onda 2): o bucket do rate limit anônimo não pode ser escolhido por
+# um cabeçalho que o cliente forja.
+#
+# Com `NUM_PROXIES` ausente (o estado desta base, medido), o `get_ident` do
+# DRF devolve o `X-Forwarded-For` cru — cabeçalho que o cliente escolhe
+# (`rest_framework/throttling.py:33-40`). Medido aqui: 12 XFF distintos com o
+# mesmo `REMOTE_ADDR` abriram 12 baldes e zeraram o limite de 10/min do
+# login, que existe contra brute force/credential stuffing
+# (`config/throttling.py:37-49`). `NUM_PROXIES: 0` resolveria trocando o furo
+# por um self-DoS (tudo vira `127.0.0.1`, um balde só) e `NUM_PROXIES: 1`
+# continua forjável — por isso a identidade passa a ser resolvida por
+# `config.proxies.get_ident`, que exige que o par que escreveu o cabeçalho
+# esteja num conjunto declarado.
+#
+# `TRUSTED_PROXY_IPS` é a lista, separada por vírgula, de IPs ou prefixos
+# CIDR dos proxies que o operador autoriza a falar em nome de um cliente
+# (o Nginx da mesma máquina, ou as faixas do balanceador quando houver um na
+# frente). AUSENTE OU VAZIA = fail-closed: o `X-Forwarded-For` não é lido e
+# a identidade é o `REMOTE_ADDR` — nunca "não configurado = confie em
+# qualquer XFF". O valor é configuração do operador; o default aqui é a
+# ausência declarada, não um endereço inventado.
+TRUSTED_PROXY_IPS = os.environ.get("TRUSTED_PROXY_IPS", "")
 
 # FRENTE 5 — endereços inteligentes: base URLs e TTLs do proxy
 # (`enderecos/services.py`). ViaCEP/IBGE são públicos e não exigem
