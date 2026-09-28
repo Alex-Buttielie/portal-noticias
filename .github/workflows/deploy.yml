@@ -92,6 +92,11 @@ on:
         required: false
         type: boolean
         default: false
+      usuarios_teste:
+        description: "true = cria uma conta de teste por perfil, sem senha utilizavel"
+        required: false
+        type: boolean
+        default: false
     secrets:
       VPS_HOST:
         required: true
