@@ -302,17 +302,31 @@ Nada abaixo pode ser feito por código, e nada aqui contém valor secreto:
 ### Dois pingeres que não existem (e por que isso importa)
 
 Os dois cron monitors de `checks.json` — backup e filas — precisam que alguém
-faça o ping depois do sucesso verificado. **Ninguém faz:**
+faça o ping depois do sucesso verificado. **Nenhum dos dois faz, na topologia
+ativa:**
 
 * `infra/backup/pg_backup_pm2.sh` **não** faz ping de heartbeat. Termina em
-  `log "backup concluído"` (linha 448) e sai.
+  `log "backup concluído"` (linha 448) e sai. **Este é o script que a VPS usa.**
 * `manage.py saude_filas` não faz ping, e o wrapper de 5 min que o faria
   (e que também anexaria ao JSONL do Loki) não existe.
+
+A variante **Docker/Caddy já tem o pinger**: `infra/backup/pg_backup.sh` faz
+`curl --fail` para `$BACKUP_HEARTBEAT_URL` só depois de publicar o dump e a
+mídia e, havendo bucket, só depois de `head-object` confirmar os dois
+objetos — e **nunca** em caso de falha, porque a ausência de ping é justamente
+o sinal que abre o incidente. O comportamento está coberto por
+`infra/backup/testar-pg-backup.sh` §10. Como o cron monitor se chama
+`backup-diario-pm2` e a VPS é PM2, ele continua precisando do pinger do script
+PM2 para funcionar.
 
 Cadastrar esses dois cron monitors sem o pinger é pior do que não cadastrar:
 eles ficariam em `desconhecido` desde o primeiro dia, disparando para o canal
 de plantão e treinando o time a ignorar o canal. Está registrado em
-`checks.json` e aqui para que ninguém os cadastre achando que funcionam.
+`checks.json` e aqui para que ninguém os cadastre achando que funcionam. O que
+já dá para cadastrar hoje é o watchdog local
+`infra/backup/verificar_backup.sh`, que sai com código diferente de zero em
+atraso, em ausência de dump e em ausência de cópia remota — e que não depende
+de nenhum pinger.
 
 ## 8. O que NÃO entrou, e por quê
 
