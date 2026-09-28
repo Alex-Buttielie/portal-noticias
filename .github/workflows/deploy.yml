@@ -157,6 +157,11 @@ jobs:
               true|false) ;;
               *) echo "ERRO: tls_enabled deve ser true ou false"; exit 1 ;;
             esac
+            USUARIOS_TESTE="${{ inputs.usuarios_teste }}"
+            case "$USUARIOS_TESTE" in
+              true|false) ;;
+              *) echo "ERRO: usuarios_teste deve ser true ou false"; exit 1 ;;
+            esac
             case "$GIT_MODE" in
               branch|pr|tag|rollback) ;;
               *) echo "ERRO: git_mode inválido: $GIT_MODE"; exit 1 ;;
