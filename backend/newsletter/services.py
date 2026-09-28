@@ -270,8 +270,10 @@ def canal_entrega_real() -> bool:
 
     Mesmo critério de `contato/services.py:verificar_canal` (P0-02c, furo 3) e
     a MESMA lista (`BACKENDS_SEM_ENTREGA_REAL`), para que os dois caminhos não
-    possam divergir: `newsletter/tests/test_p1_06_consentimento.py` trava essa
-    igualdade.
+    possam divergir. A identidade é o que está travado: quem segura é
+    `config/tests/test_p1_04_email_entrega.py::TestL1NewsletterUsaAMesmaListaDeBackends`
+    (`is`, não `==`) — e não os testes do P1-06, que comparam por SUBCONJUNTO e
+    passariam igual se este módulo tivesse uma lista própria.
 
     Isto importa mais aqui do que no contato, porque a suíte de testes NUNCA
     vê um backend que entrega: `django.test.utils.setup_test_environment()`

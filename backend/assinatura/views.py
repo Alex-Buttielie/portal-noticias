@@ -171,10 +171,40 @@ class WebhookMercadoPagoView(APIView):
             HEADER_ASSINATURA,
             HEADER_REQUEST_ID,
             MercadoPagoGatewayProvider,
+            ProvedorPagamentoError,
             verificar_assinatura_webhook,
         )
 
         logger = logging.getLogger(__name__)
+
+        def _log_falha(etapa: str, referencia_: str, exc: BaseException) -> None:
+            """
+            Registra a falha do webhook com TIPO e STATUS — nunca `str(exc)`,
+            nunca traceback.
+
+            Por que `logger.error` e não `logger.exception`: a primeira linha
+            de um traceback é `Tipo: mensagem`, e aqui a mensagem é
+            controle do PROVEDOR (o corpo HTTP que ele devolve). `exc_info`
+            seria, sozinho, o caminho de vazamento. O que o operador precisa
+            para diagnosticar — o tipo da exceção e o status HTTP — são campos
+            estruturados, e por isso vêm dos atributos, não da mensagem.
+
+            Mesmo padrão de `config/email_entrega.py:entregar_email` e
+            `identidade/emails.py` (P1-04), que resolveram o problema
+            equivalente do outro lado, no e-mail.
+            """
+            status = getattr(exc, "status_http", None)
+            origem = getattr(exc, "origem", "")
+            logger.error(
+                "Webhook MP: falha em %s (referência=%s tipo=%s origem=%s http=%s). "
+                "Nenhum estado foi alterado; nenhum detalhe do provedor é registrado.",
+                etapa,
+                referencia_,
+                type(exc).__name__,
+                origem or "-",
+                status if status is not None else "-",
+            )
+
         corpo = request.data if isinstance(request.data, dict) else {}
         dados = corpo.get("data") if isinstance(corpo.get("data"), dict) else {}
         referencia = (
@@ -212,8 +242,8 @@ class WebhookMercadoPagoView(APIView):
         try:
             gateway = MercadoPagoGatewayProvider()
             cobranca = gateway.consultar_cobranca(str(referencia))
-        except Exception:  # noqa: BLE001 — loga e responde 200 (ver docstring)
-            logger.exception("Webhook MP: falha ao consultar a preapproval %s.", referencia)
+        except Exception as exc:  # noqa: BLE001 — loga e responde 200 (ver docstring)
+            _log_falha("consulta_ao_provedor", str(referencia), exc)
             return Response({"detail": "ignorado"}, status=http_status.HTTP_200_OK)
 
         try:
@@ -228,8 +258,8 @@ class WebhookMercadoPagoView(APIView):
                     logger.warning("Webhook MP: preapproval %s sem assinatura local.", referencia)
                     return Response({"detail": "ignorado"}, status=http_status.HTTP_200_OK)
                 acao = services.aplicar_resultado_provedor(subscription, gateway, cobranca)
-        except Exception:  # noqa: BLE001
-            logger.exception("Webhook MP: falha ao aplicar a notificação da preapproval %s.", referencia)
+        except Exception as exc:  # noqa: BLE001
+            _log_falha("aplicacao_do_resultado", str(referencia), exc)
             return Response({"detail": "ignorado"}, status=http_status.HTTP_200_OK)
 
         logger.info("Webhook MP: preapproval %s -> %s.", referencia, acao)

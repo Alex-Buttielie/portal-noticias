@@ -150,10 +150,50 @@ MP_API_BASE = "https://api.mercadopago.com"
 
 
 class ProvedorPagamentoError(Exception):
-    """Falha de comunicação/configuração com o gateway real (rede, HTTP
+    """
+    Falha de comunicação/configuração com o gateway real (rede, HTTP
     não-2xx, credencial ausente). Não é erro do usuário — quem chama decide
     como reportar (a view de webhook, por ex., loga e responde 200 para o
-    Mercado Pago não retentar em loop)."""
+    Mercado Pago não retentar em loop).
+
+    A MENSAGEM DESTA EXCEÇÃO É DADO SENSÍVEL — NÃO LOGAR `str(exc)`
+    ========================================================================
+    Esta exceção era construída com o corpo da resposta do Mercado Pago
+    embutido (`resposta.text[:300]`) e com `{exc}` das exceções de rede. A
+    view de webhook a registrava com `logger.exception`, que imprime o
+    traceback — e a PRIMEIRA LINHA de um traceback é
+    `TipoDeExcecao: mensagem`. Ou seja: o corpo do provedor chegava inteiro
+    ao log por um caminho que ninguém estava olhando. Medido antes da
+    correção: o corpo do MP vazava; o segredo e o token não.
+
+    A correção é estrutural, não cosmética: a mensagem carrega agora só o
+    que o operador já tem (status HTTP, operação, rótulo do motivo) e NUNCA
+    o corpo nem `str(exc)` da exceção original. Quem precisar do detalhe
+    estruturado lê os atributos abaixo — eles são `int`/`str` de catálogo,
+    não eco do provedor.
+
+    `status_http` e `origem` existem para que a view registre algo útil sem
+    tocar na mensagem: são preenchidos pelos `raise` deste módulo.
+    """
+
+    def __init__(
+        self,
+        mensagem: str,
+        *,
+        status_http: int | None = None,
+        origem: str = "",
+    ) -> None:
+        super().__init__(mensagem)
+        #: Status HTTP devolvido pelo provedor, ou `None` quando a falha
+        #: ocorreu antes/depois da resposta (rede, egress bloqueado, JSON).
+        self.status_http = status_http
+        #: Rótulo estável da operação que falhou (`criar_preapproval`,
+        #: `obter_preapproval`, `cancelar_preapproval`, `configuracao`,
+        #: `rede`, `egress`). Catálogo nosso — nunca texto do provedor.
+        self.origem = origem
+        #: Host barrado pela política de saída, quando a falha foi de egress.
+        #: Atributo, nunca mensagem: o log não leva host de terceiro.
+        self.host_bloqueado: str = ""
 
 
 def _para_decimal(bruto) -> Decimal | None:
@@ -224,7 +264,8 @@ class MercadoPagoGatewayProvider(PaymentGatewayProvider):
         if not token:
             raise ProvedorPagamentoError(
                 "ASSINATURA_MP_ACCESS_TOKEN não configurado. Defina o Access Token "
-                "(TEST-... em sandbox) no ambiente."
+                "(TEST-... em sandbox) no ambiente.",
+                origem="configuracao",
             )
         self._token = token
         if sandbox is None:
@@ -263,19 +304,38 @@ class MercadoPagoGatewayProvider(PaymentGatewayProvider):
                     f"{MP_API_BASE}/preapproval", json=corpo, headers=self._headers(), timeout=20
                 )
         except EgressBloqueado as exc:
-            raise ProvedorPagamentoError(
-                f"Destino do Mercado Pago bloqueado pela política de segurança de saída: {exc}"
-            ) from exc
+            # Sem `{exc}`: o texto da EgressBloqueado carrega URL/host/IP
+            # resolvido, e a view registra o traceback (que traz a mensagem).
+            # O operador já sabe que a origem foi o egress — o `host` fica
+            # disponível para quem quiser, no atributo, sem passar pelo log.
+            erro = ProvedorPagamentoError(
+                "Destino do Mercado Pago bloqueado pela política de segurança de saída.",
+                origem="egress",
+            )
+            erro.host_bloqueado = exc.host
+            raise erro from None
         except requests.RequestException as exc:
-            raise ProvedorPagamentoError(f"Falha de rede ao criar preapproval no Mercado Pago: {exc}") from exc
+            # Sem `{exc}`: `str()` de RequestException carrega a URL (e, em
+            # alguns casos, o corpo). Só o TIPO vai na mensagem; o operador
+            # diagnostica pelo tipo e pelo status.
+            raise ProvedorPagamentoError(
+                "Falha de rede ao criar preapproval no Mercado Pago.",
+                origem="rede",
+            ) from None
         if resposta.status_code not in (200, 201):
             raise ProvedorPagamentoError(
-                f"Mercado Pago recusou a criação da preapproval (HTTP {resposta.status_code}): {resposta.text[:300]}"
+                f"Mercado Pago recusou a criação da preapproval (HTTP {resposta.status_code}).",
+                status_http=resposta.status_code,
+                origem="criar_preapproval",
             )
         dados = resposta.json()
         referencia = str(dados.get("id") or "")
         if not referencia:
-            raise ProvedorPagamentoError("Mercado Pago não devolveu o id da preapproval.")
+            raise ProvedorPagamentoError(
+                "Mercado Pago não devolveu o id da preapproval.",
+                status_http=resposta.status_code,
+                origem="criar_preapproval",
+            )
         url = dados.get("sandbox_init_point" if self._sandbox else "init_point") or dados.get("init_point")
         return ResultadoCobranca(referencia_gateway=referencia, status="pendente", url_checkout=url)
 
@@ -289,16 +349,30 @@ class MercadoPagoGatewayProvider(PaymentGatewayProvider):
                     f"{MP_API_BASE}/preapproval/{referencia_gateway}", headers=self._headers(), timeout=20
                 )
         except EgressBloqueado as exc:
-            raise ProvedorPagamentoError(
-                f"Destino do Mercado Pago bloqueado pela política de segurança de saída: {exc}"
-            ) from exc
+            erro = ProvedorPagamentoError(
+                "Destino do Mercado Pago bloqueado pela política de segurança de saída.",
+                origem="egress",
+            )
+            erro.host_bloqueado = exc.host
+            raise erro from None
         except requests.RequestException as exc:
-            raise ProvedorPagamentoError(f"Falha de rede ao consultar preapproval no Mercado Pago: {exc}") from exc
-        if resposta.status_code == 404:
-            raise ProvedorPagamentoError(f"Preapproval {referencia_gateway} não encontrada no Mercado Pago.")
-        if resposta.status_code != 200:
             raise ProvedorPagamentoError(
-                f"Mercado Pago respondeu HTTP {resposta.status_code}: {resposta.text[:300]}"
+                "Falha de rede ao consultar preapproval no Mercado Pago.",
+                origem="rede",
+            ) from None
+        if resposta.status_code == 404:
+            raise ProvedorPagamentoError(
+                f"Preapproval {referencia_gateway} não encontrada no Mercado Pago.",
+                status_http=404,
+                origem="obter_preapproval",
+            )
+        if resposta.status_code != 200:
+            # SEM `resposta.text`: era este o ponto por onde o corpo do
+            # provedor entrava no traceback e, por ele, no log.
+            raise ProvedorPagamentoError(
+                f"Mercado Pago respondeu HTTP {resposta.status_code}.",
+                status_http=resposta.status_code,
+                origem="obter_preapproval",
             )
         dados = resposta.json()
         return dados if isinstance(dados, dict) else {}
@@ -350,14 +424,22 @@ class MercadoPagoGatewayProvider(PaymentGatewayProvider):
                     timeout=20,
                 )
         except EgressBloqueado as exc:
-            raise ProvedorPagamentoError(
-                f"Destino do Mercado Pago bloqueado pela política de segurança de saída: {exc}"
-            ) from exc
+            erro = ProvedorPagamentoError(
+                "Destino do Mercado Pago bloqueado pela política de segurança de saída.",
+                origem="egress",
+            )
+            erro.host_bloqueado = exc.host
+            raise erro from None
         except requests.RequestException as exc:
-            raise ProvedorPagamentoError(f"Falha de rede ao cancelar preapproval no Mercado Pago: {exc}") from exc
+            raise ProvedorPagamentoError(
+                "Falha de rede ao cancelar preapproval no Mercado Pago.",
+                origem="rede",
+            ) from None
         if resposta.status_code not in (200, 201):
             raise ProvedorPagamentoError(
-                f"Mercado Pago recusou o cancelamento (HTTP {resposta.status_code}): {resposta.text[:300]}"
+                f"Mercado Pago recusou o cancelamento (HTTP {resposta.status_code}).",
+                status_http=resposta.status_code,
+                origem="cancelar_preapproval",
             )
 
 
