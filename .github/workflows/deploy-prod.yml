@@ -43,12 +43,6 @@ jobs:
       db_name: brd_portal_prod
       db_user: portal_prod
       strict_validate: true
-      # Usuários de teste: EXPLICITAMENTE desligado, e o valor explícito é o
-      # ponto. O default do `deploy.yml` já é `false` — mas o default é uma
-      # propriedade do arquivo, e esta linha é uma afirmação sobre o PROD, que
-      # se alguém precisar auditar não depende de abrir o reusable. `rollback.yml`
-      # não declara o input e fica em `false` pelo mesmo motivo.
-      usuarios_teste: false
     secrets:
       VPS_HOST: ${{ secrets.VPS_HOST }}
       VPS_USER: ${{ secrets.VPS_USER }}

@@ -27,11 +27,6 @@ jobs:
       db_name: brd_portal_homolog
       db_user: portal_homolog
       strict_validate: false
-      # Gate de usuários de teste — idêntico ao de DEV, pelo mesmo motivo: em
-      # homologação a conta precisa existir para o teste do PR, e não pode
-      # nascer com senha conhecida (esta, ao contrário do localhost, não é
-      # ambiente de uma pessoa só).
-      usuarios_teste: true
     secrets:
       VPS_HOST: ${{ secrets.VPS_HOST }}
       VPS_USER: ${{ secrets.VPS_USER }}
