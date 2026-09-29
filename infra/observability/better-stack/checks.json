@@ -1,0 +1,246 @@
+{
+  "$schema": "https://uptime.betterstack.com/schemas/checks.v2.json",
+  "_meta": {
+    "item": "P2-01 (Onda 2, consolidação da observabilidade) sobre develop 1dec732",
+    "formato": "definição declarativa dos checks a criar no painel do Better Stack (plano Free). NÃO é um payload pronto para POST na API: os campos de autenticação, os IDs de notification_channel e o team_id são de cada conta e vêm do painel/API depois do provisionamento. Nada aqui é segredo e nenhuma URL real foi inventada.",
+    "por_que_este_arquivo_existe": "Cinco sintomas não podem ser alertas de métrica porque a métrica morre junto com a falha: a VPS no ar, TLS perto de expirar, atraso de backup, e o portão privado de /metrics. Um monitor que roda FORA da VPS é o único canal que sobrevive à VPS morta. Ver infra/observability/alerts/README.md §4.",
+    "como_usar": [
+      "1. Criar a conta e o time no Better Stack e configurar MFA (ação humana).",
+      "2. Criar os Contact Pools e associar aos canais reais (e-mail, Telegram, Slack).",
+      "3. Traduzir cada objeto abaixo para um check no painel, preenchendo url/domains com os domínios REAIS de dev, homolog e prod — eles ainda divergem entre si no repositório e a decisão do domínio canônico é humana (ver agentic-framework/state/, seção de domínios).",
+      "4. Cadastrar os DOIS cron monitors (backup e filas) e colocar a URL de heartbeat de cada uma no ambiente correspondente.",
+      "5. Testar cada check com um disparo real e confirmar a entrega nos canais; encerrar/acknowledge depois. Check que nunca disparou é check não testado."
+    ],
+    "placeholders": {
+      "<DOMINIO_DE_PRODUCAO>": "hostname real de produção (o mesmo dos site confs portal-prod.conf)",
+      "<DOMINIO_DE_HOMOLOG>": "hostname real de homolog",
+      "<DOMINIO_DE_DEV>": "hostname real de dev",
+      "<URL_HEARTBEAT_DO_CRON_MONITOR>": "URL de heartbeat gerada pelo Better Stack para o cron monitor; É SEGREDO (quem a tiver consegue anunciar um backup ou uma leitura de filas que não houve) e nunca vai para o repositório"
+    },
+    "correcoes_em_relacao_a_contrato_do_backend": [
+      "O corpo de /readyz em develop é {\"status\": \"pronto\"|\"nao_pronto\", \"checagens\": {...}, \"nao_verificadas\": [...]} (backend/config/views.py:118-124). NÃO é {\"ready\": true}: essa forma não existe em lugar nenhum do backend e um check que a exige reprovaria para sempre, ou — pior, se o campo de corpo for ignorado pelo plano, passaria sem verificar nada.",
+      "O corpo de /readyz de develop NÃO tem a chave `detail`: `ResultadoChecagem.publica()` (backend/config/health.py:85-94) a omite de propósito e só `publica_com_detalhe()` a inclui. A asserção negativa abaixo é um teste de exposição real, não decoração.",
+      "`nao_verificadas` é ESPERADO em dev e homolog (cache locmem e broker memory:// devolvem None em vez de um ok falso — health.py:206-217 e 242-256). Por isso o check NÃO a trata como falha; quem a tem de reprovar é o alert PortalReadinessNaoSondada, que cobre o outro extremo.",
+      "/api/feed/ devolve 200 ou LEVANTA 503/500; o 503 documentado como 'feed indisponível' e o header X-Operational-State são do rascunho do WIP e não existem em develop. Aceitar 503 aqui seria aceitar um status que o endpoint nunca produz, e o 5xx que ele REALMENTE produz continuaria reprovando — ou seja, um check com a descrição errada e o mesmo comportamento. Corrigido para 200 apenas."
+    ]
+  },
+  "checks": [
+    {
+      "id": "readiness-producao",
+      "url": "https://<DOMINIO_DE_PRODUCAO>/readyz",
+      "check_type": "http",
+      "frequency": 60,
+      "timeout": 20,
+      "method": "GET",
+      "expected_status": "200",
+      "team_id": "<TEAM_ID>",
+      "notification_channels": ["<CP_CRITICO_PRINCIPAL>"],
+      "priority": "critical",
+      "incident_severity": "critical",
+      "tags": ["portal", "producao", "readiness"],
+      "meta": {
+        "porque": "Separa liveness de readiness: devolve 503 quando o PostgreSQL está indisponível ou uma checagem falhou, que é o sinal que o time precisa. Em develop `verificar_prontidao` (health.py:324-350) só devolve 200 depois de o banco ter sido verificado com sucesso NESTA chamada — não há caminho para 200 sem verificar.",
+        "expect_body_contains": "\"checagens\"",
+        "porque_body_contains": "Garante que a resposta é o JSON de readiness e não um HTML de erro do proxy com status 200. Um 200 de página de manutenção é a forma comum de check verde sobre serviço quebrado.",
+        "expect_body_not_contains": "detail",
+        "porque_body_not_contains": "O corpo público de /readyz é genérico por contrato. Se aparecer `detail`, host de banco, porta ou nome de tabela, alguém quebrou a regra de não vazar operação — e isso é um incidente de EXPOSIÇÃO, não um check quebrado.",
+        "nao_verificadas": "ESPERADO conter `broker` e `cache` em dev/homolog, porque cache locmem e broker memory:// não são dependências verificáveis. Não reprovar por isso; reprovar por `nao_verificadas` treinaria o time a ignorar o monitor.",
+        "sem_credencial": "A rota /readyz é pública de propósito — é o que o monitor externo consegue consultar. O diagnóstico nomeado fica em /health-detail, bloqueado por token (health.py:414-418)."
+      }
+    },
+    {
+      "id": "readiness-producao-corpo",
+      "url": "https://<DOMINIO_DE_PRODUCAO>/readyz",
+      "check_type": "http",
+      "frequency": 300,
+      "timeout": 20,
+      "method": "GET",
+      "expected_status": "200",
+      "assertion": "body_json_path",
+      "assertion_path": "$.status",
+      "assertion_operator": "equals",
+      "assertion_value": "pronto",
+      "team_id": "<TEAM_ID>",
+      "notification_channels": ["<CP_CRITICO_PRINCIPAL>"],
+      "priority": "critical",
+      "incident_severity": "critical",
+      "tags": ["portal", "producao", "readiness", "corpo"],
+      "meta": {
+        "porque": "O check acima reprova em 503; este reprova quando o status HTTP é 200 mas o VEREDITO não é 'pronto'. Os dois juntos fecham o vão em que um serviço se declara pronto por baixo do panos. É a diferença entre `status_code` e `status`: em develop são coisas distintas (`views.py:119`).",
+        "por_que_precisa_do_plano_com_assertion": "A asserção de corpo é o que impede que este arquivo seja um check decorativo. Se o seu plano não tem assertion de corpo, o jeito honesto é NÃO criar este check e registrar que a lacuna existe — um check que só olha status e não acha um problema é pior do que nenhum check."
+      }
+    },
+    {
+      "id": "liveness-producao",
+      "url": "https://<DOMINIO_DE_PRODUCAO>/livez",
+      "check_type": "http",
+      "frequency": 60,
+      "timeout": 15,
+      "method": "GET",
+      "expected_status": "200",
+      "team_id": "<TEAM_ID>",
+      "notification_channels": ["<CP_CRITICO_PRINCIPAL>"],
+      "priority": "critical",
+      "incident_severity": "critical",
+      "tags": ["portal", "producao", "liveness"],
+      "meta": {
+        "porque": "Prova que o PROCESSO responde, sem tocar dependência. Distingue 'a API caiu' de 'o banco caiu': com os dois checks, o operador sabe em um minuto qual dos dois aconteceu, e não precisa de acesso ao servidor para descobrir."
+      }
+    },
+    {
+      "id": "portao-privado-metrics",
+      "url": "https://<DOMINIO_DE_PRODUCAO>/metrics",
+      "check_type": "http",
+      "frequency": 900,
+      "timeout": 20,
+      "method": "GET",
+      "expected_status": "401",
+      "team_id": "<TEAM_ID>",
+      "notification_channels": ["<CP_CRITICO_PRINCIPAL>"],
+      "priority": "critical",
+      "incident_severity": "critical",
+      "tags": ["portal", "producao", "seguranca", "observabilidade"],
+      "meta": {
+        "porque": "CHECK DE VERDADEIRA EXPOSTA, e o único deste arquivo que vigia a malha de observabilidade. `/metrics` expõe uso interno e é autenticado por token ou sessão de staff (`backend/config/health.py:414-418`, `views.py:206-222`). Este check espera 401 e REPROVA se receber 200 — ou seja, se alguém deixar a rota pública, se o token vazar para o proxy, ou se um proxy local for parar na frente dela.",
+        "por_que_esta_ausencia_agora_importa": "O rascunho do WIP afirmava que `infra/nginx/portal-*.conf` tinha `location ^/(health-detail|metrics)$` barrando origem externa. VERIFICADO em develop: esse location NÃO EXISTE (grep nos sete arquivos de infra/nginx/ devolve apenas `location = /healthz`). A aplicação é hoje a ÚNICA barreira, e um check externo que observa a barreira de fora é a forma de ela deixar de ser uma afirmação.",
+        "por_que_401_e_nao_403": "develop devolve 401 tanto para anônimo sem token quanto para token errado (`health.py:376-385` — sem token configurado, QUALQUER candidato é recusado). Se um dia a resposta virar 403, este check vai reprovar e o operador descobre a mudança."
+      }
+    },
+    {
+      "id": "home-producao",
+      "url": "https://<DOMINIO_DE_PRODUCAO>/",
+      "check_type": "http",
+      "frequency": 300,
+      "timeout": 45,
+      "method": "GET",
+      "expected_status": "200,301,302",
+      "team_id": "<TEAM_ID>",
+      "notification_channels": ["<CP_WARNING>"],
+      "priority": "normal",
+      "incident_severity": "warning",
+      "tags": ["portal", "producao", "front"],
+      "meta": {
+        "porque": "Os dois checks acima cobrem a API. Este cobre a OUTRA metade da resposta: o frontend Next.js atrás do mesmo Nginx (topologia PM2: frontend e API dividem o host). /readyz verde com Home em 500 é exatamente o incidente que os endpoints de saúde não enxergam.",
+        "por_que_nao_aceita_503": "O rascunho aceitava 503 aqui, justificado por um contrato 'feed indisponível com cache válido' e um header X-Operational-State. NENHUM DOS DOIS EXISTE em develop: `FeedListView` (`backend/feed/views.py:60-105`) devolve 200 com o payload paginado e, em falha, LEVANTA — o que o Django transforma em 500. Aceitar 503 aqui não acrescentava tolerância a nada real e descrevia mal o contrato. Aceitar apenas 2xx/3xx torna a descrição verdadeira."
+      }
+    },
+    {
+      "id": "api-feed-producao",
+      "url": "https://<DOMINIO_DE_PRODUCAO>/api/feed/",
+      "check_type": "http",
+      "frequency": 300,
+      "timeout": 30,
+      "method": "GET",
+      "expected_status": "200",
+      "team_id": "<TEAM_ID>",
+      "notification_channels": ["<CP_WARNING>"],
+      "priority": "normal",
+      "incident_severity": "warning",
+      "tags": ["portal", "producao", "api", "feed"],
+      "meta": {
+        "porque": "Exercita o caminho de dados real (Postgres + cache de 45 s + serialização + `equilibrar_por_categoria`), que /readyz não toca: readiness faz `SELECT 1` e nada mais. É o único check que prova que o PRODUTO sai, e não que o processo responde.",
+        "por_que_200_e_nao_503": "Igual ao de home: `FeedListView` não tem caminho de 503 em develop. O que este check precisa reprovar é 5xx e, principalmente, uma resposta 200 com lista vazia depois que deveria ter conteúdo — esse segundo caso exige assertion de corpo (`$.count > 0`) e só vale se o plano tiver. Sem ela, registre a lacuna em vez de fingir cobertura.",
+        "por_que_200_e_nao_401": "A rota é `AllowAny` por declaração explícita (`backend/feed/views.py:68-69`), porque o default global do projeto é `IsAuthenticated` (settings.py:512-514). Se um dia este check reprovar com 401, alguém tirou o override."
+      }
+    },
+    {
+      "id": "tls-producao",
+      "url": "https://<DOMINIO_DE_PRODUCAO>/livez",
+      "check_type": "tls",
+      "frequency": 43200,
+      "timeout": 20,
+      "team_id": "<TEAM_ID>",
+      "notification_channels": ["<CP_CRITICO_PRINCIPAL>"],
+      "priority": "critical",
+      "incident_severity": "critical",
+      "tags": ["portal", "producao", "tls"],
+      "meta": {
+        "porque": "Alerta de expiração de TLS. O check valida cadeia e validade do certificado que o MUNDO enxerga — não o arquivo do lineage local, que pode estar renewed sem o Nginx ter recarregado.",
+        "regua_de_intervencao": "alertar em 21 dias de validade restante é o que dá tempo de rodar o certbot renew sem janela de indisponibilidade (ver infra/DEPLOY.md, seção de TLS, que já é o runbook).",
+        "por_que_e_externo": "Se o certificado expira, a monitoria interna via HTTPS também falha — o monitor que avisa tem de ser capaz de falar HTTP quando o TLS cai."
+      }
+    },
+    {
+      "id": "homolog-readiness",
+      "url": "https://<DOMINIO_DE_HOMOLOG>/readyz",
+      "check_type": "http",
+      "frequency": 300,
+      "timeout": 20,
+      "method": "GET",
+      "expected_status": "200",
+      "team_id": "<TEAM_ID>",
+      "notification_channels": ["<CP_WARNING>"],
+      "priority": "low",
+      "incident_severity": "warning",
+      "tags": ["portal", "homolog", "readiness"],
+      "meta": {
+        "porque": "Homolog é onde o deploy é exercitado antes de produção. Um /readyz vermelho em homolog significa que o próximo deploy está pageable um estado quebrado."
+      }
+    },
+    {
+      "id": "dev-readiness",
+      "url": "https://<DOMINIO_DE_DEV>/readyz",
+      "check_type": "http",
+      "frequency": 1800,
+      "timeout": 20,
+      "method": "GET",
+      "expected_status": "200",
+      "team_id": "<TEAM_ID>",
+      "notification_channels": ["<CP_WARNING>"],
+      "priority": "low",
+      "incident_severity": "info",
+      "tags": ["portal", "dev", "readiness"],
+      "meta": {
+        "porque": "Dev é o ambiente mais descartável; a frequência baixa evita cansaço de alerta. Serve para pegar 'a VPS inteira caiu' (ninguém mais está ativo) e para dar ao smoke pós-deploy um contra o que comparar.",
+        "nota_ambiente": "Se a política do projeto for não monitorar dev, remova este objeto — a decisão é humana, e o arquivo não impõe."
+      }
+    }
+  ],
+  "cron_monitor_backup": {
+    "id": "backup-diario-pm2",
+    "kind": "cron_monitor",
+    "expect_period_seconds": 93600,
+    "grace_seconds": 7200,
+    "team_id": "<TEAM_ID>",
+    "notification_channels": ["<CP_CRITICO_PRINCIPAL>", "<CP_CRITICO_SUPLENTE>"],
+    "incident_severity": "critical",
+    "heartbeat_url_env_var": "BACKUP_HEARTBEAT_URL",
+    "meta": {
+      "porque": "Alerta de atraso de backup, com a propriedade que importa: um watchdog que roda NA VPS não avisa quando a VPS morre. Este monitor é externo e avisa justamente por ausência de sinal.",
+      "periodo": "26 h = 24 h de backup diário + 2 h de margem. O MESMO número é BACKUP_MAX_AGE_HOURS em infra/backup/verificar_backup.sh; se os dois divergirem, o alerta chega na hora errada — ou tarde demais.",
+      "grace": "2 h de tolerância cobrem o caso do dump demorando mais que o normal (restore de validação em banco descartável antes de publicar).",
+"quem_pinge": "AGORA EXISTE: `infra/backup/pingar-backup.sh`. O que o P2-01 registrou como ausente ('ninguém, hoje') foi implementado, e a decisão de NÃO pôr o `curl` dentro do `pg_backup_pm2.sh` foi deliberada — ver o README em infra/observability/pingers/README.md §2. Motivo medido: os cron de produção recebem `Permission denied` e o `pg_backup_pm2.sh` nunca chega a rodar, então um ping interno nunca dispararia.",
+      "acao_necessaria": "PROVISIONAMENTO HUMANO, não código: (a) criar este cron monitor no painel e copiar a URL gerada para `BACKUP_HEARTBEAT_URL` no ambiente da aplicação — nunca no repositório; (b) cadastrar a entrada de cron do pinger; (c) submeter um disparo real e confirmar a entrega antes de considerar o monitor confiável. Enquanto (a) não existir, o exit 6 do pinger (`sem-destino`) deixa claro que não há canal. ATENCAO QUE O P2-01 CONTINUA VALENDO E PRECISA SER LIDA COM O TEXTO ACIMA: este cron monitor chama-se `backup-diario-pm2` e a topologia ativa da VPS e PM2, nao Docker. O `pg_backup_pm2.sh` NAO tem pinger interno (termina em log(backup concluído) na linha 448, e sai) e continua sem ter. O pinger novo e um SCRIPT SEPARADO que precisa ser cadastrado no cron pelo operador — ate la, este monitor ainda e um ALARTE QUE DISPARA SEMPRE, que e pior do que nao ter, porque treina o time a ignorar o canal. E a decisao de nao por o curl dentro do `pg_backup_pm2.sh` foi deliberada, com o motivo medido em infra/observability/pingers/README.md §2: os cron de producao recebem `Permission denied`, entao um ping interno nunca dispararia.",
+      "o_que_o_pinger_exige_para_pingar": "Três medições, nenhuma assumida: (1) `verificar_backup.sh` devolveu 0 — o que já implica cópia remota confirmada, e traz a política de 26 h / nunca-executou / sem-destination sem ser reimplementada; (2) o dump passa num piso de conteúdo em bytes, camada que nenhum mecanismo existente tinha; (3) o objeto da MÍDIA também está no bucket, porque este contrato fala nos DOIS objetos e o watchdog confirma só o dump. Com o backup quebrado hoje, o pinger dá exit 2 (`conteudo-insuficiente`) e NÃO envia heartbeat.",
+      "segredo": "A URL de heartbeat é credencial — quem a tiver consegue anunciar um backup que não houve. Fica em BACKUP_HEARTBEAT_URL no env da aplicação e nunca no repositório. O pinger não a imprime no stdout, no stderr, no arquivo de estado nem no argv: o `curl` a recebe por stdin (`--config -`), para que nenhum outro usuário da VPS a leia em `ps`."
+    }
+  },
+  "cron_monitor_filas": {
+    "id": "saude-filas-periodico",
+    "kind": "cron_monitor",
+    "expect_period_seconds": 900,
+    "grace_seconds": 300,
+    "team_id": "<TEAM_ID>",
+    "notification_channels": ["<CP_WARNING>"],
+    "incident_severity": "warning",
+    "heartbeat_url_env_var": "FILAS_HEARTBEAT_URL",
+    "meta": {
+      "porque": "É o canal de ALERTA da saúde das filas, e ele não pode ser PromQL: `develop` não expõe `portal_celery_queue_depth` nem `portal_celery_tasks_total`. O que existe é `manage.py saude_filas --json`, com três estados e três códigos de saída (backend/config/management/commands/saude_filas.py:10-19).",
+      "regra_de_reprovacao": "crítico se o processo sai != 0. Cobre `degradado` (1) e `desconhecido` (3) no mesmo alerta, sem parsing de texto. `infra/filas/PROVISIONAMENTO.md` §2.3 já pede exatamente isto.",
+      "por_que_distinguir_1_de_3": "Não é detalhe: 1 é 'medido e ruim' (página) e 3 é 'não medido' (também página, porque `ok` é o único estado que não pagina — é a propriedade que `filas_saude.py:17-22` existe para garantir). Um alerta que trata os dois como 'aviso' volta a ser verde para quem não lê.",
+      "quem_pinge": "AGORA EXISTE: `infra/filas/pingar-filas.sh`, o wrapper de 5 minutos que este arquivo registrou como inexistente. Ele roda `saude_filas --json`, anexa ao arquivo que `loki.source.file \"filas\"` lê (ALLOY_FILAS_JSON_PATH) e faz o ping só na saída 0.",
+      "acao_necessaria": "PROVISIONAMENTO HUMANO, não código: (a) criar este cron monitor no painel e colocar a URL gerada em `FILAS_HEARTBEAT_URL` no ambiente da aplicação; (b) cadastrar a entrada de cron de 5 min, no lugar da linha de 4 linhas que o §2.3 do PROVISIONAMENTO propunha; (c) uma SEGUNDA entrada de cron para `--saude-do-pinger`, porque é ela que distingue 'a fila parou' de 'o pinger parou' — as duas causas paginam igual do lado de fora. `verificar-env.sh` continua exigindo que o arquivo exista, então a instalação sem o wrapper já reprova.",
+      "desvio_do_provisionamento_e_por_que": "O §2.3 item 1 do `infra/filas/PROVISIONAMENTO.md` propõe rodar com `--ignorar-saida`. Isso foi RECUSADO: com o flag o processo sai sempre 0, e um monitor que trata 0 como saúde nunca alarmaria — além de tornar impossível distinguir 1 de 3, que é o item 2 do mesmo §2.3. O pinger não usa o flag e repassa o exit do `saude_filas` intacto, de modo que 0/1/3 chegam ao cron com o significado de `saude_filas.py:10-19`.",
+      "o_jsonl_nao_cresce_sem_limite": "Rotação por contagem de linhas com UMA geração de sobreposição: ao chegar em 576 linhas (~48 h a 5 min) o arquivo é renomeado para `.1` e um novo é criado, então o total em disco fica em ~2x o teto. Rotação em vez de truncamento porque o `loki.source.file` segue o arquivo por posição de byte, e truncar quebra essa posição. O `.1` antigo é descartado porque o `ignore_older_than = \"24h\"` do config.alloy já declara que nada com mais de um dia interessa ao coletor, e 576 linhas cobrem 48 h — a rotação nunca descarta dado dentro da janela de leitura.",
+      "rotulo": "Só `estado` vira rótulo, com os 3 valores do contrato. O wrapper NÃO sintetiza campo nenhum: anexa a linha que o `saude_filas` imprimiu, sem acrescentar nada, de modo que a cardinalidade do índice é a que o `config.alloy` já extrai. O `desconhecido` (3) também vai para o JSONL: um arquivo onde só entram os `ok` mente por omissão, e a omissão é justamente o que o painel não mostra.",
+      "periodo": "15 min de espera para 5 min de intervalo = 3 intervalos perdidos antes do paging, o que dá tempo de olhar sem deixar acumular.",
+      "segredo": "A URL de heartbeat é credencial — quem a tiver consegue anunciar uma leitura de filas que não houve. Fica em FILAS_HEARTBEAT_URL no env da aplicação e nunca no repositório. O pinger não a imprime no stdout, no stderr, no arquivo de estado nem no argv: o `curl` a recebe por stdin (`--config -`), para que nenhum outro usuário da VPS a leia em `ps`."
+    }
+  },
+  "nao_monitorado_de_propósito": [
+    "PostgreSQL 5432 e Redis 6379 por TCP: não estão expostos à internet (por desenho — o Nginx é a única entrada), e um check externo não conseguiria alcançá-los. A saúde do banco é observada por /readyz e, dentro da aplicação, por portal_readyz_total{situacao=\"nao_pronto\"}.",
+    "/health-detail: privado por contrato e autenticado por token (backend/config/health.py:414-418). Um check externo dele seria uma rota autenticada com segredo de terceiro — risco de exposição maior que o valor. É o MESMO motivo pelo qual o check portao-privado-metrics espera 401 em vez de consultar o endpoint.",
+    "Sentry: não existe em develop. Se for adotado, tem o próprio sistema de detecção de issue; duplicar em uptime monitor gera alerta duplicado sem informação nova.",
+    "Gráficos de taxa de 5xx e de latência p95: não são check de uptime e hoje nem são métrica. São painel, e o painel diz que não está medindo (ver infra/observability/grafana/dashboards/portal-disponibilidade.json, painéis 11 e 12). Um check de uptime não substitui uma série de latência, e uma série que não existe não pode ser transformada em check sem inventar o backend que a produziria."
+  ]
+}

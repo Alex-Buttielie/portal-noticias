@@ -1,18 +1,36 @@
+"""Sanidade do módulo newsletter/.
+
+P1-04: os testes de ENVIO rodam com `EntregaSimuladaBackend`, não com o
+`locmem` que o `pytest-django` injeta. `locmem` está em
+`BACKENDS_SEM_ENTREGA_REAL` (`config/email_entrega.py`) — ele é um buffer em
+memória, e o gate de entrega (agora aplicado à newsletter, que antes contava
+`total_enviados` para e-mails que ninguém recebia) recusa. Os dois testes que
+contavam `total_enviados == 1` estavam medindo a mentira; agora medem a
+entrega.
+"""
+
 from __future__ import annotations
 
+from django.test import override_settings
 from django.utils import timezone
 import pytest
 from django.contrib.auth import get_user_model
 from django.core import mail
 
 from catalogo_noticias.models import NewsItem
+from config.tests.backends import EntregaSimuladaBackend, caminho_de
 from gating.models import ConfiguracaoSistema, FeatureLimit
 from newsletter import services
 from newsletter.models import InscricaoNewsletter
+from newsletter.tests.doubles import CAMINHO_ENTREGA
+from newsletter.tokens import gerar_token_descadastro
 
 pytestmark = pytest.mark.django_db
 
 User = get_user_model()
+
+#: Backend que entrega de verdade (ver `config/tests/backends.py`).
+BACKEND_QUE_ENTREGA = caminho_de(EntregaSimuladaBackend)
 
 
 @pytest.fixture(autouse=True)
@@ -20,6 +38,16 @@ def _premium_ativo_para_gating():
     """O teste de gating abaixo exige a flag LIGADA (com ela desligada,
     todo mundo navega como Premium)."""
     ConfiguracaoSistema.objects.update_or_create(pk=1, defaults={"premium_ativo": True})
+
+
+@pytest.fixture(autouse=True)
+def _canal_de_entrega_real(settings):
+    """Estes testes verificam QUE a newsletter é enviada; então o backend
+    precisa ser um que envia de verdade."""
+    settings.EMAIL_BACKEND = BACKEND_QUE_ENTREGA
+    EntregaSimuladaBackend.entregues.clear()
+    yield
+    EntregaSimuladaBackend.entregues.clear()
 
 
 def _usuario_consentido(email, papel="free"):
@@ -47,8 +75,11 @@ def test_inscricao_personalizada_exige_premium():
         services.inscrever(usuario_free, InscricaoNewsletter.TIPO_PERSONALIZADA)
 
 
-def test_inscricao_personalizada_funciona_para_premium():
-    usuario_premium = _usuario_consentido("premium-news@example.com", papel="premium")
+def test_inscricao_personalizada_funciona_para_premium(fabrica_usuario_premium):
+    # P1-08: Premium de verdade (assinatura paga), não `papel="premium"` solto.
+    usuario_premium = fabrica_usuario_premium(email="premium-news@example.com")
+    usuario_premium.consentimento_aceito_em = timezone.now()
+    usuario_premium.save(update_fields=["consentimento_aceito_em"])
     FeatureLimit.objects.update_or_create(
         chave="newsletter_personalizada", plano="premium", defaults={"valor": "true"}
     )
@@ -58,10 +89,13 @@ def test_inscricao_personalizada_funciona_para_premium():
 
 
 def test_descadastro_por_token_desativa_inscricao():
+    """P1-06: o valor aceito é o token ASSINADO do link, não o segredo cru do
+    banco. Antes desta correção o teste passava o segredo e ele era exatamente o
+    que ia na URL — o que expunha o segredo de estado e nunca expirava."""
     usuario = _usuario_consentido("desc@example.com")
     inscricao = services.inscrever(usuario, InscricaoNewsletter.TIPO_PADRAO)
 
-    resultado = services.descadastrar_por_token(inscricao.token_descadastro)
+    resultado = services.descadastrar_por_token(gerar_token_descadastro(inscricao))
 
     inscricao.refresh_from_db()
     assert resultado is True
@@ -69,14 +103,32 @@ def test_descadastro_por_token_desativa_inscricao():
 
 
 def test_enviar_newsletters_respeita_consentimento_e_inscricao_ativa():
+    """P1-06 mudou as duas últimas asserções deste teste, e é um ponto do item.
+
+    ANTES (código de d225791) o teste afirmava `total_enviados == 1` e
+    `len(mail.outbox) == 1` sem olhar o canal. Rodando na suíte, o backend é
+    `locmem` — `django/test/utils.py:146-147` sobrescreve
+    `settings.EMAIL_BACKEND` com locmem no início de toda sessão de teste — e
+    locmem não entrega a ninguém. Ou seja: a asserção registrava "1 enviado"
+    para um e-mail que foi só para um dicionário em memória. Era o furo 3 da
+    P0-02c no caminho que já estava em produção.
+
+    Agora o backend que "entrega" é o dublê de `tests/doubles.py` (zero I/O),
+    declarado explicitamente.
+    """
     _item("Noticia 1", "https://g1/news-1")
     consentido = _usuario_consentido("envio1@example.com")
     services.inscrever(consentido, InscricaoNewsletter.TIPO_PADRAO)
 
+    # Quem não consentiu nem chega a ter inscrição: a trava é no caminho de
+    # escrita (`services.inscrever_com_status`). Antes desta correção o teste
+    # criava a inscrição sem consentimento e só confiava no filtro do envio.
     sem_consentimento = User.objects.create_user(email="semconsent@example.com", password="senha123", papel="free")
-    services.inscrever(sem_consentimento, InscricaoNewsletter.TIPO_PADRAO)
+    with pytest.raises(services.ConsentimentoAusenteError):
+        services.inscrever(sem_consentimento, InscricaoNewsletter.TIPO_PADRAO)
 
-    envio = services.enviar_newsletters()
+    with override_settings(EMAIL_BACKEND=CAMINHO_ENTREGA):
+        envio = services.enviar_newsletters()
 
     assert envio.total_enviados == 1
     assert len(mail.outbox) == 1
@@ -109,7 +161,10 @@ def test_enviar_newsletters_com_periodo_so_alcanca_inscricoes_daquele_periodo():
     usuario_noite = _usuario_consentido("periodo-n@example.com")
     services.inscrever(usuario_noite, InscricaoNewsletter.TIPO_PADRAO, periodo=InscricaoNewsletter.PERIODO_NOITE)
 
-    envio = services.enviar_newsletters(periodo=InscricaoNewsletter.PERIODO_MANHA)
+    # P1-06: o backend precisa entregar para o total decir "1 enviado" — ver a
+    # justificativa em `test_enviar_newsletters_respeita_consentimento_e_inscricao_ativa`.
+    with override_settings(EMAIL_BACKEND=CAMINHO_ENTREGA):
+        envio = services.enviar_newsletters(periodo=InscricaoNewsletter.PERIODO_MANHA)
 
     assert envio.total_enviados == 1
     assert mail.outbox[0].to == ["periodo-m@example.com"]

@@ -13,6 +13,30 @@
  * vai junto quando o usuário permitiu/selecionou região. Sem IP, sem
  * user-agent bruto. `window.__portalTrack` expõe o tracker para qualquer
  * frente instrumentar declarativamente, sem importar este módulo.
+ *
+ * P1-10 "sem token/query string" (run p1-09-10-ads-analytics):
+ *
+ * - `path` NUNCA leva query string nem fragment. Antes, `track()` fazia
+ *   `window.location.pathname + window.location.search` e `AnalyticsTracker`
+ *   montava `pathname?searchParams` — ou seja, em `/verificar-email?token=…` e
+ *   em `/newsletter?token=…` (as duas rotas do projeto que recebem token de
+ *   verdade pela URL) o token de uso único ia inteiro para dentro do campo
+ *   `path` do evento, e o backend o persiste em `EventoSite.path`
+ *   (`backend/metricas/views.py:93`, limite 500, sem redação). Um token de
+ *   verificação de e-mail e um token de descadastro de newsletter ficaram
+ *   gravados na base de analytics. `caminhoSeguro()` agora é aplicado tanto ao
+ *   `path` que o chamador passa quanto ao do navegador: nenhum chamador
+ *   consegue reintroduzir query string passando `path` à mão;
+ * - nenhum `user_id`, e-mail, IP, token ou header de autorização vai no
+ *   corpo. `enviarEvento` monta só `Content-Type`, e o corpo passa por uma
+ *   allowlist de campos (`CAMPOS_EVENTO`) com redação de `extra`/`filtros`
+ *   (`redigirObjeto`), porque o backend do `develop` não tem allowlist própria.
+ *   Sem isso, um chamador novo com `extra: { email: … }` vazaria em silêncio.
+ *
+ * O termo da busca (`termo`/`query`) continua indo: é o contrato de produto
+ * existente da Central de Inteligência e ele só sai com consentimento de
+ * analytics. A diferença é que agora ele é um CAMPO nomeado, não uma query
+ * string colada em `path`.
  */
 
 import { API_BASE_URL } from "./api";
@@ -70,6 +94,115 @@ export interface PayloadEvento {
 
 const CHAVE_SESSAO = "portal_noticias_sessao_analytics";
 
+/**
+ * Campos que podem sair no corpo de um evento. Tudo o que o chamador passar
+ * fora desta lista é DESCARTADO antes do `JSON.stringify`.
+ *
+ * É o espelho do backend: `EventoSite` só tem estas colunas, e o `develop` não
+ * tem allowlist no servidor — então, se o cliente mandasse um campo a mais, o
+ * valor entraria no corpo da requisição e num log de proxy. A allowlist aqui é
+ * o que faz "sem token/query string" uma propriedade do código e não uma
+ * intenção. `extra`/`filtros` passam por `redigirObjeto` antes (ver abaixo).
+ */
+export const CAMPOS_EVENTO: readonly string[] = [
+  "tipo",
+  "path",
+  "sessao",
+  "entry_tipo",
+  "entry_id",
+  "categoria",
+  "autor_ref",
+  "autor",
+  "termo",
+  "query",
+  "resultados",
+  "filtros",
+  "secao_home",
+  "secao",
+  "origem",
+  "dispositivo",
+  "pais",
+  "estado",
+  "cidade",
+  "regiao",
+  "tempo_permanencia_seg",
+  "tempo_leitura_seg",
+  "scroll_max_pct",
+  "extra",
+];
+
+/**
+ * Redige um valor de texto livre: corta o que tiver cara de credencial ou de
+ * dado de contato. Mesmo conjunto do redactor do backend
+ * (`config.observability.redact_text` na run de observabilidade), replicado
+ * aqui porque o backend do `develop` não tem o redactor e o evento passa pela
+ * rede antes de chegar nele.
+ */
+const VALOR_SENSIVEL = [
+  /\bBearer\s+[A-Za-z0-9._~+/=-]+/gi,
+  /\beyJ[A-Za-z0-9._-]{8,}/g, // JWT
+  /[^\s@]+@[^\s@]+\.[A-Za-z]{2,}/g, // e-mail
+  /\b(?:\d{1,3}\.){3}\d{1,3}\b/g, // IPv4
+  /([?&](?:token|tk|code|key|secret|sessao|session|access_token|auth)=)[^&\s]+/gi,
+];
+
+export function redigirTexto(valor: string): string {
+  let saida = String(valor ?? "");
+  for (const regra of VALOR_SENSIVEL) {
+    saida = saida.replace(regra, "[redigido]");
+  }
+  return saida;
+}
+
+/** Chave de `extra`/`filtros` cujo próprio nome já denuncia credencial. */
+const CHAVE_SENSIVEL =
+  /(?:^|[^a-z0-9])(?:authorization|proxy-authorization|cookie|set-cookie|password|passwd|secret|token|api[-_]?key|access[-_]?key|private[-_]?key|credential|session|sessionid|csrf|xsrf|email|email_address|telefone|phone|documento|senha|chave|segredo|cpf|cnpj|rg|user_id|usuario_id|userid|ip|ip_address|remote_addr)(?:[^a-z0-9]|$)/i;
+
+/** Teto de chaves e de tamanho de `extra`/`filtros`: o JSONField não é ilimitado. */
+const MAX_CHAVES_EXTRA = 20;
+const MAX_BYTES_EXTRA = 512;
+
+/**
+ * `{...}` de `extra`/`filtros` com chave sensível (ou valor com formato de
+ * e-mail/JWT/IP/token) virando marcador. Nunca devolve o valor original.
+ */
+export function redigirObjeto(valor: unknown): Record<string, unknown> {
+  if (!valor || typeof valor !== "object" || Array.isArray(valor)) return {};
+  const entrada = Object.entries(valor as Record<string, unknown>).slice(0, MAX_CHAVES_EXTRA);
+  const saida: Record<string, unknown> = {};
+  for (const [chave, bruto] of entrada) {
+    if (CHAVE_SENSIVEL.test(chave)) {
+      saida[chave] = "[redigido]";
+      continue;
+    }
+    if (typeof bruto === "string") saida[chave] = redigirTexto(bruto).slice(0, 200);
+    else if (typeof bruto === "number" || typeof bruto === "boolean" || bruto === null) saida[chave] = bruto;
+    else saida[chave] = "[redigido]";
+  }
+  if (JSON.stringify(saida).length > MAX_BYTES_EXTRA) return {};
+  return saida;
+}
+
+/**
+ * Reduz um caminho de URL ao que pode ser registrado: sem query string, sem
+ * fragment e sem userinfo (`https://user:pass@host/x` é credencial).
+ *
+ * É a barreira do P1-10 no único ponto em que o valor entra no evento. Ela
+ * vale para o `path` que o CHAMADOR passa (`payload.path`), não só para o do
+ * navegador: nenhum chamador deve conseguir reintroduzir dado sensível
+ * passando `path` à mão.
+ */
+export function caminhoSeguro(valor: string, limite = 500): string {
+  let base = String(valor ?? "");
+  const semHash = base.split("#")[0];
+  const semQuery = semHash.split("?")[0];
+  base = semQuery.replace(/^([a-z][a-z0-9+.-]*:\/\/)[^/@]*@/i, "$1");
+  // O `…` conta para o teto: cortar em `limite` e depois anexar o marcador
+  // devolvia `limite + 1` caracteres, ou seja, um teto que não era teto.
+  const limitado = base.slice(0, Math.max(0, limite - 1));
+  return limitado.length < base.length ? `${limitado}…` : limitado;
+}
+
 export function obterSessao(): string {
   if (typeof window === "undefined") return "";
   try {
@@ -125,17 +258,56 @@ export function consentido(): boolean {
   }
 }
 
-export function track(payload: PayloadEvento): boolean {
-  if (typeof window === "undefined") return false;
-  if (!consentido()) return false;
+/**
+ * Corpo do evento já normalizado, sem token e sem query string.
+ *
+ * Separado de `enviarEvento` para que a forma do payload seja verificável sem
+ * rede, sem `window` e sem beacon: é a função que a guarda de regressão do
+ * P1-10 exercita nos casos positivo e negativo.
+ *
+ * Regras aplicadas aqui, nesta ordem:
+ *  1. só `CAMPOS_EVENTO` atravessa (allowlist);
+ *  2. `path` passa por `caminhoSeguro`, venha do chamador ou do navegador;
+ *  3. `sessao` é sempre a do navegador (o backend liga a assinatura de
+ *     consentimento futura a ela);
+ *  4. `dispositivo`/`origem` são CATEGORIAS ("desktop", "busca"), nunca o
+ *     user-agent bruto nem a URL do referrer.
+ */
+export function montarCorpoEvento(
+  payload: PayloadEvento,
+  sessao: string,
+  pathNavegador: string
+): Record<string, unknown> {
+  const entrada = payload as unknown as Record<string, unknown>;
+  const corpo: Record<string, unknown> = {};
+  for (const campo of CAMPOS_EVENTO) {
+    if (campo === "path" || campo === "sessao" || campo === "dispositivo" || campo === "origem") continue;
+    const valor = entrada[campo];
+    if (valor === undefined) continue;
+    if (campo === "extra" || campo === "filtros") corpo[campo] = redigirObjeto(valor);
+    else if (typeof valor === "string") corpo[campo] = redigirTexto(valor).slice(0, 500);
+    else corpo[campo] = valor;
+  }
+  const pathInformado = typeof entrada.path === "string" ? entrada.path : "";
+  corpo.path = caminhoSeguro(pathInformado || pathNavegador);
+  corpo.sessao = sessao;
+  corpo.dispositivo = typeof entrada.dispositivo === "string" ? entrada.dispositivo : detectarDispositivo();
+  corpo.origem = typeof entrada.origem === "string" ? entrada.origem : detectarOrigem();
+  return corpo;
+}
+
+/**
+ * Envia o evento para a Central de Inteligência (primeira parte, nossa).
+ *
+ * `API_BASE_URL` é o backend do próprio portal, não um terceiro. Ainda assim
+ * o cabeçalho é mínimo por construção: só `Content-Type`. Nenhum
+ * `Authorization`, nenhum token de sessão, nenhum cookie de login — o evento
+ * de produto é anônimo por desenho (`EventoSite` não tem coluna de usuário), e
+ * um header de autenticação aqui transformaria analytics em um canal de
+ * identificação.
+ */
+export function enviarEvento(corpo: Record<string, unknown>): boolean {
   try {
-    const corpo = {
-      ...payload,
-      path: payload.path ?? window.location.pathname + window.location.search,
-      sessao: payload.sessao ?? obterSessao(),
-      dispositivo: payload.dispositivo ?? detectarDispositivo(),
-      origem: payload.origem ?? detectarOrigem(),
-    };
     const dados = JSON.stringify(corpo);
     if (navigator.sendBeacon) {
       const blob = new Blob([dados], { type: "application/json" });
@@ -149,6 +321,23 @@ export function track(payload: PayloadEvento): boolean {
       }).catch(() => undefined);
     }
     return true;
+  } catch {
+    return false;
+  }
+}
+
+export function track(payload: PayloadEvento): boolean {
+  if (typeof window === "undefined") return false;
+  // Fail-closed ANTES de qualquer montagem: sem consentimento de analytics
+  // não há `Blob`, não há `sendBeacon`, não há `fetch`. A checagem é a
+  // primeira linha, não a última, para que uma exceção em `detectarDispositivo`
+  // não vire um evento sem consentimento.
+  if (!consentido()) return false;
+  try {
+    const sessao = payload.sessao ?? obterSessao();
+    // `pathname` SEM `search`: a query string nunca entra no evento.
+    const corpo = montarCorpoEvento(payload, sessao, window.location.pathname);
+    return enviarEvento(corpo);
   } catch {
     return false;
   }

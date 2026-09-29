@@ -62,8 +62,17 @@ export function AnalyticsTracker() {
   useEffect(() => {
     inicio.current = Date.now();
     scrollMax.current = 0;
-    const qs = searchParams?.toString();
-    const path = qs ? `${pathname}?${qs}` : pathname;
+    // P1-10: o `path` do evento é o PATHNAME, sem query string. A busca
+    // (`/buscar?q=…`) e a paginação (`/arquivo?page=…`) continuam
+    // instrumentadas pelo campo `termo` do evento de busca; o que não pode é a
+    // query string inteira colada em `path`, porque em `/verificar-email?token=…`
+    // e `/newsletter?token=…` ela É um token de uso único — e o backend
+    // persiste `path` sem redação (`backend/metricas/views.py:93`).
+    //
+    // `searchParams` continua no array de dependências de propósito: trocar só
+    // a query dentro da MESMA rota (`/buscar?q=A` → `/buscar?q=B`) continua
+    // sendo um page_view distinto. O que mudou é o valor, não o gatilho.
+    const path = pathname;
     track({ tipo: "page_view", path });
 
     // `news_view` não é derivado aqui: `NoticiaReporter` é a fonte única
@@ -151,7 +160,7 @@ export function AnalyticsTracker() {
         if (seg >= 3) {
           track({
             tipo: "page_view",
-            path: window.location.pathname + window.location.search,
+            path: window.location.pathname,
             tempo_permanencia_seg: seg,
             scroll_max_pct: scrollMax.current,
             extra: { saida: true },

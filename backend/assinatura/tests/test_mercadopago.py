@@ -1,6 +1,14 @@
 """
 Mercado Pago em sandbox (`MercadoPagoGatewayProvider` + webhook): tudo com
 `requests` mockado — nenhum teste bate na rede de verdade.
+
+ATENÇÃO (P1-07): os dois testes de webhook deste arquivo passaram a enviar
+`x-signature`/`x-request-id`. Antes postavam a notificação **sem nenhuma
+autenticação de origem** e ainda assim esperavam a assinatura virar `ativa`
+— o teste afirmava como correto o comportamento de aceitar webhook de
+qualquer um. Isso foi corrigido (ver
+`providers.payment.verificar_assinatura_webhook`); a garantia de que webhook
+sem assinatura válida não move dinheiro está em `test_mercadopago_webhook.py`.
 """
 
 from __future__ import annotations
@@ -18,12 +26,17 @@ from assinatura.providers.payment import (
     GATEWAY_MERCADOPAGO,
     MercadoPagoGatewayProvider,
     ProvedorPagamentoError,
+    assinar_cabecalho_webhook,
     obter_gateway_pagamento,
 )
 
 pytestmark = pytest.mark.django_db
 
 User = get_user_model()
+
+# Segredo do webhook usado só nos testes. O valor real vive exclusivamente
+# no ambiente (ASSINATURA_MP_WEBHOOK_SECRET) e nunca em arquivo.
+SEGREDO_WEBHOOK_DE_TESTE = "segredo-de-webhook-de-teste-p1-07"
 
 
 def _usuario(email="mp@example.com"):
@@ -40,6 +53,29 @@ def _resposta(status_code=201, corpo=None):
     mock.json.return_value = corpo or {}
     mock.text = str(corpo)
     return mock
+
+
+def _preapproval_no_mp(status="authorized", valor=29.90, moeda="BRL"):
+    """
+    Resposta REALISTA de `GET /preapproval/<id>`.
+
+    Não pode ser só `{"status": ...}`: o `MercadoPagoGatewayProvider` se
+    declara `relata_valor=True`, então uma resposta sem
+    `auto_recurring.transaction_amount` é tratada como suspeita e a
+    assinatura NÃO é ativada (é o que
+    `test_webhook_sem_valor_nao_ativa` fixa). Um duplo que omite o valor
+    estaria exercitando um caminho que o Mercado Pago nunca produz.
+    """
+    return {
+        "id": "pre-789",
+        "status": status,
+        "auto_recurring": {
+            "frequency": 1,
+            "frequency_type": "months",
+            "transaction_amount": valor,
+            "currency_id": moeda,
+        },
+    }
 
 
 @override_settings(ASSINATURA_MP_ACCESS_TOKEN="TEST-dummy", ASSINATURA_MP_SANDBOX=True)
@@ -105,7 +141,10 @@ def test_consultar_status_mapeia_estados():
         assert gateway.consultar_status("pre-1") == "recusado"
 
 
-@override_settings(ASSINATURA_MP_ACCESS_TOKEN="TEST-dummy")
+@override_settings(
+    ASSINATURA_MP_ACCESS_TOKEN="TEST-dummy",
+    ASSINATURA_MP_WEBHOOK_SECRET=SEGREDO_WEBHOOK_DE_TESTE,
+)
 def test_webhook_confirma_assinatura_pendente():
     usuario = _usuario(email="mp-webhook@example.com")
     plano = _plano()
@@ -118,18 +157,35 @@ def test_webhook_confirma_assinatura_pendente():
         subscription=subscription, valor=plano.preco,
         status=HistoricoPagamento.STATUS_PENDENTE, referencia_gateway="pre-789",
     )
+    cabecalho = assinar_cabecalho_webhook("pre-789", SEGREDO_WEBHOOK_DE_TESTE, "req-teste-1")
 
-    with patch("assinatura.providers.payment.SessaoEgress.get", return_value=_resposta(200, {"status": "authorized"})):
-        resposta = APIClient().post("/api/assinatura/webhook/mercadopago/?topic=preapproval&id=pre-789")
+    with patch("assinatura.providers.payment.SessaoEgress.get", return_value=_resposta(200, _preapproval_no_mp())):
+        resposta = APIClient().post(
+            "/api/assinatura/webhook/mercadopago/?topic=preapproval&id=pre-789",
+            HTTP_X_SIGNATURE=cabecalho,
+            HTTP_X_REQUEST_ID="req-teste-1",
+        )
 
     assert resposta.status_code == 200
     subscription.refresh_from_db()
     assert subscription.status == Subscription.STATUS_ATIVA
 
 
-@override_settings(ASSINATURA_MP_ACCESS_TOKEN="TEST-dummy")
+@override_settings(
+    ASSINATURA_MP_ACCESS_TOKEN="TEST-dummy",
+    ASSINATURA_MP_WEBHOOK_SECRET=SEGREDO_WEBHOOK_DE_TESTE,
+)
 def test_webhook_desconhecido_responde_200_sem_efeito():
-    with patch("assinatura.providers.payment.SessaoEgress.get", return_value=_resposta(200, {"status": "authorized"})):
-        resposta = APIClient().post("/api/assinatura/webhook/mercadopago/?topic=preapproval&id=pre-inexistente")
+    cabecalho = assinar_cabecalho_webhook("pre-inexistente", SEGREDO_WEBHOOK_DE_TESTE, "req-teste-2")
+
+    with patch(
+        "assinatura.providers.payment.SessaoEgress.get",
+        return_value=_resposta(200, _preapproval_no_mp()),
+    ):
+        resposta = APIClient().post(
+            "/api/assinatura/webhook/mercadopago/?topic=preapproval&id=pre-inexistente",
+            HTTP_X_SIGNATURE=cabecalho,
+            HTTP_X_REQUEST_ID="req-teste-2",
+        )
 
     assert resposta.status_code == 200

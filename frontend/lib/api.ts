@@ -21,13 +21,37 @@ export const API_BASE_URL =
 export class ApiError extends Error {
   status: number;
   detail: unknown;
+  /**
+   * `Retry-After` convertido em SEGUNDOS, ou `null` quando o header não veio
+   * (ou veio em formato que não dá para converter com segurança). O throttle do
+   * DRF é o único produtor de 429 aqui (`EscritaPublicaAnonThrottle`), e é o
+   * header — não o corpo — que diz por quanto tempo esperar. Aditivo: quem não
+   * usa este campo continua vendo o mesmo `status`/`detail`/`message`.
+   */
+  retryAfterSegundos: number | null;
 
-  constructor(status: number, detail: unknown, message: string) {
+  constructor(status: number, detail: unknown, message: string, retryAfterSegundos: number | null = null) {
     super(message);
     this.name = "ApiError";
     this.status = status;
     this.detail = detail;
+    this.retryAfterSegundos = retryAfterSegundos;
   }
+}
+
+/**
+ * Lê `Retry-After` em segundos. O formato canônico (RFC 9110 §10.2.3) é um
+ * delta em segundos, mas o mesmo header aceita data HTTP absoluta — as duas
+ * formas são aceitas aqui. Data no passado vira `0` (não negativo: a UI diz
+ * "agora", não "há 5 minutos").
+ */
+function segundosDeRetryAfter(cabecalho: string | null): number | null {
+  if (!cabecalho) return null;
+  const bruto = cabecalho.trim();
+  if (/^\d+$/.test(bruto)) return Number(bruto);
+  const quando = Date.parse(bruto);
+  if (Number.isNaN(quando)) return null;
+  return Math.max(0, Math.round((quando - Date.now()) / 1000));
 }
 
 function extrairMensagemDeErro(corpo: unknown, status: number): string {
@@ -92,11 +116,61 @@ async function request<T>(
   }
 
   if (!resposta.ok) {
-    throw new ApiError(resposta.status, corpo, extrairMensagemDeErro(corpo, resposta.status));
+    throw new ApiError(
+      resposta.status,
+      corpo,
+      extrairMensagemDeErro(corpo, resposta.status),
+      segundosDeRetryAfter(resposta.headers.get("Retry-After"))
+    );
   }
 
   return corpo as T;
 }
+
+// ---------------------------------------------------------------------------
+// >>> PENDÊNCIA MARCADA — `corpo as T` é uma AFIRMAÇÃO, não uma verificação
+// ---------------------------------------------------------------------------
+// ESTA LINHA É O MAIOR BURACO DE TIPO DO CLIENTE, E ELA É SABIDA.
+//
+// `T` aqui é um parâmetro de tipo que o TypeScript apaga em tempo de
+// execução. Nada confere que o JSON que veio do backend tem a forma de `T`.
+// O `tsc` portanto não pode acusar o tipo errado — e historicamente não
+// acusa.
+//
+// O caso que já aconteceu: `cadastrar()` declarava
+// `Promise<{ detail: string; usuario: Usuario }>` quando o backend (P1-04)
+// tinha parado de devolver `usuario` (o campo carregava `id`, `papel` e
+// `email_verificado` — oráculos de existência de conta). O único
+// consumidor descartava o resultado, então nada quebrou; o `.usuario`
+// devolveria `undefined` em runtime para o primeiro código que o lesse,
+// com o compilador calado.
+//
+// ALCANCE REAL DESTA PENDÊNCIA
+// ===========================
+// Não é o cadastro: são ~103 tipos de resposta neste arquivo, e TODOS
+// passam por esta linha. Corrigir o cadastro não fechou a classe — a
+// classe está aberta.
+//
+// Fechar de verdade significa uma de duas coisas, e nenhuma é barata:
+//   1. validação em RUNTIME dos formatos (zod/valibot), que implica
+//      mexer em `package.json` — fora do escopo do lote que corrigiu o
+//      cadastro; ou
+//   2. geração de contrato a partir dos serializers do backend, o que é
+//      trabalho de Onda própria, não um conserto.
+//
+// O QUE JÁ ESTÁ PRESO
+// ==================
+// O caso do cadastro tem guarda mecânica em
+// `backend/config/tests/test_p1_04_contrato_frontend.py`: os campos
+// declarados são extraídos deste arquivo e comparados com a resposta real
+// do endpoint, nos dois sentidos. Aquele é um ponto, não uma classe.
+//
+// QUANDO ESCREVER UM `T` AQUI
+// ===========================
+// Trate `T` como uma HIPÓTESE, não como um fato. Antes de ler um campo do
+// resultado, confirme que o endpoint realmente o devolve — no serializer do
+// backend, na docstring da view, ou no teste do contrato.
+// ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
 // identidade/
@@ -124,13 +198,38 @@ export interface LoginResposta {
   usuario: Usuario;
 }
 
+/**
+ * Resposta de `POST /api/auth/cadastro/`.
+ *
+ * A resposta é `{"detail": ...}` e NADA MAIS — e isso é uma decisão de
+ * segurança do backend (P1-04), não um esquecimento. Trazendo `usuario`
+ * dentro dela, as respostas "criado agora" e "e-mail já tinha conta"
+ * deixariam de ser idênticas: o objeto carrega `id`, `papel`,
+ * `email_verificado` e `date_joined` da conta existente, e cada um
+ * desses é um oráculo de existência de conta (`email_verificado`
+ * distingue "criada agora" de "já verificada").
+ *
+ * Este tipo declarava `usuario: Usuario` mesmo assim. Como `request<T>`
+ * devolve `corpo as T` (uma AFIRMAÇÃO, não uma verificação), o TypeScript
+ * não tinha como reclamar: o primeiro código que lesse `.usuario` receberia
+ * `undefined` em runtime, com o compilador calado.
+ *
+ * A correção do tipo é a parte fácil. A parte que não é trivia é a
+ * GUARDA: `backend/config/tests/test_p1_04_contrato_frontend.py` extrai
+ * estes campos mecanicamente deste arquivo e compara com a resposta real
+ * do endpoint — então voltar a prometer `usuario` aqui reprova a suíte.
+ */
+export interface CadastroResposta {
+  detail: string;
+}
+
 export function cadastrar(dados: {
   email: string;
   senha: string;
   nome?: string;
   aceite_termos: boolean;
-}): Promise<{ detail: string; usuario: Usuario }> {
-  return request("/api/auth/cadastro/", {
+}): Promise<CadastroResposta> {
+  return request<CadastroResposta>("/api/auth/cadastro/", {
     method: "POST",
     body: JSON.stringify(dados),
   });
@@ -152,6 +251,91 @@ export function login(email: string, senha: string): Promise<LoginResposta> {
 
 export function logout(token: string): Promise<{ detail: string }> {
   return request("/api/auth/logout/", { method: "POST" }, token);
+}
+
+// ---------------------------------------------------------------------------
+// Login social via Google (P1-05b) — contrato lido de
+// `backend/identidade/views.py` (`GoogleLoginIniciarView` e `GoogleLoginView`),
+// `backend/identidade/serializers.py` (`GoogleLoginSerializer`) e
+// `backend/identidade/oauth_google.py`. Nada aqui é adivinhado.
+//
+// O handshake tem TRÊS passos e a ORDEM é o que segura a conta:
+//
+//   1. POST /api/auth/google/iniciar/  ->  200 {nonce, expira_em_segundos}
+//                                          503 {detail} (backend sem
+//                                              GOOGLE_OAUTH_CLIENT_ID)
+//   2. o front passa o `nonce` ao Google Identity Services, que o devolve
+//      ASSINADO no claim `nonce` do `id_token`
+//   3. POST /api/auth/google/  ->  200 {token, usuario, criado_agora}
+//                                400 "Token do Google inválido."  (assinatura/
+//                                      aud/exp do id_token recusados pelo allauth)
+//                                400 "…aceitar os termos…"        (conta nova sem aceite)
+//                                403 {detail}                     (nonce ausente,
+//                                      inválido, EXPIRADO, claim divergente,
+//                                      e-mail não verificado no provedor, ou
+//                                      conta local sem e-mail confirmado —
+//                                      todas de propósito com a MESMA mensagem,
+//                                      para o endpoint não ser oráculo de
+//                                      "esta conta existe")
+//                                403 "Conta inativa."
+//                                503 {detail}  (provedor não configurado)
+//
+// POR QUE `credentials: "include"` É OBRIGATÓRIO NAS DUAS CHAMADAS
+// O nonce não é um valor que o front possa guardar e reenviar: ele é atrelado
+// à SESSÃO do backend (`request.session[CHAVE_SESSAO_NONCE]`, em
+// `oauth_google.py:emitir_nonce`). Sem o cookie de sessão, o passo 1 é
+// aceito e o passo 3 volta 403 `nonce_ausente` — o login quebraria em
+// silêncio, com uma mensagem que manda a pessoa entrar com e-mail e senha sem
+// dizer por quê.
+//
+// POR QUE O CAMINHO É RELATIVO (`/api/...`) E NUNCA UMA URL ABSOLUTA
+// O cookie de sessão tem `SESSION_COOKIE_SAMESITE = "Lax"`
+// (`backend/config/settings.py:217`), e Lax só entrega o cookie em requisição
+// de mesma origem ou de mesmo site (mesmo domínio registrável; porta diferente
+// não conta). Cruzar de origem — inclusive `NEXT_PUBLIC_API_BASE_URL` apontando
+// para OUTRO domínio — faz o cookie não viajar e o nonce deixar de existir do
+// lado do backend. No navegador em produção `API_BASE_URL` já resolve para ""
+// (mesma origem, via o route handler `app/api/[...path]/route.ts`), então o
+// caminho relativo é o que garante o mesmo comportamento em DEV/HOMOLOG/PROD
+// sem depender de configuração. `lib/google-oauth.ts` ainda checa isso em
+// tempo de execução e falha com mensagem clara em vez de deixar quebrar calado.
+// ---------------------------------------------------------------------------
+
+export interface NonceGoogle {
+  nonce: string;
+  expira_em_segundos: number;
+}
+
+/** Passo 1 do handshake: emite o `state`/nonce e o amarra à sessão. */
+export function iniciarLoginGoogle(): Promise<NonceGoogle> {
+  return request("/api/auth/google/iniciar/", {
+    method: "POST",
+    credentials: "include",
+  });
+}
+
+export interface RespostaLoginGoogle extends LoginResposta {
+  /** `true` quando o login acabou de criar a conta (`criado_agora`). */
+  criado_agora: boolean;
+}
+
+/**
+ * Passo 3 do handshake: o `id_token` do Google **e** o `nonce` que o backend
+ * emitiu no passo 1. O `aceite_termos` é obrigatório só para conta nova, e o
+ * front não sabe se a conta é nova antes de consultar o backend — por isso ele
+ * é sempre enviado (o valor do checkbox) e a recusa do backend é mostrada
+ * como falha, nunca como sucesso.
+ */
+export function concluirLoginGoogle(dados: {
+  id_token: string;
+  nonce: string;
+  aceite_termos: boolean;
+}): Promise<RespostaLoginGoogle> {
+  return request("/api/auth/google/", {
+    method: "POST",
+    credentials: "include",
+    body: JSON.stringify(dados),
+  });
 }
 
 export function recuperarSenha(email: string): Promise<{ detail: string }> {
@@ -977,6 +1161,45 @@ export function inscreverListaEspera(dados: {
   aceite_comunicacao: boolean;
 }): Promise<{ detail: string }> {
   return request("/api/landing/lista-espera/", { method: "POST", body: JSON.stringify(dados) });
+}
+
+// ---------------------------------------------------------------------------
+// contato/ — contrato lido diretamente de `backend/contato/views.py` e
+// `backend/contato/serializers.py` (item P1-15b), não adivinhado:
+//
+//   rota:      backend/contato/urls.py:19 (`path("", ContatoView...)`)
+//   mounted:   backend/config/urls.py:44 (`path("api/contato/", ...)`)
+//   view:      backend/contato/views.py:115 (POST, `AllowAny` + throttle
+//              `EscritaPublicaAnonThrottle` = 20/min por IP,
+//              config/settings.py:526)
+//   payload:   `{nome, email, mensagem}` (obrigatórios) + `website`, que é o
+//              honeypot: vazio = humano, preenchido = 400 "Requisição
+//              rejeitada." SEM entregar nada (serializers.py:69-84).
+//   respostas: 200 `{detail, id}` — entregue de verdade; 400 `{campo: [...]}`;
+//              429 `{"detail": "Pedido foi limitado. Disponível em N segundos."}`
+//              + `Retry-After`; 503 `{detail, request_id}` — NÃO entregue, e o
+//              `detail` diz exatamente qual configuração falta.
+//
+// Os três corpos são renderizáveis por `extrairMensagemDeErro` (o 503 vira
+// `detail` + `(id: xxxxxxxx)` do `request_id`). O 503 é o caminho que a UI
+// precisa preservar: convertê-lo em sucesso seria mentira, porque nada foi
+// entregue nem gravado.
+// ---------------------------------------------------------------------------
+
+export interface RespostaContato {
+  detail: string;
+  /** Id opaco da mensagem. Serve para a pessoa citar o contato depois. */
+  id?: string;
+}
+
+export function enviarContato(dados: {
+  nome: string;
+  email: string;
+  mensagem: string;
+  /** Honeypot: envie sempre, e vazio. Preenchido, o servidor descarta. */
+  website?: string;
+}): Promise<RespostaContato> {
+  return request("/api/contato/", { method: "POST", body: JSON.stringify(dados) });
 }
 
 // ---------------------------------------------------------------------------

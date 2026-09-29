@@ -75,7 +75,9 @@ class ResendEmailBackend(BaseEmailBackend):
                 )
             except EgressBloqueado as exc:
                 # Nunca engolido: enviar e-mail para a rede interna não é
-                # "falha silenciosa", é incidente de configuração.
+                # "falha silenciosa", é incidente de configuração. O log leva
+                # o motivo do BLOQUEIO (que vem do módulo de egresso, é
+                # controlado por nós), não o payload.
                 logger.error("Resend: destino bloqueado pela política de saída: %s", exc)
                 if not self.fail_silently:
                     raise
@@ -83,14 +85,28 @@ class ResendEmailBackend(BaseEmailBackend):
             except requests.RequestException as exc:
                 if not self.fail_silently:
                     raise
-                logger.exception("Resend: falha de rede ao enviar e-mail: %s", exc)
+                # Só o TIPO da exceção no log. `str(exc)` de um erro de rede
+                # pode conter a URL com a query string; e o traceback que
+                # `logger.exception` anexa é o que costuma ecoar o payload,
+                # e o payload do e-mail de verificação CONTÉM o token de uso
+                # único em texto claro. `config.email_entrega.entregar_email`
+                # trata o `except` genérico que sobra e registra o tipo,
+                # nunca o texto.
+                logger.error(
+                    "Resend: falha de rede ao enviar e-mail (tipo=%s)", type(exc).__name__
+                )
                 continue
             if resposta.status_code not in (200, 201):
+                # `resposta.text` é o CORPO DE ERRO DO PROVEDOR, e um
+                # provedor real pode ecoar o payload que recebeu — que aqui é
+                # o e-mail de verificação/redefinição, com o token dentro.
+                # P1-04: log e exceção levam o STATUS e nada mais. O
+                # operador precisa do código HTTP para agir; o corpo do erro
+                # do fornecedor não é seguro reproduzir.
+                status = resposta.status_code
                 if not self.fail_silently:
-                    raise ValueError(
-                        f"Resend recusou o envio (HTTP {resposta.status_code}): {resposta.text[:300]}"
-                    )
-                logger.error("Resend recusou o envio (HTTP %s): %s", resposta.status_code, resposta.text[:300])
+                    raise ValueError(f"Resend recusou o envio (HTTP {status})")
+                logger.error("Resend recusou o envio (HTTP %s)", status)
                 continue
             enviados += 1
         sessao.close()

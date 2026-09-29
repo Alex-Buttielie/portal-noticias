@@ -446,3 +446,74 @@ def test_cache_localmem_e_reportado_como_nao_verificado(client) -> None:
 
     corpo = client.get("/readyz").json()
     assert "cache" in corpo["nao_verificadas"]
+
+
+# ---------------------------------------------------------------------------
+# P1-04: o furo do P0-02c visível para o operador, em /health-detail
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_health_detail_avisa_que_email_nao_e_entregue(client, settings) -> None:
+    """O sintoma do P0-02c é silencioso por natureza: um `console.EmailBackend`
+    não faz o container cair, não derruba o readiness, e o deploy segue
+    reportando verde enquanto a verificação de cadastro e a redefinição de
+    senha não chegam a ninguém.
+
+    O lugar para dizer isso é `/health-detail` — restrito a staff/token, e
+    fora do `/readyz` de propósito: um e-mail que não sai não impede o
+    portal de servir notícia, e reportar no readiness derrubaria o serviço
+    inteiro por um detalhe de ambiente.
+    """
+    settings.EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
+
+    corpo = client.get("/health-detail", headers={"X-Observability-Token": TOKEN}).json()
+
+    assert "email" in corpo["avisos"], corpo
+    assert "DJANGO_EMAIL_BACKEND" in "; ".join(corpo["avisos"]["email"]["motivo"])
+
+
+@pytest.mark.django_db
+def test_health_detail_avisa_quando_resend_esta_sem_chave(client, settings) -> None:
+    settings.EMAIL_BACKEND = "config.email_resend.ResendEmailBackend"
+    settings.RESEND_API_KEY = ""
+
+    corpo = client.get("/health-detail", headers={"X-Observability-Token": TOKEN}).json()
+
+    motivos = "; ".join(corpo["avisos"]["email"]["motivo"])
+    assert "RESEND_API_KEY" in motivos
+    # O aviso nomeia a configuração; nunca carrega o valor de uma credencial.
+    assert "RESEND_API_KEY=" not in motivos
+
+
+@pytest.mark.django_db
+def test_health_detail_nao_avisa_com_canal_de_entrega_real(client, settings) -> None:
+    settings.EMAIL_BACKEND = "config.email_resend.ResendEmailBackend"
+    settings.RESEND_API_KEY = "re_test_dummy"
+
+    corpo = client.get("/health-detail", headers={"X-Observability-Token": TOKEN}).json()
+
+    assert "email" not in corpo.get("avisos", {})
+
+
+@pytest.mark.django_db
+def test_readyz_nao_cai_por_email_nao_entregue(client, settings) -> None:
+    """O outro lado da escolha: o aviso é de configuração, não de
+    indisponibilidade. Derrubar o readiness tiraria o portal de produção
+    inteiro por causa de um detalhe que não impede servir notícia."""
+    settings.EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
+
+    assert client.get("/readyz").status_code == 200
+
+
+@pytest.mark.django_db
+def test_readyz_nao_expoe_o_erro_de_email(client, settings) -> None:
+    """`/readyz` é público. O motivo da falta de canal de e-mail diz o nome de
+    uma configuração interna — quem chama o readiness não tem por que
+    saber disso."""
+    settings.EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
+
+    corpo = client.get("/readyz").text
+
+    assert "DJANGO_EMAIL_BACKEND" not in corpo
+    assert "console.EmailBackend" not in corpo

@@ -42,6 +42,18 @@ Nginx (configuração canônica em `infra/nginx/portal-{dev,homolog,prod}.conf` 
 `homolog.portal-noticias.com.br` (→3102/5102),
 `portal-noticias.com.br` (→3103/5103).
 
+**Contas de teste por ambiente:** DEV e HOMOLOG recebem, a cada deploy, uma conta
+por perfil — `teste-<papel>@<pm_suffix>.portal-noticias.com.br`, isto é
+`teste-free@…`, `teste-premium@…` e `teste-admin@…` (só o `admin` vira
+superuser). **PROD não recebe conta nenhuma.** É o input `usuarios_teste` do
+`deploy.yml`: `false` por padrão, `true` em `deploy-dev.yml` e
+`deploy-homolog.yml`, `false` explícito em `deploy-prod.yml` e ausente em
+`rollback.yml`. O contrato do input e a lista de quem liga o gate estão na
+seção *O gate `usuarios_teste` — contas de teste sem senha em DEV/HOMOLOG*,
+mais abaixo neste documento; o passo a passo para entrar — inclusive onde o
+e-mail de recuperação sai, que hoje **não** é uma caixa de entrada — está em
+`infra/DEPLOY.md`, na seção *As contas de teste de DEV e HOMOLOG*.
+
 > **Ativação P1-4:** os sites são seguros para `nginx -t` mesmo antes da
 > instalação opcional dos snippets de cache/rate. A sequência versionada é
 > `http-cache.conf` incluído no `http {}` global → snippets
@@ -239,10 +251,10 @@ não há promessa de zero downtime.
 | Workflow | Arquivo | Trigger / gate |
 |----------|--------|----------------|
 | CI | `.github/workflows/ci.yml` | push/PR em develop e main, ou `workflow_call` pelo deploy; Python 3.12 com runtime+dev, `manage.py check`, pytest cov≥80; Node 20 com check de datas em UTC/Tokyo antes de `tsc`/`next build` |
-| Deploy DEV | `deploy-dev.yml` | push em develop; `verify` (`ci.yml`) → SSH/PM2 3101/5101 |
-| Deploy HOMOLOG | `deploy-homolog.yml` | PR para main; `verify` do head do PR → SSH/PM2 3102/5102 |
-| Deploy PROD | `deploy-prod.yml` | tag `v*` + Release; `verify` do SHA da tag → SSH/PM2 3103/5103 |
-| Rollback manual | `rollback.yml` | `workflow_dispatch`; `confirm` + SHA completo → mesmo `verify`/PM2/smoke, sem release |
+| Deploy DEV | `deploy-dev.yml` | push em develop; `verify` (`ci.yml`) → SSH/PM2 3101/5101; `usuarios_teste: true` (3 contas de teste) |
+| Deploy HOMOLOG | `deploy-homolog.yml` | PR para main; `verify` do head do PR → SSH/PM2 3102/5102; `usuarios_teste: true` (3 contas de teste) |
+| Deploy PROD | `deploy-prod.yml` | tag `v*` + Release; `verify` do SHA da tag → SSH/PM2 3103/5103; `usuarios_teste: false` explícito (nenhuma conta de teste) |
+| Rollback manual | `rollback.yml` | `workflow_dispatch`; `confirm` + SHA completo → mesmo `verify`/PM2/smoke, sem release; não declara `usuarios_teste`, então fica no `false` do `deploy.yml` |
 
 ### Dependências Python nos caminhos de execução
 
@@ -253,9 +265,104 @@ não há promessa de zero downtime.
 - `backend/requirements-dev.txt` é exclusivo de desenvolvimento/testes. Ele
   inclui `requirements.txt` e pode ser instalado no ambiente local e no runner
   do CI, mas não deve entrar na imagem ou no runtime PM2. O
-  `backend/.dockerignore` mantém esse manifesto fora do contexto Docker.
+  `backend/.dockerignore` mantém esse manifesto fora do contexto Docker. É
+  **ele** — e não o lock — que satisfaz os requisitos dos testes: `pytest`,
+  `pytest-django`, `pytest-cov` e `pyyaml`. O `pyyaml` não é acidental: a prova
+  executada do gate `usuarios_teste`
+  (`scripts/verificar-gate-usuarios-teste.sh`, executada por
+  `backend/identidade/tests/test_gate_deploy_usuarios_teste.py`) lê o `script:`
+  do job `deploy` e roda o shell da VPS; sem `pyyaml` no manifesto esse teste
+  era **pulado** no CI, e a proteção de segurança do gate deixava de existir sem
+  aparecer nenhum vermelho. O `requirements-lock.txt` é o lock de **runtime** e
+  não a recebe de propósito (é ele que a imagem e o PM2 instalam); por isso a
+  dependência é declarada no arquivo dev, que é o que o job `backend-tests`
+  instala depois do lock.
 
 Secrets exigidos (os mesmos de antes): `VPS_HOST`, `VPS_USER`, `VPS_PASSWORD`, `VPS_PORT` — vinculados a cada **GitHub Environment** (`development`/`homolog`/`production`) em Settings → Environments. O job `verify` não recebe secrets; o job de provisionamento roda com `environment: ${{ inputs.environment_name }}` (ver `.github/workflows/deploy.yml`), então só enxerga os secrets daquele Environment, com proteção de branch/tag. A configuração de regras de proteção/approvals do Environment continua sendo uma decisão humana no GitHub; o gate de CI já está no repositório.
+
+### O gate `usuarios_teste` — contas de teste sem senha em DEV/HOMOLOG
+
+Novo input booleano do `deploy.yml` (`default: false`), no mesmo formato dos
+outros inputs do workflow (`tls_enabled`, `web_runtime`, `celery_systemd`):
+`true` faz o job `deploy` rodar `manage.py criar_usuario_carga --sem-senha`
+**uma vez por perfil**, `--email teste-<papel>@$SUF.portal-noticias.com.br`, com
+`--superuser` só no `admin`. O bloco fica logo depois do `collectstatic`,
+ainda dentro de `cd "$APP_DIR/backend"` com a venv ativa e **antes** do PM2 — o
+código novo já está no disco e as migrations já rodaram, então o portal sobe já
+encontrando as contas.
+
+A diferença para a conta de carga do `subir-localhost.sh` é **quem entra e como
+a senha nasce**. No localhost a senha é conhecida e impressa no terminal de quem
+subiu; em DEV/HOMOLOG ela **não existe em lugar nenhum** — não vai no `argv`
+(nem `--password`, nem `PROD_SEED_PASSWORD`), não vai para o `.env`, não vai para
+o log do run e não é gravada no banco: a conta nasce com
+`set_unusable_password()` e o primeiro acesso é pelo fluxo de recuperação de
+senha que o produto já tem (`/recuperar-senha` → `/redefinir-senha`), com a
+troca obrigatória no primeiro login (`deve_trocar_senha`). `--sem-senha` com
+`--password` é `CommandError`, e o prompt interativo do comando **jamais** roda
+nesse caminho (no deploy não há terminal: ele perguntaria e esperaria para
+sempre).
+
+Quem liga, e por que a tabela é essa:
+
+| Caller | `usuarios_teste` | Efeito |
+|---|---|---|
+| `deploy-dev.yml` | `true` | 3 contas em `dev.portal-noticias.com.br` |
+| `deploy-homolog.yml` | `true` | 3 contas em `homolog.portal-noticias.com.br` |
+| `deploy-prod.yml` | `false` (explícito) | nenhuma; o valor apagado é proteção visível em revisão |
+| `rollback.yml` | não declara | nenhuma (fica no `false` do `deploy.yml`) |
+
+Três propriedades do gate importam para quem opera:
+
+1. **Falha por perfil não derruba o deploy**: sai um `AVISO:` nomeado por perfil,
+   o resumo `N de 3 contas prontas` e a receita manual para criar a conta à mão.
+   O `set -e` do step não morre, porque quem trata o erro é o `if !` da chamada.
+   Um deploy derrubado por causa de um atalho de acesso seria pior do que um
+   ambiente sem conta de teste.
+2. **O valor do input é reatribuído depois do `set -a; . ./.env`**, e o `case` de
+   validação é repetido ali. Isso é deliberado: o `backend/.env` da VPS é um
+   arquivo texto arbitrário, `chmod 600`, que nunca é sobrescrito, e o `set -a`
+   exporta **qualquer** chave que exista nele — uma linha `USUARIOS_TESTE=true`
+   nesse arquivo ligaria o gate em PROD sem alteração de repositório e sem aviso.
+   Trocar o nome da variável não resolveria (o próximo nome é o mesmo problema);
+   o que sobrevive é a atribuição literal do input **depois** do `source`. O
+   mesmo vale para o `SUF` dos e-mails: sem essa segunda atribuição, um `SUF=prod`
+   no `.env` de DEV/HOMOLOG faria o gate criar `teste-admin@prod.…` — os mesmos
+   endereços de PROD.
+3. **O comando é idempotente**: num redeploy, quem já passou pela recuperação
+   **não** perde a senha nem é obrigado a trocar de novo. Sem isso, o gate — que
+   roda a cada push — trancaria fora quem já entrou.
+
+O caminho de entrada tem uma dependência de ambiente que **não** é do gate: o
+`.env` do bootstrap não escreve `DJANGO_EMAIL_BACKEND`, então `settings.py` cai no
+console backend e o e-mail de recuperação **não chega em nenhum inbox** — ele sai
+no stdout do gunicorn (`pm2 logs portal-api-<env>`), com o `uid`/`token`, que é
+credencial utilizável da conta. Por isso o bloco final do gate decide a mensagem
+pelo valor real de `DJANGO_EMAIL_BACKEND`: com o console ele avisa onde o e-mail
+sai; com um backend real, informa qual está em uso. A configuração é pendência
+conhecida do projeto (credencial do Resend — `PROD_DECISOES.md`, item 2) e o
+passo a passo operacional está em `infra/DEPLOY.md`, na seção *As contas de teste
+de DEV e HOMOLOG*.
+
+**Prova executada do gate (não é teste de string).** O gate é shell dentro de um
+`script:` de workflow, então `scripts/verificar-gate-usuarios-teste.sh` extrai o
+script **literal** do YAML com `yaml.safe_load`, renderiza os inputs e executa o
+step inteiro em `dash` (o shell do `/bin/sh` da VPS) contra um `backend/.env` de
+verdade, num `APP_DIR` temporário, com `git`/`npm`/`pip`/`pm2`/`python`
+stubados. São 25 asserções: o exploit do `.env` (que reprova contra a versão
+anterior do workflow), o argv de cada perfil, `--superuser` só no admin, a
+ausência de `--password` e de `PROD_SEED_PASSWORD`, o fail-closed de valor, a
+falha por perfil sem derrubar o deploy e o texto honesto sobre o e-mail. O CI a
+roda por `backend/identidade/tests/test_gate_deploy_usuarios_teste.py` com
+`AUTOMUTACAO=1` (que remove o selo de uma cópia do workflow e exige que o
+exploit **volte** — a prova de que a prova tem dente). Para rodar fora do CI:
+
+```bash
+scripts/verificar-gate-usuarios-teste.sh                 # ~40 s
+# contra outra versão do workflow (ex.: a de antes da correção):
+scripts/verificar-gate-usuarios-teste.sh /caminho/deploy.yml
+AUTOMUTACAO=1 scripts/verificar-gate-usuarios-teste.sh   # ~80 s, com a automutação
+```
 
 ### Decisão P1-5 — mitigação conservadora, sem trocar o build ainda
 

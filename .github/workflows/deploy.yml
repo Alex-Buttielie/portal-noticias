@@ -92,6 +92,11 @@ on:
         required: false
         type: boolean
         default: false
+      usuarios_teste:
+        description: "true = cria uma conta de teste por perfil, sem senha utilizavel"
+        required: false
+        type: boolean
+        default: false
     secrets:
       VPS_HOST:
         required: true
@@ -151,6 +156,11 @@ jobs:
             case "$TLS_ENABLED" in
               true|false) ;;
               *) echo "ERRO: tls_enabled deve ser true ou false"; exit 1 ;;
+            esac
+            USUARIOS_TESTE="${{ inputs.usuarios_teste }}"
+            case "$USUARIOS_TESTE" in
+              true|false) ;;
+              *) echo "ERRO: usuarios_teste deve ser true ou false"; exit 1 ;;
             esac
             case "$GIT_MODE" in
               branch|pr|tag|rollback) ;;
@@ -322,6 +332,61 @@ jobs:
             python manage.py check
             python manage.py migrate
             python manage.py collectstatic --noinput
+            # ---- selo pos-.env: o input do workflow decide o gate ----
+            # O set -a e o source do .env abaixo atribuem ao shell qualquer
+            # chave que exista no backend/.env da VPS: arquivo do usuario de
+            # deploy, criado uma vez e nunca sobrescrito. Como esse source roda
+            # DEPOIS da validacao do input e ANTES do gate ler o valor, uma
+            # linha USUARIOS_TESTE=true nesse arquivo ligaria o gate em PROD,
+            # sem alteracao de repositorio e sem aviso. Trocar o nome da
+            # variavel nao resolve: o .env e arbitrario quanto a nomes de chave.
+            # O que sobrevive e a atribuicao literal do input, feita aqui.
+            USUARIOS_TESTE="${{ inputs.usuarios_teste }}"
+            case "$USUARIOS_TESTE" in
+              true|false) ;;
+              *) echo "ERRO: usuarios_teste deve ser true ou false (revalidado apos carregar $APP_DIR/backend/.env)"; exit 1 ;;
+            esac
+            SUF="${{ inputs.pm_suffix }}"
+            # ---- usuarios de teste: uma conta por perfil, sem senha ----
+            # A conta nasce sem senha utilizavel: a senha nao existe em log,
+            # argv, ambiente, arquivo ou banco. Quem entra e a pessoa que esta
+            # testando, pelo fluxo de recuperacao de senha que o produto ja tem
+            # (/recuperar-senha e depois /trocar-senha no primeiro login).
+            # O comando e idempotente: um redeploy NAO apaga a senha que
+            # alguem ja definiu. Fica depois do collectstatic e antes do PM2,
+            # com o codigo novo no disco e as migrations ja rodadas.
+            provisionar_usuarios_teste() {
+              local papel email extra okados=0
+              if [ "$USUARIOS_TESTE" != "true" ]; then
+                echo "Usuarios de teste: usuarios_teste=false; nenhuma conta criada"
+                return 0
+              fi
+              for papel in free premium admin; do
+                email="teste-$papel@$SUF.portal-noticias.com.br"
+                extra=""
+                if [ "$papel" = "admin" ]; then
+                  extra="--superuser"
+                fi
+                if python manage.py criar_usuario_carga --email "$email" --sem-senha --papel "$papel" $extra; then
+                  okados=$((okados + 1))
+                  echo "Usuarios de teste: $email pronto (papel=$papel)"
+                else
+                  echo "AVISO: falha ao criar/atualizar $email (papel=$papel); o deploy do codigo continua"
+                fi
+              done
+              echo "Usuarios de teste: $okados de 3 contas prontas. Entrada: /recuperar-senha com o e-mail acima; a senha e definida por quem acessa, nao pelo deploy."
+              case "${DJANGO_EMAIL_BACKEND:-django.core.mail.backends.console.EmailBackend}" in
+                *console*)
+                  echo "  AVISO: DJANGO_EMAIL_BACKEND ausente ou console em backend/.env. O link de /recuperar-senha NAO chega em nenhum inbox: o e-mail (com uid/token, que e credencial da conta) sai no stdout do gunicorn. Leia com: pm2 logs portal-api-$SUF --lines 200 --nostream" ;;
+                *)
+                  echo "  Entrega do e-mail de recuperacao: DJANGO_EMAIL_BACKEND=$DJANGO_EMAIL_BACKEND" ;;
+              esac
+              if [ "$okados" -eq 3 ]; then return 0; fi
+              return 1
+            }
+            if ! provisionar_usuarios_teste; then
+              echo "AVISO: provisionamento dos usuarios de teste terminou com erro; o deploy do codigo esta no ar. Crie as contas a mao com: python manage.py criar_usuario_carga --email teste-<papel>@$SUF.portal-noticias.com.br --sem-senha --papel <papel>"
+            fi
             # PM2 faz o restart no próprio processo: não há delete seguido de
             # start, portanto uma interrupção nessa janela não deixa os dois
             # serviços fora do daemon. Se o processo ainda não existir, start

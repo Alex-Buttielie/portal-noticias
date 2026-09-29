@@ -251,7 +251,9 @@ INSTALLED_APPS = [
     # observabilidade das filas simplesmente não existiria para
     # `manage.py` — e a "parte consultável" do item de backlog depende
     # dele. A app do Celery é o mesmo pacote; nada muda para o worker.
-    "config",
+    # `config.apps.ConfigAppConfig` e não a string `"config"`: é o AppConfig
+    # que registra o system check de `TRUSTED_PROXY_IPS` (MAJOR-1, Onda 2).
+    "config.apps.ConfigAppConfig",
     "identidade",
     "catalogo_noticias",
     "feed",
@@ -495,6 +497,18 @@ SOCIALACCOUNT_PROVIDERS = {
     }
 }
 
+# Validade do `state`/`nonce` do login Google (P1-05). Este fluxo não
+# redireciona o navegador (o OAuth é resolvido no cliente e chega ao backend
+# como `id_token`), então o `state` é emitido por
+# `POST /api/auth/google/iniciar/`, guardado na sessão e tem de voltar
+# assinado no claim `nonce` do `id_token` — ver
+# `identidade/oauth_google.py`. Dez minutos é folgado para um login que
+# envolve abrir o Google, escolher a conta e voltar, e curto o bastante
+# para que um nonce esquecido no navegador não sirva amanhã.
+GOOGLE_OAUTH_NONCE_MAX_AGE_SECONDS = int(
+    os.environ.get("GOOGLE_OAUTH_NONCE_MAX_AGE_SECONDS", 600)
+)
+
 
 # Django REST Framework
 # DEFAULT_PERMISSION_CLASSES é IsAuthenticated (não AllowAny) — cada view do
@@ -538,6 +552,29 @@ REST_FRAMEWORK = {
         "enderecos": os.environ.get("THROTTLE_ENDERECOS_RATE", "60/min"),
     },
 }
+
+# MAJOR-1 (Onda 2): o bucket do rate limit anônimo não pode ser escolhido por
+# um cabeçalho que o cliente forja.
+#
+# Com `NUM_PROXIES` ausente (o estado desta base, medido), o `get_ident` do
+# DRF devolve o `X-Forwarded-For` cru — cabeçalho que o cliente escolhe
+# (`rest_framework/throttling.py:33-40`). Medido aqui: 12 XFF distintos com o
+# mesmo `REMOTE_ADDR` abriram 12 baldes e zeraram o limite de 10/min do
+# login, que existe contra brute force/credential stuffing
+# (`config/throttling.py:37-49`). `NUM_PROXIES: 0` resolveria trocando o furo
+# por um self-DoS (tudo vira `127.0.0.1`, um balde só) e `NUM_PROXIES: 1`
+# continua forjável — por isso a identidade passa a ser resolvida por
+# `config.proxies.get_ident`, que exige que o par que escreveu o cabeçalho
+# esteja num conjunto declarado.
+#
+# `TRUSTED_PROXY_IPS` é a lista, separada por vírgula, de IPs ou prefixos
+# CIDR dos proxies que o operador autoriza a falar em nome de um cliente
+# (o Nginx da mesma máquina, ou as faixas do balanceador quando houver um na
+# frente). AUSENTE OU VAZIA = fail-closed: o `X-Forwarded-For` não é lido e
+# a identidade é o `REMOTE_ADDR` — nunca "não configurado = confie em
+# qualquer XFF". O valor é configuração do operador; o default aqui é a
+# ausência declarada, não um endereço inventado.
+TRUSTED_PROXY_IPS = os.environ.get("TRUSTED_PROXY_IPS", "")
 
 # FRENTE 5 — endereços inteligentes: base URLs e TTLs do proxy
 # (`enderecos/services.py`). ViaCEP/IBGE são públicos e não exigem
@@ -704,9 +741,35 @@ PASSWORD_RESET_TIMEOUT = int(
     os.environ.get("PASSWORD_RESET_TIMEOUT_SECONDS", 60 * 60)  # 1h — usado pelo PasswordResetTokenGenerator
 )
 
+# Validade do link/token de descadastro da newsletter (P1-06). O token é
+# assinado com timestamp (`newsletter/tokens.py`, mesmo par de
+# `identidade/tokens.py` para verificação de e-mail) e rotacionado no uso, então
+# é de uso único: passado o prazo, o link do e-mail deixa de funcionar e a
+# pessoa usa o link do e-mail mais recente. 30 dias cobre o intervalo típico
+# entre o envio e a pessoa decidir cancelar, com folga para quem só abre o
+# e-mail depois. Configurável por ambiente para não exigir deploy de código.
+NEWSLETTER_TOKEN_DESCADASTRO_MAX_AGE_SECONDS = int(
+    os.environ.get("NEWSLETTER_TOKEN_DESCADASTRO_MAX_AGE_SECONDS", 30 * 24 * 60 * 60)  # 30d
+)
+
 # Versão vigente dos Termos/Política de Privacidade que o cadastro exige aceite
 # explícito (LGPD) — registrada em User.consentimento_versao_termos.
 TERMOS_VERSAO_ATUAL = os.environ.get("TERMOS_VERSAO_ATUAL", "1.0")
+
+# Versão do texto de consentimento DA NEWSLETTER — registrada em
+# InscricaoNewsletter.versao_consentimento, e gravada no ato da inscrição.
+#
+# O default é VAZIO de propósito. A LGPD distingue finalidades, e o aceite dos
+# Termos no cadastro NÃO é o consentimento da newsletter: gravar
+# `TERMOS_VERSAO_ATUAL` aqui afirmaria que a pessoa leu e aceitou um texto de
+# newsletter que ainda não foi escrito, e "1.0" seria fabricar um artefato
+# jurídico. Enquanto for vazio, `newsletter.versao_consentimento` fica vazio —
+# e o teste
+# `newsletter/tests/test_p1_06_bordas_e_pendencia.py::test_versao_do_texto_de_consentimento_da_newsletter_continua_pendente`
+# continua reprovando de propósito, que é o sinal de que a pendência ficou de
+# pé. Definir isto aqui, com o texto correspondente publicado, é decisão de
+# produto/jurídico — não de código.
+NEWSLETTER_VERSAO_CONSENTIMENTO = os.environ.get("NEWSLETTER_VERSAO_CONSENTIMENTO", "")
 
 
 # ---------------------------------------------------------------------------
@@ -818,9 +881,44 @@ ASSINATURA_PAYMENT_GATEWAY_PROVIDER = os.environ.get("ASSINATURA_PAYMENT_GATEWAY
 # configurado, o provider falha alto ao ser usado — nunca silenciosamente.
 ASSINATURA_MP_ACCESS_TOKEN = os.environ.get("ASSINATURA_MP_ACCESS_TOKEN", "")
 ASSINATURA_MP_SANDBOX = env_bool("ASSINATURA_MP_SANDBOX", True)
+# Segredo do webhook do MP (o "secret signature" que o painel do MP gera
+# por aplicação, em Webhooks > Configure notificação). É o que
+# autentica a origem da notificação: sem ele o endpoint público do
+# webhook é aceito por qualquer um (ver
+# `providers.payment.verificar_assinatura_webhook`). NUNCA entra no
+# código nem no log; o valor vem só do ambiente.
+ASSINATURA_MP_WEBHOOK_SECRET = os.environ.get("ASSINATURA_MP_WEBHOOK_SECRET", "")
+# Conciliação com o provedor: a notificação do MP é at-least-once (ele
+# reenvia até 8 vezes em ~4 dias), então existe uma rotina que pergunta ao
+# provedor o que está acontecendo e corrige a divergência. Ela é a única
+# forma de um pagamento perdido na notificação virar assinatura ativa.
+ASSINATURA_INTERVALO_RECONCILIAR_MINUTOS = int(
+    os.environ.get("ASSINATURA_INTERVALO_RECONCILIAR_MINUTOS", 60)
+)
 ASSINATURA_INTERVALO_PROCESSAR_VENCIMENTOS_MINUTOS = int(
     os.environ.get("ASSINATURA_INTERVALO_PROCESSAR_VENCIMENTOS_MINUTOS", 60)
 )
+
+# Mesmo raciocínio do bloco do EMAIL_BACKEND acima (e pelo mesmo motivo
+# documentado lá: o boot de produção é o `import config.wsgi` do
+# Gunicorn, que NÃO roda system checks — um check aqui passaria
+# batido): se o provedor configurado é o Mercado Pago e o segredo do
+# webhook não veio, o endpoint público do webhook recusa TODA
+# notificação (fail-closed, ver
+# `providers.payment.verificar_assinatura_webhook`), o cliente paga e a
+# assinatura nunca é confirmada. Isso é invisível se não for dito alto,
+# e a conciliação só sana quando o segredo existir.
+if ASSINATURA_PAYMENT_GATEWAY_PROVIDER == "mercadopago" and not ASSINATURA_MP_WEBHOOK_SECRET:
+    logging.getLogger("config.settings").error(
+        "ASSINATURA_PAYMENT_GATEWAY_PROVIDER=mercadopago sem "
+        "ASSINATURA_MP_WEBHOOK_SECRET: o webhook do Mercado Pago recusará "
+        "toda notificação (a origem não pode ser autenticada) e nenhuma "
+        "assinatura será confirmada por webhook — o cliente paga e a "
+        "assinatura fica em pagamento_pendente. Defina o mesmo secret "
+        "gerado no painel do MP (Webhooks > Configure notificação) antes "
+        "de tratar a integração de pagamento como entregue."
+    )
+
 B2B_INTERVALO_VERIFICAR_ALERTAS_MINUTOS = int(
     os.environ.get("B2B_INTERVALO_VERIFICAR_ALERTAS_MINUTOS", 60)
 )
@@ -832,6 +930,15 @@ CELERY_BEAT_SCHEDULE = {
     "assinatura-processar-vencimentos": {
         "task": "assinatura.tasks.processar_vencimentos",
         "schedule": ASSINATURA_INTERVALO_PROCESSAR_VENCIMENTOS_MINUTOS * 60,
+    },
+    # Rede de segurança do dinheiro: a notificação do Mercado Pago é
+    # at-least-once e pode se perder (deploy no meio do request, 500
+    # transitório, ela nunca chegar). Esta task pergunta ao provedor o
+    # que ele diz e corrige a divergência — inclusive reenviando um
+    # cancelamento que não chegou lá.
+    "assinatura-reconciliar-com-provedor": {
+        "task": "assinatura.tasks.reconciliar_com_provedor",
+        "schedule": ASSINATURA_INTERVALO_RECONCILIAR_MINUTOS * 60,
     },
     # BRD §27 — "Resumo da manhã" e "Resumo da noite" são envios distintos de
     # verdade (horário fixo via crontab, timezone America/Sao_Paulo — ver

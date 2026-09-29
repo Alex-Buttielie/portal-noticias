@@ -45,8 +45,24 @@ def _cadastro_payload(**overrides):
     return payload
 
 
-def _google_sociallogin(email="social.novo@example.com", uid="google-uid-001", nome="Social Novo"):
-    """Constrói um SocialLogin "fake" do allauth para mockar verify_token."""
+def _google_sociallogin(
+    email="social.novo@example.com",
+    uid="google-uid-001",
+    nome="Social Novo",
+    nonce="nonce-de-teste",
+    email_verificado=True,
+):
+    """
+    Constrói um SocialLogin "fake" do allauth para mockar verify_token.
+
+    `extra_data` carrega o claim `nonce` porque, desde P1-05, o `state`
+    emitido por `POST /api/auth/google/iniciar/` tem de aparecer assinado
+    dentro do `id_token` (equivalente do `state` do Authorization Code
+    flow, que este fluxo — sem redirect — não tem onde existir). Ver
+    `identidade/oauth_google.py` e a suíte de ataque
+    `identidade/tests/test_p1_05_google_oauth.py`, que cobre o caminho
+    real (assinatura de verdade) em vez deste atalho.
+    """
     from allauth.socialaccount.models import EmailAddress, SocialAccount, SocialLogin
     from allauth.socialaccount.providers.google.views import GoogleOAuth2Adapter
 
@@ -54,10 +70,40 @@ def _google_sociallogin(email="social.novo@example.com", uid="google-uid-001", n
     provider = GoogleOAuth2Adapter(request).get_provider()
     return SocialLogin(
         user=User(email=email, nome=nome),
-        account=SocialAccount(provider="google", uid=uid),
-        email_addresses=[EmailAddress(email=email, verified=True, primary=True)],
+        account=SocialAccount(
+            provider="google", uid=uid, extra_data={"nonce": nonce}
+        ),
+        email_addresses=[
+            EmailAddress(email=email, verified=email_verificado, primary=True)
+        ],
         provider=provider,
     )
+
+
+def _iniciar_google(client):
+    """Passo 1 do handshake anti-CSRF: pega o `state`/nonce desta sessão."""
+    resp = client.post("/api/auth/google/iniciar/", {}, format="json")
+    assert resp.status_code == 200, resp.data
+    return resp.data["nonce"]
+
+
+def _login_google(client, *, email, uid, aceite_termos=False, nome="Social Novo"):
+    """Passo 2 do handshake: POST do `id_token` com o nonce desta sessão."""
+    nonce = _iniciar_google(client)
+    sociallogin = _google_sociallogin(email=email, uid=uid, nome=nome, nonce=nonce)
+    with patch(
+        "allauth.socialaccount.providers.google.provider.GoogleProvider.verify_token",
+        return_value=sociallogin,
+    ):
+        return client.post(
+            "/api/auth/google/",
+            {
+                "id_token": "fake",
+                "aceite_termos": aceite_termos,
+                "nonce": nonce,
+            },
+            format="json",
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -66,7 +112,7 @@ def _google_sociallogin(email="social.novo@example.com", uid="google-uid-001", n
 # ---------------------------------------------------------------------------
 
 class TestAC1CadastroEmailSenha:
-    def test_cadastro_valido_cria_usuario_free_nao_verificado(self):
+    def test_cadastro_valido_cria_usuario_free_nao_verificado(self, canal_entregando):
         client = APIClient()
         resp = client.post("/api/auth/cadastro/", _cadastro_payload(), format="json")
 
@@ -75,7 +121,7 @@ class TestAC1CadastroEmailSenha:
         assert user.papel == User.PAPEL_FREE
         assert user.email_verificado is False
 
-    def test_cadastro_gera_email_com_token_de_verificacao_valido(self):
+    def test_cadastro_gera_email_com_token_de_verificacao_valido(self, canal_entregando):
         mail.outbox = []
         client = APIClient()
         resp = client.post("/api/auth/cadastro/", _cadastro_payload(email="comtoken@example.com"), format="json")
@@ -95,14 +141,63 @@ class TestAC1CadastroEmailSenha:
         assert str(user.pk) == user_pk
         assert email == "comtoken@example.com"
 
-    def test_cadastro_com_email_ja_cadastrado_e_rejeitado(self):
-        User.objects.create_user(email="duplicado@example.com", password="SenhaForte123")
+    def test_cadastro_com_email_ja_cadastrado_nao_revela_e_nao_cria_conta(self, canal_entregando):
+        """P1-04 — o comportamento ESPERADO mudou, e a mudança é de segurança.
+
+        Antes: 400 para e-mail já cadastrado e 201 para e-mail novo. Isso é a
+        definição de oráculo de existência de conta — um POST com qualquer
+        senha enumerava a base. A mensagem 400 era "genérica", o que não
+        importava: status e corpo já distinguiam os casos.
+
+        Agora as duas respostas são idênticas e nenhuma conta duplicada nasce.
+        A prova completa de indistinguibilidade (status + corpo + o fato de
+        não vazar `usuario`) está em `test_p1_04_entrega_email.py`.
+
+        O caso desta conta é o PIOR para enumeração — ela já está
+        verificada, então todo campo de `usuario` que a resposta carregava
+        (`email_verificado`, `papel`, `id`, `date_joined`) seria diferente do
+        de um cadastro novo. É por isso que a resposta não tem `usuario`.
+        """
+        existente = User.objects.create_user(
+            email="duplicado@example.com", password="SenhaForte123"
+        )
+        existente.email_verificado = True
+        existente.save(update_fields=["email_verificado"])
+        mail.outbox = []
         client = APIClient()
         resp = client.post(
             "/api/auth/cadastro/", _cadastro_payload(email="duplicado@example.com"), format="json"
         )
-        assert resp.status_code == 400
+
+        assert resp.status_code == 201, resp.data
+        assert resp.data == {"detail": "Cadastro realizado. Verifique seu e-mail para confirmar a conta."}
         assert User.objects.filter(email="duplicado@example.com").count() == 1
+        # A conta JÁ estava verificada, então não há o que reenviar: nenhuma
+        # mensagem nova para um e-mail que já estava em mãos do titular.
+        assert mail.outbox == []
+
+    def test_cadastro_com_email_ja_cadastrado_nao_verificado_reenvia_verificacao(self, canal_entregando):
+        """Reenviar o link para quem se cadastrou e não verificou é o que
+        impede o beco sem saída: sem isso, a resposta 201 seria um "verifique
+        seu e-mail" de um e-mail que nunca sairia — exatamente o dano que o
+        P1-04 existe para fechar."""
+        User.objects.create_user(email="pendente@example.com", password="SenhaForte123")
+        mail.outbox = []
+        client = APIClient()
+        resp = client.post(
+            "/api/auth/cadastro/", _cadastro_payload(email="pendente@example.com"), format="json"
+        )
+
+        assert resp.status_code == 201, resp.data
+        assert len(mail.outbox) == 1
+        body = mail.outbox[0].body
+        token = body.split("token:")[1].strip().splitlines()[0]
+        resultado = read_email_verification_token(token)
+        assert resultado is not None
+        assert resultado[1] == "pendente@example.com"
+        # E o reenvio não pode virar uma senha nova por cima da existente.
+        user = User.objects.get(email="pendente@example.com")
+        assert user.check_password("SenhaForte123") is True
 
 
 # ---------------------------------------------------------------------------
@@ -192,16 +287,10 @@ class TestAC3BloqueioSemEmailVerificado:
 
 class TestAC4LoginSocialGoogle:
     def test_google_login_usuario_novo_cria_com_papel_free(self):
-        fake_sociallogin = _google_sociallogin(email="novo.social@example.com", uid="uid-novo")
-
-        with patch(
-            "allauth.socialaccount.providers.google.provider.GoogleProvider.verify_token",
-            return_value=fake_sociallogin,
-        ):
-            client = APIClient()
-            resp = client.post(
-                "/api/auth/google/", {"id_token": "fake", "aceite_termos": True}, format="json"
-            )
+        client = APIClient()
+        resp = _login_google(
+            client, email="novo.social@example.com", uid="uid-novo", aceite_termos=True
+        )
 
         assert resp.status_code == 200, resp.data
         assert resp.data["criado_agora"] is True
@@ -218,13 +307,8 @@ class TestAC4LoginSocialGoogle:
         user.save()
         SocialAccount.objects.create(user=user, provider="google", uid="uid-existente")
 
-        fake_sociallogin = _google_sociallogin(email="ja.existe@example.com", uid="uid-existente")
-        with patch(
-            "allauth.socialaccount.providers.google.provider.GoogleProvider.verify_token",
-            return_value=fake_sociallogin,
-        ):
-            client = APIClient()
-            resp = client.post("/api/auth/google/", {"id_token": "fake"}, format="json")
+        client = APIClient()
+        resp = _login_google(client, email="ja.existe@example.com", uid="uid-existente")
 
         assert resp.status_code == 200, resp.data
         assert resp.data["criado_agora"] is False
@@ -234,17 +318,21 @@ class TestAC4LoginSocialGoogle:
         assert user.papel == User.PAPEL_PREMIUM
 
     def test_google_login_com_token_invalido_nao_cria_usuario(self):
+        client = APIClient()
+        nonce = _iniciar_google(client)
         with patch(
             "allauth.socialaccount.providers.google.provider.GoogleProvider.verify_token",
             side_effect=Exception("token inválido"),
         ):
-            client = APIClient()
-            resp = client.post("/api/auth/google/", {"id_token": "lixo"}, format="json")
+            resp = client.post(
+                "/api/auth/google/", {"id_token": "lixo", "nonce": nonce}, format="json"
+            )
 
         assert resp.status_code == 400
         assert resp.status_code != 500
         # Nenhum usuário/conta social foi criado por causa de um token inválido.
         from allauth.socialaccount.models import SocialAccount
+
         assert not SocialAccount.objects.filter(uid="uid-invalido").exists()
         assert not User.objects.filter(email="novo.social.invalido@example.com").exists()
 
@@ -263,6 +351,13 @@ class TestAC4LoginSocialGoogle:
         Depois da correção, a view deve reconhecer o `User` existente pelo
         e-mail e apenas associar o `SocialAccount` a ele — nunca duplicar,
         nunca 500.
+
+        P1-05: esta associação só é permitida com prova de posse em duas
+        camadas — o e-mail verificado pelo Google **e** a conta local já com
+        `email_verificado=True` (por isso o teste marca o usuário como
+        verificado). Os casos de e-mail local não verificado e de e-mail
+        não verificado pelo provedor são recusa testada em
+        `test_p1_05_google_oauth.py::TestEmailVerificado`.
         """
         from allauth.socialaccount.models import SocialAccount
 
@@ -273,13 +368,8 @@ class TestAC4LoginSocialGoogle:
         user.save()
         assert not SocialAccount.objects.filter(user=user).exists()
 
-        fake_sociallogin = _google_sociallogin(email="alice.dupla@example.com", uid="uid-alice-google")
-        with patch(
-            "allauth.socialaccount.providers.google.provider.GoogleProvider.verify_token",
-            return_value=fake_sociallogin,
-        ):
-            client = APIClient()
-            resp = client.post("/api/auth/google/", {"id_token": "fake"}, format="json")
+        client = APIClient()
+        resp = _login_google(client, email="alice.dupla@example.com", uid="uid-alice-google")
 
         assert resp.status_code == 200, resp.data
         assert resp.status_code != 500
@@ -309,15 +399,10 @@ class TestAC4LoginSocialGoogle:
         deve ser rejeitado — não pode criar a conta sem consentimento LGPD
         auditável (critério de aceite 11).
         """
-        fake_sociallogin = _google_sociallogin(
-            email="semaceite.social@example.com", uid="uid-semaceite-social"
+        client = APIClient()
+        resp = _login_google(
+            client, email="semaceite.social@example.com", uid="uid-semaceite-social"
         )
-        with patch(
-            "allauth.socialaccount.providers.google.provider.GoogleProvider.verify_token",
-            return_value=fake_sociallogin,
-        ):
-            client = APIClient()
-            resp = client.post("/api/auth/google/", {"id_token": "fake"}, format="json")
 
         assert resp.status_code == 400
         assert resp.status_code != 500
@@ -561,7 +646,7 @@ class TestAC9PularOnboarding:
 # ---------------------------------------------------------------------------
 
 class TestAC10SenhaNuncaEmTextoPlano:
-    def test_senha_do_cadastro_por_email_esta_hasheada_no_banco(self):
+    def test_senha_do_cadastro_por_email_esta_hasheada_no_banco(self, canal_entregando):
         client = APIClient()
         senha_plana = "SenhaForte123"
         resp = client.post(
@@ -585,16 +670,11 @@ class TestAC10SenhaNuncaEmTextoPlano:
         assert password_no_banco.startswith("pbkdf2_")
 
     def test_usuario_criado_via_google_nao_tem_senha_utilizavel_nem_plana(self):
-        fake_sociallogin = _google_sociallogin(email="semhash.ac10@example.com", uid="uid-semhash")
-        with patch(
-            "allauth.socialaccount.providers.google.provider.GoogleProvider.verify_token",
-            return_value=fake_sociallogin,
-        ):
-            client = APIClient()
-            resp = client.post(
-                "/api/auth/google/", {"id_token": "fake", "aceite_termos": True}, format="json"
-            )
-        assert resp.status_code == 200
+        client = APIClient()
+        resp = _login_google(
+            client, email="semhash.ac10@example.com", uid="uid-semhash", aceite_termos=True
+        )
+        assert resp.status_code == 200, resp.data
 
         user = User.objects.get(email="semhash.ac10@example.com")
         assert user.has_usable_password() is False
@@ -607,7 +687,7 @@ class TestAC10SenhaNuncaEmTextoPlano:
 # ---------------------------------------------------------------------------
 
 class TestAC11ConsentimentoLGPD:
-    def test_cadastro_email_senha_persiste_consentimento_com_timestamp_e_versao(self):
+    def test_cadastro_email_senha_persiste_consentimento_com_timestamp_e_versao(self, canal_entregando):
         client = APIClient()
         resp = client.post(
             "/api/auth/cadastro/", _cadastro_payload(email="consentimento.ac11@example.com"), format="json"
@@ -646,17 +726,13 @@ class TestAC11ConsentimentoLGPD:
         `TestAC4LoginSocialGoogle.test_google_login_sem_aceite_termos_e_rejeitado_para_usuario_novo`
         para o caso de rejeição sem aceite.
         """
-        fake_sociallogin = _google_sociallogin(email="consentimento.google.ac11@example.com", uid="uid-consent")
-        with patch(
-            "allauth.socialaccount.providers.google.provider.GoogleProvider.verify_token",
-            return_value=fake_sociallogin,
-        ):
-            client = APIClient()
-            resp = client.post(
-                "/api/auth/google/",
-                {"id_token": "fake", "aceite_termos": True},
-                format="json",
-            )
+        client = APIClient()
+        resp = _login_google(
+            client,
+            email="consentimento.google.ac11@example.com",
+            uid="uid-consent",
+            aceite_termos=True,
+        )
 
         assert resp.status_code == 200, resp.data
         assert resp.data["criado_agora"] is True

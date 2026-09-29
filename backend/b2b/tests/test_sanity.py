@@ -130,7 +130,7 @@ def test_criterio_casa_com_itens_publicaveis():
 # ---------------------------------------------------------------------------
 
 
-def test_alerta_e_enviado_quando_ha_item_novo_e_marca_ultimo_alerta():
+def test_alerta_e_enviado_quando_ha_item_novo_e_marca_ultimo_alerta(canal_entregando):
     from django.core import mail
 
     admin = _usuario("admin-alerta@example.com")
@@ -156,7 +156,7 @@ def test_alerta_e_enviado_quando_ha_item_novo_e_marca_ultimo_alerta():
     assert criterio.ultimo_alerta_em is not None
 
 
-def test_alerta_nao_reenvia_o_mesmo_item_duas_vezes():
+def test_alerta_nao_reenvia_o_mesmo_item_duas_vezes(canal_entregando):
     from django.core import mail
 
     admin = _usuario("admin-alerta2@example.com")

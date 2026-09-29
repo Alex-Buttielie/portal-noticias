@@ -147,18 +147,57 @@ def health_detail(request):
     if relatorio.nao_verificadas:
         corpo["nao_verificadas"] = sorted(relatorio.nao_verificadas)
 
-    # Aviso de CONFIGURACAO, aqui e não em `/readyz`: uma `MEDIA_ROOT` mal
-    # posicionada não impede o serviço de receber tráfego — é um risco que
-    # o operador precisa corrigir, e `/health-detail` é o canal restrito
-    # onde ele olha. Reportar no readiness derrubaria o portal inteiro por
-    # um detalhe de ambiente.
+    # Avisos de CONFIGURAÇÃO, aqui e não em `/readyz`: uma `MEDIA_ROOT` mal
+    # posicionada ou um `DJANGO_EMAIL_BACKEND` que não entrega não impedem o
+    # serviço de receber tráfego — são riscos que o operador precisa corrigir,
+    # e `/health-detail` é o canal restrito onde ele olha. Reportar no
+    # readiness derrubaria o portal inteiro por um detalhe de ambiente.
+    avisos: dict = {}
     from .uploads import verificar_media_root_fora_do_servido
 
     problema_midia = verificar_media_root_fora_do_servido()
     if problema_midia:
         METRICAS.incrementar("portal_config_insegura_total", 1, item="media_root")
         logger.error("Configuração insegura de mídia: %s", problema_midia)
-        corpo["avisos"] = {"media_root": problema_midia}
+        avisos["media_root"] = problema_midia
+
+    # P1-04 — o furo do P0-02c. A verificação de e-mail, a redefinição de
+    # senha e a newsletter "saem" com sucesso para um `console.EmailBackend`
+    # (que só imprime no stdout do container) enquanto o deploy segue
+    # reportando verde. Uma `MEDIA_ROOT` mal posicionada e um
+    # `DJANGO_EMAIL_BACKEND` que não entrega são a mesma classe de problema:
+    # o serviço responde, e entrega a ninguém.
+    #
+    # Fica em `avisos` (e não em `/readyz`) pelo mesmo motivo da MEDIA_ROOT:
+    # um e-mail que não sai não impede o portal de servir notícia, e derrubar
+    # o readiness inteiro por causa disso tiraria o portal de produção. O
+    # operador é quem precisa ver isso — em `/health-detail`, que é restrito.
+    #
+    # O motivo vem de `config.email_entrega`, e é feito só de NOMES de
+    # configuração e do caminho do backend: nunca o endereço do titular, nunca
+    # a chave da credencial.
+    from .email_entrega import verificar_canal_email
+
+    canal_email = verificar_canal_email()
+    if not canal_email.disponivel:
+        METRICAS.incrementar("portal_config_insegura_total", 1, item="email_backend")
+        logger.error(
+            "E-mail não é entregue: %s. A verificação de cadastro, a redefinição "
+            "de senha e a newsletter não chegam a ninguém. Estado da integração: "
+            "PROD_DECISOES.md, item 2.",
+            "; ".join(canal_email.motivos),
+        )
+        avisos["email"] = {
+            "problema": (
+                "DJANGO_EMAIL_BACKEND não entrega e-mail a ninguém: a verificação "
+                "de cadastro, a redefinição de senha e a newsletter não chegam a "
+                "nenhuma caixa de entrada."
+            ),
+            "motivo": list(canal_email.motivos),
+        }
+
+    if avisos:
+        corpo["avisos"] = avisos
     return JsonResponse(corpo)
 
 

@@ -105,3 +105,116 @@ def sem_estado(diretorio_estado):
         caminho.unlink()
     return caminho
 
+
+# ---------------------------------------------------------------------------
+# P1-08 — fábrica de usuário Premium REALMENTE pago.
+# ---------------------------------------------------------------------------
+
+
+class _GatewaySempreAprova:
+    """Gateway de mentira que aprova a cobrança.
+
+    Existe para que os testes de gating usem a MESMA porta de entrada do
+    produto (`assinatura.services.assinar_plano`) em vez de escrever
+    `papel="premium"` direto no usuário. Um `papel` escrito à mão não é um
+    pagante: é exatamente o estado que o P1-08 passou a tratar como NÃO
+    premium (`gating.services._assinatura_autoriza_premium`), porque nada
+    nesse usuário pagou nada.
+    """
+
+    def __init__(self):
+        self._n = 0
+
+    def criar_cobranca(self, subscription, valor):
+        self._n += 1
+        from assinatura.providers.payment import ResultadoCobranca
+
+        return ResultadoCobranca(
+            referencia_gateway=f"conftest-aprovado-{subscription.pk}-{self._n}",
+            status="aprovado",
+        )
+
+    def consultar_status(self, referencia_gateway):
+        return "aprovado"
+
+    def cancelar(self, referencia_gateway):
+        return None
+
+
+@pytest.fixture
+def fabrica_usuario_premium():
+    """
+    FÁBRICA de usuários Premium com assinatura autêntica.
+
+    Por que existe (achado de segurança do P1-08): a maioria dos testes
+    "Premium funciona" de 20260902 criava o usuário com `papel="premium"` e
+    nenhuma assinatura. Isso fixava como VERDADE a premissa errada de que o
+    campo `papel` sozinho concede acesso — a mesma que permitsia a uma
+    assinatura vencida continuar Premium. Aqui o Premium só existe depois de
+    `assinar_plano` (porta pública, a mesma do botão "Assinar"), então o
+    teste exercita o caminho real e continua valendo o que queria valar.
+
+    Parâmetros:
+      vencimento_dias: negativo = já venceu (data passada).
+      status:          para exercitar os demais estados da máquina do BRD.
+      rebaixar_papel:  deixa `User.papel` como `papel` param — usado para
+                       reproduzir o estado INCOERENTE (banco diz Premium,
+                       assinatura vencida) que existia antes da correção.
+
+    Devolve o usuário, já relido do banco (`papel` final é o que o gating lê).
+    """
+    from decimal import Decimal
+
+    from django.contrib.auth import get_user_model
+    from django.utils import timezone
+
+    from assinatura.models import Plan, Subscription
+    from assinatura.services import assinar_plano
+
+    User = get_user_model()
+    contador = {"n": 0}
+
+    def _fabrica(
+        *,
+        email=None,
+        status=None,
+        vencimento_dias=10,
+        papel="free",
+        rebaixar_papel=False,
+    ):
+        from datetime import timedelta
+
+        contador["n"] += 1
+        user = User.objects.create_user(
+            email=email or f"premium-pago-{contador['n']}@example.com",
+            password="senha123",
+            papel=papel,
+        )
+        plan, _ = Plan.objects.get_or_create(
+            nome="Premium Teste P1-08",
+            defaults={"preco": Decimal("29.90"), "duracao_dias": 30, "ativo": True},
+        )
+        subscription = assinar_plano(user, plan, payment_gateway=_GatewaySempreAprova())
+
+        if status is not None:
+            Subscription.objects.filter(pk=subscription.pk).update(status=status)
+        if vencimento_dias is not None:
+            Subscription.objects.filter(pk=subscription.pk).update(
+                vencimento=timezone.now() + timedelta(days=vencimento_dias)
+            )
+        if rebaixar_papel:
+            # Reproduz o estado incoerente herdado do P1-08: o snapshot
+            # `papel` continua "premium" (a task de vencimentos ainda não
+            # rodou) enquanto a assinatura já venceu.
+            User.objects.filter(pk=user.pk).update(papel="premium")
+        else:
+            from assinatura.services import _sincronizar_papel_usuario
+
+            subscription.refresh_from_db()
+            _sincronizar_papel_usuario(subscription)
+        user.refresh_from_db()
+        return user
+
+    return _fabrica
+
+

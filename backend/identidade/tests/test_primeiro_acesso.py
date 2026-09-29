@@ -32,7 +32,7 @@ def _login(email, senha):
     return resposta
 
 
-def test_cadastro_marca_troca_obrigatoria_e_login_avisa():
+def test_cadastro_marca_troca_obrigatoria_e_login_avisa(canal_entregando):
     _cadastro()
 
     user = User.objects.get(email="primeiro@example.com")
@@ -44,7 +44,7 @@ def test_cadastro_marca_troca_obrigatoria_e_login_avisa():
     assert resposta.data["usuario"]["deve_trocar_senha"] is True
 
 
-def test_trocar_senha_exige_atual_limpa_flag_e_troca_token():
+def test_trocar_senha_exige_atual_limpa_flag_e_troca_token(canal_entregando):
     _cadastro(email="troca@example.com")
     token_antigo = _login("troca@example.com", "SenhaForte123").data["token"]
 

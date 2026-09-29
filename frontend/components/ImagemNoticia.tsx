@@ -47,7 +47,12 @@ export function ImagemNoticia({
   // `src` chega cru de várias rotas (`n.imagem_url` direto do feed), sem
   // passar por `imagemNoticia()`. Por isso a allowlist é aplicada AQUI,
   // no último ponto antes do `src`: nenhum caminho pode contornar.
-  // Recusado => cai no picsum, que é sempre uma URL do próprio portal.
+  //
+  // Recusado => cai no picsum, que é um serviço de TERCEIRO e que é
+  // requisitado ANTES de qualquer consentimento. Não é uma URL do portal:
+  // ver a PENDÊNCIA no topo de `lib/imagens.ts` (a correção é decisão de
+  // produto, não de engenharia). O que a allowlist garante é fail-closed no
+  // esquema — um `javascript:` recusado nunca vira `src`.
   const original = urlSeguraParaImagem(src) ?? "";
   const [fase, setFase] = useState<"original" | "picsum" | "falhou">(
     original ? "original" : "picsum"

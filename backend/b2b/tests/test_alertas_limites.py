@@ -157,7 +157,7 @@ def test_criterio_desativado_nao_consome_cota():
 
 
 @override_settings(B2B_ALERTA_MAX_POR_EXECUCAO=2, B2B_ALERTA_COOLDOWN_MINUTOS=0)
-def test_teto_por_execucao_segura_o_envio():
+def test_teto_por_execucao_segura_o_envio(canal_entregando):
     org, admin = _org("Empresa Storm", email="storm@example.com")
     for i in range(5):
         services.criar_criterio(org, "palavra_chave", "tempestade")
@@ -172,7 +172,7 @@ def test_teto_por_execucao_segura_o_envio():
 
 
 @override_settings(B2B_ALERTA_MAX_POR_EXECUCAO=2, B2B_ALERTA_COOLDOWN_MINUTOS=0)
-def test_o_que_o_teto_suprimiu_sai_na_execucao_seguinte():
+def test_o_que_o_teto_suprimiu_sai_na_execucao_seguinte(canal_entregando):
     """
     O que o teto segura NÃO é perdido: o ratchet de `ultimo_alerta_em` só
     anda quando o e-mail sai, então o que ficou para trás entra na execução
@@ -201,7 +201,7 @@ def test_o_que_o_teto_suprimiu_sai_na_execucao_seguinte():
 
 
 @override_settings(B2B_ALERTA_MAX_POR_ORGANIZACAO=1, B2B_ALERTA_MAX_POR_EXECUCAO=50, B2B_ALERTA_COOLDOWN_MINUTOS=0)
-def test_teto_por_organizacao_nao_deixa_uma_esmagar_as_outras():
+def test_teto_por_organizacao_nao_deixa_uma_esmagar_as_outras(canal_entregando):
     concentrada, _ = _org("Empresa Concentrada", email="concentrada@example.com")
     discreta, _ = _org("Empresa Discreta", email="discreta@example.com")
     for i in range(4):
@@ -226,7 +226,7 @@ def test_teto_por_organizacao_nao_deixa_uma_esmagar_as_outras():
 
 
 @override_settings(B2B_ALERTA_COOLDOWN_MINUTOS=240, B2B_ALERTA_MAX_POR_EXECUCAO=50)
-def test_cooldown_nao_deixa_chover_e_mail_por_hora():
+def test_cooldown_nao_deixa_chover_e_mail_por_hora(canal_entregando):
     org, admin = _org("Empresa Cooldown", email="cooldown@example.com")
     criterio = services.criar_criterio(org, "palavra_chave", "mercado")
     _noticia("Mercado abre em alta", "https://g1/cd-1")
@@ -245,7 +245,7 @@ def test_cooldown_nao_deixa_chover_e_mail_por_hora():
 
 
 @override_settings(B2B_ALERTA_COOLDOWN_MINUTOS=240, B2B_ALERTA_MAX_POR_EXECUCAO=50)
-def test_passado_o_cooldown_o_que_entrou_sai_integral():
+def test_passado_o_cooldown_o_que_entrou_sai_integral(canal_entregando):
     """
     O cooldown adia, não cancela: passados os 240 min, tudo que entrou desde
     o último alerta (aqui, 3 itens) sai de uma vez. Um limite que só empurrasse
@@ -275,7 +275,7 @@ def test_passado_o_cooldown_o_que_entrou_sai_integral():
 
 
 @override_settings(B2B_ALERTA_COOLDOWN_MINUTOS=240, B2B_ALERTA_MAX_POR_EXECUCAO=50, B2B_ALERTA_MAX_POR_ORGANIZACAO=50)
-def test_cooldown_e_por_criterio_nao_derruba_o_resto_da_organizacao():
+def test_cooldown_e_por_criterio_nao_derruba_o_resto_da_organizacao(canal_entregando):
     """
     O cooldown é por CRITÉRIO, na dimensão do tempo. Uma organização com 3
     critérios casando a MESMA novidade recebe 3 e-mails nesta execução — o
@@ -376,7 +376,17 @@ def test_anomalia_organizacao_inativa_com_criterios_dispara(caplog):
     assert resultado["total_alertas_enviados"] == 0
 
 
-def test_anomalia_falha_ao_enviar_identifica_a_organizacao(monkeypatch):
+def test_anomalia_falha_ao_enviar_identifica_a_organizacao(canal_entregando, monkeypatch):
+    """
+    O caminho de falha continua sendo resilience por critério, e agora ele
+    acontece pelo **gate**, não por um `send_mail` fora dele: o dublê está em
+    `services.entregar_alerta`, a costura de transporte do módulo — a mesma que
+    chama `config.email_entrega.entregar_email`.
+
+    Um `OSError` genérico é o caso do `except Exception` (falha inesperada do
+    módulo). A recusa do gate (`CanalIndisponivel`/`FalhaDeEntrega`) tem handler
+    próprio, coberto em `b2b/tests/test_p1_04_entrega.py`.
+    """
     org, admin = _org("Empresa Falha", email="anom-falha@example.com")
     services.criar_criterio(org, "palavra_chave", "mercado")
     _noticia("Mercado em alta", "https://g1/falha-1")
@@ -384,7 +394,7 @@ def test_anomalia_falha_ao_enviar_identifica_a_organizacao(monkeypatch):
     def _explode(*_args, **_kwargs):
         raise OSError("smtp fora do ar")
 
-    monkeypatch.setattr(services, "send_mail", _explode)
+    monkeypatch.setattr(services, "entregar_alerta", _explode)
     resultado = services.verificar_e_enviar_alertas()
 
     assert resultado["total_alertas_enviados"] == 0
@@ -394,7 +404,7 @@ def test_anomalia_falha_ao_enviar_identifica_a_organizacao(monkeypatch):
     assert anomalia["organizacao_id"] == org.pk
 
 
-def test_execucao_saudavel_nao_reporta_anomalia():
+def test_execucao_saudavel_nao_reporta_anomalia(canal_entregando):
     """
     O contraponto do "sempre dispara": uma operação normal — organização
     ativa, com membros, longe da cota — não produz sinal nenhum. Um alerta de

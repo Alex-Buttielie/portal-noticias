@@ -1,0 +1,400 @@
+// Grafana Alloy — coletor de telemetria técnica do portal.
+//
+// ============================================================================
+// O QUE ESTE ARQUIVO COLETE, E O QUE ELE NÃO COLETE
+// ============================================================================
+// A exposição de métricas do backend em `develop` (1dec732) tem ONZE nomes de
+// métrica e nada mais. Este arquivo coleta exatamente o que existe:
+//
+//   backend/config/health.py   portal_tempo_de_atividade_segundos
+//   backend/config/views.py    portal_healthz_total{situacao}
+//                              portal_livez_total{situacao}
+//                              portal_readyz_total{situacao}
+//                              portal_readyz_duracao_ms
+//                              portal_health_detail_total{situacao}
+//                              portal_acesso_negado_total{recurso}
+//                              portal_config_insegura_total{item}
+//                              portal_metrics_total
+//   backend/config/email_entrega.py
+//                              portal_email_entrega_total{destino,situacao}
+//                              portal_email_falha_provedor_total{destino,tipo}
+//
+// NÃO há no backend de `develop` nenhum histograma de requisição, nenhuma
+// métrica de Celery, nenhuma métrica de dependência nomeada e nenhuma métrica
+// de ingestão. Nenhum painel e nenhuma regra deste diretório finge o
+// contrário: o que não existe é declarado como "não instrumentado" e vira
+// alerta de ausência, não painel em branco. Ver `alerts/README.md` para a
+// tabela de correspondência nome a nome.
+//
+// UMA INSTÂNCIA POR AMBIENTE
+// --------------------------
+// A VPS hospeda dev, homolog e prod. Um coletor único misturaria os três, e uma
+// falha de scrape em prod poderia ser "explicada" pelos dados de dev. Instale
+// com `EnvironmentFile=/etc/portal/alloy-<env>.env`.
+//
+// `ambiente` COMO RÓTULO EM BANDA, E NÃO SÓ COMO EXTERNAL LABEL
+// ---------------------------------------------------------------
+// Isto é uma correção, não um estilo. `prometheus.remote_write.external_labels`
+// (abaixo) anexa `ambiente` no lado do Mimir, mas `external_labels` NÃO fazem
+// parte do rótulo de série para o evaluator PromQL: uma expressão como
+// `absent(up{ambiente="production", job="portal-api"})` NUNCA casa, porque a
+// única série hipotética teria `ambiente` como external label e `absent()`
+// compara a série INTEIRA. O resultado seria uma regra de "telemetria
+// ausente" incapaz de disparar — um alerta que não pode falhar.
+//
+// Por isso `ambiente` éposto duas vezes: como external label (para o Mimir
+// consultar rápido e para separar as pilhas) e, em `prometheus.relabel`
+// abaixo, como rótulo em banda de toda série coletada. O relabel só ADICIONA
+// o rótulo; não renomeia nem remove nenhum, então os dois caminhos coexistem.
+//
+// TUDO PARAMETRIZADO POR AMBIENTE (`sys.env`): nenhum endpoint, token ou path
+// real está neste arquivo. O exemplo de env é
+// `infra/observability/alloy/alloy.env.example`.
+//
+// FAIL-CLOSED, EM DUAS CAMADAS
+// -----------------------------
+//   (a) `verificar-env.sh` roda no `ExecStartPre` da unit e antes de qualquer
+//       instalação: sem endpoint, sem token, sem arquivo de token legível, sem
+//       arquivo de log ou sem permissão de journal, o coletor NÃO É
+//       INICIADO. Um coletor no ar sem exportar nada é pior que um coletor
+//       parado, porque produz "zero erros" que parece saúde.
+//   (b) Nenhum valor deste arquivo é inventado: onde um campo vazio
+//       significaria "coletar TUDO" (o caso do journal), o config usa
+//       allowlist com regex ancorada, e string vazia faz a allowlist não
+//       casar com nada. Vazio nunca vira "coleta demais".
+//
+// ARMADILHAS CONHECIDAS (as duas primeiras são erro de configuração real, e
+// por isso o `verificar-env.sh` falha nelas em vez de comentar):
+//   * `loki.source.journal` só coleta com o usuário efetivo nos grupos `adm`
+//     e `systemd-journal`;
+//   * o `loki.source.file` da borda só produz algo útil se o arquivo de log
+//     existir E for JSON — `infra/nginx/*.conf` de `develop` NÃO define
+//     `log_format` (verificado: zero ocorrências de `log_format` nos sete
+//     arquivos). Sem o `log_format portal_acesso` de um item futuro, a
+//     borda não tem dado. O coletor continua no ar e o painel de acesso fica
+//     vazio: é o mesmo falso verde do item anterior, e por isso o
+//     `verificar-env.sh` exige o arquivo e avisa quando ele não é JSON.
+
+logging {
+    level  = sys.env("ALLOY_LOG_LEVEL")
+    format = "logfmt"
+}
+
+// ---------------------------------------------------------------------------
+// 1) Métricas da API
+// ---------------------------------------------------------------------------
+// `/metrics` é privado no código da aplicação: `config/views.py::metrics`
+// chama `autorizado_para_detalhe` e devolve 401 para anônimo, sem token e
+// sem sessão de staff (`backend/config/health.py:414-418`).
+//
+// CONTRASTE COM O QUE O WIP AFIRMAVA: os comentários do WIP diziam que "o
+// Nginx também barra a origem externa" e citavam um `location
+// ^/(health-detail|metrics)$` em `infra/nginx/portal-*.conf`. VERIFICADO em
+// `develop` (1dec732): esse location NÃO EXISTE — `grep -n 'metrics\|
+// health-detail' infra/nginx/portal-prod.conf` devolve apenas `location =
+// /healthz`. A única proteção de `/metrics` hoje é a da aplicação. Isso é
+// dito aqui em vez de ser omitido porque a afirmação erradaLEVaria o
+// instalante a acreditar que há duas camadas quando há uma.
+//
+// O token é enviado SEMPRE, mesmo com o coletor na mesma máquina: é o que
+// exercita o mesmo caminho de autenticação do resto da malha, e o valor é o
+// mesmo de `HEALTH_DETAIL_TOKEN` no ambiente da aplicação (é esse o nome em
+// `develop`; `OBSERVABILITY_METRICS_TOKEN` não existe em `develop`).
+prometheus.scrape "portal_api" {
+    targets = [{
+        __address__ = sys.env("ALLOY_BACKEND_METRICS_ADDR"),
+    }]
+    // `job` precisa ser explícito: o padrão é o nome do componente
+    // (`prometheus.scrape.portal_api`), e são as regras de alerta e os painéis
+    // que referenciam `job="portal-api"`.
+    job_name        = "portal-api"
+    metrics_path    = "/metrics"
+    scheme          = "http"
+    scrape_interval = "30s"
+    scrape_timeout  = "10s"
+    honor_labels    = false
+
+    authorization {
+        type             = "Bearer"
+        credentials_file = sys.env("ALLOY_BACKEND_METRICS_TOKEN_FILE")
+    }
+
+    forward_to = [prometheus.relabel.ambiente.receiver]
+}
+
+// Métricas do próprio coletor. Sem este job não existe sinal de "o coletor
+// parou" — e um coletor parado é indistinguível de uma semana sem incidente.
+prometheus.scrape "alloy" {
+    targets         = [{__address__ = sys.env("ALLOY_SELF_ADDR")}]
+    job_name        = "alloy"
+    scrape_interval = "30s"
+    forward_to      = [prometheus.relabel.ambiente.receiver]
+}
+
+// Rótulo em banda. Ver a justificativa no cabeçalho: é o que torna
+// `absent(up{ambiente="...", job="..."})` capaz de disparar.
+prometheus.relabel "ambiente" {
+    forward_to = [prometheus.remote_write.grafana.receiver]
+
+    rule {
+        target_label = "ambiente"
+        replacement  = sys.env("ALLOY_AMBIENTE")
+    }
+}
+
+prometheus.remote_write "grafana" {
+    external_labels = {
+        ambiente = sys.env("ALLOY_AMBIENTE"),
+    }
+    endpoint {
+        url            = sys.env("ALLOY_REMOTE_WRITE_URL")
+        remote_timeout = "30s"
+        basic_auth {
+            username = sys.env("ALLOY_REMOTE_WRITE_USER")
+            password = sys.env("ALLOY_REMOTE_WRITE_TOKEN")
+        }
+        // 429 do Mimir é "esticou o limite de ingestão", não "endpoint
+        // quebrado": reenviar com backoff e honrar o `Retry-After` é o
+        // comportamento certo. A fila é por endpoint, então o bloco é daqui.
+        queue_config {
+            retry_on_http_429 = true
+            max_backoff       = "30s"
+        }
+    }
+    // WAL de 1 h: uma queda de rede de minutos não pode virar buraco nos
+    // gráficos logo depois de um incidente, e o disco da VPS é pequeno.
+    wal {
+        truncate_frequency = "1h"
+        min_keepalive_time  = "5m"
+        max_keepalive_time  = "1h"
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 2) Logs: borda (Nginx) e aplicação (Django/PM2)
+// ---------------------------------------------------------------------------
+// `stage.json` NÃO cria label: os campos extraídos (request_id, status, uri)
+// ficam na linha e viram pesquisáveis no LogQL, sem estourar cardinalidade
+// do índice. Só o que é de baixa cardinalidade vira label.
+//
+// O `uri` e o `request_id` são justamente os campos que NÃO podem virar
+// label: `uri` é controlado pelo cliente e `request_id` tem cardinalidade
+// igual ao número de requisições. Ambos são extraídos para a LINHA, nunca
+// para o rótulo.
+loki.source.file "edge" {
+    targets = [
+        {
+            __path__   = sys.env("ALLOY_EDGE_LOG_GLOB"),
+            componente = "portal-edge",
+        },
+    ]
+    file_match {
+        enabled = true
+        // Só o log corrente: o logrotate mantém `.1`/`.gz`, e re-tailar um
+        // arquivo já rotacionado duplica linha no índice.
+        ignore_older_than = "6h"
+        sync_period       = "30s"
+    }
+    forward_to = [loki.process.edge.receiver]
+}
+
+loki.process "edge" {
+    forward_to = [loki.write.grafana.receiver]
+    stage.json {
+        expressions = {
+            request_id = "request_id",
+            status     = "status",
+            uri        = "uri",
+            method     = "method",
+        }
+    }
+    // Nível: o log de acesso não tem `levelname`; 5xx é o que o operador
+    // filtra primeiro num incidente de disponibilidade. O status é string no
+    // log de borda (todos os valores do `log_format` são quoted, para o JSON
+    // nunca quebrar em resposta sem upstream), daí a comparação como texto.
+    stage.match {
+        selector = "{componente=\"portal-edge\"} | json | status >= \"500\" | status < \"600\""
+        stage.static_labels {
+            values = { nivel = "error" }
+        }
+    }
+    stage.static_labels {
+        values = {
+            ambiente = sys.env("ALLOY_AMBIENTE"),
+            servico  = "portal-edge",
+            tipo     = "acesso",
+        }
+    }
+}
+
+loki.source.file "app" {
+    targets = [
+        {
+            __path__   = sys.env("ALLOY_PM2_LOG_GLOB"),
+            componente = "portal-api",
+        },
+    ]
+    file_match {
+        enabled           = true
+        ignore_older_than = "6h"
+        sync_period       = "30s"
+    }
+    forward_to = [loki.process.app.receiver]
+}
+
+loki.process "app" {
+    forward_to = [loki.write.grafana.receiver]
+    stage.json {
+        // Campos do formatador JSON de log do Django. O `request_id` é injetado
+        // por `backend/config/middleware.py::RequestIdLogFilter`; o ambiente e
+        // o release NÃO são campos do log em `develop`, então não são
+        // extraídos aqui — `ambiente` vem do static label abaixo, e release
+        // é informação de deploy, não de linha de log.
+        expressions = {
+            request_id = "request_id",
+            nivel      = "levelname",
+        }
+    }
+    stage.static_labels {
+        values = {
+            ambiente = sys.env("ALLOY_AMBIENTE"),
+            servico  = "portal-api",
+            tipo     = "aplicacao",
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 2b) Estado das filas — REUSO de `backend/config/filas_saude.py`
+// ---------------------------------------------------------------------------
+// POR QUE ISTO VAI PARA O LOKI E NÃO PARA O MIMIR
+// `develop` mede a saúde das filas e a publica como JSON em stdout, com três
+// estados e três códigos de saída (`backend/config/management/commands/
+// saude_filas.py:10-19`): 0 `ok`, 1 `degradado`, 3 `desconhecido`. Não há
+// `portal_celery_queue_depth`, não há `portal_celery_tasks_total` e não há
+// histograma de duração de task em lugar nenhum do backend de `develop`.
+//
+// A alternativa seria inventar um exportador Prometheus novo, que é
+// provisionamento (e `infra/filas/PROVISIONAMENTO.md:110` já registra isso
+// como tal). O que este coletor faz é o que dá: ler o JSON que `develop` já
+// produz e indexá-lo no Loki, para que o painel de filas tenha uma fonte de
+// verdade que é a do próprio backend — e NÃO um segundo mecanismo de estado
+// de fila.
+//
+// O PRODUTOR deste arquivo é `infra/filas/pingar-filas.sh`, que existe e é
+// testado (ver infra/observability/pingers/README.md). Ele substitui a linha
+// de cron de 4 linhas que o `infra/filas/PROVISIONAMENTO.md` §2.3 propunha, e
+// a troca não é cosmética: o wrapper também dá o heartbeat ao cron monitor do
+// Better Stack e ROTACIONA o arquivo para que ele não cresça sem limite.
+//   3 * * * * /home/apps/portal-<env>/infra/filas/pingar-filas.sh \
+//       >> /var/log/portal/filas-pinger.log 2>&1
+//
+// Sem ele o arquivo não existe e o `verificar-env.sh` reprova — o que é o
+// comportamento certo: é melhor o instalante ver "falta o arquivo" do que ver
+// um painel de filas vazio e ler "nenhuma fila acumulada".
+//
+// NOTA DE ROTACAO: o wrapper renomeia o arquivo para `<arquivo>.1` e cria um
+// novo quando atinge o teto de linhas. O `.1` anterior é descartado. Isso é
+// o comportamento de rotação de log, e é por isso que a janela de 24 h do
+// `ignore_older_than` abaixo é maior que a cobertura do teto: o que sai na
+// rotação já estava fora da janela de leitura.
+loki.source.file "filas" {
+    targets = [
+        {
+            __path__   = sys.env("ALLOY_FILAS_JSON_PATH"),
+            componente = "portal-filas",
+        },
+    ]
+    file_match {
+        enabled           = true
+        ignore_older_than = "24h"
+        sync_period       = "30s"
+    }
+    forward_to = [loki.process.filas.receiver]
+}
+
+loki.process "filas" {
+    forward_to = [loki.write.grafana.receiver]
+    stage.json {
+        expressions = {
+            estado          = "estado",
+            verificado      = "verificado",
+            fila            = "fila",
+            modo_execucao   = "modo_execucao",
+            profundidade    = "profundidade",
+            idade_tarefa    = "idade_da_mais_antiga_s",
+            idade_beat      = "idade_s",
+            estado_ciclo    = "estado_ciclo",
+            breadth_beat    = "beat_expirado",
+        }
+    }
+    // Só `estado` vira label, e são TRÊS valores por contrato
+    // (`filas_saude.ESTADO_OK|DEGRADADO|DESCONHECIDO`). Todo o resto é linha.
+    // A cardinalidade do índice fica em 3 por ambiente, que é o que importa.
+    stage.static_labels {
+        values = {
+            ambiente = sys.env("ALLOY_AMBIENTE"),
+            servico  = "portal-filas",
+            tipo     = "saude",
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 3) Journal do systemd (celery worker/beat, nginx)
+// ---------------------------------------------------------------------------
+// Allowlist por unit, com regex ancorada em `loki.relabel`. Deliberadamente
+// NÃO usamos `matches` do `loki.source.journal`: `matches` vazio significa
+// "todo o journal" (a opção viraria um coletor de tudo, com custo e ruído).
+// Com a allowlist, valor ausente/vazio faz a regex não casar com nada e o
+// resultado é "não coleta" — que é o comportamento seguro. E o
+// `verificar-env.sh` exige a variável de qualquer forma.
+//
+// NOTA DE TOPOLOGIA: em `develop` não existem as units
+// `celery-worker@<env>.service` / `celery-beat@<env>.service` — a escolha
+// systemd × PM2 ainda não foi feita (`infra/filas/PROVISIONAMENTO.md` §2.1).
+// O valor de `ALLOY_JOURNAL_UNITS` precisa bater com as units que o ambiente
+// realmente tiver; as do exemplo são do cenário systemd.
+loki.relabel "journal" {
+    forward_to = []
+    rule {
+        source_labels = ["__journal__systemd_unit"]
+        regex         = "^(" + sys.env("ALLOY_JOURNAL_UNITS") + ")$"
+        action        = "keep"
+    }
+}
+
+loki.source.journal "sistema" {
+    forward_to     = [loki.process.sistema.receiver]
+    relabel_rules  = loki.relabel.journal.rules
+    format_as_json = true
+    max_age        = "12h"
+    labels         = { componente = "systemd" }
+}
+
+loki.process "sistema" {
+    forward_to = [loki.write.grafana.receiver]
+    stage.json {
+        expressions = {
+            request_id = "request_id",
+            nivel      = "levelname",
+            unidade    = "_SYSTEMD_UNIT",
+        }
+    }
+    stage.static_labels {
+        values = {
+            ambiente = sys.env("ALLOY_AMBIENTE"),
+            tipo     = "sistema",
+        }
+    }
+}
+
+loki.write "grafana" {
+    endpoint {
+        url = sys.env("ALLOY_LOKI_WRITE_URL")
+        basic_auth {
+            username = sys.env("ALLOY_LOKI_USER")
+            password = sys.env("ALLOY_LOKI_TOKEN")
+        }
+    }
+}

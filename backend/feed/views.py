@@ -27,6 +27,14 @@ def _ttl_feed() -> int:
         return 45
 
 
+# Cutover do contrato local (run 20260924-1535-arquivar-ingestao): o
+# namespace versionado impede que payloads remotos legados em `feed:v1` sejam
+# lidos depois do arquivamento. A troca para `feed:v2` é suficiente; não é
+# preciso varrer Redis: as chaves antigas expiram pelo TTL e não participam
+# mais da resolução das chaves de listagem.
+CACHE_NAMESPACE_LISTAGENS = "feed:v2"
+
+
 def _chave_cache_listagem(request, prefixo: str) -> str:
     """
     Chave por querystring normalizada (ordenada) + usuário (pk ou "anon").
@@ -40,7 +48,7 @@ def _chave_cache_listagem(request, prefixo: str) -> str:
     params = sorted((k, v) for k, v in request.query_params.items())
     base = "&".join(f"{k}={v}" for k, v in params)
     usuario = getattr(request.user, "pk", None) or "anon"
-    return f"feed:v1:{prefixo}:u{usuario}:{base}"
+    return f"{CACHE_NAMESPACE_LISTAGENS}:{prefixo}:u{usuario}:{base}"
 
 
 class FeedPagination(PageNumberPagination):

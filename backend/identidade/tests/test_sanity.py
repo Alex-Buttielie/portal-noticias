@@ -19,7 +19,7 @@ User = get_user_model()
 pytestmark = pytest.mark.django_db
 
 
-def test_cadastro_cria_usuario_free_com_senha_hasheada():
+def test_cadastro_cria_usuario_free_com_senha_hasheada(canal_entregando):
     client = APIClient()
     resp = client.post(
         "/api/auth/cadastro/",
@@ -53,7 +53,7 @@ def test_cadastro_sem_aceite_termos_e_rejeitado():
     assert not User.objects.filter(email="semaceite@example.com").exists()
 
 
-def test_cadastro_envia_email_de_verificacao():
+def test_cadastro_envia_email_de_verificacao(canal_entregando):
     mail.outbox = []
     client = APIClient()
     resp = client.post(
@@ -196,19 +196,24 @@ def test_google_login_cria_usuario_novo_free_com_email_verificado():
 
     fake_sociallogin = SocialLogin(
         user=User(email="social@example.com", nome="Social Teste"),
-        account=SocialAccount(provider="google", uid="12345"),
+        account=SocialAccount(
+            provider="google", uid="12345", extra_data={"nonce": "nonce-de-teste"}
+        ),
         email_addresses=[EmailAddress(email="social@example.com", verified=True, primary=True)],
         provider=provider,
     )
+
+    client = APIClient()
+    nonce = client.post("/api/auth/google/iniciar/", {}, format="json").data["nonce"]
+    fake_sociallogin.account.extra_data = {"nonce": nonce}
 
     with patch(
         "allauth.socialaccount.providers.google.provider.GoogleProvider.verify_token",
         return_value=fake_sociallogin,
     ):
-        client = APIClient()
         resp = client.post(
             "/api/auth/google/",
-            {"id_token": "token-fake-de-teste", "aceite_termos": True},
+            {"id_token": "token-fake-de-teste", "aceite_termos": True, "nonce": nonce},
             format="json",
         )
 

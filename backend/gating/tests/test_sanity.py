@@ -40,11 +40,15 @@ def _usuario(papel="free", email=None):
     )
 
 
-def test_has_feature_true_para_premium_com_registro_verdadeiro():
+def test_has_feature_true_para_premium_com_registro_verdadeiro(fabrica_usuario_premium):
     FeatureLimit.objects.update_or_create(
         chave="personalizacao_avancada", plano="premium", defaults={"valor": "true"}
     )
-    usuario = _usuario("premium")
+    # P1-08: o Premium vem de uma assinatura REAL (`fabrica_usuario_premium`),
+    # não de `papel="premium"` escrito à mão — ver a nota do fixture. A
+    # versão anterior deste teste fixava como verdade a premissa de que o
+    # campo `papel` sozinho concede acesso, que é a brecha que o P1-08 fechou.
+    usuario = fabrica_usuario_premium(email="premium-real@example.com")
 
     assert has_feature(usuario, "personalizacao_avancada") is True
 
@@ -81,7 +85,7 @@ def test_admin_equivalente_a_premium():
     assert has_feature(usuario_admin, "personalizacao_avancada") is True
 
 
-def test_obter_limite_numerico_convencao_ilimitado():
+def test_obter_limite_numerico_convencao_ilimitado(fabrica_usuario_premium):
     FeatureLimit.objects.update_or_create(
         chave="alertas_personalizados_limite", plano="premium", defaults={"valor": "-1"}
     )
@@ -89,7 +93,7 @@ def test_obter_limite_numerico_convencao_ilimitado():
         chave="alertas_personalizados_limite", plano="free", defaults={"valor": "3"}
     )
 
-    assert obter_limite_numerico(_usuario("premium"), "alertas_personalizados_limite") == -1
+    assert obter_limite_numerico(fabrica_usuario_premium(email="limite-premium@example.com"), "alertas_personalizados_limite") == -1
     assert obter_limite_numerico(_usuario("free"), "alertas_personalizados_limite") == 3
 
 
@@ -106,11 +110,11 @@ def test_exigir_feature_levanta_excecao_quando_nao_disponivel():
         exigir_feature(usuario_free, "resumo_personalizado")
 
 
-def test_exigir_feature_nao_levanta_quando_disponivel():
+def test_exigir_feature_nao_levanta_quando_disponivel(fabrica_usuario_premium):
     FeatureLimit.objects.update_or_create(
         chave="resumo_personalizado", plano="premium", defaults={"valor": "true"}
     )
-    usuario_premium = _usuario("premium")
+    usuario_premium = fabrica_usuario_premium(email="resumo-pago@example.com")
 
     exigir_feature(usuario_premium, "resumo_personalizado")  # não deve lançar
 
@@ -160,10 +164,10 @@ def test_endpoint_meus_recursos_funciona_sem_autenticacao():
     assert chaves["publicidade"]["disponivel"] is True
 
 
-def test_endpoint_meus_recursos_para_usuario_premium():
+def test_endpoint_meus_recursos_para_usuario_premium(fabrica_usuario_premium):
     FeatureLimit.objects.update_or_create(chave="publicidade", plano="free", defaults={"valor": "true"})
     FeatureLimit.objects.update_or_create(chave="publicidade", plano="premium", defaults={"valor": "false"})
-    usuario_premium = _usuario("premium", email="premium-recursos@example.com")
+    usuario_premium = fabrica_usuario_premium(email="premium-recursos@example.com")
     client = APIClient()
     client.force_authenticate(user=usuario_premium)
 

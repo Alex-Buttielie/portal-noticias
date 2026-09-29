@@ -16,11 +16,55 @@ class SocialAccountAdapter(DefaultSocialAccountAdapter):
     e-mail do lado dele).
     """
 
+    def authenticate_by_email(self, sociallogin):
+        """
+        NUNCA autentica/vincula por e-mail sozinho — devolve sempre `None`.
+
+        O default do allauth (`DefaultSocialAccountAdapter.authenticate_by_email`)
+        procura um `User` local pelo e-mail do provedor e, se achar, faz
+        `SocialLogin.lookup()` já consider o login como "de usuário
+        existente" (`sociallogin.is_existing == True`). Isso带来 dois
+        problemas neste projeto, e por isso é desligado aqui:
+
+        1. **Auditoria.** O auto-vínculo acontece dentro da biblioteca, sem
+           passar por `GoogleLoginView`, logo sem o log de auditoria de
+           `identidade.oauth_google` e sem o motivo da decisão. Todo
+           vínculo por e-mail precisa ficar num único lugar, com rastro.
+        2. **Prova de posse em duas camadas.** A decisão de vincular uma
+           conta Google a uma conta local **já existente** é uma decisão de
+           segurança (é o caminho de sequestro de conta: quem controla um
+           e-mail controla a conta). Ela depende de duas coisas — o
+           provedor ter verificado o e-mail **e** a conta local já ter
+           confirmado o próprio e-mail. O default do allauth só olha a
+           primeira. Concentrar a decisão em `GoogleLoginView` deixa as
+           duas camadas explícitas e testáveis.
+
+        O efeito colateral é que `sociallogin.lookup()` só resolve por
+        `SocialAccount(uid)` — o login de retorno de quem já está
+        vinculado continua funcionando, e todo o resto cai no caminho
+        explícito da view (inclusive a associação de quem já tinha conta
+        por e-mail/senha).
+        """
+        return None
+
     def populate_user(self, request, sociallogin, data):
         user = sociallogin.user
         email = data.get("email") or ""
-        nome = data.get("name") or " ".join(
-            part for part in [data.get("first_name"), data.get("last_name")] if part
+        # O claim `name` do Google ("Maria Silva") NÃO chega em `data`:
+        # `GoogleProvider.extract_common_fields` monta só `email`,
+        # `first_name` (`given_name`) e `last_name` (`family_name`) — e o
+        # id_token do Google não traz `family_name` na prática, então o
+        # fallback por concatenação abaixo cortava o sobrenome e o usuário
+        # ficava com "Maria" em vez de "Maria Silva". O payload verificado
+        # está inteiro em `sociallogin.account.extra_data`, então é de lá
+        # que o nome completo vem.
+        extra_data = getattr(sociallogin.account, "extra_data", None) or {}
+        nome = (
+            data.get("name")
+            or extra_data.get("name")
+            or " ".join(
+                part for part in [data.get("first_name"), data.get("last_name")] if part
+            )
         )
         user.email = email
         user.nome = nome or user.nome
