@@ -332,131 +332,60 @@ jobs:
             python manage.py check
             python manage.py migrate
             python manage.py collectstatic --noinput
-            # ---- selo pós-`.env` (gate usuarios_teste + SUF do gate) ---------
-            # Por que este bloco existe: o `set -a; . ./.env` acima atribui ao
-            # shell QUALQUER chave que exista no `backend/.env` da VPS — arquivo
-            # `chmod 600`, do usuário de deploy, criado uma única vez e NUNCA
-            # sobrescrito (é o caminho canônico de "ajustar algo por ambiente"
-            # neste projeto). Como esse source roda DEPOIS da validação das
-            # da validação acima e ANTES do gate ler o valor, uma linha
-            # `USUARIOS_TESTE=true` nesse arquivo ligaria o gate em PROD — sem
-            # alteração de repositório, sem diff, sem aviso. Isso é literalmente
-            # o Não-objetivo do contrato ("não criar usuário de teste em PROD,
-            # nem com flag, nem por variável de ambiente, nem por padrão").
-            #
-            # Trocar o nome da variável NÃO resolve: o `.env` é arbitrário
-            # quanto a nomes de chave, e `set -a` exporta todas. O que sobrevive
-            # a isso é a ATRIBUIÇÃO LITERAL do input do workflow feita DEPOIS do
-            # source — o `.env` já falou, e o valor do input volta por cima.
-            #
-            # O `case` é repetido de propósito, e não é redundância: o valor
-            # revalidado tem que ser EXATAMENTE o que o gate vai ler (critério
-            # 10), e o `exit 1` dele continua abortando o job — a validação
-            # inicial (L294) é a que falha cedo, antes de qualquer operação.
-            #
-            # VALIDADE, o que este bloco garante e o que NÃO garante (Finding
-            # R3, e a afirmação anterior aqui era falsa):
-            #   - `USUARIOS_TESTE` (o que LIGA o gate): vem do input do workflow
-            #     e de mais nada, para qualquer conteúdo do `.env`.  ✔
-            #   - `SUF` (o domínio dos e-mails das contas de teste): também vem
-            #     do input do workflow, pelo mesmo motivo. Sem esta segunda
-            #     atribuição, um `SUF=prod` no `.env` de DEV/HOMOLOG fazia o
-            #     gate criar `teste-admin@prod.portal-noticias.com.br` — os
-            #     MESMOS endereços de PROD. O `SUF` de L252 é reatribuído pelo
-            #     MESMO valor do input, então a atribuição é idempotente para
-            #     quem escreve o arquivo à mão e não muda nada em ambiente
-            #     íntegro.
-            #   - `DJANGO_EMAIL_BACKEND` (o bloco de log do fim da função):
-            #     continua vindo do `.env`, e é DE PROPÓSITO — o log precisa
-            #     dizer qual backend o gunicorn vai usar, que é o valor
-            #     carregado do `.env`. Ler a verdade do ambiente aqui é o que
-            #     faz o aviso sobre o e-mail não chegar ser honesto.
+            # ---- selo pos-.env: o input do workflow decide o gate ----
+            # O set -a e o source do .env abaixo atribuem ao shell qualquer
+            # chave que exista no backend/.env da VPS: arquivo do usuario de
+            # deploy, criado uma vez e nunca sobrescrito. Como esse source roda
+            # DEPOIS da validacao do input e ANTES do gate ler o valor, uma
+            # linha USUARIOS_TESTE=true nesse arquivo ligaria o gate em PROD,
+            # sem alteracao de repositorio e sem aviso. Trocar o nome da
+            # variavel nao resolve: o .env e arbitrario quanto a nomes de chave.
+            # O que sobrevive e a atribuicao literal do input, feita aqui.
             USUARIOS_TESTE="${{ inputs.usuarios_teste }}"
             case "$USUARIOS_TESTE" in
               true|false) ;;
-              *) echo "ERRO: usuarios_teste deve ser true ou false (revalidado após carregar $APP_DIR/backend/.env)"; exit 1 ;;
+              *) echo "ERRO: usuarios_teste deve ser true ou false (revalidado apos carregar $APP_DIR/backend/.env)"; exit 1 ;;
             esac
             SUF="${{ inputs.pm_suffix }}"
-            if [ "${DJANGO_DB_PASSWORD:-troque-aqui}" = "troque-aqui" ]; then echo "ERRO: preencha DJANGO_DB_PASSWORD em $APP_DIR/backend/.env (Postgres da VPS — ver CI-CD.md)"; exit 1; fi
-            python manage.py check
-            python manage.py migrate
-            python manage.py collectstatic --noinput
-            # ---- usuários de teste (gate usuarios_teste) --------------------
-            # Fica aqui, logo depois do `collectstatic` e ainda dentro de
-            # `cd "$APP_DIR/backend"` com a venv ativa, porque é o mesmo
-            # requisito do resto do bloco: o código novo já está no disco e as
-            # migrations já rodaram, então a conta já pode ser criada — e antes
-            # do PM2, para que o portal no ar já encontre o banco pronto.
-            #
-            # POR QUE `--sem-senha` E NÃO UMA SENHA CONHECIDA: a conta de teste
-            # do localhost serve porque a senha está impressa no terminal de
-            # quem subiu. Em DEV/HOMOLOG o mesmo e-mail ficaria exposto no log
-            # de todo push. Com `--sem-senha` a senha não existe em lugar
-            # nenhum — nem no argv, nem no ambiente, nem em arquivo, nem no
-            # banco — e quem entra é a pessoa que testa, definindo a senha dela
-            # pelo /recuperar-senha. O comando é idempotente: um redeploy NÃO
-            # apaga a senha que já foi definida (ver `criar_usuario_carga`).
+            # ---- usuarios de teste: uma conta por perfil, sem senha ----
+            # A conta nasce sem senha utilizavel: a senha nao existe em log,
+            # argv, ambiente, arquivo ou banco. Quem entra e a pessoa que esta
+            # testando, pelo fluxo de recuperacao de senha que o produto ja tem
+            # (/recuperar-senha e depois /trocar-senha no primeiro login).
+            # O comando e idempotente: um redeploy NAO apaga a senha que
+            # alguem ja definiu. Fica depois do collectstatic e antes do PM2,
+            # com o codigo novo no disco e as migrations ja rodadas.
             provisionar_usuarios_teste() {
               local papel email extra okados=0
               if [ "$USUARIOS_TESTE" != "true" ]; then
-                echo "Usuários de teste: usuarios_teste=false; nenhuma conta criada"
+                echo "Usuarios de teste: usuarios_teste=false; nenhuma conta criada"
                 return 0
               fi
               for papel in free premium admin; do
                 email="teste-$papel@$SUF.portal-noticias.com.br"
                 extra=""
                 if [ "$papel" = "admin" ]; then
-                  # SÓ o admin vira staff: três superusers dariam acesso ao
-                  # /admin e à Central por um e-mail que o próprio log do run
-                  # imprime. Os outros dois perfis nascem como users comuns.
                   extra="--superuser"
                 fi
-                # SEM `--password` e SEM PROD_SEED_PASSWORD: a senha da conta de
-                # teste não existe no processo. `$extra` vai sem aspas de
-                # propósito — é uma lista de zero ou um argumento.
-                #
-                # A falha de UM perfil NÃO é a falha do outro: o aviso sai por
-                # perfil e o laço continua, para o log dizer exatamente quais
-                # contas faltaram em vez de esconder as duas atrás da primeira.
                 if python manage.py criar_usuario_carga --email "$email" --sem-senha --papel "$papel" $extra; then
                   okados=$((okados + 1))
-                  echo "Usuários de teste: $email pronto (papel=$papel)"
+                  echo "Usuarios de teste: $email pronto (papel=$papel)"
                 else
-                  echo "AVISO: falha ao criar/atualizar $email (papel=$papel); o deploy do código continua"
+                  echo "AVISO: falha ao criar/atualizar $email (papel=$papel); o deploy do codigo continua"
                 fi
               done
-              echo "Usuários de teste: $okados de 3 contas prontas. Entrada: /recuperar-senha com o e-mail acima — a senha é definida por quem acessa, não pelo deploy."
-              # A ENTREGA do e-mail de recuperação é do AMBIENTE, não deste
-              # gate. O template de `backend/.env` deste deploy (L547) não
-              # escreve `DJANGO_EMAIL_BACKEND`, e o default do Django é o
-              # console backend (config/settings.py:476). Dizer só
-              # "/recuperar-senha" seria mentir para quem está testando: a
-              # requisição responde 200 e nenhum e-mail chega em lugar nenhum.
-              # Este bloco diz a verdade nos dois casos — e avisa que o
-              # uid/token do e-mail é CREDENCIAL utilizável da conta (o admin
-              # é superuser), que é por isso que ele não deve ser tratado como
-              # log comum.
+              echo "Usuarios de teste: $okados de 3 contas prontas. Entrada: /recuperar-senha com o e-mail acima; a senha e definida por quem acessa, nao pelo deploy."
               case "${DJANGO_EMAIL_BACKEND:-django.core.mail.backends.console.EmailBackend}" in
                 *console*)
-                  echo "  AVISO: DJANGO_EMAIL_BACKEND ausente ou console em backend/.env — o link de /recuperar-senha NÃO chega em nenhum inbox. O e-mail (com uid/token = credencial da conta) sai no stdout do gunicorn: pm2 logs portal-api-$SUF --lines 200 --nostream" ;;
+                  echo "  AVISO: DJANGO_EMAIL_BACKEND ausente ou console em backend/.env. O link de /recuperar-senha NAO chega em nenhum inbox: o e-mail (com uid/token, que e credencial da conta) sai no stdout do gunicorn. Leia com: pm2 logs portal-api-$SUF --lines 200 --nostream" ;;
                 *)
-                  echo "  Entrega do e-mail de recuperação: DJANGO_EMAIL_BACKEND=$DJANGO_EMAIL_BACKEND" ;;
+                  echo "  Entrega do e-mail de recuperacao: DJANGO_EMAIL_BACKEND=$DJANGO_EMAIL_BACKEND" ;;
               esac
-              # `return 1` abaixo é o que dá sentido ao `if !` da chamada: o
-              # aviso com a receita manual SAI quando alguma das 3 contas não
-              # ficou. A política continua a mesma do Celery — quem trata o erro
-              # é o `if !`, nunca o `set -e`, então o deploy do código não cai.
               if [ "$okados" -eq 3 ]; then return 0; fi
               return 1
             }
-            # Falha aqui NUNCA derruba o deploy (mesma política do Celery): o
-            # código novo já está no ar, e o que falta é um atalho de acesso
-            # para quem está testando. Um deploy derrubado por causa disso
-            # seria pior do que ambiente sem conta de teste. O `if !` é o que
-            # garante isso: a função sinaliza falta de contas com `return 1` e
-            # quem trata é este ramo, nunca o `set -e`.
             if ! provisionar_usuarios_teste; then
-              echo "AVISO: provisionamento dos usuários de teste terminou com erro; o deploy do código está no ar. Crie as contas à mão com \`python manage.py criar_usuario_carga --email teste-<papel>@$SUF.portal-noticias.com.br --sem-senha --papel <papel>\`"
+              echo "AVISO: provisionamento dos usuarios de teste terminou com erro; o deploy do codigo esta no ar. Crie as contas a mao com: python manage.py criar_usuario_carga --email teste-<papel>@$SUF.portal-noticias.com.br --sem-senha --papel <papel>"
             fi
             # PM2 faz o restart no próprio processo: não há delete seguido de
             # start, portanto uma interrupção nessa janela não deixa os dois

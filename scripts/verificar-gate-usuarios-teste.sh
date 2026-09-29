@@ -351,7 +351,7 @@ cenario_exploit() {
     return 1
   fi
   ok "PROD + .env com USUARIOS_TESTE=true (e 5 nomes equivalentes): 0 invocações — o input do workflow é o único que decide"
-  if ! grep -q 'Usuários de teste: usuarios_teste=false' "$OUT"; then
+  if ! grep -q 'Usuarios de teste: usuarios_teste=false' "$OUT"; then
     reprova "PROD: o log não registrou o gate desligado"
     return 1
   fi
@@ -450,7 +450,7 @@ grep -q 'AVISO: falha ao criar/atualizar teste-admin@homolog.portal-noticias.com
 grep -q '2 de 3 contas prontas' "$OUT" \
   && ok "  o resumo diz 2 de 3" \
   || reprova "  o resumo não diz 2 de 3"
-grep -q 'Crie as contas à mão' "$OUT" \
+grep -q 'Crie as contas a mao' "$OUT" \
   && ok "  a receita manual saiu (o if-not da chamada está vivo)" \
   || reprova "  a receita manual NÃO saiu — o ramo da chamada é código morto de novo"
 
@@ -458,17 +458,17 @@ grep -q 'Crie as contas à mão' "$OUT" \
 # CENÁRIO 7 — o log diz a verdade sobre a entrega do e-mail (Finding 2)
 # ===========================================================================
 montar_e_rodar email-console dev true "DJANGO_EMAIL_BACKEND=django.core.mail.backends.console.EmailBackend"
-if grep -q 'NÃO chega em nenhum inbox' "$OUT" && grep -q "pm2 logs portal-api-dev" "$OUT"; then
+if grep -q 'NAO chega em nenhum inbox' "$OUT" && grep -q "pm2 logs portal-api-dev" "$OUT"; then
   ok "console backend: o log avisa que o e-mail não chega e diz onde ele sai (pm2 logs portal-api-dev)"
 else
   reprova "console backend: o log continua afirmando que /recuperar-senha está pronto"
 fi
-grep -q 'uid/token = credencial' "$OUT" \
+grep -q 'uid/token, que e credencial' "$OUT" \
   && ok "  o log avisa que o uid/token do e-mail é credencial" \
   || reprova "  o log não avisa sobre o token no log da VPS"
 
 montar_e_rodar email-real dev true "DJANGO_EMAIL_BACKEND=config.email_resend.ResendEmailBackend"
-if grep -q 'Entrega do e-mail de recuperação: DJANGO_EMAIL_BACKEND=config.email_resend.ResendEmailBackend' "$OUT"; then
+if grep -q 'Entrega do e-mail de recuperacao: DJANGO_EMAIL_BACKEND=config.email_resend.ResendEmailBackend' "$OUT"; then
   ok "backend real: o log diz qual backend está em uso e não inventa o problema"
 else
   reprova "backend real: o log não informou o backend de e-mail em uso"
