@@ -134,6 +134,72 @@
      não desligou a instância e não afirma que o banco Mongo ou seus volumes
      foram apagados**.
 
+## Decisões do Bloco C2 — deploy (2026-09-25, run `20260925-1020-observabilidade`)
+
+8. **Release atômica do TIER WEB, com o backend in-place** — o deploy prepara
+   `frontend/releases/<id>/`, faz smoke nela e só então alterna o symlink
+   `current`; a anterior fica em `previous` e é o retorno de um comando. O
+   backend **não** foi movido para release: `git reset --hard` + `migrate` no
+   lugar preservam `backend/.env` e `backend/media/` (untracked), reaproveitam
+   o `.venv` e não exigem mover as units systemd, os scripts de backup e a
+   árvore de mídia — centenas de MB por release numa VPS de 4 GB, sem ganho de
+   atomicidade. Symlink só promove o que não tem migration. **O que isto não
+   é:** blue-green nem zero downtime; continua havendo janela de restart, e o
+   ganho é reversibilidade. Marker `.deployed-sha`, `concurrency` sem
+   cancelamento, `strict_validate` e o caminho `git_mode: rollback` seguem
+   intactos.
+9. **A estratégia de build NÃO mudou: continua compilando na VPS** (heap 1536
+   MB, três stacks na mesma máquina). A §P1-5 apontava compilar no runner como
+   follow-up, mas a troca exigiria resolver a divergência de domínio
+   `.com` × `.com.br` (R-2, **resolvido em 2026-09-30**: o domínio de produção
+   é `portal-noticias.com`, e os valores efetivos nos três callers, no
+   `rollback.yml` e na documentação foram corrigidos) e o `NEXT_PUBLIC_*`
+   embutido no bundle; refazer esse problema agora seria trocar um ganho pequeno
+   por um risco grande. O que mudou foi **onde** o build vira release, não
+   **quem** compila.
+10. **O caminho novo de runtime tem escape hatch explícito** (`web_runtime`:
+    `standalone` | `npm`). Remover o caminho `npm` é a última etapa da mudança,
+    não uma parte dela: só depois de um deploy `standalone` validado num
+    ambiente real com probes verdes.
+11. **Retorno automático só no caminho "o processo não subiu"** — quando o PM2
+    não fica `online` em 3 tentativas, `current` volta para `previous`, o
+    processo sobe na anterior e o deploy **falha** mesmo assim, porque um exit
+    0 promoveria no marker um SHA cuja release não está no ar. O caminho "o
+    processo subiu mas o comportamento está ruim" **não** é automaticado: a
+    decisão ali é de julgamento (a release pode ter migration, e desfazer não é
+    automático), e o procedimento manual está em `infra/DEPLOY.md` §9.2.
+12. **Celery no systemd é fail-open no deploy** — as units são instaladas e
+    ativadas por ambiente, mas falha de Celery **não** derruba o deploy: web e
+    API já estão no ar e o worker parado é degradação visível em
+    `/health-detail`. Um deploy que caísse por causa do Celery seria pior que o
+    Celery parado. Nenhum processo gerenciado pelo PM2 foi tocado.
+13. **A senha do SSH continua lá; a chave é alternativa, não sucessora** — com
+    `VPS_SSH_KEY`/`VPS_HOST_FINGERPRINT` configurados, a action oferece a senha
+    primeiro e a chave depois (a ordem é do cliente SSH da action, não do
+    workflow). Remover `VPS_PASSWORD` é operação que depende de acesso real à
+    VPS e de um run verde autenticando só com a chave; o procedimento está em
+    `infra/DEPLOY.md` §9.5.
+14. **Source maps com fail-open, inclusive na falha de upload** — sem token o
+    passo nem roda (fork/clone local); com token, uma falha de upload não
+    reprova o build. Bloquear deploy por indisponibilidade do Sentry converteria
+    um problema de diagnóstico em indisponibilidade de deploy.
+15. **O gate de infra no CI é estrito COM pendência declarada** — em vez de
+    reprovar para sempre por um `runbook_url` com domínio reservado `.invalid`,
+    o validador ganhou um terceiro estado: pendência declarada
+    (`scripts/observability/pendencias-ci.txt`) é visível e não reprova;
+    pendência **não** declarada reprova; chave declarada que não ocorre mais
+    **falha** (lista envelhecida passaria a esconder pendência nova). Gate
+    vermelho permanente acaba ignorado, que é pior que a pendência.
+16. **`R-1` continua aberto; `R-2` foi resolvido em 2026-09-30.** O script
+    de proveniência (`scripts/release/verificar-proveniencia.sh`) continua fora
+    de qualquer workflow (risco aceito, aberto, **não** coberto pelo gate, por
+    decisão da run de go-live, com assinatura exigida no go/no-go) — **sem
+    mudança de status**. A divergência de domínio, ao contrário, foi **decidida
+    e corrigida**: produção é `portal-noticias.com`, com DEV e HOMOLOG como
+    subdomínios do mesmo domínio. O que resta não é decisão: é **DNS**. Sem
+    registro A para a VPS, o `validate` falha no probe em `https://$HOST/…`
+    assim que `tls_enabled` virar `true`.
+
 ## Registro de conclusões
 
 - 2026-09-25 — Cache de cliente com TanStack Query entregue (P1-6): os 22

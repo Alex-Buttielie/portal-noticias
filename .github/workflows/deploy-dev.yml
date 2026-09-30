@@ -21,7 +21,7 @@ jobs:
       pm_suffix: dev
       web_port: "3101"
       api_port: "5101"
-      host: dev.portal-noticias.com.br
+      host: dev.portal-noticias.com
       # TLS só é ativado depois da emissão do certificado neste ambiente.
       tls_enabled: false
       db_name: brd_portal_dev

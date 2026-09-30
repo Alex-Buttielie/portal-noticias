@@ -35,11 +35,11 @@ jobs:
       pm_suffix: prod
       web_port: "3103"
       api_port: "5103"
-      host: portal-noticias.com.br
+      host: portal-noticias.com
       # Manter false até o certbot emitir, o nginx -t passar e o reload HTTPS
       # ser verificado. Depois, altere para true e siga o runbook de TLS.
       tls_enabled: false
-      allowed_hosts_extra: ",www.portal-noticias.com.br"
+      allowed_hosts_extra: ",www.portal-noticias.com"
       db_name: brd_portal_prod
       db_user: portal_prod
       strict_validate: true

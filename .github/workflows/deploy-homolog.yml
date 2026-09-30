@@ -21,7 +21,7 @@ jobs:
       pm_suffix: homolog
       web_port: "3102"
       api_port: "5102"
-      host: homolog.portal-noticias.com.br
+      host: homolog.portal-noticias.com
       # TLS só é ativado depois da emissão do certificado neste ambiente.
       tls_enabled: false
       db_name: brd_portal_homolog

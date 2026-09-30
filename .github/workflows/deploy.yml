@@ -92,7 +92,7 @@ on:
         # DJANGO_SECURE_SSL_REDIRECT=true, DJANGO_SESSION_COOKIE_SECURE=true
         # e DJANGO_CSRF_COOKIE_SECURE=true.
       allowed_hosts_extra:
-        description: "Sufixo extra de hosts, ex.: ',www.portal-noticias.com.br' (só PROD)"
+        description: "Sufixo extra de hosts, ex.: ',www.portal-noticias.com' (só PROD)"
         required: false
         type: string
         default: ""

@@ -75,7 +75,7 @@ jobs:
               PM_SUFFIX=dev
               WEB_PORT=3101
               API_PORT=5101
-              HOST=dev.portal-noticias.com.br
+              HOST=dev.portal-noticias.com
               DB_NAME=brd_portal_dev
               DB_USER=portal_dev
               ALLOWED_HOSTS_EXTRA=""
@@ -87,7 +87,7 @@ jobs:
               PM_SUFFIX=homolog
               WEB_PORT=3102
               API_PORT=5102
-              HOST=homolog.portal-noticias.com.br
+              HOST=homolog.portal-noticias.com
               DB_NAME=brd_portal_homolog
               DB_USER=portal_homolog
               ALLOWED_HOSTS_EXTRA=""
@@ -99,10 +99,10 @@ jobs:
               PM_SUFFIX=prod
               WEB_PORT=3103
               API_PORT=5103
-              HOST=portal-noticias.com.br
+              HOST=portal-noticias.com
               DB_NAME=brd_portal_prod
               DB_USER=portal_prod
-              ALLOWED_HOSTS_EXTRA=",www.portal-noticias.com.br"
+              ALLOWED_HOSTS_EXTRA=",www.portal-noticias.com"
               ;;
             *)
               echo "ERRO: ambiente de rollback inválido: $ENVIRONMENT" >&2
