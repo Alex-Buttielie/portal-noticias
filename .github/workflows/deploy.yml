@@ -106,6 +106,20 @@ on:
         required: true
       VPS_PORT:
         required: true
+      # Chave privada de deploy (formato PEM, tipo OpenSSH). O par publico
+      # correspondente tem de estar em /root/.ssh/authorized_keys da VPS
+      # ANTES de este secret existir, ou o deploy falha na conexao.
+      #
+      # OBRIGATORIA e SEM fallback para a senha: se faltar, o deploy QUEBRA.
+      # E de proposito. Um fallback silencioso seria a porta que estamos
+      # fechando voltando sem ninguem perceber — e o ataque de forca bruta
+      # contra o root esta acontecendo hoje (47 tentativas em 24 h de um
+      # unico IP, 1813 falhas acumuladas).
+      #
+      # `VPS_PASSWORD` continua declarado porque outros usos podem depender
+      # dele, mas NAO e mais o mecanismo de autenticacao do SSH.
+      VPS_SSH_KEY:
+        required: true
       # Chave da API do Resend (https://resend.com/api-keys), usada para
       # gravar RESEND_API_KEY no backend/.env do PRIMEIRO deploy e habilitar
       # o canal de e-mail real (P1-04). NÃO é required de propósito: os
@@ -151,7 +165,10 @@ jobs:
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
-          password: ${{ secrets.VPS_PASSWORD }}
+          # Autenticacao por CHAVE. A senha nao e usada no SSH: e o que
+          # permite desligar `passwordauthentication` sem quebrar o pipeline.
+          # Sem fallback — ver o comentario de VPS_SSH_KEY acima.
+          key: ${{ secrets.VPS_SSH_KEY }}
           port: ${{ secrets.VPS_PORT }}
           # Exporta a variável no shell da VPS em vez de interpolar o valor
           # no texto do script: a chave não aparece no comando enviado por
@@ -625,7 +642,10 @@ jobs:
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
-          password: ${{ secrets.VPS_PASSWORD }}
+          # Autenticacao por CHAVE. A senha nao e usada no SSH: e o que
+          # permite desligar `passwordauthentication` sem quebrar o pipeline.
+          # Sem fallback — ver o comentario de VPS_SSH_KEY acima.
+          key: ${{ secrets.VPS_SSH_KEY }}
           port: ${{ secrets.VPS_PORT }}
           script: |
             set -e
