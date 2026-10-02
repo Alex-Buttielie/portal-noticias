@@ -271,7 +271,21 @@ montar_e_rodar() {
   {
     # Linhas que o próprio deploy exige e valida (`tls_enabled=false`).
     printf 'DJANGO_SECRET_KEY=harness\nDJANGO_DEBUG=false\n'
-    printf 'DJANGO_ALLOWED_HOSTS=harness\n'
+    # O `DJANGO_ALLOWED_HOSTS` do fixture tem de conter o domínio canônico do
+    # ambiente (`host=harness.local`, abaixo) e vir no formato lista separada
+    # por vírgula.
+    #
+    # Não é enfeite: o `deploy.yml` valida esse campo ANTES de qualquer
+    # npm/pip/migrate/restart e ABORTA (exit 1) quando o domínio canônico não
+    # está na lista — sem ele o vhost responde 400 em todas as URLs. Com o
+    # fixture valendo `harness`, o abort matava os 21 cenários do gate
+    # `usuarios_teste` antes de qualquer deles testar o que afirma, e a suíte
+    # ficava vermelha por um motivo sem relação com o que ela prova.
+    #
+    # Nos três ambientes reais o `.env` tem o domínio canônico, então quem
+    # estava infiel à produção era o fixture, não a validação. A lista tem mais
+    # de um elemento de propósito, para exercitar o formato.
+    printf 'DJANGO_ALLOWED_HOSTS=harness.local,harness\n'
     printf 'DJANGO_SECURE_SSL_REDIRECT=false\n'
     printf 'DJANGO_SESSION_COOKIE_SECURE=false\nDJANGO_CSRF_COOKIE_SECURE=false\n'
     printf 'DJANGO_DB_ENGINE=postgresql\nDJANGO_DB_NAME=brd\nDJANGO_DB_USER=postgres\n'
