@@ -36,10 +36,37 @@
  *                ou na query; 400 `{"detail": "Token inválido."}` quando não
  *                casa, o que torna o caminho de erro verificável.
  *
- * O caminho público NÃO envia `periodo`: esse campo só existe em
+ * 4. Confirmação → `POST /api/newsletter/confirmar/` (double opt-in)
+ *    - rota:     backend/newsletter/urls.py
+ *    - view:     `newsletter.views.ConfirmarView` — `AllowAny`, mesmo throttle,
+ *                e resposta 200 ÚNICA para token válido, inválido, expirado ou
+ *                já usado (é o que impede o endpoint de ser um oráculo de
+ *                "esta pessoa está inscrita?"). 400 só sem token nenhum.
+ *
+ * O CAMINHO PÚBLICO NÃO ENVIA `periodo`: esse campo só existe em
  * `newsletter/inscrever/` (backend/newsletter/models.py:28-32), então a
  * seleção de período só aparece para quem tem conta — nada é escolhido e
  * descartado em silêncio.
+ *
+ * OS TRÊS ESTADOS DA INSCRIÇÃO (o que mudou em 2026-10-02)
+ * ========================================================
+ * Antes do double opt-in, a inscrição era imediata e havia UM estado de
+ * sucesso. Agora há três, e esta é a parte do formulário que mais precisava de
+ * cuidado:
+ *
+ *   - **pendente** (`estado: "pendente"`) — o pedido foi registrado e um e-mail
+ *     de confirmação foi enviado. A pessoa NÃO recebe newsletter ainda, e a
+ *     mensagem precisa dizer isso, porque "Inscrição confirmada. Bom leitura!"
+ *     seria mentira: ela não está confirmada.
+ *   - **confirmado** (`estado: "confirmada"`) — só quando a pessoa reenvia o
+ *     formulário e o clique anterior já aconteceu.
+ *   - **recusado sem canal** (503) — o portal recusou e NADA foi gravado. A
+ *     mensagem vem do backend e diz o que falta.
+ *
+ * O texto exibido é o `detail` do backend em todos os três, pelo mesmo motivo
+ * que o caminho público já faz: quem sabe o que aconteceu é quem sabe o que
+ * aconteceu. Este arquivo NÃO traduz nem resume a resposta — ele mostra.
+ * A única decisão local é ESCOLHER A CLASSE CSS a partir do `estado`.
  */
 
 import { useEffect, useId, useRef, useState } from "react";import { Button } from "@/components/ui/button";
@@ -47,8 +74,22 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/lib/auth-context";
 import * as api from "@/lib/api";
+import { classeDoEstadoNewsletter } from "@/lib/estado-newsletter";
 
 const CATS = ["geral", "política", "economia", "tecnologia", "esportes", "cultura", "saúde", "mundo", "cidades"];
+
+/**
+ * O texto de sucesso que a pessoa lê quando o backend não manda nenhum.
+ *
+ * Ele existe para o caso em que `detail` vier ausente — e o texto é o de
+ * PENDENTE, não o de confirmada. A asimetria é deliberada: se o backend
+ * responder 2xx e a UI não souber o estado, "pedido registrado, confira o
+ * e-mail" continua sendo verdade (é o que o 2xx significa), enquanto
+ * "inscrição confirmada" pode não ser. Entre as duaslies um texto que erra
+ * para o lado de prometer demais, que é a direção perigosa.
+ */
+const SUCESSO_SEM_DETALHE =
+  "Pedido registrado. Se a sua conta ainda não tem a newsletter, enviamos um e-mail com o link de confirmação: nada da newsletter é enviado até você clicar nele.";
 
 function validarEmail(bruto: string): string | null {
   const email = bruto.trim();
@@ -56,6 +97,24 @@ function validarEmail(bruto: string): string | null {
   if (email.length > 254) return "E-mail muito longo.";
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return "Informe um e-mail válido.";
   return null;
+}
+
+/**
+ * A anotação que acompanha o estado pendente, e que some quando a inscrição
+ * está confirmada.
+ *
+ * Sem ela, uma pessoa que acabou de se inscrever vê "Pedido registrado" e
+ * fica esperando um e-mail que ela já não sabe se está chegando. Com ela, o
+ * formulário diz explicitamente qual é o próximo passo e o que acontece se
+ * ela não cumprir. É a diferença entre "informado" e "deixado no vácuo".
+ */
+function AvisoDeConfirmacaoPendente({ email }: { email: string }) {
+  return (
+    <p className="text-xs text-[var(--cor-texto-suave)]">
+      Enviamos o link de confirmação para <span className="font-medium text-[var(--cor-texto)]">{email}</span>.{" "}
+      A newsletter só começa a chegar depois do clique. Se o e-mail não chegar em alguns minutos, confira a pasta de spam.
+    </p>
+  );
 }
 
 export default function NewsletterForm() {
@@ -72,7 +131,32 @@ export default function NewsletterForm() {
   const [erroNome, setErroNome] = useState<string | null>(null);
   const [erroGeral, setErroGeral] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
+  /**
+   * O estado da inscrição, guardado SEPARADAMENTE da mensagem.
+   *
+   * A mensagem é o que a pessoa lê; o estado é o que a UI precisa para
+   * escolher a cor e para o botão virar "Reenviar confirmação". Guardar os
+   * dois juntos (só a mensagem) obrigaria a UI a fazer `includes` de texto
+   * português para descobrir o estado — e isso quebra no dia em que alguém
+   * mudar uma palavra do texto.
+   */
+  const [estado, setEstado] = useState<api.EstadoInscricaoNewsletter | null>(null);
   const [enviando, setEnviando] = useState(false);
+  /**
+   * O e-mail para quem a inscrição foi feita, guardado para o aviso de
+   * pendência.
+   *
+   * Antes o campo era limpo depois de qualquer 2xx. Com o double opt-in isso
+   * seria errado: o campo limpo some com o endereço, e o aviso "confira o
+   * e-mail que enviamos para X" ficaria sem X. A pessoa não teria como
+   * conferir se o e-mail chegou na caixa certa — que é a primeira coisa que se
+   * pergunta quando o e-mail não chega.
+   *
+   * O campo de texto, em si, é limpo: repetir um endereço na tela depois de
+   * inscribed é ruído — o que fica é o aviso, com o endereço que a pessoa
+   * digitou.
+   */
+  const [emailDaInscricao, setEmailDaInscricao] = useState<string | null>(null);
 
   const emVoo = useRef(false);
   const refEmail = useRef<HTMLInputElement>(null);
@@ -100,6 +184,8 @@ export default function NewsletterForm() {
     if (emVoo.current) return; // duplo clique → uma requisição só
 
     setOk(null);
+    setEstado(null);
+    setEmailDaInscricao(null);
     setErroGeral(null);
     setErroEmail(null);
     setErroNome(null);
@@ -129,12 +215,20 @@ export default function NewsletterForm() {
     setEnviando(true);
     try {
       if (token) {
-        await api.inscreverNewsletter(token, {
+        const resposta = await api.inscreverNewsletter(token, {
           tipo: cats.length > 0 ? "categoria" : "padrao",
           categorias: cats,
           periodo,
         });
-        setOk("Inscrição confirmada. Bom leitura!");
+        // O `detail` do backend é o texto da pessoa, e o `estado` escolhe a
+        // cor. Ver a nota do cabeçalho sobre os três estados.
+        //
+        // "Bom leitura" só é dizer quando a pessoa está CONFIRMADA. A versão
+        // anterior deste arquivo dizia isso em TODO 2xx — o que, depois do
+        // double opt-in, seria uma afirmação falsa em toda inscrição nova.
+        setEstado(resposta.estado ?? (resposta.confirmada ? "confirmada" : "pendente"));
+        setOk(resposta.detail?.trim() || SUCESSO_SEM_DETALHE);
+        setEmailDaInscricao(email.trim());
       } else {
         const resposta = await api.inscreverListaEspera({
           nome: nomeLimpo,
@@ -145,6 +239,12 @@ export default function NewsletterForm() {
         // 201 "Cadastro ... realizado." ou 200 "Este e-mail já está na lista
         // de espera." — nos dois casos o backend confirmou, então a mensagem
         // mostrada é a dele.
+        //
+        // O caminho público NÃO tem double opt-in: a lista de espera não envia
+        // newsletter nenhuma, e a ninguém. `estado="confirmada"` aqui quer
+        // dizer "o cadastro foi registrado e não há nada mais a fazer" — que
+        // é o que é verdade, e é por isso que a cor é a de sucesso cheia.
+        setEstado("confirmada");
         setOk(
           resposta?.detail
             ? `${resposta.detail} Se você entrar com este e-mail, a newsletter é ativada na sua conta.`
@@ -156,6 +256,11 @@ export default function NewsletterForm() {
       setNome("");
       setCats([]);
     } catch (erro) {
+      // O 503 do portão cai aqui como `ApiError`, e a mensagem do backend
+      // (`DETALHE_SEM_CANAL`) diz o que falta E que nada foi gravado. Não há
+      // um ramo especial para 503 porque o tratamento genérico de `ApiError`
+      // já mostra exatamente a mensagem que o backend mandou — que é a única
+      // pessoa que sabe o que está faltando do lado do servidor.
       const mensagem =
         erro instanceof api.ApiError
           ? erro.message
@@ -291,15 +396,21 @@ export default function NewsletterForm() {
         </p>
       )}
       {ok && (
-        <p
+        <div
           ref={refSucesso}
           role="status"
           aria-live="polite"
           tabIndex={-1}
-          className="rounded-md border border-[var(--cor-sucesso)] bg-[var(--cor-sucesso-suave)] px-3 py-2 text-sm text-[var(--cor-sucesso)]"
+          className={`rounded-md border px-3 py-2 text-sm ${classeDoEstadoNewsletter(estado)}`}
         >
           {ok}
-        </p>
+          {/* O aviso do próximo passo só aparece enquanto a confirmação está
+              pendente. Quando está confirmada, "confirme no seu e-mail" seria
+              um pedido impossível. */}
+          {estado === "pendente" && emailDaInscricao && (
+            <AvisoDeConfirmacaoPendente email={emailDaInscricao} />
+          )}
+        </div>
       )}
 
       <Button
@@ -307,7 +418,14 @@ export default function NewsletterForm() {
         disabled={enviando}
         className="min-h-[44px] bg-[var(--cor-primaria)] text-[var(--cor-texto-invertido)]"
       >
-        {enviando ? "Enviando..." : "Quero receber"}
+        {enviando
+          ? "Enviando..."
+          : estado === "pendente"
+            // O rótulo muda porque a ação mudou: pressionar de novo não é
+            // "me inscrever" (ela já se inscreveu), é "reenviar o link" — que é
+            // a resposta certa para quem não achou o e-mail.
+            ? "Reenviar confirmação"
+            : "Quero receber"}
       </Button>
     </form>
   );

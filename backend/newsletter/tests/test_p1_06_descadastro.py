@@ -55,6 +55,7 @@ from rest_framework.test import APIClient
 from newsletter import services
 from newsletter.models import InscricaoNewsletter
 from newsletter.tokens import gerar_token_descadastro, hash_do_segredo, ler_hash_do_token
+from newsletter.tests.fabrica import inscricao_confirmada_para
 
 pytestmark = pytest.mark.django_db
 User = get_user_model()
@@ -75,7 +76,7 @@ def _consentido(email):
 
 
 def _inscricao(email="descadastro@example.com"):
-    return services.inscrever(_consentido(email), InscricaoNewsletter.TIPO_PADRAO)
+    return inscricao_confirmada_para(_consentido(email), InscricaoNewsletter.TIPO_PADRAO)
 
 
 def _postar(token, **extra):
@@ -285,7 +286,7 @@ def test_token_antigo_deixa_de_valer_apos_reinscricao():
     inscricao.refresh_from_db()
     assert inscricao.ativa is False
 
-    services.inscrever(usuario, InscricaoNewsletter.TIPO_PADRAO)
+    inscricao_confirmada_para(usuario, InscricaoNewsletter.TIPO_PADRAO)
 
     # A linha antiga continua sendo a prova da revogação, e a nova é a da nova
     # concessão. São duas linhas, de propósito.
