@@ -2,54 +2,262 @@
   EVIDENCIA DA MEDICAO A10 (D3) — gerada do HTML servido do build de
   producao, com backend proprio e ZERO consentimento dado.
 
-  Como ler: cada linha abaixo e uma tag do HTML que faz o browser
-  abrir uma conexao. `srcset` foi removido de proposito (sao candidatos,
-  nao requisicoes). O resto do HTML foi descartado: a medicao e feita
-  nas tags, e 250 kB de pagina nao adds nenhuma informacao.
+  O QUE MUDOU NESTA EVIDENCIA
+  ===========================
+  Antes: 42 conexoes a picsum.photos na home, e a pendencia estava aberta
+  como DECISAO DE PRODUTO (asset local x portao de consentimento).
 
-  CONEXOES A picsum.photos: 42
-  hosts de terceiro de NOTICIA (imagem_url do RSS): 1 -> exemplo-news.invalid
+  Agora: o placeholder e um SVG GERADO LOCALMENTE (`lib/placeholder.ts`) e
+  embutido no proprio HTML como `data:image/svg+xml`. Data URI nao abre
+  conexao — nao ha host, nao ha DNS, nao ha handshake. Logo a contagem de
+  conexoes para host de terceiro e ZERO, e a pendencia esta ENCERRADA.
+
+  MEDIDO com Chrome headless por CDP, contando `Network.requestWillBeSent`
+  (o que o browser EMITE, nao o que o HTML menciona) e rolando cada pagina
+  ate o fim — sem rolagem o browser nao busca as imagens com carregamento
+  preguisoso fora da viewport, e o numero sai MENOR do que a pagina pede,
+  que e o modo de medir errado:
+
+      pagina                antes -> depois
+      /                          61 -> 0 conexoes a picsum.photos
+      /categoria/politica         2 -> 0 conexoes a picsum.photos
+      /noticia/1                   2 -> 0 conexoes a picsum.photos
+
+  Como ler: cada linha abaixo e uma tag do HTML que faria o browser abrir
+  uma conexao. `srcset` foi removido de proposito (sao candidatos, nao
+  requisicoes) — e no estado novo nao ha srcset de imagem nenhum. O resto
+  do HTML foi descartado: a medicao e feita nas tags, e 250 kB de pagina nao
+  adds nenhuma informacao.
+
+  CONEXOES A HOST DE TERCEIRO DE IMAGEM: 0
+  Das imagens abaixo, (a) o placeholder local, em data URI, e (b) a foto que
+  o RSS traz do veiculo — host de CONTEUDO, que fica FORA do escopo desta
+  medicao (ver o fim de `frontend/lib/imagens.ts`).
+
+  NOTA DE LEITURA: as tags abaixo estao no arquivo DENTRO de um comentario
+  HTML depurpose. E por isso que as duas tags de exemplo `img` que aparecem
+  neste cabecalho vem escritas por extenso, e nao como tag de verdade.
 -->
 
-<link rel="preload" as="image" imageSrcSet="https://picsum.photos/seed/politica-10/400/225 400w, https://picsum.photos/seed/politica-10/640/360 640w, https://picsum.photos/seed/politica-10/800/450 800w" imageSizes="(max-width: 768px) 100vw, 60vw" referrerPolicy="no-referrer"/>
-<img src="https://picsum.photos/seed/politica-10/800/450" srcSet="https://picsum.photos/seed/politica-10/400/225 400w, https://picsum.photos/seed/politica-10/640/360 640w, https://picsum.photos/seed/politica-10/800/450 800w" sizes="(max-width: 768px) 100vw, 60vw" alt="Controlado 1 sem imagem" loading="eager" decoding="async" draggable="false" referrerPolicy="no-referrer" class="w-full object-cover motion-safe:transition motion-safe:duration-300 group-hover:motion-safe:scale-[1.02] aspect-[16/9] md:h-full md:min-h-[320px]"/>
-<img src="https://picsum.photos/seed/politica-1/800/450" srcSet="https://picsum.photos/seed/politica-1/400/225 400w, https://picsum.photos/seed/politica-1/640/360 640w, https://picsum.photos/seed/politica-1/800/450 800w" sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw" alt="Noticia de medicao 1 sem imagem" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer" class="w-full object-cover motion-safe:transition motion-safe:duration-300 group-hover:motion-safe:scale-[1.02] aspect-[16/9]"/>
-<img src="https://picsum.photos/seed/economia-2/800/450" srcSet="https://picsum.photos/seed/economia-2/400/225 400w, https://picsum.photos/seed/economia-2/640/360 640w, https://picsum.photos/seed/economia-2/800/450 800w" sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw" alt="Noticia de medicao 2 sem imagem" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer" class="w-full object-cover motion-safe:transition motion-safe:duration-300 group-hover:motion-safe:scale-[1.02] aspect-[16/9]"/>
-<img src="https://picsum.photos/seed/tecnologia-12/800/450" srcSet="https://picsum.photos/seed/tecnologia-12/400/225 400w, https://picsum.photos/seed/tecnologia-12/640/360 640w, https://picsum.photos/seed/tecnologia-12/800/450 800w" sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw" alt="Controlado 3 sem imagem" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer" class="w-full object-cover motion-safe:transition motion-safe:duration-300 group-hover:motion-safe:scale-[1.02] aspect-[16/9]"/>
-<img src="https://picsum.photos/seed/tecnologia-3/800/450" srcSet="https://picsum.photos/seed/tecnologia-3/400/225 400w, https://picsum.photos/seed/tecnologia-3/640/360 640w, https://picsum.photos/seed/tecnologia-3/800/450 800w" sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw" alt="Noticia de medicao 3 sem imagem" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer" class="w-full object-cover motion-safe:transition motion-safe:duration-300 group-hover:motion-safe:scale-[1.02] aspect-[16/9]"/>
-<img src="https://picsum.photos/seed/esportes-4/800/450" srcSet="https://picsum.photos/seed/esportes-4/400/225 400w, https://picsum.photos/seed/esportes-4/640/360 640w, https://picsum.photos/seed/esportes-4/800/450 800w" sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw" alt="Noticia de medicao 4 sem imagem" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer" class="w-full object-cover motion-safe:transition motion-safe:duration-300 group-hover:motion-safe:scale-[1.02] aspect-[16/9]"/>
-<img src="https://picsum.photos/seed/cultura-14/800/450" srcSet="https://picsum.photos/seed/cultura-14/400/225 400w, https://picsum.photos/seed/cultura-14/640/360 640w, https://picsum.photos/seed/cultura-14/800/450 800w" sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw" alt="Controlado 5 sem imagem" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer" class="w-full object-cover motion-safe:transition motion-safe:duration-300 group-hover:motion-safe:scale-[1.02] aspect-[16/9]"/>
-<img src="https://picsum.photos/seed/politica-10/800/450" srcSet="https://picsum.photos/seed/politica-10/400/225 400w, https://picsum.photos/seed/politica-10/640/360 640w, https://picsum.photos/seed/politica-10/800/450 800w" sizes="96px" alt="" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer" class="h-12 w-16 shrink-0 rounded-md border border-[var(--cor-borda)] object-cover"/>
-<img src="https://picsum.photos/seed/politica-1/800/450" srcSet="https://picsum.photos/seed/politica-1/400/225 400w, https://picsum.photos/seed/politica-1/640/360 640w, https://picsum.photos/seed/politica-1/800/450 800w" sizes="96px" alt="" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer" class="h-12 w-16 shrink-0 rounded-md border border-[var(--cor-borda)] object-cover"/>
-<img src="https://picsum.photos/seed/economia-2/800/450" srcSet="https://picsum.photos/seed/economia-2/400/225 400w, https://picsum.photos/seed/economia-2/640/360 640w, https://picsum.photos/seed/economia-2/800/450 800w" sizes="96px" alt="" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer" class="h-12 w-16 shrink-0 rounded-md border border-[var(--cor-borda)] object-cover"/>
-<img src="https://picsum.photos/seed/tecnologia-12/800/450" srcSet="https://picsum.photos/seed/tecnologia-12/400/225 400w, https://picsum.photos/seed/tecnologia-12/640/360 640w, https://picsum.photos/seed/tecnologia-12/800/450 800w" sizes="96px" alt="" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer" class="h-12 w-16 shrink-0 rounded-md border border-[var(--cor-borda)] object-cover"/>
-<img src="https://picsum.photos/seed/tecnologia-3/800/450" srcSet="https://picsum.photos/seed/tecnologia-3/400/225 400w, https://picsum.photos/seed/tecnologia-3/640/360 640w, https://picsum.photos/seed/tecnologia-3/800/450 800w" sizes="96px" alt="" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer" class="h-12 w-16 shrink-0 rounded-md border border-[var(--cor-borda)] object-cover"/>
-<img src="https://picsum.photos/seed/esportes-4/800/450" srcSet="https://picsum.photos/seed/esportes-4/400/225 400w, https://picsum.photos/seed/esportes-4/640/360 640w, https://picsum.photos/seed/esportes-4/800/450 800w" sizes="96px" alt="" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer" class="h-12 w-16 shrink-0 rounded-md border border-[var(--cor-borda)] object-cover"/>
-<img src="https://picsum.photos/seed/cultura-14/800/450" srcSet="https://picsum.photos/seed/cultura-14/400/225 400w, https://picsum.photos/seed/cultura-14/640/360 640w, https://picsum.photos/seed/cultura-14/800/450 800w" sizes="96px" alt="" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer" class="h-12 w-16 shrink-0 rounded-md border border-[var(--cor-borda)] object-cover"/>
-<img src="https://picsum.photos/seed/cultura-5/800/450" srcSet="https://picsum.photos/seed/cultura-5/400/225 400w, https://picsum.photos/seed/cultura-5/640/360 640w, https://picsum.photos/seed/cultura-5/800/450 800w" sizes="96px" alt="" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer" class="h-12 w-16 shrink-0 rounded-md border border-[var(--cor-borda)] object-cover"/>
-<img src="https://picsum.photos/seed/mundo-6/800/450" srcSet="https://picsum.photos/seed/mundo-6/400/225 400w, https://picsum.photos/seed/mundo-6/640/360 640w, https://picsum.photos/seed/mundo-6/800/450 800w" sizes="96px" alt="" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer" class="h-12 w-16 shrink-0 rounded-md border border-[var(--cor-borda)] object-cover"/>
-<img src="https://picsum.photos/seed/esportes-4/800/450" srcSet="https://picsum.photos/seed/esportes-4/400/225 400w, https://picsum.photos/seed/esportes-4/640/360 640w, https://picsum.photos/seed/esportes-4/800/450 800w" sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw" alt="Noticia de medicao 4 sem imagem" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer" class="w-full object-cover motion-safe:transition motion-safe:duration-300 group-hover:motion-safe:scale-[1.02] aspect-[16/9]"/>
-<img src="https://picsum.photos/seed/cultura-14/800/450" srcSet="https://picsum.photos/seed/cultura-14/400/225 400w, https://picsum.photos/seed/cultura-14/640/360 640w, https://picsum.photos/seed/cultura-14/800/450 800w" sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw" alt="Controlado 5 sem imagem" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer" class="w-full object-cover motion-safe:transition motion-safe:duration-300 group-hover:motion-safe:scale-[1.02] aspect-[16/9]"/>
-<img src="https://picsum.photos/seed/cultura-5/800/450" srcSet="https://picsum.photos/seed/cultura-5/400/225 400w, https://picsum.photos/seed/cultura-5/640/360 640w, https://picsum.photos/seed/cultura-5/800/450 800w" sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw" alt="Noticia de medicao 5 sem imagem" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer" class="w-full object-cover motion-safe:transition motion-safe:duration-300 group-hover:motion-safe:scale-[1.02] aspect-[16/9]"/>
-<img src="https://picsum.photos/seed/cultura-20/800/450" srcSet="https://picsum.photos/seed/cultura-20/400/225 400w, https://picsum.photos/seed/cultura-20/640/360 640w, https://picsum.photos/seed/cultura-20/800/450 800w" sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw" alt="Controlado 11 sem imagem" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer" class="w-full object-cover motion-safe:transition motion-safe:duration-300 group-hover:motion-safe:scale-[1.02] aspect-[16/9]"/>
-<img src="https://picsum.photos/seed/cultura-26/800/450" srcSet="https://picsum.photos/seed/cultura-26/400/225 400w, https://picsum.photos/seed/cultura-26/640/360 640w, https://picsum.photos/seed/cultura-26/800/450 800w" sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw" alt="Controlado 17 sem imagem" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer" class="w-full object-cover motion-safe:transition motion-safe:duration-300 group-hover:motion-safe:scale-[1.02] aspect-[16/9]"/>
-<img src="https://picsum.photos/seed/politica-10/800/450" srcSet="https://picsum.photos/seed/politica-10/400/225 400w, https://picsum.photos/seed/politica-10/640/360 640w, https://picsum.photos/seed/politica-10/800/450 800w" sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw" alt="Controlado 1 sem imagem" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer" class="w-full object-cover motion-safe:transition motion-safe:duration-300 group-hover:motion-safe:scale-[1.02] aspect-[16/9]"/>
-<img src="https://picsum.photos/seed/politica-1/800/450" srcSet="https://picsum.photos/seed/politica-1/400/225 400w, https://picsum.photos/seed/politica-1/640/360 640w, https://picsum.photos/seed/politica-1/800/450 800w" sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw" alt="Noticia de medicao 1 sem imagem" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer" class="w-full object-cover motion-safe:transition motion-safe:duration-300 group-hover:motion-safe:scale-[1.02] aspect-[16/9]"/>
-<img src="https://picsum.photos/seed/politica-16/800/450" srcSet="https://picsum.photos/seed/politica-16/400/225 400w, https://picsum.photos/seed/politica-16/640/360 640w, https://picsum.photos/seed/politica-16/800/450 800w" sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw" alt="Controlado 7 sem imagem" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer" class="w-full object-cover motion-safe:transition motion-safe:duration-300 group-hover:motion-safe:scale-[1.02] aspect-[16/9]"/>
-<img src="https://picsum.photos/seed/politica-7/800/450" srcSet="https://picsum.photos/seed/politica-7/400/225 400w, https://picsum.photos/seed/politica-7/640/360 640w, https://picsum.photos/seed/politica-7/800/450 800w" sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw" alt="Noticia de medicao 7 sem imagem" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer" class="w-full object-cover motion-safe:transition motion-safe:duration-300 group-hover:motion-safe:scale-[1.02] aspect-[16/9]"/>
-<img src="https://picsum.photos/seed/politica-22/800/450" srcSet="https://picsum.photos/seed/politica-22/400/225 400w, https://picsum.photos/seed/politica-22/640/360 640w, https://picsum.photos/seed/politica-22/800/450 800w" sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw" alt="Controlado 13 sem imagem" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer" class="w-full object-cover motion-safe:transition motion-safe:duration-300 group-hover:motion-safe:scale-[1.02] aspect-[16/9]"/>
-<img src="https://picsum.photos/seed/politica-28/800/450" srcSet="https://picsum.photos/seed/politica-28/400/225 400w, https://picsum.photos/seed/politica-28/640/360 640w, https://picsum.photos/seed/politica-28/800/450 800w" sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw" alt="Controlado 19 sem imagem" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer" class="w-full object-cover motion-safe:transition motion-safe:duration-300 group-hover:motion-safe:scale-[1.02] aspect-[16/9]"/>
-<img src="https://picsum.photos/seed/economia-2/800/450" srcSet="https://picsum.photos/seed/economia-2/400/225 400w, https://picsum.photos/seed/economia-2/640/360 640w, https://picsum.photos/seed/economia-2/800/450 800w" sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw" alt="Noticia de medicao 2 sem imagem" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer" class="w-full object-cover motion-safe:transition motion-safe:duration-300 group-hover:motion-safe:scale-[1.02] aspect-[16/9]"/>
-<img src="https://picsum.photos/seed/economia-8/800/450" srcSet="https://picsum.photos/seed/economia-8/400/225 400w, https://picsum.photos/seed/economia-8/640/360 640w, https://picsum.photos/seed/economia-8/800/450 800w" sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw" alt="Noticia de medicao 8 sem imagem" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer" class="w-full object-cover motion-safe:transition motion-safe:duration-300 group-hover:motion-safe:scale-[1.02] aspect-[16/9]"/>
-<img src="https://picsum.photos/seed/tecnologia-12/800/450" srcSet="https://picsum.photos/seed/tecnologia-12/400/225 400w, https://picsum.photos/seed/tecnologia-12/640/360 640w, https://picsum.photos/seed/tecnologia-12/800/450 800w" sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw" alt="Controlado 3 sem imagem" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer" class="w-full object-cover motion-safe:transition motion-safe:duration-300 group-hover:motion-safe:scale-[1.02] aspect-[16/9]"/>
-<img src="https://picsum.photos/seed/tecnologia-3/800/450" srcSet="https://picsum.photos/seed/tecnologia-3/400/225 400w, https://picsum.photos/seed/tecnologia-3/640/360 640w, https://picsum.photos/seed/tecnologia-3/800/450 800w" sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw" alt="Noticia de medicao 3 sem imagem" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer" class="w-full object-cover motion-safe:transition motion-safe:duration-300 group-hover:motion-safe:scale-[1.02] aspect-[16/9]"/>
-<img src="https://picsum.photos/seed/tecnologia-18/800/450" srcSet="https://picsum.photos/seed/tecnologia-18/400/225 400w, https://picsum.photos/seed/tecnologia-18/640/360 640w, https://picsum.photos/seed/tecnologia-18/800/450 800w" sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw" alt="Controlado 9 sem imagem" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer" class="w-full object-cover motion-safe:transition motion-safe:duration-300 group-hover:motion-safe:scale-[1.02] aspect-[16/9]"/>
-<img src="https://picsum.photos/seed/tecnologia-9/800/450" srcSet="https://picsum.photos/seed/tecnologia-9/400/225 400w, https://picsum.photos/seed/tecnologia-9/640/360 640w, https://picsum.photos/seed/tecnologia-9/800/450 800w" sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw" alt="Noticia de medicao 9 sem imagem" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer" class="w-full object-cover motion-safe:transition motion-safe:duration-300 group-hover:motion-safe:scale-[1.02] aspect-[16/9]"/>
-<img src="https://picsum.photos/seed/tecnologia-24/800/450" srcSet="https://picsum.photos/seed/tecnologia-24/400/225 400w, https://picsum.photos/seed/tecnologia-24/640/360 640w, https://picsum.photos/seed/tecnologia-24/800/450 800w" sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw" alt="Controlado 15 sem imagem" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer" class="w-full object-cover motion-safe:transition motion-safe:duration-300 group-hover:motion-safe:scale-[1.02] aspect-[16/9]"/>
-<img src="https://picsum.photos/seed/tecnologia-30/800/450" srcSet="https://picsum.photos/seed/tecnologia-30/400/225 400w, https://picsum.photos/seed/tecnologia-30/640/360 640w, https://picsum.photos/seed/tecnologia-30/800/450 800w" sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw" alt="Controlado 21 sem imagem" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer" class="w-full object-cover motion-safe:transition motion-safe:duration-300 group-hover:motion-safe:scale-[1.02] aspect-[16/9]"/>
-<img src="https://picsum.photos/seed/esportes-4/800/450" srcSet="https://picsum.photos/seed/esportes-4/400/225 400w, https://picsum.photos/seed/esportes-4/640/360 640w, https://picsum.photos/seed/esportes-4/800/450 800w" sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw" alt="Noticia de medicao 4 sem imagem" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer" class="w-full object-cover motion-safe:transition motion-safe:duration-300 group-hover:motion-safe:scale-[1.02] aspect-[16/9]"/>
-<img src="https://picsum.photos/seed/cultura-14/800/450" srcSet="https://picsum.photos/seed/cultura-14/400/225 400w, https://picsum.photos/seed/cultura-14/640/360 640w, https://picsum.photos/seed/cultura-14/800/450 800w" sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw" alt="Controlado 5 sem imagem" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer" class="w-full object-cover motion-safe:transition motion-safe:duration-300 group-hover:motion-safe:scale-[1.02] aspect-[16/9]"/>
-<img src="https://picsum.photos/seed/cultura-5/800/450" srcSet="https://picsum.photos/seed/cultura-5/400/225 400w, https://picsum.photos/seed/cultura-5/640/360 640w, https://picsum.photos/seed/cultura-5/800/450 800w" sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw" alt="Noticia de medicao 5 sem imagem" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer" class="w-full object-cover motion-safe:transition motion-safe:duration-300 group-hover:motion-safe:scale-[1.02] aspect-[16/9]"/>
-<img src="https://picsum.photos/seed/cultura-20/800/450" srcSet="https://picsum.photos/seed/cultura-20/400/225 400w, https://picsum.photos/seed/cultura-20/640/360 640w, https://picsum.photos/seed/cultura-20/800/450 800w" sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw" alt="Controlado 11 sem imagem" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer" class="w-full object-cover motion-safe:transition motion-safe:duration-300 group-hover:motion-safe:scale-[1.02] aspect-[16/9]"/>
-<img src="https://picsum.photos/seed/cultura-26/800/450" srcSet="https://picsum.photos/seed/cultura-26/400/225 400w, https://picsum.photos/seed/cultura-26/640/360 640w, https://picsum.photos/seed/cultura-26/800/450 800w" sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw" alt="Controlado 17 sem imagem" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer" class="w-full object-cover motion-safe:transition motion-safe:duration-300 group-hover:motion-safe:scale-[1.02] aspect-[16/9]"/>
-<img src="https://picsum.photos/seed/mundo-6/800/450" srcSet="https://picsum.photos/seed/mundo-6/400/225 400w, https://picsum.photos/seed/mundo-6/640/360 640w, https://picsum.photos/seed/mundo-6/800/450 800w" sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw" alt="Noticia de medicao 6 sem imagem" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer" class="w-full object-cover motion-safe:transition motion-safe:duration-300 group-hover:motion-safe:scale-[1.02] aspect-[16/9]"/>
+<!-- ===== / ===== -->
+<link rel="preload" href="/_next/static/media/597b6a5d799c44de-s.p.woff2" as="font" crossorigin="" type="font/woff2"/>
+<link rel="preload" href="/_next/static/media/e4af272ccee01ff0-s.p.woff2" as="font" crossorigin="" type="font/woff2"/>
+<link rel="stylesheet" href="/_next/static/css/0e293b8710aa03d0.css"/>
+<link rel="preload" as="script" fetchPriority="low" href="/_next/static/chunks/webpack-00ff1f49de0da913.js"/>
+<script src="/_next/static/chunks/main-app-e9cf77d2474b4b15.js" async="">
+<script src="/_next/static/chunks/1752-00c346523fd408ee.js" async="">
+<script src="/_next/static/chunks/6255-74c6b51e40bc5a24.js" async="">
+<script src="/_next/static/chunks/6248-3f8fadac1907565d.js" async="">
+<script src="/_next/static/chunks/1258-69554651b7a8d4d6.js" async="">
+<script src="/_next/static/chunks/6524-7b70f194c20b2513.js" async="">
+<script src="/_next/static/chunks/1761-11c2cb6b7affe30e.js" async="">
+<script src="/_next/static/chunks/2835-5e261ae19233300b.js" async="">
+<script src="/_next/static/chunks/4918-8bbf4b50843a3d51.js" async="">
+<script src="/_next/static/chunks/9285-d8e605ad88d5391b.js" async="">
+<script src="/_next/static/chunks/2983-33e19dff868647ee.js" async="">
+<script src="/_next/static/chunks/app/layout-3526b09bde638bc0.js" async="">
+<script src="/_next/static/chunks/4576-4ac2fc7ce44f8882.js" async="">
+<script src="/_next/static/chunks/68-343fa9a3fcc9d2e5.js" async="">
+<script src="/_next/static/chunks/5885-02d4539acf8d7700.js" async="">
+<script src="/_next/static/chunks/8250-cc6dd40c31021648.js" async="">
+<script src="/_next/static/chunks/871-85054ba86d3cd567.js" async="">
+<script src="/_next/static/chunks/6102-f3ecdd6e6dd154b8.js" async="">
+<script src="/_next/static/chunks/6135-304197108b078fec.js" async="">
+<script src="/_next/static/chunks/5443-fe44c93f6657c206.js" async="">
+<script src="/_next/static/chunks/app/page-49b65836d1f2cb56.js" async="">
+<link rel="manifest" href="/manifest.webmanifest"/>
+<script>
+<script type="application/ld+json">
+<script src="/_next/static/chunks/polyfills-42372ed130431b0a.js" noModule="">
+<script>
+<img src="data:image/svg+xml,sha256-c1c9afd4c3" alt="Noticia de medicao 1" loading="eager" decoding="async" draggable="false" referrerPolicy="no-referrer"/>
+<img src="data:image/svg+xml,sha256-731bb3ed78" alt="Noticia de medicao 2" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer"/>
+<img src="data:image/svg+xml,sha256-ae9c7cc9bb" alt="Noticia de medicao 3" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer"/>
+<img src="data:image/svg+xml,sha256-69e0ed4d6d" alt="Noticia de medicao 4" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer"/>
+<img src="data:image/svg+xml,sha256-4566ad37bd" alt="Noticia de medicao 5" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer"/>
+<img src="data:image/svg+xml,sha256-b469853a0c" alt="Noticia de medicao 7" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer"/>
+<img src="data:image/svg+xml,sha256-7369a03159" alt="Noticia de medicao 8" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer"/>
+<img src="data:image/svg+xml,sha256-400dd41462" alt="Noticia de medicao 6" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer"/>
+<img src="data:image/svg+xml,sha256-a994364437" alt="Noticia de medicao 9" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer"/>
+<img src="data:image/svg+xml,sha256-b469853a0c" alt="" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer"/>
+<img src="https://exemplo-news.invalid/foto-14.jpg" alt="" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer"/>
+<img src="https://exemplo-news.invalid/foto-21.jpg" alt="" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer"/>
+<img src="https://exemplo-news.invalid/foto-28.jpg" alt="" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer"/>
+<img src="data:image/svg+xml,sha256-c1c9afd4c3" alt="" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer"/>
+<img src="data:image/svg+xml,sha256-731bb3ed78" alt="" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer"/>
+<img src="data:image/svg+xml,sha256-ae9c7cc9bb" alt="" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer"/>
+<img src="data:image/svg+xml,sha256-69e0ed4d6d" alt="" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer"/>
+<img src="data:image/svg+xml,sha256-4566ad37bd" alt="" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer"/>
+<img src="data:image/svg+xml,sha256-b469853a0c" alt="" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer"/>
+<img src="data:image/svg+xml,sha256-7369a03159" alt="" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer"/>
+<img src="data:image/svg+xml,sha256-400dd41462" alt="" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer"/>
+<img src="data:image/svg+xml,sha256-a994364437" alt="" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer"/>
+<img src="https://exemplo-news.invalid/foto-14.jpg" alt="" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer"/>
+<img src="https://exemplo-news.invalid/foto-21.jpg" alt="" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer"/>
+<img src="https://exemplo-news.invalid/foto-28.jpg" alt="" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer"/>
+<img src="data:image/svg+xml,sha256-69e0ed4d6d" alt="Noticia de medicao 4" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer"/>
+<img src="data:image/svg+xml,sha256-4566ad37bd" alt="Noticia de medicao 5" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer"/>
+<img src="https://exemplo-news.invalid/foto-14.jpg" alt="Controlado 5" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer"/>
+<img src="https://exemplo-news.invalid/foto-21.jpg" alt="Controlado 12" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer"/>
+<img src="https://exemplo-news.invalid/foto-15.jpg" alt="Controlado 6" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer"/>
+<img src="https://exemplo-news.invalid/foto-20.jpg" alt="Controlado 11" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer"/>
+<img src="https://exemplo-news.invalid/foto-26.jpg" alt="Controlado 17" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer"/>
+<img src="https://exemplo-news.invalid/foto-31.jpg" alt="Controlado 22" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer"/>
+<img src="data:image/svg+xml,sha256-c1c9afd4c3" alt="Noticia de medicao 1" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer"/>
+<img src="data:image/svg+xml,sha256-b469853a0c" alt="Noticia de medicao 7" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer"/>
+<img src="https://exemplo-news.invalid/foto-28.jpg" alt="Controlado 19" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer"/>
+<img src="https://exemplo-news.invalid/foto-10.jpg" alt="Controlado 1" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer"/>
+<img src="https://exemplo-news.invalid/foto-16.jpg" alt="Controlado 7" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer"/>
+<img src="https://exemplo-news.invalid/foto-22.jpg" alt="Controlado 13" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer"/>
+<img src="data:image/svg+xml,sha256-ae9c7cc9bb" alt="Noticia de medicao 3" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer"/>
+<img src="data:image/svg+xml,sha256-a994364437" alt="Noticia de medicao 9" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer"/>
+<img src="https://exemplo-news.invalid/foto-12.jpg" alt="Controlado 3" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer"/>
+<img src="https://exemplo-news.invalid/foto-18.jpg" alt="Controlado 9" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer"/>
+<img src="https://exemplo-news.invalid/foto-24.jpg" alt="Controlado 15" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer"/>
+<img src="https://exemplo-news.invalid/foto-30.jpg" alt="Controlado 21" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer"/>
+<img src="data:image/svg+xml,sha256-4566ad37bd" alt="Noticia de medicao 5" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer"/>
+<img src="https://exemplo-news.invalid/foto-14.jpg" alt="Controlado 5" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer"/>
+<img src="https://exemplo-news.invalid/foto-20.jpg" alt="Controlado 11" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer"/>
+<img src="https://exemplo-news.invalid/foto-26.jpg" alt="Controlado 17" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer"/>
+<img src="https://exemplo-news.invalid/foto-32.jpg" alt="Controlado 23" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer"/>
+<img src="data:image/svg+xml,sha256-731bb3ed78" alt="Noticia de medicao 2" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer"/>
+<img src="data:image/svg+xml,sha256-7369a03159" alt="Noticia de medicao 8" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer"/>
+<img src="https://exemplo-news.invalid/foto-19.jpg" alt="Controlado 10" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer"/>
+<img src="https://exemplo-news.invalid/foto-29.jpg" alt="Controlado 20" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer"/>
+<img src="data:image/svg+xml,sha256-69e0ed4d6d" alt="Noticia de medicao 4" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer"/>
+<img src="https://exemplo-news.invalid/foto-21.jpg" alt="Controlado 12" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer"/>
+<img src="https://exemplo-news.invalid/foto-15.jpg" alt="Controlado 6" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer"/>
+<img src="https://exemplo-news.invalid/foto-31.jpg" alt="Controlado 22" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer"/>
+<img src="data:image/svg+xml,sha256-400dd41462" alt="Noticia de medicao 6" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer"/>
+<img src="https://exemplo-news.invalid/foto-17.jpg" alt="Controlado 8" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer"/>
+<img src="https://exemplo-news.invalid/foto-27.jpg" alt="Controlado 18" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer"/>
+<script src="/_next/static/chunks/webpack-00ff1f49de0da913.js" id="_R_" async="">
+<script>
+<script>
+<script>
+<script>
+<script>
+<script>
+<script>
+<script>
+<script>
+<script>
+<script>
+<script>
+<script>
+<script>
+<script>
+<script>
+<script>
+<script>
+
+<!-- ===== /categoria/politica ===== -->
+<link rel="preload" href="/_next/static/media/597b6a5d799c44de-s.p.woff2" as="font" crossorigin="" type="font/woff2"/>
+<link rel="preload" href="/_next/static/media/e4af272ccee01ff0-s.p.woff2" as="font" crossorigin="" type="font/woff2"/>
+<link rel="stylesheet" href="/_next/static/css/0e293b8710aa03d0.css"/>
+<link rel="preload" as="script" fetchPriority="low" href="/_next/static/chunks/webpack-00ff1f49de0da913.js"/>
+<script src="/_next/static/chunks/main-app-e9cf77d2474b4b15.js" async="">
+<script src="/_next/static/chunks/1752-00c346523fd408ee.js" async="">
+<script src="/_next/static/chunks/6255-74c6b51e40bc5a24.js" async="">
+<script src="/_next/static/chunks/6248-3f8fadac1907565d.js" async="">
+<script src="/_next/static/chunks/1258-69554651b7a8d4d6.js" async="">
+<script src="/_next/static/chunks/6524-7b70f194c20b2513.js" async="">
+<script src="/_next/static/chunks/1761-11c2cb6b7affe30e.js" async="">
+<script src="/_next/static/chunks/2835-5e261ae19233300b.js" async="">
+<script src="/_next/static/chunks/4918-8bbf4b50843a3d51.js" async="">
+<script src="/_next/static/chunks/9285-d8e605ad88d5391b.js" async="">
+<script src="/_next/static/chunks/2983-33e19dff868647ee.js" async="">
+<script src="/_next/static/chunks/app/layout-3526b09bde638bc0.js" async="">
+<script src="/_next/static/chunks/5885-02d4539acf8d7700.js" async="">
+<script src="/_next/static/chunks/app/categoria/%5Bslug%5D/page-91e842989c22c55f.js" async="">
+<link rel="manifest" href="/manifest.webmanifest"/>
+<script>
+<script type="application/ld+json">
+<script src="/_next/static/chunks/polyfills-42372ed130431b0a.js" noModule="">
+<script>
+<script type="application/ld+json">
+<img src="data:image/svg+xml,sha256-c1c9afd4c3" alt="Noticia de medicao 1" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer"/>
+<img src="data:image/svg+xml,sha256-b469853a0c" alt="Noticia de medicao 7" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer"/>
+<img src="https://exemplo-news.invalid/foto-10.jpg" alt="Controlado 1" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer"/>
+<img src="https://exemplo-news.invalid/foto-16.jpg" alt="Controlado 7" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer"/>
+<img src="https://exemplo-news.invalid/foto-22.jpg" alt="Controlado 13" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer"/>
+<img src="https://exemplo-news.invalid/foto-28.jpg" alt="Controlado 19" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer"/>
+<script src="/_next/static/chunks/webpack-00ff1f49de0da913.js" id="_R_" async="">
+<script>
+<script>
+<script>
+<script>
+<script>
+<script>
+<script>
+<script>
+<script>
+<script>
+<script>
+<script>
+<script>
+<script>
+<script>
+<script>
+<script>
+<script>
+<script>
+<script>
+
+<!-- ===== /noticia/1 ===== -->
+<link rel="preload" href="/_next/static/media/597b6a5d799c44de-s.p.woff2" as="font" crossorigin="" type="font/woff2"/>
+<link rel="preload" href="/_next/static/media/e4af272ccee01ff0-s.p.woff2" as="font" crossorigin="" type="font/woff2"/>
+<link rel="stylesheet" href="/_next/static/css/0e293b8710aa03d0.css"/>
+<link rel="preload" as="script" fetchPriority="low" href="/_next/static/chunks/webpack-00ff1f49de0da913.js"/>
+<script src="/_next/static/chunks/main-app-e9cf77d2474b4b15.js" async="">
+<script src="/_next/static/chunks/1752-00c346523fd408ee.js" async="">
+<script src="/_next/static/chunks/6255-74c6b51e40bc5a24.js" async="">
+<script src="/_next/static/chunks/6248-3f8fadac1907565d.js" async="">
+<script src="/_next/static/chunks/1258-69554651b7a8d4d6.js" async="">
+<script src="/_next/static/chunks/6524-7b70f194c20b2513.js" async="">
+<script src="/_next/static/chunks/1761-11c2cb6b7affe30e.js" async="">
+<script src="/_next/static/chunks/2835-5e261ae19233300b.js" async="">
+<script src="/_next/static/chunks/4918-8bbf4b50843a3d51.js" async="">
+<script src="/_next/static/chunks/9285-d8e605ad88d5391b.js" async="">
+<script src="/_next/static/chunks/2983-33e19dff868647ee.js" async="">
+<script src="/_next/static/chunks/app/layout-3526b09bde638bc0.js" async="">
+<script src="/_next/static/chunks/4576-4ac2fc7ce44f8882.js" async="">
+<script src="/_next/static/chunks/68-343fa9a3fcc9d2e5.js" async="">
+<script src="/_next/static/chunks/5885-02d4539acf8d7700.js" async="">
+<script src="/_next/static/chunks/8250-cc6dd40c31021648.js" async="">
+<script src="/_next/static/chunks/871-85054ba86d3cd567.js" async="">
+<script src="/_next/static/chunks/6102-f3ecdd6e6dd154b8.js" async="">
+<script src="/_next/static/chunks/6135-304197108b078fec.js" async="">
+<script src="/_next/static/chunks/5443-fe44c93f6657c206.js" async="">
+<script src="/_next/static/chunks/app/page-49b65836d1f2cb56.js" async="">
+<script src="/_next/static/chunks/2985-8e9fce76d4f083c8.js" async="">
+<script src="/_next/static/chunks/app/noticia/%5Bid%5D/page-30bd754a9f0f7f8f.js" async="">
+<link rel="manifest" href="/manifest.webmanifest"/>
+<script>
+<script type="application/ld+json">
+<script src="/_next/static/chunks/polyfills-42372ed130431b0a.js" noModule="">
+<script>
+<script type="application/ld+json">
+<img src="data:image/svg+xml,sha256-c1c9afd4c3" alt="Noticia de medicao 1" loading="eager" decoding="async" draggable="false" referrerPolicy="no-referrer"/>
+<img src="data:image/svg+xml,sha256-b469853a0c" alt="" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer"/>
+<img src="https://exemplo-news.invalid/foto-10.jpg" alt="" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer"/>
+<img src="https://exemplo-news.invalid/foto-16.jpg" alt="" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer"/>
+<img src="https://exemplo-news.invalid/foto-22.jpg" alt="" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer"/>
+<img src="https://exemplo-news.invalid/foto-28.jpg" alt="" loading="lazy" decoding="async" draggable="false" referrerPolicy="no-referrer"/>
+<script src="/_next/static/chunks/webpack-00ff1f49de0da913.js" id="_R_" async="">
+<script>
+<script>
+<script>
+<script>
+<script>
+<script>
+<script>
+<script>
+<script>
+<script>
+<script>
+<script>
+<script>
+<script>
+<script>
+<script>

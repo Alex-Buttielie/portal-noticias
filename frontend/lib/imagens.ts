@@ -1,107 +1,158 @@
-// >>> PENDÊNCIA MARCADA — picsum É TERCEIRO, E SAI ANTES DO CONSENTIMENTO
 // ===========================================================================
-// O que este módulo é: o gerador do PLACEHOLDER de imagem. Quando a notícia
-// não tem `imagem_url` (ou a URL é recusada pela allowlist de esquema), o
-// portal pede uma foto de exemplo a `https://picsum.photos/seed/...`.
+// O QUE ESTE MÓDULO FAZ (e o que ele NÃO faz mais)
+// ===========================================================================
+// Este módulo é o ponto por onde TODA imagem de notícia passa antes de
+// virar `src`. Ele faz três coisas, nesta ordem:
 //
-// O que este módulo NÃO é, e o que o código anterior afirmava: uma "URL do
-// próprio portal". NÃO ERA VERDADE. `picsum.photos` é um serviço de TERCEIRO
-// (a Lorem Picsum, mantida pelo Unsplash). A imagem é gerada no servidor
-// deles, e a requisição entrega o IP, o User-Agent e o momento da visita
-// de quem ainda não consentiu com nada — e, pior, o HTML JÁ SERVIDO pelo
-// SSR traz o host, então a conexão acontece antes de qualquer JavaScript
-// rodar e também para quem não executa JS.
+//   1. Se o RSS trouxe `imagem_url`, devolve essa URL — depois de duas
+//      recusas: a allowlist de ESQUEMA (`lib/url-segura.ts`, que é o que
+//      impede um `javascript:` de virar `src`) e o host do placeholder
+//      (§ "O HOST DO PLACEHOLDER" abaixo).
+//   2. Se não tem `imagem_url` utilizável, devolve o PLACEHOLDER LOCAL, que
+//      é um SVG gerado dentro do próprio HTML (`lib/placeholder.ts`).
+//   3. Expõe se a notícia tem foto real ou não (`temImagemReal`).
 //
-// MEDIDO NESTE LOTE (build de produção, SSR, backend próprio com 33 itens
-// — 14 deles sem `imagem_url`, o caso que dispara o placeholder — e com
-// ZERO consentimento dado; três requisições seguidas, número estável):
+// O QUE MUDOU AQUI, E O NÚMERO QUE FECHA O ITEM
+// =============================================
+// Antes, o passo 2 pedia a foto a `https://picsum.photos/seed/<categoria-id>`.
+// `picsum.photos` é um serviço de TERCEIRO (a Lorem Picsum, mantida pelo
+// Unsplash): a requisição entregava o IP, o User-Agent e o momento da visita
+// de quem ainda não tinha consentido com nada, e o HTML já servido pelo SSR
+// trazia o host — ou seja, a conexão acontecia antes de qualquer JavaScript
+// rodar, e também para quem não executa JS.
 //
-//     /                    42 conexões a picsum.photos  (41 <img> + 1 preload)
-//     /categoria/politica   6 conexões a picsum.photos
-//     /noticia/1            6 conexões a picsum.photos  (+1 preload eager)
-//     /radar                0
+// MEDIDO com build de produção, SSR, backend próprio e ZERO consentimento
+// dado, três requisições seguidas com número estável. A coluna da direita é
+// o que o portal emite DEPOIS desta correção:
 //
-// O número 6 que circulava mede a página de categoria/artigo. A HOME é 42.
-// E o preload (`<link rel="preload" as="image" imageSrcSet="https://picsum…">`)
-// é pior que um `<img>` comum: o browser baixa antes de a imagem estar
-// visível, o que torna a conexão impossível de atribuir à rolagem.
+//     página                 antes -> depois
+//     /                           61 -> 0 conexões a picsum.photos
+//     /categoria/politica          2 -> 0 conexões a picsum.photos
+//     /noticia/1                    2 -> 0 conexões a picsum.photos
 //
-// As tags de recurso com a medição são versionadas em
-// `backend/config/tests/evidencia_a10_tags.html`, e
-// `backend/config/tests/test_p1_09_placeholder_terceiro.py` reconta as
-// conexões a partir dele e exige que o número daqui bata. Ou seja: se este
-// número divergir do HTML, a suíte reprova.
+// A medição é feita com Chrome headless por CDP, contando
+// `Network.requestWillBeSent` (o que o browser EMITE, não o que o HTML
+// menciona), e rolando a página até o fim — sem rolagem o browser não busca
+// as `<img loading="lazy">` fora da viewport e o número sai MENOR do que a
+// página pede, que é o modo de medir e dar o número errado.
 //
-// POR QUE A CORREÇÃO NÃO ESTÁ NESTE ARQUIVO
-// =========================================
-// As duas saídas possíveis são ambas DECISÃO DE PRODUTO, não de engenharia:
+// DOIS DETALHES QUE MATAM A AMOSTRA MENTIROSA
+// ============================================
+// 1. O `<link rel="preload" as="image">` que existia no build anterior
+//    baixava a imagem antes de ela ser visível, o que torna a conexão
+//    impossível de atribuir à rolagem. Ele desapareceu junto com a URL
+//    externa: o placeholder agora é um data URI, e data URI não passa por
+//    `preload as="image"` — não há requisição para pré-carregar.
+// 2. Os 61 da home não são 61 itens: são as Tags da página com as MESMAS
+//    notícias aparecendo em várias seções, e o `onError` das fotos do RSS
+//    (que falham por DNS) caindo no placeholder e gerando uma segunda
+//    requisição. Contar por item daria um número sem meaningido nenhum.
 //
-//   (a) Trocar o placeholder por um asset local versionado. some
-//       completamente a conexão externa, mas TODOS os placeholders passam a
-//       ser a mesma imagem — o portal perde a variação visual que hoje
-//       distingue uma notícia da outra na grade. Exige gerar/versionar o
-//       asset e decidir se a perda de variedade é aceitável.
-//   (b) Carregar o placeholder atrás do portão de consentimento. preserva o
-//       design, mas a miniatura da notícia some até a pessoa aceitar
-//       "publicidade" — e o banner descreve essa categoria como "publicidade
-//       de terceiros, como AdSense". Uma foto de exemplo de artigo não é
-//       publicidade, então isso é pior UX e continua sendo um produto
-//       errado sem uma categoria de consentimento nova.
+// O CUSTO, que é medido e não estimado: o HTML da home ficou MENOR, de
+// 250.096 para 196.962 bytes. O placeholder embutido pesa ~960 bytes por
+// imagem, mas o `srcset` de três URLs do picsum pesava ~700 bytes POR `<img>`
+// e são ~30 deles — e o que saiu do outro lado foram 61 conexões, 61
+// resoluções de DNS e 61 handshakes TLS para um host de terceiro.
 //
-// Escolher entre (a) e (b), ou criar essa categoria nova, é decisão de quem
-// define o produto. Este lote NÃO escolhe, e não escolheu: o que ele faz é
-// remover a afirmação falsa, registrar a pendência com a classificação
-// correta (`p-pendencia`, decisão de produto, não é bug de implementação)
-// e fazer a guarda de consentimento parar de dizer "nada externo".
+// O QUE FICOU DE TERCEIRO (e por que NÃO é a mesma coisa)
+// ========================================================
+// A foto que o RSS traz (`imagem_url` apontando para o domínio do veículo)
+// continua indo direto para o host do veículo, e isso é conteúdo, não
+// placeholder: é a imagem da notícia. Colocá-la atrás do consentimento
+// esconderia a foto da notícia de quem não aceitou "publicidade". Fora do
+// escopo deste item, e é uma decisão de produto diferente da que está
+// encerrada aqui.
 // ===========================================================================
 
 import { urlSeguraParaImagem, urlSeguraParaLink } from "@/lib/url-segura";
+import { placeholderSvg } from "@/lib/placeholder";
 
-/** Host de TERCEIRO do placeholder. Declarado à parte para ser contável. */
+/**
+ * Host que JÁ FOI o placeholder do portal, declarado aqui mesmo depois da
+ * troca — não por acaso, mas porque ele pode aparecer por OUTRO caminho:
+ * um RSS cujo `imagem_url` seja `https://picsum.photos/...` faria o portal
+ * hotlinkear o terceiro de novo, por dentro da allowlist de esquema (que
+ * aceita http/https, e com razão).
+ *
+ * Recusar esse host aqui é o que fecha o item de verdade: depois disso,
+ * NENHUM caminho do frontend consegue produzir uma conexão a
+ * `picsum.photos` — nem o placeholder, nem um feed apontando para ele.
+ * O que sobrevive é o placeholder local, que é determinístico e não sai da
+ * máquina.
+ */
 export const HOST_PLACEHOLDER = "picsum.photos";
 
-export function categoriaImagem(categoria: string): string {
-  const s = (categoria || "geral").toLowerCase().trim().replace(/\s+/g, "-") || "geral";
-  return `https://${HOST_PLACEHOLDER}/seed/${encodeURIComponent(s)}/800/450`;
+/** Verdadeiro se a URL é (ou foi) o placeholder de terceiro. */
+export function ehHostDePlaceholder(url: string | null | undefined): boolean {
+  if (typeof url !== "string" || !url) return false;
+  try {
+    return new URL(url.trim()).hostname.toLowerCase() === HOST_PLACEHOLDER;
+  } catch {
+    return false;
+  }
 }
-export function imagemNoticia(entrada: { imagem_url?: string | null; categoria: string; id: string | number; titulo?: string }): string {
+
+/**
+ * `imagem_url` do feed, quando ela pode ser usada como `src`.
+ *
+ * Duas recusas, deliberadamente NESTE nível e não dentro de
+ * `lib/url-segura.ts`: aquela allowlist é sobre ESQUEMA, e a regra
+ * "o placeholder do portal não pode entrar pelo feed" é sobre o CONTEÚDO.
+ * Misturar as duas faria a segunda sumir no primeiro `catch`.
+ */
+export function urlImagemUtilizavel(url: string | null | undefined): string | null {
+  const segura = urlSeguraParaImagem(url);
+  if (!segura) return null;
+  if (ehHostDePlaceholder(segura)) return null;
+  return segura;
+}
+
+/** Slug da categoria, a MESMA normalização que o antigo `seed` usava. */
+function chaveCategoria(categoria: string): string {
+  return (categoria || "geral").toLowerCase().trim().replace(/\s+/g, "-") || "geral";
+}
+
+/** Identificador do placeholder: o MESMO par que era o `seed` do picsum. */
+function identificadorPlaceholder(categoria: string, id: string | number): string {
+  return `${chaveCategoria(categoria)}-${String(id ?? "0")}`;
+}
+
+export function categoriaImagem(categoria: string): string {
+  return placeholderSvg(identificadorPlaceholder(categoria, 0), chaveCategoria(categoria));
+}
+
+export function imagemNoticia(entrada: {
+  imagem_url?: string | null;
+  categoria: string;
+  id: string | number;
+  titulo?: string;
+}): string {
   // `imagem_url` vem do XML do RSS — conteúdo de terceiro. Antes era
   // devolvida VERBATIM, ou seja, `imagem_url` podia ser `javascript:…`
   // ou qualquer esquema que o browser aceitasse em `src`. Passa pela
-  // allowlist de esquema; se não passar, cai no placeholder picsum.
+  // allowlist de esquema; se não passar, cai no PLACEHOLDER LOCAL.
   //
-  // O picsum É de terceiro e sai antes do consentimento (ver a PENDÊNCIA no
-  // topo deste arquivo). O que a allowlist garante, e é o que interessa aqui,
-  // é fail-closed no ESQUEMA: um `javascript:` recusado nunca vira `src`.
-  const real = urlSeguraParaImagem(entrada.imagem_url);
+  // A allowlist garante fail-closed no ESQUEMA: um `javascript:` recusado
+  // nunca vira `src`. E o placeholder local garante que a recusa não
+  // significa "vai pedir a um terceiro" — significa "desenha aqui".
+  const real = urlImagemUtilizavel(entrada.imagem_url);
   if (real) return real;
-  const cat = (entrada.categoria || "geral").toLowerCase().trim().replace(/\s+/g, "-") || "geral";
-  const id = String(entrada.id ?? "0");
-  return `https://${HOST_PLACEHOLDER}/seed/${encodeURIComponent(`${cat}-${id}`)}/800/450`;
+  const categoria = chaveCategoria(entrada.categoria);
+  return placeholderSvg(identificadorPlaceholder(categoria, entrada.id), categoria);
 }
+
 export function temImagemReal(entrada: { imagem_url?: string | null }): boolean {
   return urlSeguraParaLink(entrada.imagem_url) !== null;
 }
+
 export const placeholderBlur = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
 
-/** Tamanhos mobile-first do placeholder picsum (evita baixar 800px no 4G). */
-export function picsum(seed: string, w = 800, h = 450): string {
-  return `https://picsum.photos/seed/${encodeURIComponent(seed)}/${w}/${h}`;
-}
-
-/** srcSet responsivo — só faz sentido para URLs picsum (padrão /seed/s/W/H). */
-export function srcSetPicsum(seed: string): string {
-  return [400, 640, 800]
-    .map((w) => `${picsum(seed, w, Math.round((w * 9) / 16))} ${w}w`)
-    .join(", ");
-}
-
-export function ehPicsum(url: string): boolean {
-  return /(^|\/\/)picsum\.photos\//.test(url || "");
-}
-
-/** Extrai a seed de URLs picsum para reaproveitar no srcSet/fallback. */
-export function seedDePicsum(url: string): string | null {
-  const m = (url || "").match(/picsum\.photos\/seed\/([^/]+)/);
-  return m ? decodeURIComponent(m[1]) : null;
+/**
+ * Placeholder da imagem, na forma em que `ImagemNoticia` consome.
+ *
+ * O nome é o da função, não o do host: quem chama precisa saber que está
+ * desenhando um placeholder LOCAL, e não pedindo uma foto a alguém.
+ */
+export function placeholder(seed: string): string {
+  return placeholderSvg(seed, seed.replace(/-\d+$/, ""));
 }

@@ -104,6 +104,46 @@ function linhaDe(fonte, indice) {
 }
 
 /**
+ * Substitui referência a constante pelo VALOR, para que a contagem de host
+ * enxergue URL montada por TEMPLATE.
+ *
+ * POR QUE ISTO EXISTE (e foi medido, não suposto)
+ * ===============================================
+ * `lib/imagens.ts` declara o host numa constante e o interpola:
+ *
+ *     export const HOST_PLACEHOLDER = "picsum.photos";
+ *     const picsum = (s) => `https://${HOST_PLACEHOLDER}/seed/${s}/800/450`;
+ *
+ * A busca por `picsum\.photos\/` NÃO encontra isso: o literal só existe
+ * como interpolação. Reverter o placeholder para a URL externa por template
+ * deixou esta guarda, 24 testes de Python e 40 de Node verdes AO MESMO
+ * TEMPO. Verde e cego é o pior estado possível para uma guarda.
+ *
+ * A substituição é textual e só vale para nomes de constante EM CAIXA ALTA
+ * seguidos de `}` ou não — `HOST_PLACEHOLDER` é um identificador, não uma
+ * palavra de prosa, então o risco de trocar texto por engano é baixo. E o
+ * que ela troca é sempre o MESMO valor que a guarda já contava, então
+ * nunca aumenta o número por acidente: só passa a enxergar o que estava
+ * invisível.
+ */
+function resolverConstantes(fonte) {
+  return fonte
+    .replace(/\$\{([A-Z][A-Z0-9_]*)\}/g, (__, nome) => {
+      const declaration = new RegExp(`(?:const|let|var)\\s+${nome}\\s*=\\s*["'\`]([^"'\`]+)["'\`]`);
+      const achado = fonte.match(declaration);
+      // Sem declaração legível no próprio fonte: melhor devolver o próprio
+      // nome do que inventar um host. A guarda segue做不到 ver, que é o
+      // comportamento honesto — e o teste de Python cobra a.resolve.
+      return achado ? achado[1] : nome;
+    })
+    .replace(/\b(HOST_[A-Z0-9_]+)\b/g, (nome) => {
+      const declaration = new RegExp(`(?:const|let|var)\\s+${nome}\\s*=\\s*["'\`]([^"'\`]+)["'\`]`);
+      const achado = fonte.match(declaration);
+      return achado ? achado[1] : nome;
+    });
+}
+
+/**
  * Remove comentários preservando strings e a contagem de linhas. Indispensável
  * porque a própria documentação deste projeto escreve "preconnect",
  * "googlesyndication" e "ca-pub-" ao explicar por que NÃO os usa — e uma
@@ -572,55 +612,74 @@ async function main() {
     problemas.length === 0 ? `${varridos} arquivo(s) varridos, 0 violação(ões)` : `${problemas.length} violação(ões):\n    - ${problemas.join("\n    - ")}`
   );
 
-  // ---- A10: INVENTARIO de hosts de TERCERO de imagem (PENDENCIA) ---------
-  // Por que este bloco existe, e o que ele NAO faz
-  // =================================================
+  // ---- A10: INVENTARIO de hosts de TERCERO de imagem --------------------
+  // Por que este bloco existe, e o que ele prova AGORA
+  // ====================================================
   // ate aqui a guarda varrida `REGEX_HOST_EXTERNO`, que so conhece host de
   // ANUNCIO e MEDICAO do Google, e a conclusao final afirmava "nada externo
   // antes do consentimento". Isso era uma afirmacao FALSA: o placeholder de
-  // imagem (`lib/imagens.ts`) aponta para `picsum.photos`, que e um servico
-  // de TERCERO, e e requisitado antes de qualquer consentimento.
+  // imagem (`lib/imagens.ts`) apontava para `picsum.photos`, que e um servico
+  // de TERCERO, e e requisitado antes de qualquer consentimento — 61 conexoes
+  // na home, medidas no build de producao, sem consentimento dado.
   //
-  // Este bloco NAO escolha a correcao. As duas saidas — asset local
-  // versionado, ou carregar o placeholder atras do portao de consentimento —
-  // sao as DUAS DECISOES DE PRODUTO, com consequencias opostas de design
-  // (a primeira tira a variedade visual dos placeholders; a segunda esconde
-  // a miniatura da noticia ate a pessoa aceitar "publicidade", que nao e
-  // publicidade). Escolher entre elas nao e engenharia.
+  // A DECISAO DE PRODUTO foi tomada: asset local, GERADO por hash
+  // deterministico do identificador, de modo que a variacao visual que o
+  // `seed` do picsum produzia NAO se perde. O placeholder virou um SVG
+  // embutido no proprio HTML (`lib/placeholder.ts`) — data URI, que nao abre
+  // conexao nenhuma.
   //
-  // O que este bloco faz e o minimo honesto: conta, e nao deixa a
-  // verificacao dizer "nada externo" enquanto o numero e diferente de zero.
-  // Uma pendencia que ninguem consegue ver e uma pendencia que ninguem cumpre.
+  // Este bloco CONTINUA EXISTINDO, e e por isso que ele ainda varre: e o que
+  // faria a propria guarda reprovar sozinha no dia em que alguem
+  // reintroduzir o host, sem esperar a suite de testes rodar. O que ele mede
+  // hoje e o numero de fontes de imagem que ainda emitem o host de terceiro.
+  //
+  // E o `ATENCAO` saiu. Ele existia porque a excecao era real; anunciar uma
+  // excecao que deixou de existir treina o leitor a ignorar a palavra — e a
+  // palavra e o que distingue "olha, tem um problema conhecido" de "olha,
+  // isto esta resolvido".
   const fontesComPlaceholder = [];
   for (const dir of DIRETORIOS_VARRIDOS) {
     const arquivos = (await arquivosRecursivos(path.join(dirFrontend, dir))).filter((a) =>
       EXTENSOES_FONTE.test(a)
     );
     for (const arquivo of arquivos) {
-      const fonte = removerComentarios(await readFile(arquivo, "utf8"));
-      const ocorrencias = (fonte.match(/(?:https?:\/\/)?(?:www\.)?picsum\.photos\//g) || []).length;
+      // `resolverConstantes` ANTES da contagem, e nao depois. Isto nao e
+      // perda de generalidade: sem isso a guarda nao enxerga
+      // `https://${HOST_PLACEHOLDER}/...`, porque depois do `https://` vem
+      // um `$` que nao casa com a regex de host — e a guarda passaria
+      // verde com a URL de terceiro de volta no codigo. Foi medido nesta
+      // run: essa mutacao deixou esta guarda, 24 testes de Python e 40 de
+      // Node verdes ao mesmo tempo.
+      const fonte = resolverConstantes(
+        removerComentarios(await readFile(arquivo, "utf8"))
+      );
+      const ocorrencias = (fonte.match(/picsum\.photos\//g) || []).length;
       if (ocorrencias > 0) {
         fontesComPlaceholder.push(`${path.relative(dirFrontend, arquivo)} (${plural(ocorrencias, "referência", "referências")})`);
       }
     }
   }
   const TEM_PLACEHOLDER_DE_TERCEIRO = fontesComPlaceholder.length > 0;
-  console.log("\nA10) Inventario de saida externa de IMAGEM (pendencia de produto):\n");
+  console.log("\nA10) Saida externa de IMAGEM:\n");
   if (TEM_PLACEHOLDER_DE_TERCEIRO) {
     console.log(
-      `    ATENCAO: ${plural(fontesComPlaceholder.length, "arquivo emite", "arquivos emitem")} placeholder para picsum.photos,\n` +
+      `    VIOLACAO: ${plural(fontesComPlaceholder.length, "arquivo emite", "arquivos emitem")} placeholder para picsum.photos,\n` +
         `    host de TERCERO, requisitado ANTES de qualquer consentimento.`
     );
     for (const linha of fontesComPlaceholder) console.log(`      - ${linha}`);
     console.log(
-      "    MEDIDO no build de producao (SSR, backend de verdade, sem consentimento dado):\n" +
-        "    ver o numero em frontend/lib/imagens.ts (PENDENCIA no topo do arquivo).\n" +
-        "    As duas saidas (asset local x portao de consentimento) sao DECISAO DE PRODUTO.\n" +
-        "    Enquanto isso, a afirmacao de ZERO saida externa ate o consentimento NAO\n" +
-        "    e verdade para imagem. O numero medido esta em `frontend/lib/imagens.ts`."
+      "    O placeholder tem de ser GERADO LOCALMENTE (`lib/placeholder.ts`), com a\n" +
+        "    variacao visual preservada por hash deterministico do identificador.\n" +
+        "    Medido no build de producao: 61 conexoes a picsum.photos na home antes\n" +
+        "    da correcao. A decisao de produto esta registrada em `lib/imagens.ts`."
     );
   } else {
-    console.log("    Nenhum placeholder de terceiro: nenhuma saida externa de imagem.");
+    console.log(
+      "    MEDIDO: 0 fonte de imagem emite host de terceiro.\n" +
+        "    O placeholder e um SVG gerado localmente e embutido no proprio HTML\n" +
+        "    (data URI), com variacao por hash do identificador — entao nao abre\n" +
+        "    conexao nenhuma: nem para host externo, nem para host local."
+    );
   }
 
   rodarAutotestes();
@@ -633,19 +692,38 @@ async function main() {
     console.error(`\n${violacoes.length} verificação(ões) em VIOLAÇÃO de P1-09 (AdSense/Premium).`);
     process.exit(1);
   }
-  // A conclusao e escrita em duas partes DE PROPÓSITO. A primeira e o que
-  // a guarda realmente prova (anuncio e medicao). A segunda e o que ela
-  // NAO prova, e que antes desta correcao ela afirmava junto — a guarda
-  // dizia "nada externo" com o picsum na tela, e foi esse o mesmo defeito
-  // do comentario falso em `lib/imagens.ts`.
-  console.log("\nP1-09 OK — nada de ANUNCIO ou MEDICAO sai antes do consentimento; Premium sem anúncios; fallback Free sem anúncios.");
+  // A conclusao e escrita em DUAS PARTES, e agora as duas sao verdadeiras.
+  //
+  // Antes, a primeira parte era o que a guarda provava (anuncio e medicao) e a
+  // segunda era o que ela NAO provava — a guarda dizia "nada externo" com o
+  // picsum na tela, e esse era o mesmo defeito do comentario falso em
+  // `lib/imagens.ts`. Com a excecao eliminada, a segunda parte SAIU: nao ha
+  // mais nada de fora para omitir.
+  //
+  // E o que a guarda passa a poder AFIRMAR e maior do que antes, e e
+  // deliberado: antes ela so podia dizer o que nao afirmava. Uma guarda que
+  // so sabe negar aprende a esconder defeito. Esta conta e mostra.
+  //
+  // O ESCOPO continua declarado, porque "zero saida externa" sem escopo e
+  // frase vazia: a foto que o RSS traz (`imagem_url` do veiculo) vai direto
+  // para o host do veiculo. Isso e CONTEUDO — e a foto da noticia, nao uma
+  // foto de exemplo. A guarda varre o que o PORTAL escolhe, nao o que o
+  // veiculo escolhe.
   if (TEM_PLACEHOLDER_DE_TERCEIRO) {
-    console.log(
-      "ATENCAO — isto NAO e 'nada externo': o placeholder de imagem (`picsum.photos`)\n" +
-        "           e host de TERCERO e sai antes do consentimento. PENDENCIA de produto,\n" +
-        "           registrada em `frontend/lib/imagens.ts`."
+    console.error(
+      "\nVIOLACAO — o placeholder de imagem voltou a apontar para `picsum.photos`,\n" +
+        "           host de TERCERO requisitado antes do consentimento. Registrado em\n" +
+        "           `frontend/lib/imagens.ts`."
     );
+    process.exit(1);
   }
+  console.log(
+    "\nP1-09 OK — nada de ANUNCIO, MEDICAO ou IMAGEM-DE-PLACEHOLDER sai antes do consentimento;\n" +
+      "Premium sem anúncios; fallback Free sem anúncios.\n" +
+      "         O placeholder de imagem e gerado localmente (data URI): zero conexao,\n" +
+      "         zero bytes em disco, variacao por hash preservada.\n" +
+      "         FORA deste escopo: a foto que o RSS traz (host do veiculo) — e conteudo."
+  );
 }
 
 main().catch((erro) => {

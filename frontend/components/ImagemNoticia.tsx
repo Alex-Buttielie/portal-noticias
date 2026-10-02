@@ -8,25 +8,40 @@
 // - Sem `referrerPolicy="no-referrer"` vários portais negam o hotlink.
 // - Sem `srcSet` o mobile baixava 800px+ no 4G (lento + shift de layout).
 //
-// Cadeia de fallback: src original → picsum (seed) → placeholder local.
+// Cadeia de fallback: src original → placeholder LOCAL → bloco com ícone.
 // O placeholder mantém a mesma geometria (mesmas classes), então o layout
 // nunca quebra nem desloca, mesmo offline.
+//
+// O PLACEHOLDER É LOCAL, E ISSO MUDOU A CADEIA
+// =============================================
+// A etapa do meio era `picsum.photos`, que é host de TERCEIRO e era
+// requisitado ANTES de qualquer consentimento — 42 conexões na home. Hoje
+// ela é um SVG gerado dentro do HTML (`lib/placeholder.ts`): o browser não
+// abre conexão nenhuma para desenhá-lo. A máquina de estados continua com
+// os mesmos três estágios, e o último continua existindo: se a imagem real
+// falhar, cai no placeholder local; se algo der errado com ele, cai no bloco
+// com o ícone do Newspaper.
+//
+// Sobre o `srcSet`: sumiu com o picsum, e por um bom motivo — um SVG escala
+// para qualquer largura, então não há candidata maior/menor para escolher, e
+// um `srcset` de data URI seria ruído. A foto REAL continua sem `srcSet`, por
+// decisão antiga e independente: os domínios do RSS são arbitrários e não
+// há como enumerá-los (ver a nota sobre `next/image` mais abaixo).
 
 import { useState, type ReactNode } from "react";
 import { Newspaper } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { ehPicsum, picsum, seedDePicsum, srcSetPicsum } from "@/lib/imagens";
-import { urlSeguraParaImagem } from "@/lib/url-segura";
+import { placeholder, urlImagemUtilizavel } from "@/lib/imagens";
 
 type Props = {
   src?: string | null;
   alt: string;
-  /** seed do fallback picsum (ex.: `${categoria}-${id}`) */
+  /** identificador do placeholder (ex.: `${categoria}-${id}`) */
   seed: string;
   eager?: boolean;
   /** classes aplicadas à <img> (geometria: aspect, h/w, object-cover...) */
   className?: string;
-  /** sizes para o srcSet; default mobile-first */
+  /** aceito e ignorado: sem `srcSet` não há para que `sizes` seja usado */
   sizes?: string;
   /** conteúdo alternativo quando TUDO falha (ex.: iniciais do avatar) */
   fallback?: ReactNode;
@@ -40,22 +55,20 @@ export function ImagemNoticia({
   seed,
   eager = false,
   className,
-  sizes = "(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw",
   fallback,
   fallbackClassName,
 }: Props) {
   // `src` chega cru de várias rotas (`n.imagem_url` direto do feed), sem
-  // passar por `imagemNoticia()`. Por isso a allowlist é aplicada AQUI,
+  // passar por `imagemNoticia()`. Por isso as duas recusas são aplicadas AQUI,
   // no último ponto antes do `src`: nenhum caminho pode contornar.
   //
-  // Recusado => cai no picsum, que é um serviço de TERCEIRO e que é
-  // requisitado ANTES de qualquer consentimento. Não é uma URL do portal:
-  // ver a PENDÊNCIA no topo de `lib/imagens.ts` (a correção é decisão de
-  // produto, não de engenharia). O que a allowlist garante é fail-closed no
-  // esquema — um `javascript:` recusado nunca vira `src`.
-  const original = urlSeguraParaImagem(src) ?? "";
-  const [fase, setFase] = useState<"original" | "picsum" | "falhou">(
-    original ? "original" : "picsum"
+  // `urlImagemUtilizavel` = allowlist de ESQUEMA (fail-closed: um
+  // `javascript:` recusado nunca vira `src`) + recusa do host que já foi o
+  // placeholder do portal, para que um feed apontando para ele não
+  // reconecte o terceiro por dentro da allowlist.
+  const original = urlImagemUtilizavel(src) ?? "";
+  const [fase, setFase] = useState<"original" | "placeholder" | "falhou">(
+    original ? "original" : "placeholder"
   );
 
   if (fase === "falhou") {
@@ -77,18 +90,15 @@ export function ImagemNoticia({
     );
   }
 
-  const usandoPicsum = fase === "picsum" || !original;
-  const atual = usandoPicsum ? picsum(seed) : original;
-  // Reaproveita a seed quando o próprio original já é picsum.
-  const seedEfetiva = usandoPicsum ? seed : (seedDePicsum(original) ?? seed);
-  const comSrcSet = usandoPicsum || ehPicsum(original);
+  const usandoPlaceholder = fase === "placeholder" || !original;
+  const atual = usandoPlaceholder ? placeholder(seed) : original;
 
   return (
     // `<img>` proposital, não descuido. Três motivos, nenhum contornável
     // trocando a tag:
-    // 1. A cadeia de fallback (original → picsum → placeholder) é dirigida por
-    //    `onError`; o `next/image` tem o próprio ciclo de fallback e
-    //    quebraria a máquina de estados de `fase`.
+    // 1. A cadeia de fallback (original → placeholder local → bloco) é
+    //    dirigida por `onError`; o `next/image` tem o próprio ciclo de
+    //    fallback e quebraria a máquina de estados de `fase`.
     // 2. As imagens vêm de domínios de RSS arbitrários (e justamente
     //    hostis: hotlink bloqueado, 404, mixed-content). O `next/image` exige
     //    enumerar cada host em `remotePatterns` — impossível para um portal
@@ -97,20 +107,18 @@ export function ImagemNoticia({
     //    RCE crítico ainda sem patch neste repositório
     //    (GHSA-2xp9-vwfh-vxw4, faixa >=10.0.0 <15.5.24). Mandar as imagens
     //    para lá aumentaria a exposição enquanto o Next não for atualizado.
-    // O LCP é tratado com `loading`/`decoding`/`srcSet` acima. Desativação
+    // O LCP é tratado com `loading`/`decoding` acima. Desativação
     // pontual e justificada, não da regra.
     // eslint-disable-next-line @next/next/no-img-element
     <img
       src={atual}
-      srcSet={comSrcSet ? srcSetPicsum(seedEfetiva) : undefined}
-      sizes={comSrcSet ? sizes : undefined}
       alt={alt}
       loading={eager ? "eager" : "lazy"}
       decoding="async"
       draggable={false}
       referrerPolicy="no-referrer"
       onError={() =>
-        setFase((f) => (f === "original" ? "picsum" : "falhou"))
+        setFase((f) => (f === "original" ? "placeholder" : "falhou"))
       }
       className={className}
     />
