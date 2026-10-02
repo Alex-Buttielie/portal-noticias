@@ -3,7 +3,10 @@
 # e o build de produção do
 # frontend a cada push/PR — fecha a lacuna descrita na memória do projeto
 # ("project-portal-noticias-tool-outage": boa parte do código foi escrita
-# sem poder executar/testar de verdade). Também é chamado pelos workflows
+# sem poder executar/testar de verdade). No job do frontend o gate também
+# roda lint (ESLint), typecheck (tsc --noEmit, DEPOIS do build, porque antes
+# dele o Next ainda não gerou os tipos) e npm audit sobre as dependências.
+# Também é chamado pelos workflows
 # de deploy como o job `verify`; nesse caso é o gate do mesmo run, antes
 # de qualquer conexão SSH. Só valida, não faz deploy: o provisionamento é
 # papel dos workflows deploy-dev/homolog/prod (PM2 + Nginx na VPS).
@@ -87,6 +90,8 @@ jobs:
           node-version: "20"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
+      # ÚNICO install do job. Lint, build, typecheck e audit abaixo rodam
+      # todos contra este mesmo node_modules — nenhum passo reinstala.
       - run: npm ci
       - name: Verificar datas civis e instantes em TZ UTC/Tokyo
         run: |
@@ -97,8 +102,21 @@ jobs:
       # token/PII. Node puro, sem dependências; fail fast antes do tsc/build.
       - name: Verificar política de cache do query client (TanStack Query)
         run: node scripts/verificar-query-client.mjs
-      - run: npx tsc --noEmit
+      - name: Lint (ESLint)
+        run: npm run lint
       - run: npm run build
         env:
           NEXT_PUBLIC_API_BASE_URL: http://localhost:8000
           NEXT_PUBLIC_SITE_URL: http://localhost:3000
+      # typecheck DEPOIS do build, não antes: antes dele o Next ainda não
+      # gerou os tipos de rota (.next/types, next-env.d.ts) e o tsc falha por
+      # arquivo ausente — reprovação falsa. Depois do build os tipos existem
+      # e o gate passa a medir o código realmente gerado.
+      - name: Typecheck (tsc --noEmit, após o build)
+        run: npm run typecheck
+      # npm audit consulta o registro do npm: não usa node_modules, não
+      # instala nada e não repete o build. --audit-level=high reprova em
+      # HIGH/CRITICAL; severidade baixa/média fica como informação, sem
+      # bloquear o pipeline por advisoria transitória.
+      - name: Auditoria de dependências (npm audit)
+        run: npm audit --audit-level=high

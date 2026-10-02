@@ -106,6 +106,16 @@ on:
         required: true
       VPS_PORT:
         required: true
+      # Chave da API do Resend (https://resend.com/api-keys), usada para
+      # gravar RESEND_API_KEY no backend/.env do PRIMEIRO deploy e habilitar
+      # o canal de e-mail real (P1-04). NÃO é required de propósito: os
+      # callers hoje não mapeiam este secret, e exigir aqui reprovaria 100%
+      # dos deploys. Ausente/vazia mantém DJANGO_EMAIL_BACKEND=console, que é
+      # exatamente o comportamento de antes desta mudança — só o envio real
+      # continua recusado pelo gate, sem novo erro. Nunca comitar o valor:
+      # vem de secret, entra no .env da VPS e não volta para o repositório.
+      RESEND_API_KEY:
+        required: false
 
 # Impede que dois deploys do mesmo ambiente alterem o PM2 ao mesmo tempo. Um
 # run já em andamento nunca é cancelado; uma atualização mais nova espera sua
@@ -133,11 +143,22 @@ jobs:
     steps:
       - name: Deploy to VPS (${{ inputs.env_label }})
         uses: appleboy/ssh-action@v1.2.0
+        env:
+          # Secret ausente resolve para string vazia (nunca $null/erro) e o
+          # passo decide o backend no script remoto — ver o fallback no
+          # bloco do printf de backend/.env.
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           password: ${{ secrets.VPS_PASSWORD }}
           port: ${{ secrets.VPS_PORT }}
+          # Exporta a variável no shell da VPS em vez de interpolar o valor
+          # no texto do script: a chave não aparece no comando enviado por
+          # SSH nem em log. Se a action não exportar (ou vier vazia), o
+          # script cai no fallback "console" — degrada para o comportamento
+          # anterior, não quebra o deploy.
+          envs: RESEND_API_KEY
           script: |
             set -e
             export NVM_DIR="$HOME/.nvm"; [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"; nvm use 20
@@ -284,10 +305,50 @@ jobs:
               # interrupção no meio do printf nunca deixa backend/.env parcial.
               ENV_TMP="$APP_DIR/backend/.env.tmp.$$"
               (umask 077; : > "$ENV_TMP")
-              if ! printf 'DJANGO_SECRET_KEY=%s\nDJANGO_DEBUG=false\nDJANGO_ALLOWED_HOSTS=%s%s,108.174.147.50,localhost,127.0.0.1\nDJANGO_SECURE_SSL_REDIRECT=%s\nDJANGO_SESSION_COOKIE_SECURE=%s\nDJANGO_CSRF_COOKIE_SECURE=%s\nDJANGO_DB_ENGINE=postgresql\nDJANGO_DB_NAME=%s\nDJANGO_DB_USER=%s\nDJANGO_DB_PASSWORD=troque-aqui\nDJANGO_DB_HOST=localhost\nDJANGO_DB_PORT=5432\nFRONTEND_BASE_URL=%s\n' \
+              # Canal de e-mail (P1-04). A chave chega por env da step (secret
+              # do GitHub) e NUNCA pelo repositório. A escolha do backend é
+              # derivada da chave, e não fixa:
+              #  - chave presente e com formato aceitável -> backend do Resend,
+              #    que de fato entrega;
+              #  - chave ausente, vazia ou fora do formato esperado -> console,
+              #    exatamente o estado de hoje, e o gate continua recusando
+              #    cadastro (fail-closed, 503, sem 500) em vez de fingir
+              #    entrega.
+              # Fixar o backend do Resend com a chave vazia faria
+              # `manage.py check` (rodado mais abaixo, já com este .env no
+              # ambiente) importar o backend e estourar ValueError — o deploy
+              # inteiro abortaria. Por isso o fallback é console, e não
+              # Resend-vazio.
+              #
+              # A forma da chave também é filtrada, e isso não é paranoia: mais
+              # adiante o deploy faz `set -a; . ./.env`, ou seja, SOURCE o
+              # arquivo como shell. Uma chave com aspa ou quebra de linha
+              # escreveria um .env que o shell não consegue carregar
+              # ("unexpected EOF" / "command not found"), e por `set -e` isso
+              # abortaria o deploy inteiro — derrubando um deploy por causa de
+              # um segredo mal colado, que é exatamente o que não pode
+              # acontecer. Chave fora do alfabeto esperado é tratada como
+              # ausente: console + aviso, e o aviso diz o que fazer.
+              RESEND_API_KEY_ENV="${RESEND_API_KEY:-}"
+              case "$RESEND_API_KEY_ENV" in
+                *[!A-Za-z0-9._-]*)
+                  echo "AVISO: RESEND_API_KEY tem formato inesperado (caractere fora de [A-Za-z0-9._-]); ignorando o valor e gravando DJANGO_EMAIL_BACKEND=console."
+                  RESEND_API_KEY_ENV=""
+                  ;;
+              esac
+              if [ -n "$RESEND_API_KEY_ENV" ]; then
+                DJANGO_EMAIL_BACKEND="config.email_resend.ResendEmailBackend"
+              else
+                DJANGO_EMAIL_BACKEND="django.core.mail.backends.console.EmailBackend"
+                if [ -z "${RESEND_API_KEY+x}" ] || [ -z "$RESEND_API_KEY" ]; then
+                  echo "AVISO: secret RESEND_API_KEY ausente/vazio; gravando DJANGO_EMAIL_BACKEND=console. O cadastro segue recusado pelo gate de e-mail (503) até a chave existir."
+                fi
+              fi
+              if ! printf 'DJANGO_SECRET_KEY=%s\nDJANGO_DEBUG=false\nDJANGO_ALLOWED_HOSTS=%s%s,108.174.147.50,localhost,127.0.0.1\nDJANGO_SECURE_SSL_REDIRECT=%s\nDJANGO_SESSION_COOKIE_SECURE=%s\nDJANGO_CSRF_COOKIE_SECURE=%s\nDJANGO_DB_ENGINE=postgresql\nDJANGO_DB_NAME=%s\nDJANGO_DB_USER=%s\nDJANGO_DB_PASSWORD=troque-aqui\nDJANGO_DB_HOST=localhost\nDJANGO_DB_PORT=5432\nFRONTEND_BASE_URL=%s\nDJANGO_EMAIL_BACKEND=%s\nRESEND_API_KEY=%s\n' \
                 "$SECRET" "$HOST" "${{ inputs.allowed_hosts_extra }}" \
                 "$SSL_REDIRECT" "$SESSION_COOKIE_SECURE" "$CSRF_COOKIE_SECURE" \
-                "$DB_NAME" "$DB_USER" "$WEB_ORIGIN" > "$ENV_TMP"; then
+                "$DB_NAME" "$DB_USER" "$WEB_ORIGIN" \
+                "$DJANGO_EMAIL_BACKEND" "$RESEND_API_KEY_ENV" > "$ENV_TMP"; then
                 rm -f -- "$ENV_TMP" || true
                 exit 1
               fi
@@ -308,6 +369,43 @@ jobs:
                   exit 1
                 fi
               done
+              # DJANGO_ALLOWED_HOSTS: aqui o arquivo NÃO é reescrito (o
+              # operador pode ter ajustado à mão), então a única forma de
+              # pegar um valor quebrado é validá-lo. Um host errado não é um
+              # detalhe: com DEBUG=false o Django responde 400 em TODAS as
+              # URLs do site inteiro, e nem o smoke deste run nem o restart
+              # do PM2 ficariam sabendo disso — o deploy "passaria" com o
+              # site fora.
+              # Por isso a validação é dura (exit 1), no mesmo estilo dos
+              # três flags de TLS acima e no mesmo ponto do script: antes de
+              # qualquer npm/pip/migrate/restart, então abortar aqui NÃO
+              # derruba o site — o processo anterior do PM2 continua no ar.
+              # Valida formato e conteúdo; nunca corrige nem sobrescreve.
+              if ! grep -q '^DJANGO_ALLOWED_HOSTS=' backend/.env; then
+                echo "ERRO: DJANGO_ALLOWED_HOSTS ausente em backend/.env; sem ele o Django responde 400 em todo request. Ajuste o arquivo e redeploy"
+                exit 1
+              fi
+              ALLOWED_HOSTS_RAW="$(sed -n 's/^DJANGO_ALLOWED_HOSTS=//p' backend/.env | head -n 1)"
+              if [ -z "$ALLOWED_HOSTS_RAW" ]; then
+                echo "ERRO: DJANGO_ALLOWED_HOSTS vazio em backend/.env; sem host o Django responde 400 em todo request. Ajuste o arquivo e redeploy"
+                exit 1
+              fi
+              # Formato: lista separada por vírgula, sem esquema (://),
+              # sem barra (/), sem espaço/tab e sem elemento vazio
+              # (vírgula no início, no fim ou duplicada).
+              if ! printf '%s' "$ALLOWED_HOSTS_RAW" | grep -Eq '^[^,[:space:]/]+(,[^,[:space:]/]+)*$'; then
+                echo "ERRO: DJANGO_ALLOWED_HOSTS com formato inválido em backend/.env: '$ALLOWED_HOSTS_RAW'"
+                echo "      esperado: host1,host2 (vírgula, sem https://, sem barra, sem espaço, sem vírgula vazia)"
+                exit 1
+              fi
+              # Conteúdo: o domínio canônico deste ambiente tem de estar na
+              # lista. Sem ele o vhost deste ambiente responde 400 em todas
+              # as URLs; é o erro que o operador introduz ao editar à mão.
+              if ! printf '%s\n' "$ALLOWED_HOSTS_RAW" | tr ',' '\n' | grep -Fxq "$HOST"; then
+                echo "ERRO: DJANGO_ALLOWED_HOSTS em backend/.env não contém o domínio canônico deste ambiente ($HOST): '$ALLOWED_HOSTS_RAW'"
+                echo "      sem ele o site responde 400 em todas as URLs. Ajuste o arquivo e redeploy"
+                exit 1
+              fi
             fi
             cd "$APP_DIR/frontend"
             # P1-5 conservador: o build continua na VPS até existir um teste
