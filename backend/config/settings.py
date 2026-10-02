@@ -752,6 +752,25 @@ NEWSLETTER_TOKEN_DESCADASTRO_MAX_AGE_SECONDS = int(
     os.environ.get("NEWSLETTER_TOKEN_DESCADASTRO_MAX_AGE_SECONDS", 30 * 24 * 60 * 60)  # 30d
 )
 
+# Prazo de validade do LINK DE CONFIRMAÇÃO da inscrição (double opt-in), e
+# portanto também da pendência: passado ele, o link deixa de confirmar
+# (`newsletter/tokens.py:ler_hash_do_token_de_confirmacao`, `unsign(max_age=…)`)
+# e `services.expirar_pendencias` carimba `pendencia_expirada_em` na linha.
+#
+# 7 dias, e não 30 como o descadastro, porque os dois prazos respondem a
+# perguntas opostas: o de descadastro mede "quanto tempo o titular demora para
+# decidir que quer sair" (e uma saída que expira rápido é um portal que empurra
+# a pessoa a pedir a um atendente), e o de confirmação mede "quanto tempo a
+# pessoa leva para achar o e-mail de confirmação" (e um prazo curto aqui
+# significa inscrições que nunca confirmam — que é o oposto do que o double
+# opt-in quer). 7 dias cobre fim de semana, feriado e quem usa o celular só de
+# vez em quando.
+#
+# Configurável por ambiente para não exigir deploy de código.
+NEWSLETTER_TOKEN_CONFIRMACAO_MAX_AGE_SECONDS = int(
+    os.environ.get("NEWSLETTER_TOKEN_CONFIRMACAO_MAX_AGE_SECONDS", 7 * 24 * 60 * 60)  # 7d
+)
+
 # Versão vigente dos Termos/Política de Privacidade que o cadastro exige aceite
 # explícito (LGPD) — registrada em User.consentimento_versao_termos.
 TERMOS_VERSAO_ATUAL = os.environ.get("TERMOS_VERSAO_ATUAL", "1.0")

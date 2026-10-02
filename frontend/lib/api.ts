@@ -1125,15 +1125,71 @@ export function removerLocalidade(
 export type TipoNewsletter = "padrao" | "categoria" | "personalizada";
 export type PeriodoNewsletter = "manha" | "noite";
 
+/**
+ * Os três estados de uma inscrição (double opt-in), exatamente como
+ * `InscricaoNewsletter.estado()` os devolve no backend
+ * (`backend/newsletter/models.py`).
+ *
+ *   - `pendente`   — pediu; o resumo só sai depois do clique no link do e-mail;
+ *   - `confirmada` — confirmada; o resumo já sai;
+ *   - `rejeitada`  — revogada, ou a pendência venceu sem confirmação.
+ *
+ * O tipo é declarado AQUI e não reexportado do backend porque o frontend não
+ * importa Python; o vínculo entre as duas listas é o contrato do endpoint, e
+ * `test_p1_06_endpoints.py::test_inscricao_criada_responde_201_com_o_estado`
+ * fixa o lado do servidor desta lista.
+ */
+export type EstadoInscricaoNewsletter = "pendente" | "confirmada" | "rejeitada";
+
 export function inscreverNewsletter(
   token: string,
   dados: { tipo: TipoNewsletter; categorias?: string[]; periodo?: PeriodoNewsletter }
-): Promise<{ tipo: TipoNewsletter; periodo: PeriodoNewsletter; ativa: boolean }> {
+): Promise<{
+  tipo: TipoNewsletter;
+  periodo: PeriodoNewsletter;
+  ativa: boolean;
+  /**
+   * Os três estados da inscrição (double opt-in), e NÃO um enum inventado aqui:
+   * as strings são as mesmas de `InscricaoNewsletter.estado()`
+   * (`backend/newsletter/models.py`).
+   *
+   *   - `pendente`   — pediu, e o resumo só sai depois do clique no e-mail;
+   *   - `confirmada` — confirmada, e o resumo já sai;
+   *   - `rejeitada`  — revogada ou com a pendência vencida.
+   *
+   * `ativa` NÃO substitui este campo. `ativa` significa "pode receber", e há
+   * três maneiras de não receber (nunca pediu, pediu e não confirmou, cancelou)
+   * — a UI precisa saber QUAL, porque cada uma tem uma mensagem diferente.
+   */
+  estado: EstadoInscricaoNewsletter;
+  confirmada: boolean;
+  detail: string;
+}> {
   return request("/api/newsletter/inscrever/", { method: "POST", body: JSON.stringify(dados) }, token);
 }
 
 export function cancelarNewsletter(token: string): Promise<void> {
   return request("/api/newsletter/inscrever/", { method: "DELETE" }, token);
+}
+
+/**
+ * Confirma a inscrição pelo link do e-mail (double opt-in).
+ *
+ * Rota NOVA em `backend/newsletter/urls.py`, `AllowAny` + `EscritaPublicaAnonThrottle`,
+ * e a MESMA resposta 200 com o MESMO corpo para token válido, inválido, expirado
+ * ou já usado — é a propriedade que impede o endpoint de virar oráculo de
+ * "esta pessoa está inscrita?". Por isso o `detail` aqui NÃO confirma nada:
+ * quem leu "se o link que você abriu era válido" e sabe que não era, já sabe
+ * que a confirmação não aconteceu.
+ *
+ * Só devolve 400 quando nenhum token veio (erro de formulário, sem tocar o
+ * banco).
+ */
+export function confirmarInscricaoNewsletter(token: string): Promise<{ detail: string }> {
+  return request("/api/newsletter/confirmar/", {
+    method: "POST",
+    body: JSON.stringify({ token }),
+  });
 }
 
 // Descadastro pelo token do e-mail (link de descadastro do envio) —

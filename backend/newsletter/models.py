@@ -94,6 +94,68 @@ class InscricaoNewsletter(models.Model):
     ativa = models.BooleanField(default=True)
     token_descadastro = models.CharField(max_length=64, unique=True, default=gerar_token)
 
+    # -------------------------------------------------------------------------
+    # O ESTADO PENDENTE DA CONFIRMAÇÃO (double opt-in)
+    # -------------------------------------------------------------------------
+    # `ativa` NÃO pode continuar significando "pode receber". Com o double
+    # opt-in, uma inscrição recién-criada é ATIVA e mesmo assim NÃO pode receber
+    # nada: está esperando o clique. Colocar `ativa=True` nesse estado e esperar
+    # que o filtro de envio cuide disso seria um furo silencioso — o filtro é
+    # de LEITURA, e qualquer tela futura que liste `ativa=True` trataria a
+    # pessoa como inscrita antes de ela ter confirmado (o mesmo defeito que a
+    # Pendência 1 do P1-06 registra em `services.py:5-10`).
+    #
+    # Por isso a linha nasce `ativa=False` e só fica `ativa=True` no clique.
+    # `ativa=False` deixa de ser ambíguo: ou a pessoa revogou, ou a pendência
+    # expirou — e as duas coisas continuam datadas em
+    # `consentimento_revogado_em`/`pendencia_expirada_em`.
+    #
+    # `token_confirmacao` é o segredo do par de tokens de CONFIRMAÇÃO. É uma
+    # coluna separada de `token_descadastro` pelo mesmo motivo que
+    # `newsletter/tokens.py` usa salts diferentes para os dois propósitos: um
+    # link não pode abrir o outro. Se compartilhassem o segredo, o link de
+    # descadastro do último resumo entregue confirmaria a inscrição — e o
+    # contrário também.
+    #
+    # A rotação é feita NO USO, no mesmo `UPDATE` que confirma, pelo mesmo
+    # motivo do descadastro (`services.descadastrar_por_token`): o segredo
+    # ANTIGO vai no filtro e o NOVO no `set`, o que torna a operação atômica e
+    # o token de uso único.
+    token_confirmacao = models.CharField(
+        max_length=64,
+        unique=True,
+        default=gerar_token,
+        editable=False,
+        help_text="Segredo do token de confirmação. Nunca sai do banco.",
+    )
+    #: Quando a pendência foi criada. É o que a expiração conta, e não
+    #: `criado_em`: `criado_em` é `auto_now_add` e dataria a LINHA, que numa
+    #: reinscrição é a mesma de antes.
+    confirmacao_solicitada_em = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Quando o link de confirmação foi enviado para esta inscrição.",
+    )
+    #: Quando a pessoa confirmou. NULL = pendente.
+    confirmado_em = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Quando a pessoa confirmou a inscrição pelo link do e-mail. NULL = pendente.",
+    )
+    #: Quando a pendência EXPIROU sem confirmação. NULL = não expirou.
+    #:
+    #: Registrado em vez de derivado de `confirmacao_solicitada_em` +
+    #: janela, porque a expiração é um FATO que precisa continuar verificável
+    #: depois: `criado_em`/`confirmacao_solicitada_em` dizem quando o link saiu,
+    #: e a partir do momento em que a pendência expira esse link nunca mais
+    #: confirma — que é o mesmo raciocínio de primeira classe que motivou
+    #: `consentimento_revogado_em` no P1-06.
+    pendencia_expirada_em = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Quando a pendência expirou sem confirmação. NULL = não expirou.",
+    )
+
     criado_em = models.DateTimeField(auto_now_add=True)
     atualizado_em = models.DateTimeField(auto_now=True)
 
@@ -159,10 +221,83 @@ class InscricaoNewsletter(models.Model):
     class Meta:
         verbose_name = "inscrição de newsletter"
         verbose_name_plural = "inscrições de newsletter"
+        indexes = [
+            # Índice do filtro de ENVIO. `enviar_newsletters` roda por job e a
+            # consulta é sempre a mesma: `ativa=True AND user IS NOT NULL AND
+            # confirmado_em IS NOT NULL`. Com índice, o job não faz seq scan de
+            # uma tabela que só cresce — e a ausência de índice aqui não é
+            # estética: a lista de pendentes cresce junto com a base.
+            models.Index(
+                fields=["ativa", "confirmado_em"],
+                name="newsletter_ativa_confi_idx",
+            ),
+            # Índice da VARREDURA DE PENDÊNCIAS: `ativa=False AND
+            # confirmado_em IS NULL`. É o que faz a expiração não varrer a
+            # tabela inteira a cada execução.
+            models.Index(
+                fields=["confirmado_em", "pendencia_expirada_em"],
+                name="newsletter_confi_expi_idx",
+            ),
+        ]
 
     def __str__(self):
         titular = self.user_id if self.user_id is not None else "anonimizada"
-        return f"Newsletter de {titular} ({self.tipo}, {'ativa' if self.ativa else 'inativa'})"
+        return f"Newsletter de {titular} ({self.tipo}, {self.estado()})"
+
+    # -------------------------------------------------------------------------
+    # OS TRÊS ESTADOS, e onde cada um VIVE
+    # -------------------------------------------------------------------------
+    #
+    #   | estado    | ativa | confirmado_em | consentimento_aceito_em | pendencia_expirada_em |
+    #   |-----------|-------|---------------|-------------------------|-----------------------|
+    #   | PENDENTE  | Falso | NULL          | NULL                    | NULL                  |
+    #   | CONFIRMADA| True  | com data      | com data                | NULL                  |
+    #   | REJEITADA | Falso | NULL          | NULL                    | com data              |
+    #
+    # `REJEITADA` cobre os dois motivos pelos quais a linha deixa de poder
+    # receber sem ter recebido jamais: revogação (`consentimento_revogado_em`)
+    # e expiração da pendência (`pendencia_expirada_em`). Os dois são
+    # distinguíveis pelos campos datados, e é essa distinção que um encarregado
+    # de dados precisa para responder "por que esta pessoa não recebe mais?".
+    #
+    # Deliberadamente NÃO há coluna `estado` com `choices`. Um `CharField`
+    # permite "pendente" e "confirmada" coexistirem em uma linha sem regra que
+    # impeça a combinação impossível (`estado='confirmada'` com
+    # `confirmado_em=None`), e essa combinação é exatamente o bug que alguém
+    # introduziria daqui a seis meses. Os campos de primeira classe não ficam
+    # inconsistentes: cada um responde UMA pergunta factual.
+    #
+    # Por que `consentimento_aceito_em` é NULL no estado pendente, e não gravado
+    # no POST: o P1-06 grava nele "quando o titular CONCEDEU o consentimento".
+    # Com double opt-in, no POST a pessoa ainda não concedeu nada — ela pediu.
+    # Gravar a data ali seria declarar um consentimento que não aconteceu, e é
+    # o mesmo erro que `newsletter/tokens.py` documenta sobre `atualizado_em`:
+    # um campo que parece responder a uma pergunta e responde a outra. A data
+    # da concessão passa a ser a do clique.
+    def estado(self) -> str:
+        """`pendente` | `confirmada` | `rejeitada` — derivado, nunca gravado."""
+        if self.confirmado_em is not None:
+            return "confirmada"
+        if self.consentimento_revogado_em is not None or self.pendencia_expirada_em is not None:
+            return "rejeitada"
+        if self.ativa:
+            return "confirmada"
+        return "pendente"
+
+    @property
+    def pode_receber(self) -> bool:
+        """Se esta linha pode entrar no envio — a definição de uma linha.
+
+        Deliberadamente um método derivado dos campos, e não um campo: um
+        `BooleanField` calculado pode divergir dos campos de primeira classe e
+        ninguém nota. A pergunta tem três partes e as três são verificáveis.
+        """
+        return bool(
+            self.ativa
+            and self.confirmado_em is not None
+            and self.consentimento_aceito_em is not None
+            and self.user_id is not None
+        )
 
 
 class EnvioNewsletter(models.Model):

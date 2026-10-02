@@ -52,6 +52,7 @@ from newsletter.tests.doubles import (
     CAMINHO_EXPLODE,
     CAMINHO_RECUSA,
 )
+from newsletter.tests.fabrica import inscricao_confirmada_para
 
 pytestmark = pytest.mark.django_db
 User = get_user_model()
@@ -65,7 +66,7 @@ def _consentido(email):
 
 
 def _inscrito(email):
-    return services.inscrever(_consentido(email), InscricaoNewsletter.TIPO_PADRAO)
+    return inscricao_confirmada_para(_consentido(email), InscricaoNewsletter.TIPO_PADRAO)
 
 
 # ---------------------------------------------------------------------------
@@ -265,11 +266,11 @@ def test_envio_nao_inclui_inscricao_inativa_ou_sem_consentimento():
 def test_periodo_separa_manha_e_noite_sem_entrega_real():
     """Com o caminho de não-entrega, o estado é 'nada foi entregue' e mesmo assim
     o período é respeitado — o filtro de público roda antes do do canal."""
-    manha = services.inscrever(
+    manha = inscricao_confirmada_para(
         _consentido("p-manha@example.com"), InscricaoNewsletter.TIPO_PADRAO,
         periodo=InscricaoNewsletter.PERIODO_MANHA,
     )
-    services.inscrever(
+    inscricao_confirmada_para(
         _consentido("p-noite@example.com"), InscricaoNewsletter.TIPO_PADRAO,
         periodo=InscricaoNewsletter.PERIODO_NOITE,
     )

@@ -1,8 +1,11 @@
 """
-Token de descadastro da newsletter — P1-06.
+Tokens da newsletter: descadastro (P1-06) e confirmação (double opt-in).
 
-O que este módulo resolve
-========================
+Dois PROPÓSITOS, um MESMO PAR. Ver a seção do double opt-in no fim deste
+docstring.
+
+O que este módulo resolve (descadastro)
+=======================================
 Até `d225791` o link de descadastro carregava o **segredo do banco cru**
 (`InscricaoNewsletter.token_descadastro`, `newsletter/models.py:40`), e o
 endpoint aceitava esse valor cru. Três consequências, todas medidas:
@@ -63,7 +66,33 @@ linha. A prova de que o `atualizado_em` nunca serviu está em
 
 Continua pendente, e é decisão de produto/jurídico: a versão do texto de
 consentimento da newsletter (a coluna `versao_consentimento` existe, mas
-`NEWSLETTER_VERSAO_CONSENTIMENTO` é vazio por padrão) e o double opt-in.
+`NEWSLETTER_VERSAO_CONSENTIMENTO` é vazio por padrão).
+
+O DOUBLE OPT-IN (2026-10-02) — o MESMO PAR, UM PROPÓSITO NOVO
+=============================================================
+O token de confirmação NÃO é um segundo mecanismo: é o MESMO par
+(segredo no banco + SHA-256 assinado com `TimestampSigner`), com um salt
+próprio. A escolha é deliberada e tem dois motivos:
+
+1. **Reuso, não reinvenção.** Um token opaco novo em tabela exigiria uma
+   migration e um segundo lugar onde "o token já foi usado?" mora. Este módulo
+   já provou, com teste, que o par entrega as três propriedades — expira
+   (`unsign(max_age=...)`), é de uso único (o segredo é rotacionado no uso) e
+   não vaza o segredo do banco (só o SHA-256 vai no link).
+2. **Salt separado, e não FIELD separado só porque sim.** `CONFIRMACAO_SALT`
+   é diferente de `DESCADASTRO_SALT` pelo mesmo motivo documentado acima: são
+   PROPÓSITOS diferentes, e um link que abre um abre o outro é um link que dá
+   ao dono de um deles um poder que não deveria ter. Quem tem o link de
+   confirmação não pode cancelar a newsletter, e quem tem o de descadastro não
+   pode confirmar uma inscrição.
+
+As duas colunas (`token_descadastro` e `token_confirmacao`) também são
+separadas, e por uma consequência prática do mesmo motivo: a rotação de um não
+pode invalidar o outro. Se compartilhassem o segredo, confirmar a inscrição
+rotacionaria o segredo que está no link de descadastro do ÚLTIMO RESUMO
+ENTREGUE — e o titular perderia a saída da newsletter justamente no e-mail que
+ela usa para querer sair. Seriam dois poderes num segredo só, e o segundo
+perderia sem querer.
 """
 
 from __future__ import annotations
@@ -80,10 +109,18 @@ from django.core.signing import BadSignature, SignatureExpired
 # dono de um link de verificação o direito de cancelar a newsletter — e o
 # contrário.
 DESCADASTRO_SALT = "newsletter.descadastrar"
+#: Salt do token de CONFIRMAÇÃO da inscrição (double opt-in). Deliberadamente
+#: diferente do de descadastrar: são poderes diferentes, e um link que abre um
+#: teria de abrir o outro. Ver o docstring do módulo.
+CONFIRMACAO_SALT = "newsletter.confirmar"
 
 
-def _assinante() -> signing.TimestampSigner:
-    return signing.TimestampSigner(salt=DESCADASTRO_SALT)
+def _assinante(salt: str = DESCADASTRO_SALT) -> signing.TimestampSigner:
+    return signing.TimestampSigner(salt=salt)
+
+
+def _assinante_confirmacao() -> signing.TimestampSigner:
+    return signing.TimestampSigner(salt=CONFIRMACAO_SALT)
 
 
 def hash_do_segredo(segredo: str) -> str:
@@ -116,6 +153,50 @@ def ler_hash_do_token(token: str) -> str | None:
     )
     try:
         payload = _assinante().unsign(token.strip(), max_age=max_age)
+    except (BadSignature, SignatureExpired):
+        return None
+    return payload or None
+
+
+# ---------------------------------------------------------------------------
+# CONFIRMAÇÃO DA INSCRIÇÃO (double opt-in) — o MESMO par, outro propósito
+# ---------------------------------------------------------------------------
+
+
+def gerar_token_confirmacao(inscricao) -> str:
+    """Token que vai na URL do e-mail de confirmação. Não expõe o segredo.
+
+    Assina `sha256(inscricao.token_confirmacao)` com o salt de CONFIRMAÇÃO. É
+    a mesma construção de `gerar_token_descadastro`, com duas diferenças que
+    são o ponto do desenho: outro segredo (outra coluna) e outro salt (outro
+    poder). Rodar os dois tokens pelo MESMO par impede que alguém empurre um
+    para o outro por engano depois.
+    """
+    return _assinante_confirmacao().sign(hash_do_segredo(inscricao.token_confirmacao))
+
+
+def ler_hash_do_token_de_confirmacao(token: str) -> str | None:
+    """Devolve o hash assinado da confirmação, ou `None` (inválido/expirado).
+
+    O `None` é a mesma indistinguibilidade do descadastro, e por um motivo
+    AGORA MAIS FORTE: a confirmação é um endpoint público e anônimo, e o
+    `DescadastrarView` já estabeleceu que a resposta não pode distinguir
+    "token válido" de "token que não casa com nada". Um atacante que consiga
+    distinguir os dois confirma, para si mesmo, que um endereço está na base do
+    portal — o vazamento que a LGPD e o art. 8º, V tratam como direito do
+    titular, não como informação do portal.
+
+    `None` cobre token malformado, assinatura inválida, expirado e token cujo
+    segredo já foi rotacionado pelo uso. Os quatro são a mesma resposta, e é
+    isso que o chamador precisa: um booleano "posso confirmar ou não".
+    """
+    if not token or not isinstance(token, str):
+        return None
+    max_age = getattr(
+        settings, "NEWSLETTER_TOKEN_CONFIRMACAO_MAX_AGE_SECONDS", 7 * 24 * 60 * 60
+    )
+    try:
+        payload = _assinante_confirmacao().unsign(token.strip(), max_age=max_age)
     except (BadSignature, SignatureExpired):
         return None
     return payload or None

@@ -66,8 +66,49 @@ ABERTO (e por quê, não por preguiça):
    distingue finalidades), e gravar o número dele aqui seria afirmar que a
    pessoa leu um texto que não leu. Escrever "1.0" seria fabricar um artefato
    jurídico. A decisão é de produto/jurídico; o campo está pronto para ela.
-4. **Double opt-in.** A inscrição é imediata, no mesmo POST. Mudar isso é
-   mudança de fluxo e de produto, não de retenção.
+
+O DOUBLE OPT-IN (2026-10-02) — O ITEM 4 ACIMA, FECHADO
+======================================================
+O item 4 acima está FECHADO. A inscrição deixou de ser imediata: o POST cria a
+linha **pendente**, e a pessoa passa a receber depois de clicar no link do
+e-mail. Três decisões, e o motivo de cada uma:
+
+1. **O gate de canal ANTES de gravar, não depois.**
+   ============================== ==============================
+   Sem isto, a inscrição double   Com isto, o que acontece hoje (que é o
+   opt-in é permanentemente       CORRETO e não é um bug):
+   inutilizável: a pessoa se      503, recusa, e NADA é gravado.
+   inscreve, o estado vira
+   "pendente", e o e-mail de
+   confirmação nunca sai — porque
+   `DJANGO_EMAIL_BACKEND` não
+   está definido em nenhum dos
+   três `.env` e `RESEND_API_KEY`
+   está vazia. Ninguém confirma,
+   nunca. E o endpoint devolveria
+   200 "inscrição pendente", e a
+   pessoa ficaria esperando um
+   e-mail que não chega.
+
+   Hoje o cadastro pelo menos
+   devolvia 503 com uma mensagem
+   honesta; sem o gate antes de
+   gravar, ele passaria a devolver
+   200 e a MENTIR — que é
+   exatamente o que o programa
+   inteiro existe para eliminar.
+   ==============================================================
+
+2. **`ativa=False` na pendência, e não `ativa=True` com filtro de leitura.**
+   Ver `InscricaoNewsletter.pode_receber`. Um filtro no `enviar_newsletters`
+   seria necessário mas não suficiente: ele protege o ENVIO, e não protege a
+   LEITURA — e é a leitura que uma tela de "minhas inscrições", uma métrica ou
+   um relatório do admin usaria para dizer que a pessoa está inscrita. O
+   default do modelo é `ativa=True`; o double opt-in **inverte esse default**,
+   e é a inversão que faz o resto ser seguro.
+
+3. **O token de confirmação é o mesmo par do descadastro, com outro salt e
+   outra coluna.** Ver `newsletter/tokens.py`.
 """
 
 from __future__ import annotations
@@ -77,10 +118,13 @@ import logging
 
 from django.conf import settings
 from django.core.mail import EmailMessage
+from django.db import transaction
 from django.utils import timezone
 
 from config.email_entrega import (
     BACKENDS_SEM_ENTREGA_REAL,
+    CanalIndisponivel,
+    FalhaDeEntrega,
     entregar_email,
     orientacao_de_configuracao,
     registrar_evento,
@@ -91,7 +135,13 @@ from gating.services import has_feature
 from radar.services import tendencias as radar_tendencias
 
 from .models import EnvioNewsletter, InscricaoNewsletter, gerar_token
-from .tokens import gerar_token_descadastro, hash_do_segredo, ler_hash_do_token
+from .tokens import (
+    gerar_token_confirmacao,
+    gerar_token_descadastro,
+    hash_do_segredo,
+    ler_hash_do_token,
+    ler_hash_do_token_de_confirmacao,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -99,7 +149,12 @@ logger = logging.getLogger(__name__)
 #: assunto do e-mail. O assunto é constante: nenhum dado do inscrito (nem do
 #: conteúdo do resumo) entra em header.
 DESTINO_NEWSLETTER = "newsletter"
+#: Rótulo separado para o e-mail de CONFIRMAÇÃO, porque ele mede uma coisa
+#: diferente do resumo: quantas pessoas ainda não confirmaram. Num rótulo só, a
+#: métrica seria a soma de duas perguntas sem resposta.
+DESTINO_CONFIRMACAO = "newsletter_confirmacao"
 ASSUNTO_NEWSLETTER = "Seu resumo do Portal de Notícias"
+ASSUNTO_CONFIRMACAO = "Confirme sua inscrição na newsletter — Portal de Notícias"
 
 
 class RecursoGatedError(Exception):
@@ -115,8 +170,79 @@ class ConsentimentoAusenteError(Exception):
     """
 
 
+class CanalDeConfirmacaoIndisponivel(Exception):
+    """Não há canal de e-mail — a inscrição é recusada e NADA é gravado.
+
+    Existe separada de `FalhaDeEntrega` porque as duas respondem coisas
+    diferentes e a diferença é verificável: `FalhaDeEntrega` é um provedor que
+    recusou uma mensagem que JÁ tinha sido montada (o que significa que houve
+    tentativa), e esta é a ausência de canal, verificada ANTES de qualquer
+    escrita — o que significa que nada foi tentado e nada foi gravado.
+
+    Sem essa distinção, a view responderia 503 com a mesma frase para os dois
+    casos e o operador não saberia dizer se o problema é configuração ausente ou
+    provedor fora do ar. Com ela, a resposta de 503 diz o que falta, e é a
+    mesma frase que `config.email_entrega.orientacao_de_configuracao()` dá ao
+    log — uma fonte, dois leitores.
+    """
+
+    def __init__(self, motivos: tuple[str, ...]):
+        self.motivos = motivos
+        super().__init__("; ".join(motivos))
+
+
 def _tem_consentimento(user) -> bool:
     return getattr(user, "consentimento_aceito_em", None) is not None
+
+
+#: Os três estados, por nome — o vocabulário que a view, o admin e os testes
+#: compartilham. `InscricaoNewsletter.estado()` é a única fonte; estas são só as
+#: etiquetas, para nenhum dos três escrever a string à mão.
+ESTADO_PENDENTE = "pendente"
+ESTADO_CONFIRMADA = "confirmada"
+ESTADO_REJEITADA = "rejeitada"
+
+
+def _cobrar_canal_antes_de_gravar() -> None:
+    """O PORTÃO. Recusa a inscrição ANTES de existir linha pendente.
+
+    Esta é a função de maior consequência do item, e ela existe numa posição
+    específica: **antes do primeiro `INSERT`**.
+
+    Por que antes. O double opt-in transforma a inscrição numa promessa: quem
+    recebe 200 é alguém a quem o portal disse "confirme no seu e-mail". Medido
+    na VPS em 2026-10-02, `DJANGO_EMAIL_BACKEND` não está definido em nenhum dos
+    três `.env` (o default é `console`, que imprime no stdout e não entrega a
+    ninguém) e `RESEND_API_KEY` está vazia. Com o gate aqui, a inscrição é
+    recusada com 503 e nada é gravado; sem ele, a pessoa receberia 200
+    "inscrição pendente" e ficaria esperando um e-mail que nunca sai — que é a
+    mentira de entrega reintroduzida por um caminho novo, e a mesma que o
+    `CadastroView` (`identidade/views.py:173-183`) e o `ContatoView`
+    (`contato/views.py:131-143`) já impedem nos dois fluxos deles.
+
+    Por que `verificar_canal_email()` e não `canal_entrega_real()`. A segunda é
+    o predicado de LISTA que o P1-06 travou contra o `contato`
+    (`newsletter/tests/test_p1_06_entrega.py`) — e ela é estritamente mais
+    fraca: não vê o Resend sem `RESEND_API_KEY`, que é exatamente o estado real
+    de hoje. Um gate de inscrição que aceitasse Resend sem chave deixaria passar
+    o estado de produção atual.
+
+    Por que uma função e não uma linha. Para que o ponto da recusa seja
+    inequívoco no `grep` e para que o teste que a exercita tenha UM lugar para
+    apontar. Um teste de gate que aponta para uma linha de um `if` de cinco
+    linhas é um teste que a próxima pessoa move sem perceber que moveu.
+    """
+    canal = verificar_canal_email()
+    if canal.disponivel:
+        return
+    registrar_evento(DESTINO_CONFIRMACAO, "sem_canal")
+    logger.error(
+        "newsletter: inscrição RECUSADA por ausência de canal de entrega real "
+        "(motivo=%s). Nada foi gravado. %s",
+        "; ".join(canal.motivos),
+        orientacao_de_configuracao(),
+    )
+    raise CanalDeConfirmacaoIndisponivel(canal.motivos)
 
 
 def inscrever(user, tipo, categorias=None, periodo=None) -> InscricaoNewsletter:
@@ -126,15 +252,94 @@ def inscrever(user, tipo, categorias=None, periodo=None) -> InscricaoNewsletter:
     return inscricao
 
 
+def _pendencias_do_usuario(user) -> list:
+    """Inscrições PENDENTES deste usuário — as que ainda esperam confirmação.
+
+    Existe como função, e não como um `filter` espalhado, por um motivo que só
+    aparece quando alguém usa a lista errada: as pendências são as linhas que
+    `user=NULL` NÃO encontra. Uma inscrição expirada ou revogada pelo caminho
+    autenticado perde o vínculo, e reencontrá-la por `user` só a traria de volta
+    depois de um cadastro novo — que é a linha errada.
+    """
+    return list(
+        InscricaoNewsletter.objects.filter(user=user).exclude(confirmado_em__isnull=False)
+    )
+
+
+def _corrigir_pendencias_anteriores(user) -> int:
+    """Reinscrição: as pendências antigas deste usuário são REJEITADAS.
+
+    Sem isto, uma linha pendente continuaria `confirmada_em IS NULL` para sempre
+    e o clique no link antigo — que é um link que JÁ FOI ENVIADO, e que por isso
+    está na caixa de entrada de quem pediu a pendência — confirmaria a
+    inscrição. A pessoa pediria para receber, receberia dois e-mails e o
+    registro do consentimento ficaria com duas datas sem nenhuma das duas ser
+    falsa.
+
+    A regra é "último pedido vence", e ela é a mesma do link de descadastro: o
+    link antigo deixa de funcionar e a pessoa usa o e-mail mais recente.
+    Datado em `pendencia_expirada_em`, porque a pergunta "por que esta
+    inscrição não confirmou?" precisa de resposta, e "pedido anterior,
+    substituído por um novo" é uma resposta diferente de "ninguém clicou".
+    """
+    pendentes = _pendencias_do_usuario(user)
+    if not pendentes:
+        return 0
+    agora = timezone.now()
+    # Filtro pelo segredo ANTIGO de cada linha, para que duas reinscrições
+    # simultâneas não se apliquem a si mesmas: a que perde a corrida casa zero
+    # e a outra já rotacionou.
+    for inscricao in pendentes:
+        InscricaoNewsletter.objects.filter(
+            pk=inscricao.pk, token_confirmacao=inscricao.token_confirmacao
+        ).update(
+            ativa=False,
+            confirmado_em=None,
+            pendencia_expirada_em=agora,
+            token_confirmacao=gerar_token(),
+        )
+    logger.info(
+        "newsletter: %d pendência(s) substituídas por um novo pedido (usuario_id=%s)",
+        len(pendentes),
+        user.pk,
+    )
+    return len(pendentes)
+
+
 def inscrever_com_status(user, tipo, categorias=None, periodo=None):
     """`inscrever` + o booleano `criado` do `update_or_create`.
 
     `update_or_create` nunca duplica: `InscricaoNewsletter.user` é
-    `OneToOneField` (`newsletter/models.py:35`) e o filtro é por `user`, então a
-    segunda inscrição do MESMO e-mail atualiza a linha existente. O que muda na
-    segunda vez é o status HTTP: anunciar `201 Created` quando nada foi criado
-    mente sobre o que o servidor fez — mesmo motivo que fez `landing/` responder
-    200 na segunda vez (`landing/views.py:34-35`).
+    `OneToOneField` e o filtro é por `user`, então a segunda inscrição do MESMO
+    e-mail atualiza a linha existente. O que muda na segunda vez é o status
+    HTTP: anunciar `201 Created` quando nada foi criado mente sobre o que o
+    servidor fez — mesmo motivo que fez `landing/` responder 200 na segunda vez
+    (`landing/views.py:34-35`).
+
+    O QUE MUDOU COM O DOUBLE OPT-IN, e o que NÃO mudou
+    ==================================================
+    **Mudou:** a linha nasce PENDENTE (`ativa=False`, `confirmado_em=None`,
+    `consentimento_aceito_em=None`) e um e-mail de confirmação é enviado. Ela só
+    vira confirmada no clique. O `ativa=True` do `defaults` abaixo é o ÚNICO
+    ponto do código que significa "pode receber", e ele só é gravado por
+    `confirmar_por_token`.
+
+    **Não mudou:** o consentimento continua sendo pré-requisito de escrita
+    (recusa 403 antes de qualquer escrita), o Premium continua sendo recusado
+    (403), a linha continua sendo única por usuário, e a revogação continua
+    cortando o vínculo com a pessoa.
+
+    A ORDEM das verificações é o ponto. `_cobrar_canal_antes_de_gravar()` vem
+    DEPOIS do consentimento e do gating por um motivo verificável: os dois
+    primeiros são decisões sobre **esta conta**, e uma delas (o gating) consulta
+    o banco. Verificar o canal antes deles faria a ausência de canal responder
+    503 para quem tem conta e para quem não tem, o que é um ORÁCULO DE
+    EXISTÊNCIA DE CONTA — exatamente o vazamento que
+    `identidade/views.py:169-183` existe para não criar. Verificar depois
+    mantém a recusa por canal restrita a quem, de todo modo, poderia se
+    inscrever; e o que a pessoa recebe é 503 nos dois casos de qualquer forma,
+    então nada é distinguído fora do `detail` — que é a diferença entre "você
+    precisa aceitar os termos" e "o portal não tem e-mail configurado".
     """
     if not _tem_consentimento(user):
         raise ConsentimentoAusenteError(
@@ -143,31 +348,304 @@ def inscrever_com_status(user, tipo, categorias=None, periodo=None):
         )
     if tipo == InscricaoNewsletter.TIPO_PERSONALIZADA and not has_feature(user, "newsletter_personalizada"):
         raise RecursoGatedError("Newsletter personalizada é um recurso Premium.")
+
+    # O PORTÃO, antes do primeiro INSERT. Nada existe no banco até aqui.
+    _cobrar_canal_antes_de_gravar()
+
     agora = timezone.now()
+    # Reinscrição: as pendências anteriores deste usuário saem de cena, e o
+    # link delas deixa de confirmar. Ver `_corrigir_pendencias_anteriores`.
+    _corrigir_pendencias_anteriores(user)
+
     defaults = {
         "tipo": tipo,
         "categorias": categorias or [],
-        "ativa": True,
-        # A RETENÇÃO (este item): cada inscrição passa a ser um REGISTRO de
-        # consentimento de primeira classe, com a data em que foi concedido.
-        # `update_or_create` só encontra uma linha já VINCULADA a este usuário —
-        # uma inscrição revogada fica com `user=NULL` e não é reencontrada
-        # (ver `descadastrar_por_token`), então `criado=True` significa sempre
-        # "um novo ato de consentimento", nunca "reativei o antigo".
-        "consentimento_aceito_em": agora,
+        # PENDENTE. Não `ativa=True`: `ativa` é o que qualquer tela futura
+        # listaria para dizer "esta pessoa está inscrita", e no clique ela
+        # ainda não está. Ver o docstring do módulo.
+        "ativa": False,
+        # A data da CONCESSÃO é gravada no clique, e não aqui. Ver
+        # `confirmar_por_token` e `InscricaoNewsletter.estado()`.
+        "consentimento_aceito_em": None,
         "consentimento_revogado_em": None,
         "anonimizado_em": None,
+        "confirmado_em": None,
+        "pendencia_expirada_em": None,
+        "confirmacao_solicitada_em": agora,
+        # O segredo de confirmação é ROTACIONADO a cada pedido: o link do
+        # pedido anterior deixa de confirmar, o que é a forma de "uso único"
+        # antes mesmo do clique.
+        "token_confirmacao": gerar_token(),
         "versao_consentimento": _versao_do_consentimento(),
     }
     if periodo:
         defaults["periodo"] = periodo
-    inscricao, criado = InscricaoNewsletter.objects.update_or_create(user=user, defaults=defaults)
-    if criado:
-        # Auditoria do ato de consentir, sem e-mail e sem token: o `request_id`
-        # já entra em toda linha pelo `RequestIdLogFilter`, e a origem do
-        # consentimento é a própria data que acabou de ser gravada.
-        logger.info("newsletter: inscrição criada (inscricao=%s)", inscricao.pk)
+
+    # A gravação e o envio são UMA operação do ponto de vista de quem está do
+    # outro lado: ou os dois acontecem, ou nenhum. `transaction.atomic` é o que
+    # garante isso — sem ele, uma falha do provedor deixaria uma inscrição
+    # pendente que ninguém pode confirmar e que também não pode ser descadastrada
+    # por link (o e-mail com o link nunca chegou). Mesmo desenho do
+    # `CadastroView` (`identidade/views.py:196-206`), pelo mesmo motivo.
+    with transaction.atomic():
+        inscricao, criado = InscricaoNewsletter.objects.update_or_create(
+            user=user, defaults=defaults
+        )
+        _enviar_email_de_confirmacao(inscricao)
+        if criado:
+            # Auditoria do ato de PEDIR, sem e-mail e sem token: o `request_id`
+            # já entra em toda linha pelo `RequestIdLogFilter`, e a origem do
+            # pedido é a própria data que acabou de ser gravada. A data da
+            # concessão ainda não existe — ela é o clique.
+            logger.info(
+                "newsletter: inscrição PENDENTE criada (inscricao=%s)", inscricao.pk
+            )
+        else:
+            logger.info(
+                "newsletter: inscrição PENDENTE reemitida (inscricao=%s)", inscricao.pk
+            )
     return inscricao, criado
+
+
+def _corpo_do_email_de_confirmacao(inscricao) -> str:
+    """Corpo do e-mail de confirmação, com o link de uso único.
+
+    O texto tem três jobs, e o terceiro é o que costuma faltar: dizer o que
+    acontece se a pessoa NÃO clicar. Sem isso, o silêncio do portal depois de
+    uma pendência expirada é indistinguível de um bug — e é a pergunta que a
+    pessoa faz ao suporte.
+
+    O link de descadastro também entra aqui, e isso é deliberado: a pessoa que
+    se inscreve e se arrepende ANTES de confirmar precisa de uma saída que não
+    dependa de entrar na conta. Um link que só valesse depois da confirmação a
+    deixaria presa esperando um clique que ela não quer dar — e é por isso que
+    `_campos_de_revogacao` rotaciona `token_confirmacao`: para que cancelar
+    uma pendência invalide também o link que está na caixa de entrada dela.
+
+    O caminho do link de descadastro aqui é `/newsletter?token=…`, e NÃO
+    `/newsletter/descadastrar?token=…`. A diferença não é estética:
+    `montar_corpo_email` (linha 884) aponta para `/newsletter/descadastrar`,
+    que **não é uma rota do frontend** — `frontend/app/newsletter/` só tem
+    `page.tsx`. O `DescadastrarForm` está DENTRO de `/newsletter` e lê o token
+    de `window.location.search` (`NewsletterForm.tsx`, o `useEffect` que faz
+    `new URLSearchParams(window.location.search).get("token")`). Ou seja: o
+    caminho que funciona é `/newsletter?token=…`, e o do resumo é um 404.
+
+    Não corrigi o do resumo aqui porque isso é o link do P1-06 e mudá-lo muda o
+    contrato de duas asserções de testes que não são deste item. Está reportado
+    como achado. O que este item não faz é PROPAGAR o link quebrado para um
+    e-mail novo: um e-mail de confirmação com 404 no botão de cancelar seria
+    uma falha nova, introduzida agora.
+    """
+    link_confirmacao = (
+        f"{settings.FRONTEND_BASE_URL}/newsletter/confirmar"
+        f"?token={gerar_token_confirmacao(inscricao)}"
+    )
+    link_descadastro = (
+        f"{settings.FRONTEND_BASE_URL}/newsletter"
+        f"?token={gerar_token_descadastro(inscricao)}"
+    )
+    return (
+        "Você pediu para receber a newsletter do Portal de Notícias.\n\n"
+        "Confirme sua inscrição clicando no link abaixo. Só depois de confirmar "
+        "você passa a receber o resumo — até lá, nenhum e-mail de newsletter é "
+        "enviado para este endereço.\n\n"
+        f"{link_confirmacao}\n\n"
+        "Se você não fez esta inscrição, ignore este e-mail: nada acontece.\n\n"
+        f"Se não quer receber mesmo assim, cancele aqui: {link_descadastro}"
+    )
+
+
+def _enviar_email_de_confirmacao(inscricao) -> None:
+    """Entrega o e-mail de confirmação. Levanta em vez de degradar.
+
+    Não tem "sucesso silencioso": quem chama está dentro de `transaction.atomic`
+    e trata `CanalIndisponivel`/`FalhaDeEntrega` revertendo a transação. Um
+    `except` aqui que engolisse a falha produziria a linha pendente sem o
+    e-mail — exatamente o estado que o portão existe para impedir.
+    """
+    destinatario = inscricao.user.email
+    mensagem = EmailMessage(
+        subject=ASSUNTO_CONFIRMACAO,
+        body=_corpo_do_email_de_confirmacao(inscricao),
+        from_email=settings.DEFAULT_FROM_EMAIL,
+        to=[destinatario],
+    )
+    try:
+        entregar_email(mensagem, destino=DESTINO_CONFIRMACAO)
+    except (CanalIndisponivel, FalhaDeEntrega):
+        # Log mínimo: o id da inscrição, que não é dado pessoal. Sem endereço,
+        # sem token, sem corpo da mensagem e sem `str(exc)` — o texto de erro de
+        # um provedor real ecoa o payload, e o payload carrega o link de
+        # confirmação. Copiá-lo para o log seria, literalmente, publicar o token
+        # de uso único de uma linha que vai ser revertida.
+        logger.error(
+            "newsletter: e-mail de confirmação NÃO entregue (inscricao=%s)",
+            inscricao.pk,
+        )
+        raise
+    logger.info(
+        "newsletter: e-mail de confirmação entregue (inscricao=%s)", inscricao.pk
+    )
+
+
+def confirmar_por_token(token) -> str:
+    """Consome o token de confirmação. Devolve o estado resultante.
+
+    IDEMPOTENTE por construção: confirmar uma inscrição JÁ CONFIRMADA não muda
+    nada e devolve `"confirmada"`. Reaproveitar um token já usado devolve
+    `"rejeitada"` — o segredo foi rotacionado no primeiro clique, então o hash
+    do token não casa com nenhuma linha. São os dois estados terminais, e ambos
+    são reached por um clique que "não fez nada", que é o resultado honesto.
+
+    NENHUM token é logado, e o retorno é o ESTADO, não um texto para o cliente:
+    a view mapeia os três para uma única resposta (ver
+    `newsletter.views.ConfirmarView`), e é essa uniformidade que impede o
+    endpoint de ser oráculo de existência de inscrição.
+
+    Uso único e atomicidade, pelo mesmo mecanismo do descadastro: o segredo
+    ANTIGO vai no filtro do `UPDATE` e o NOVO no `set`. Dois cliques
+    simultâneos no mesmo link — o que acontece com duplo clique, com
+    pré-carregador de link de cliente de e-mail, e com o "abra em todos os
+    dispositivos" — não podem confirmar duas vezes nem reverter nada: o
+    segundo casa zero linhas.
+    """
+    hash_assinado = ler_hash_do_token_de_confirmacao(token)
+    if hash_assinado is None:
+        # Token malformado, com assinatura inválida ou EXPIRADO. Os três caem
+        # aqui, e é o mesmo `None` de `DescadastrarView`: o chamador não pode
+        # distinguir "expirou" de "nunca existiu", porque essa distinção é
+        # informação sobre a inscrição.
+        logger.info("newsletter: confirmação com token inválido ou expirado")
+        return ESTADO_REJEITADA
+
+    inscricao = _localizar_por_hash_de_confirmacao(hash_assinado)
+    if inscricao is None:
+        logger.info("newsletter: confirmação com token que não casa com inscrição")
+        return ESTADO_REJEITADA
+
+    if inscricao.confirmado_em is not None:
+        # Já confirmada. Idempotência: o segundo clique no mesmo link (ou o
+        # clique em um link de um pedido já confirmado) não faz mal nenhum.
+        logger.info(
+            "newsletter: confirmação repetida (inscricao=%s, ja_confirmada=True)",
+            inscricao.pk,
+        )
+        return ESTADO_CONFIRMADA
+
+    if inscricao.user_id is None:
+        # A linha não responde mais a nenhuma pessoa: foi revogada ou expirada
+        # e perdeu o vínculo. Não há o que confirmar.
+        logger.info(
+            "newsletter: confirmação recusada — inscrição sem vínculo (inscricao=%s)",
+            inscricao.pk,
+        )
+        return ESTADO_REJEITADA
+
+    agora = timezone.now()
+    confirmadas = InscricaoNewsletter.objects.filter(
+        pk=inscricao.pk,
+        token_confirmacao=inscricao.token_confirmacao,
+        confirmado_em__isnull=True,
+    ).update(
+        ativa=True,
+        confirmado_em=agora,
+        # A data da CONCESSÃO é a do clique. No POST não existe concessão: a
+        # pessoa pediu. Ver `InscricaoNewsletter.estado()`.
+        consentimento_aceito_em=agora,
+        consentimento_revogado_em=None,
+        anonimizado_em=None,
+        pendencia_expirada_em=None,
+        # Rotação: o segredo novo invalida o link usado. É o que torna o token
+        # de uso único e é o que faz o segundo clique cair em
+        # `ESTADO_REJEITADA` em vez de re-confirmar.
+        token_confirmacao=gerar_token(),
+    )
+    if not confirmadas:
+        # Corrida: outra requisição rotacionou o segredo entre o SELECT e o
+        # UPDATE. O efeito desejado já foi alcançado por ela.
+        logger.info(
+            "newsletter: confirmação perdeu a corrida (inscricao=%s)", inscricao.pk
+        )
+        return ESTADO_CONFIRMADA
+
+    logger.info(
+        "newsletter: inscrição CONFIRMADA por token (inscricao=%s)", inscricao.pk
+    )
+    return ESTADO_CONFIRMADA
+
+
+def _localizar_por_hash_de_confirmacao(hash_assinado: str):
+    """Inscrição pendente cujo segredo de confirmação produz `hash_assinado`.
+
+    Espelha `_localizar_por_hash` e por um motivo simétrico: o segredo do banco
+    nunca sai do processo, então não existe coluna indexável para o hash, e a
+    comparação é feita em Python sobre as linhas candidatas.
+
+    O conjunto de candidatas é MENOR que no descadastro: só as pendentes
+    (`confirmado_em IS NULL`). Não é uma otimização — é a propriedade. Uma
+    inscrição já confirmada não pode ser "casada" por um token de confirmação,
+    mesmo que o segredo bata, e o filtro garante isso **no banco**, e não
+    apenas no `if` depois do `for`. Um segredo que parece utilizável é um
+    segredo que volta a ser testado.
+    """
+    for inscricao in InscricaoNewsletter.objects.filter(
+        confirmado_em__isnull=True
+    ).only("pk", "token_confirmacao", "user_id"):
+        segredo = inscricao.token_confirmacao
+        if not segredo:
+            continue
+        if hmac.compare_digest(hash_do_segredo(segredo), hash_assinado):
+            return inscricao
+    return None
+
+
+def expirar_pendencias() -> int:
+    """Carimba `pendencia_expirada_em` nas pendências vencidas. Devolve quantas.
+
+    Uma pendência vencida NÃO pode mais confirmar: o token expira pelo
+    `TimestampSigner` (`NEWSLETTER_TOKEN_CONFIRMACAO_MAX_AGE_SECONDS`) e
+    `ler_hash_do_token_de_confirmacao` devolve `None` para ele. Esta função não
+    é o que impede a confirmação — o prazo no token é — ela é o que torna o
+    FATO visível no banco, datado, para o operador e para um encarregado de
+    dados responderem "por que esta inscrição não confirmou?".
+
+    A distinção importa porque é a mesma que o P1-06 fez com
+    `consentimento_revogado_em`: "ninguém clicou" e "o pedido foi substituído
+    por outro" são a mesma linha e respostas diferentes.
+
+    Idempotente e segura para rodar em qualquer frequência: só toca linhas que ainda
+    estão pendentes E sem carimbo, e o filtro inclui o segredo atual de cada
+    uma, o que impede que uma pendência renovada durante a varredura receba o
+    carimbo de uma que já venceu.
+    """
+    from datetime import timedelta
+
+    limite = timezone.now() - timedelta(
+        seconds=getattr(settings, "NEWSLETTER_TOKEN_CONFIRMACAO_MAX_AGE_SECONDS", 7 * 24 * 60 * 60)
+    )
+    vencidas = InscricaoNewsletter.objects.filter(
+        confirmado_em__isnull=True,
+        pendencia_expirada_em__isnull=True,
+        confirmacao_solicitada_em__lt=limite,
+    ).only("pk", "token_confirmacao")
+    agora = timezone.now()
+    expiradas = 0
+    for inscricao in vencidas:
+        affected = InscricaoNewsletter.objects.filter(
+            pk=inscricao.pk,
+            token_confirmacao=inscricao.token_confirmacao,
+            confirmado_em__isnull=True,
+            pendencia_expirada_em__isnull=True,
+        ).update(
+            ativa=False,
+            pendencia_expirada_em=agora,
+            token_confirmacao=gerar_token(),
+        )
+        expiradas += affected
+    if expiradas:
+        logger.info("newsletter: %d pendência(s) expirada(s) sem confirmação", expiradas)
+    return expiradas
 
 
 def _versao_do_consentimento() -> str:
@@ -184,7 +662,7 @@ def _versao_do_consentimento() -> str:
 
 
 def cancelar_inscricao(user) -> None:
-    """Revoga o consentimento pelo endpoint autenticado (`DELETE /inscrever/`).
+    """Revoga pelo endpoint autenticado (`DELETE /inscrever/`).
 
     Faz a MESMA coisa que `descadastrar_por_token` — e essa é a razão de ser
     desta função ter deixado de ser um simples `.update(ativa=False)`: os dois
@@ -192,6 +670,16 @@ def cancelar_inscricao(user) -> None:
     preservasse o vínculo com a pessoa seria um contorno do outro. Um titular
     que se descadastra pelo link do e-mail e outro que cancela pelo formulário
     autenticado precisam ter o mesmo direito exercido do mesmo jeito.
+
+    FUNCIONA NOS DOIS ESTADOS, e é o que o double opt-in não podia quebrar.
+    Cancelar uma PENDENTE não é caso raro: é a pessoa que se inscreve, não
+    recebe o e-mail de confirmação (ou lê e se arrepende) e cancela antes de
+    confirmar. O cancelamento é mais forte do que a pendência: o
+    `token_confirmacao` também é rotacionado, de modo que o link de
+    confirmação que está na caixa de entrada dela deixa de funcionar. Sem
+    isso, revogar de uma pendente só desligaria o envio — e a linha, com
+    `confirmado_em` ainda NULL e o segredo vivo, poderia ser reativada por
+    um clique que a pessoa já não quer.
     """
     InscricaoNewsletter.objects.filter(user=user).update(
         **_campos_de_revogacao(gerar_token())
@@ -210,13 +698,29 @@ def _campos_de_revogacao(segredo_novo: str) -> dict:
     deixa a linha como prova. `anonimizado_em` é o carimbo do ato. Nenhum dos
     dois é reversível pelo código — não há função que ligue a linha de volta a
     um `User`.
+
+    `confirmado_em` e `pendencia_expirada_em` são explicitamente zerados, e
+    isso não é "apagar o histórico": os dois descrevem o que a linha PODE fazer
+    a partir de agora, não o que aconteceu. Uma revogação sobre uma PENDENTE
+    deixa `confirmado_em` NULL (ela nunca foi confirmada — apagar um valor que
+    era NULL não perde nada) e carimba `pendencia_expirada_em` para que a linha
+    saia do conjunto das pendências aguardando clique. Uma revogação sobre uma
+    CONFIRMADA mantém `confirmado_em`, que é o registro histórico de quando o
+    consentimento foi concedido, e é exatamente a prova que
+    `consentimento_aceito_em` + `consentimento_revogado_em` já guardavam.
+
+    `token_confirmacao` é rotacionado: sem isso, o link de confirmação de uma
+    pendência cancelada continuaria capaz de CONFIRMAR a inscrição, e o titular
+    teria cancelado para nada. Ver `cancelar_inscricao`.
     """
+    agora = timezone.now()
     return {
         "ativa": False,
         "token_descadastro": segredo_novo,
-        "consentimento_revogado_em": timezone.now(),
+        "token_confirmacao": gerar_token(),
+        "consentimento_revogado_em": agora,
         "user": None,
-        "anonimizado_em": timezone.now(),
+        "anonimizado_em": agora,
     }
 
 
@@ -544,13 +1048,40 @@ def enviar_newsletters(periodo: str | None = None) -> EnvioNewsletter:
     * **Métrica e `/health-detail` — P1-04.** `registrar_evento` conta
       `portal_email_entrega_total{destino="newsletter",situacao=...}` em
       `sem_canal`/`entregue`/`falha`, e o canal aparece no health-detail.
+
+    O DOUBLE OPT-IN NESTE `UPDATE`, e por que o filtro não basta sozinho
+    =====================================================================
+    `confirmado_em__isnull=False` entra no filtro porque a pergunta "esta pessoa
+    confirmou?" tem resposta em uma coluna, e respondê-la no banco é mais
+    barato e mais auditável do que responder em Python para cada linha.
+
+    Mas o filtro NÃO é a garantia. A garantia é `ativa=False` na pendência
+    (`inscrever_com_status`), e o filtro é a segunda rede. Se alguém
+    reintroduzisse `ativa=True` na inscrição pendente e o filtro continuasse, o
+    envio ainda seria barrado — e se as DUAS fossem reintroduzidas juntas, quem
+    receberia o resumo seria alguém que nunca confirmou, que é o defeito que o
+    double opt-in existe para impedir. Por isso o teste que prova isto não
+    olha só o resultado do job: ele afirma que a linha pendente tem
+    `ativa=False` (ver `test_pendente_nao_recebe_mesmo_com_o_job_rodando`) E que
+    o job não a envia. As duas afirmações, e a segunda sobrevive à reintrodução
+    do filtro.
+
+    Vale registrar o que já estava aqui e continua valendo:
+    `user__isnull=False` é redundante — uma linha revogada tem `ativa=False` e
+    já sai no filtro — e mesmo assim está escrito, porque a próxima pessoa a
+    mexer aqui não deveria precisar saber disso para não mandar um e-mail para
+    um registro de consentimento anonimizado.
     """
-    # `user__isnull=False` é redundante — uma linha revogada tem `ativa=False` e
-    # já sai no filtro — e mesmo assim está escrito, porque a próxima pessoa a
-    # mexer aqui não deveria precisar saber disso para não mandar um e-mail
-    # para um registro de consentimento anonimizado.
     filtros = {
         "ativa": True,
+        # O DOUBLE OPT-IN: sem esta linha, uma inscrição que ninguém confirmou
+        # receberia o resumo. Ver o bloco acima.
+        "confirmado_em__isnull": False,
+        # E o consentimento PRÓPRIO da newsletter, que agora só existe depois do
+        # clique. Sem esta linha, uma linha confirmada de uma conta sem aceite
+        # de Termos entraria no envio — a defesa de leitura que o P1-06 já
+        # exigia, agora com o segundo consentimento por baixo do primeiro.
+        "consentimento_aceito_em__isnull": False,
         "user__isnull": False,
         "user__consentimento_aceito_em__isnull": False,
     }

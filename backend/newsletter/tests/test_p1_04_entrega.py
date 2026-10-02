@@ -45,6 +45,8 @@ from config.tests.backends import (
 )
 from newsletter import services
 from newsletter.models import EnvioNewsletter, InscricaoNewsletter
+from newsletter.tests.fabrica import inscricao_confirmada_para
+from django.test import override_settings
 
 pytestmark = pytest.mark.django_db
 
@@ -61,10 +63,27 @@ def _limpa_registro_de_entregas():
 
 
 def _usuario_inscrito(email):
+    """Monta o cenário: uma conta consentida COM uma inscrição CONFIRMADA.
+
+    O `override_settings` é local ao `inscrever` e não é decoração. Os testes
+    deste arquivo medem o ENVIO do resumo com o canal quebrado de propósito
+    (`console`, `RecusaBackend`, …), e o double opt-in faz do canal uma
+    pré-condição da inscrição: sem ele, `services.inscrever` levanta
+    `CanalDeConfirmacaoIndisponivel` e não grava nada. Ou seja, o caminho real
+    de quem assina a newsletter é "inscreve-se havendo canal, recebe o resumo
+    mesmo que o canal quebre depois" — e é essa sequência que este cenário
+    monta.
+
+    Enrolar apenas a chamada de `inscrever` (e não o teste inteiro) é o que
+    mantém o resto do teste no backend que ele escolheu. Um
+    `override_settings` no corpo do teste contaminaria a asserção principal
+    destes testes — que é justamente que o backend quebrado impede a entrega.
+    """
     usuario = User.objects.create_user(email=email, password="SenhaForte123")
     usuario.consentimento_aceito_em = timezone.now()
     usuario.save(update_fields=["consentimento_aceito_em"])
-    services.inscrever(usuario, InscricaoNewsletter.TIPO_PADRAO)
+    with override_settings(EMAIL_BACKEND=BACKEND_QUE_ENTREGA):
+        inscricao_confirmada_para(usuario, InscricaoNewsletter.TIPO_PADRAO)
     return usuario
 
 

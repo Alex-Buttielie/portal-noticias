@@ -24,13 +24,14 @@ from rest_framework.test import APIClient
 
 from newsletter import services
 from newsletter.models import InscricaoNewsletter
-from newsletter.tokens import gerar_token_descadastro
+from newsletter.tokens import gerar_token_confirmacao, gerar_token_descadastro
 
 pytestmark = pytest.mark.django_db
 User = get_user_model()
 
 INSCRIVER = "/api/newsletter/inscrever/"
 DESCADASTRAR = "/api/newsletter/descadastrar/"
+CONFIRMAR = "/api/newsletter/confirmar/"
 
 
 def _consentido(email, papel="free"):
@@ -44,6 +45,29 @@ def _cliente(user):
     cliente = APIClient()
     cliente.credentials(HTTP_AUTHORIZATION="Token " + Token.objects.create(user=user).key)
     return cliente
+
+
+def _confirmar(cliente, user, dados=None):
+    """Inscreve e confirma — o caminho inteiro, e ele passa pela view.
+
+    Inscreve primeiro porque é assim que a pessoa chega lá: o token do link só
+    existe depois do POST. E usa `services.confirmar_por_token` por dentro (via
+    `gerar_token_confirmacao` + `ConfirmarView`) e NÃO uma escrita direta,
+    porque estes são testes de CONTRATO HTTP: se o helper gravasse
+    `confirmado_em` na mão, o teste passaria mesmo com o endpoint de
+    confirmação quebrado.
+
+    O token sai do mesmo lugar de onde sairia na caixa de entrada da pessoa —
+    do segredo da linha — e o clique passa pela view.
+    """
+    inscricao_do_post = cliente.post(
+        INSCRIVER, dados or {"tipo": "padrao"}, format="json"
+    )
+    inscricao = InscricaoNewsletter.objects.get(user=user)
+    token = gerar_token_confirmacao(inscricao)
+    resposta = cliente.post(CONFIRMAR, {"token": token}, format="json")
+    assert resposta.status_code == 200, resposta.content
+    return inscricao_do_post, resposta
 
 
 def _limite_configurado() -> int:
@@ -97,6 +121,17 @@ def test_delete_exige_autenticacao():
 
 
 def test_inscricao_criada_responde_201_com_o_estado():
+    """O contrato de 201 mudou com o double opt-in, e a mudança é o item.
+
+    Antes: `ativa=True` na resposta, e isso significava "esta pessoa passa a
+    receber". Agora significa "esta pessoa PASSOU A PEDIR, e o resumo só sai
+    depois do clique" — então a resposta diz `estado="pendente"` e
+    `confirmada=False`, e `ativa` é `False`.
+
+    A asserção que importa não é `ativa is False` (que é sintaxe); é
+    `confirmada is False` com `estado == "pendente"`, porque são os dois campos
+    que o frontend usa para escolher o texto, e é o estado que o banco carrega.
+    """
     user = _consentido("novo@example.com")
     resposta = _cliente(user).post(INSCRIVER, {"tipo": "padrao"}, format="json")
 
@@ -104,7 +139,9 @@ def test_inscricao_criada_responde_201_com_o_estado():
     corpo = resposta.json()
     assert corpo["tipo"] == "padrao"
     assert corpo["periodo"] == "manha"
-    assert corpo["ativa"] is True
+    assert corpo["ativa"] is False, "a inscrição nasce pendente: `ativa` é o que pode receber"
+    assert corpo["estado"] == "pendente"
+    assert corpo["confirmada"] is False
     assert InscricaoNewsletter.objects.filter(user=user).count() == 1
 
 
@@ -124,9 +161,14 @@ def test_segunda_inscricao_responde_200_e_nao_duplica():
     assert primeira.status_code == 201
     assert segunda.status_code == 200
     assert InscricaoNewsletter.objects.filter(user=user).count() == 1
-    assert "atualizada" in segunda.json()["detail"].lower()
+    # O texto do 200 mudou com o double opt-in: "atualizada" era o texto do
+    # fluxo imediato, e aqui a segunda chamada REEMITE o link de confirmação —
+    # o que a pessoa precisa saber é que precisa olhar o e-mail de novo, não
+    # que as escolhas foram atualizadas. A asserção abaixo é a que prova que
+    # o texto segue coerente com o que o backend fez: o segredo rotacionou.
+    assert "confirma" in segunda.json()["detail"].lower()
     # O conteúdo do estado continua igual — só muda a honestidade do status.
-    for campo in ("tipo", "periodo", "ativa"):
+    for campo in ("tipo", "periodo", "ativa", "estado", "confirmada"):
         assert segunda.json()[campo] == primeira.json()[campo]
 
 
@@ -162,10 +204,21 @@ def test_reinscrever_apos_desativar_cria_um_novo_registro_de_consentimento():
     Isso é o modelo correto do ponto de vista do titular: um ato de consentimento
     é um registro imutável, não um campo que liga e desliga. A linha antiga não
     "volta": ela permanece, revogada, e é a evidência.
+
+    O DOUBLE OPT-IN APONTA PARA ONDE ISSO ACONTECE
+    ================================================
+    Antes, o teste podia parar na linha 202 e comparar datas de concessão. Com o
+    double opt-in, a data de concessão nasce no CLIQUE, então a inscrição nova
+    nasce com `consentimento_aceito_em=None` e a comparação de datas só faz
+    sentido depois de confirmar as DUAS. É por isso que o cenário inteiro é
+    subscriptions + confirmar + revogar + reinscrever + confirmar: cada etapa é
+    o que dá sentido à próxima, e pular uma deixaria a comparação de datas sem
+    o que comparar.
     """
     user = _consentido("volta@example.com")
     cliente = _cliente(user)
-    cliente.post(INSCRIVER, {"tipo": "padrao"}, format="json")
+    _confirmar(cliente, user)
+    assert InscricaoNewsletter.objects.get(user=user).confirmado_em is not None
     services.cancelar_inscricao(user)
 
     # Depois do cancelamento, a linha não responde mais por ninguém.
@@ -173,6 +226,10 @@ def test_reinscrever_apos_desativar_cria_um_novo_registro_de_consentimento():
     revogada = InscricaoNewsletter.objects.get(consentimento_revogado_em__isnull=False)
     assert revogada.ativa is False
     assert revogada.consentimento_aceito_em is not None
+    # E ela é a EVIDÊNCIA de um consentimento que existiu: confirmar grava
+    # `confirmado_em` E `consentimento_aceito_em`, e a revogação não apaga
+    # nenhum dos dois.
+    assert revogada.confirmado_em is not None
 
     resposta = cliente.post(INSCRIVER, {"tipo": "padrao"}, format="json")
 
@@ -180,15 +237,30 @@ def test_reinscrever_apos_desativar_cria_um_novo_registro_de_consentimento():
     # ("atualizada") seria dizer que um recurso foi modificado quando o que
     # existe é outro recurso.
     assert resposta.status_code == 201
-    assert resposta.json()["ativa"] is True
+    # A linha nova nasce PENDENTE — como toda inscrição nova desde o double
+    # opt-in. O que muda em relação ao fluxo anterior é que ela ainda não tem
+    # data de concessão nenhuma, e a comparação abaixo só vale depois do clique.
+    assert resposta.json()["ativa"] is False
+    assert resposta.json()["estado"] == "pendente"
     nova = InscricaoNewsletter.objects.get(user=user)
     assert nova.pk != revogada.pk
-    assert nova.consentimento_aceito_em >= revogada.consentimento_aceito_em
+    assert nova.consentimento_aceito_em is None, (
+        "a concessão é o clique; no POST a pessoa só pediu"
+    )
     assert nova.consentimento_revogado_em is None
     # O registro antigo segue lá, revogado e anonimizado.
     revogada.refresh_from_db()
     assert revogada.ativa is False
     assert revogada.anonimizado_em is not None
+
+    # E agora a data da concessão da linha nova, que é o que a versão anterior
+    # deste teste comparava na linha errada. O POST aqui é o que cria a
+    # pendência; a confirmação é o que dá a data.
+    _confirmar(cliente, user)
+    confirmada = InscricaoNewsletter.objects.get(user=user)
+    assert confirmada.pk == nova.pk, "confirmar não cria outra linha"
+    assert confirmada.consentimento_aceito_em >= revogada.consentimento_aceito_em
+    assert confirmada.confirmado_em is not None
 
 
 def test_periodo_e_tipo_passao_pelo_endpoint():
@@ -245,10 +317,17 @@ def test_delete_desativa_a_inscricao_e_responde_204():
     pessoa cortado. Se ele só fizesse `ativa=False`, existiria um caminho para
     revogar o consentimento sem anonimizar — e um caminho é tudo que a
     anonimização não pode ter.
+
+    O cenário inscreve E CONFIRMA antes de cancelar, porque é o caminho real:
+    quem cancela pelo formulário autenticado é quem chegou até o estado
+    confirmada. Cancelar uma PENDENTE é o outro caminho, e tem teste próprio
+    (`test_delete_de_pendencia_invalida_o_link_de_confirmacao`) porque a
+    garantia que ele precisa é diferente: revogar uma pendente tem de
+    INVALIDAR o link, não só desligar o envio.
     """
     user = _consentido("cancela@example.com")
     cliente = _cliente(user)
-    cliente.post(INSCRIVER, {"tipo": "padrao"}, format="json")
+    _confirmar(cliente, user)
     inscricao = InscricaoNewsletter.objects.get(user=user)
 
     resposta = cliente.delete(INSCRIVER)
@@ -260,11 +339,49 @@ def test_delete_desativa_a_inscricao_e_responde_204():
     assert inscricao.consentimento_revogado_em is not None
     assert inscricao.consentimento_aceito_em is not None
     assert inscricao.anonimizado_em is not None
+    # A confirmação é um FATO e não se apaga na revogação: a linha continua
+    # provando que houve consentimento, quando e que foi revogado. Apagar
+    # `confirmado_em` aqui faria a prova perder o que ela prova.
+    assert inscricao.confirmado_em is not None
     # O vínculo com a pessoa foi cortado — a linha continua, mas não responde
     # mais a nenhuma consulta por usuário.
     assert inscricao.user_id is None
     assert inscricao.user is None
     assert not InscricaoNewsletter.objects.filter(user=user).exists()
+
+
+def test_delete_de_pendencia_invalida_o_link_de_confirmacao():
+    """O descadastro a partir do estado PENDENTE, e a garantia própria dele.
+
+    Este é o caso que o double opt-in criou e que não existia antes: a pessoa
+    se inscreve, NÃO clica no link e cancela. O link de confirmação está na
+    caixa de entrada dela — foi enviado, e o e-mail está lá.
+
+    Se a revogação não rotacionasse `token_confirmacao`, o link continuaria
+    capaz de confirmar a inscrição, e a pessoa teria cancelado para nada: ela
+    cancela, e um clique antigo num link que ela já tem volta a ligar a
+    assinatura. A revogação precisa ser mais FORTE que a pendência.
+    """
+    user = _consentido("cancela-pendente@example.com")
+    cliente = _cliente(user)
+    cliente.post(INSCRIVER, {"tipo": "padrao"}, format="json")
+    inscricao = InscricaoNewsletter.objects.get(user=user)
+    assert inscricao.confirmado_em is None, "o cenário começa pendente"
+    token_do_link = gerar_token_confirmacao(inscricao)
+
+    assert cliente.delete(INSCRIVER).status_code == 204
+
+    inscricao.refresh_from_db()
+    assert inscricao.confirmado_em is None
+    assert inscricao.consentimento_revogado_em is not None
+    assert inscricao.anonimizado_em is not None
+    assert inscricao.user_id is None
+    # O link já não confirma. E a resposta é a MESMA da de qualquer token
+    # inválido — ver `test_double_optin_confirmacao.py`.
+    assert services.confirmar_por_token(token_do_link) == "rejeitada"
+    inscricao.refresh_from_db()
+    assert inscricao.confirmado_em is None, "o link revogado ligou a assinatura"
+    assert inscricao.ativa is False
 
 
 def test_delete_de_quem_nao_tem_inscricao_responde_204():
