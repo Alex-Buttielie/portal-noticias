@@ -61,11 +61,72 @@ de PROD: `deploy-prod.yml` só dispara em tags `v*`.
 
 ---
 
-## FASE 4 — Fechar `8080`/`8443` na VPS
+## FASE 4 — Fechar `8080`/`8443` na VPS — **FEITA 2026-10-08**
 
-Backup das regras do UFW e do `DOCKER-USER` antes. Verificar depois: portal
-responde em 80/443, `plataforma-educacao` **pode cair** — o solicitante foi
-avisado e autorizou mesmo assim. Se o outro sistema reagir, há como reverter.
+### O que elas eram
+
+Não eram portas soltas: `8080` e `8443` são o **ingress público de produção** do
+`plataforma-educacao` (`plataforma-educacao-prod-caddy-1`, `Up 2 weeks (healthy)`,
+`0.0.0.0:8080→80` e `0.0.0.0:8443→443`). O solicitante foi avisado e autorizou
+mesmo assim.
+
+### Medição que corrigiu a minha leitura
+
+Eu disse que o sistema "não servia nada" — 0 conexões, nenhum certificado TLS
+emitido, log do Caddy vazio. **A leitura estava errada.** Os contadores de DNAT
+mostram tráfego real:
+
+```
+table ip nat, PREROUTING:
+  tcp dport 8080  counter packets 24552  dnat to 172.22.0.6:80
+  tcp dport 8443  counter packets 33983  dnat to 172.22.0.6:443
+```
+
+**Ausência de log não é ausência de tráfego.** O log do Caddy estava vazio, e eu
+usei isso como prova de que ninguém usava. O contador do DNAT é a fonte certa.
+O solicitante foi recommunicado e confirmou o fechamento.
+
+### Por que `DOCKER-USER` não funciona para portas publicadas
+
+O Docker faz DNAT na cadeia `nat`/`PREROUTING` (`dport 8080 → 172.22.0.6:80`).
+Quando o pacote chega em `filter`/`forward`, a porta de destino **já é 80/443**.
+Uma regra em `DOCKER-USER` casando `dport 8080` **nunca casa**. Medido: regra
+inserida, contador em 0 pacotes, e a porta continuava servindo de fora
+(`HTTP 308`, `Server: Caddy`).
+
+### Por que `ufw deny` também não funciona
+
+O tráfego de porta publicada do Docker **não percorre a cadeia `INPUT** — é
+DNAT em `prerouting` e segue por `forward`. O `deny` do UFW vive em
+`ufw-user-input`, que é `INPUT`, então nunca é consultado para esse tráfego.
+
+Correção de um erro meu: cheguei a dizer que `ufw-user-input` tinha um
+`ACCEPT all` na regra 1. **Não tem** — é `ACCEPT tcp dpt:22022`. O motivo real
+é o caminho, não a ordem.
+
+### O que funciona
+
+`nft insert rule ip nat PREROUTING iifname "ens3" tcp dport { 8080, 8443 } counter drop`
+— antes do salto para `DOCKER`.
+
+**Prova, não leitura:** de fora `000` nas duas portas; o contador do DROP
+registrou as tentativas; o DNAT parou de crescer; portal `200` nos três vhosts;
+containers do outro sistema `healthy`; SSH intacta.
+
+### Persistência — e o achado de que nada persistia
+
+**Não havia hook de boot.** As 5 regras antigas do `DOCKER-USER`
+(`4300, 4200, 4100, 3306, 3000`) estavam vivas só enquanto o Docker não
+reiniciasse — um reboot ou `docker compose down/up` abria tudo, sem ninguém ver.
+
+Criado `/usr/local/bin/aplicar-regras-firewall.sh` +
+`aplicar-regras-firewall.service` (`After=docker.service`, três passadas com
+30 s de intervalo porque o Docker sobe aos poucos e pode reescrever as chains
+depois). **Idempotente, verificado:** três execuções seguidas, zero duplicata.
+
+Os `deny` do UFW que eu tinha criado foram removidos: não faziam nada, e um
+controle que parece fechar uma porta e não fecha é o tipo de falso verde que
+este programa existe para eliminar.
 
 ---
 
