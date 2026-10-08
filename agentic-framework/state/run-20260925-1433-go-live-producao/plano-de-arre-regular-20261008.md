@@ -13,7 +13,7 @@ zero neste momento.
 | 2 | DNS: apontar **só** `portal-noticias.com` e `www` para `108.174.147.50`. DEV e HOMOLOG por **IP + Host header** |
 | 3 | **Fechar `8080` e `8443`** (Caddy do `plataforma-educacao`) |
 | 4 | **Rotacionar a senha do root** e desligar `passwordauthentication`/`permitrootlogin` **depois** que um deploy por chave passar no CI |
-| 5 | Alcance: o que bloqueia PROD · publicar `develop`→`main` · levantar DEV para navegação · **os 6 itens de P2/observabilidade**. **Revisão jurídica da LGPD fora** (registrada como pendência) |
+| 5 | Alcance: o que bloqueia PROD · publicar `develop`→`main` · levantar DEV para navegação · **os 7 itens de P2/observabilidade (P2-01..P2-07 do backlog recuperado)**. **Revisão jurídica da LGPD fora** (registrada como pendência) |
 
 ---
 
@@ -150,7 +150,7 @@ depois.
 
 ---
 
-## FASE 7 — P2 / observabilidade (6 itens)
+## FASE 7 — P2 / observabilidade (7 itens)
 
 **`observability-20260925-1020` NÃO É MERGEÁVEL.** Ele tentaria apagar
 `scripts/release/verificar-proveniencia.sh` (851 linhas, sha256 congelado em
