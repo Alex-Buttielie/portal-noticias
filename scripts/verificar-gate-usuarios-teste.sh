@@ -3,19 +3,40 @@
 # 20260925-1836-usuarios-teste-dev-homolog).
 #
 # POR QUE ESTE ARQUIVO EXISTE
-# O gate é shell dentro de um `script:` de workflow, e os critérios 5, 6, 9,
-# 10 e 11 são shell — não há como prová-los com pytest semMENTIR sobre o que
+# O gate é shell — não há como prová-lo com pytest semMENTIR sobre o que
 # está sendo testado. A suíte Python de `backend/identidade/tests/` trava o
 # comando Django; o gate em si (qual valor liga o bloco, o que sai em argv, o
 # que o log afirma) só é provável rodando o script. Este harness roda o
-# script do job `deploy` LITERAL, extraído do YAML, no mesmo shell da VPS
-# (`/bin/sh` = dash), e afirma o comportamento.
+# script do job `deploy` LITERAL, agora em `infra/deploy/deploy.sh`, no mesmo
+# shell da VPS (`/bin/sh` = dash), e afirma o comportamento.
 #
-# NÃO É UM TESTE DE STRING. Nada aqui procura texto no YAML: o script é
-# executado de ponta a ponta, com um `backend/.env` de verdade, e a asserção é
-# sobre o que o `manage.py` recebeu (`criar_usuario_carga` gravou argv real) e
-# sobre o que o log afirma. Se alguém mover a validação, renomear a variável
-# ou religar a leitura do `.env`, este harness acusa.
+# ONDE O SCRIPT VEM (mudou com a extração, e o critério continuou)
+# O shell saiu do `script:` do `deploy.yml` para `infra/deploy/deploy.sh`
+# (o workflow passou a apontar `script_path`), então este harness lê o arquivo
+# DO DISCO e monta o ambiente com VARIÁVEIS DE AMBIENTE — é literalmente o que
+# a VPS recebe, com o bloco `env:` do step no lugar do render. Renderizar
+# expressão do GitHub virou impossível justamente porque é ela que não existe
+# fora do GitHub; por isso os dois critérios que já existiam continuam, apenas
+# na forma equivalente:
+#   - "sobrou expressão sem renderizar" -> "o arquivo do disco não tem NENHUMA
+#     expressão do GitHub" (reprova ALTO, exit 2);
+#   - "todo input usado pelo script tem valor aqui" -> "todo input do mapa
+#     input->variável tem no `env:` do step a variável que este harness
+#     exporta" (reprova ALTO, exit 2).
+# Um harness que montasse valor vazio no lugar do input testaria outra coisa,
+# não o deploy — por isso as duas reprovam alto em vez de seguir.
+# Além disso, `verificar_fiacao` afirma que o `script_path` do workflow aponta
+# para o MESMO arquivo que este harness executa e que o `envs:` da action
+# menciona toda variável do `env:` (sem nome no `envs:`, a variável morre no
+# processo da action). Sem essa afirmação o harness poderia passar a testar um
+# arquivo órfão.
+#
+# NÃO É UM TESTE DE STRING. Nada aqui procura texto no shell para decidir o
+# comportamento: o script é executado de ponta a ponta, com um `backend/.env`
+# de verdade, e a asserção é sobre o que o `manage.py` recebeu
+# (`criar_usuario_carga` gravou argv real) e sobre o que o log afirma. Se
+# alguém mover a validação, renomear a variável ou religar a leitura do `.env`,
+# este harness acusa.
 #
 # O QUE ESTE HARNESS PROVA DO FINDING 1 (major/security)
 #   O `set -a; . ./.env` da VPS é um arquivo `chmod 600` do usuário de deploy,
@@ -26,18 +47,24 @@
 #
 # COMO RODAR
 #   scripts/verificar-gate-usuarios-teste.sh            # contra o deploy.yml do repo
-#   scripts/verificar-gate-usuarios-teste.sh OUTRO.yml  # contra outra versão
-#                                                      # (ex.: a de antes do fix,
-#                                                      #  para provar que a prova
-#                                                      #  reprova a versão ruim)
+#   scripts/verificar-gate-usuarios-teste.sh OUTRO.yml  # a fiação (script_path,
+#                                                      # env:, envs:) e conferida
+#                                                      # contra OUTRO.yml; o shell
+#                                                      # continua sendo o do repo
 #   AUTOMUTACAO=1 scripts/verificar-gate-usuarios-teste.sh
-#                                                      # além dos cenários, remove
-#                                                      # o selo de uma cópia do
-#                                                      # workflow e exige que o
-#                                                      # cenário do exploit REPROVE
+#                                                      # alem dos cenarios, remove
+#                                                      # o selo de uma copia do
+#                                                      # SCRIPT e exige que o
+#                                                      # cenario do exploit REPROVE
 #                                                      # (a prova de que a prova
-#                                                      #  tem dente — roda ~40 s a
-#                                                      #  mais)
+#                                                      # tem dente - roda ~40 s a
+#                                                      # mais)
+#   GATE_SCRIPT=/caminho/deploy.sh scripts/verificar-gate-usuarios-teste.sh
+#                                                      # roda OUTRO shell do mesmo
+#                                                      # formato; e assim que se
+#                                                      # mede se a prova ainda mede
+#                                                      # alguma coisa depois de uma
+#                                                      # mutacao
 #
 # REQUISITOS: dash, um interpretador Python com PyYAML e o coreutils. PyYAML é
 # dependência de TESTE declarada em `backend/requirements-dev.txt` (`pyyaml`),
@@ -112,44 +139,160 @@ FALHAS=0
 CENARIOS=0
 
 # ---------------------------------------------------------------------------
-# 1. Renderização do script real do job `deploy`
+# 1. O script real do job `deploy`, DO DISCO
 # ---------------------------------------------------------------------------
-# Recebe o caminho do YAML, o destino e pares nome=valor dos 17 inputs. Falha
-# ALTO se sobrar qualquer `${{ }}` sem renderizar ou se o YAML passar a usar
-# um input novo: um harness que renderiza string vazia no lugar do input
-# testaria outra coisa, não o deploy.
-renderizar() {
-  destino="$1"; shift
-  "$PY_YAML" - "${YML_ALVO:-$DEPLOY_YML}" "$destino" "$@" <<'PY' || exit 2
+# O shell saiu do `script:` do YAML para `infra/deploy/deploy.sh` (o workflow
+# aponta `script_path`), então aqui não há mais o que renderizar: o arquivo é
+# copiado como está e o ambiente é montado com VARIÁVEIS DE AMBIENTE, que é
+# literalmente o que a VPS recebe.
+#
+# O critério antigo continua, na forma que a extração permite: reprova ALTO
+# (exit 2) se sobrar QUALQUER expressão do GitHub no arquivo. Um harness que
+# seguisse em frente rodaria outra coisa, não o deploy.
+SCRIPT_ALVO="${GATE_SCRIPT:-$RAIZ/infra/deploy/deploy.sh}"
+REL_DEPLOY="infra/deploy/deploy.sh"
+REL_VALIDATE="infra/deploy/validate.sh"
+
+preparar_script() {
+  origem="$1"; destino="$2"
+  [ -f "$origem" ] || {
+    echo "ERRO: script do deploy não encontrado: $origem"
+    exit 2
+  }
+  "$PY_YAML" - "$origem" "$destino" <<'PY' || exit 2
 import re, sys
-import yaml
 
-caminho, destino, pares = sys.argv[1], sys.argv[2], sys.argv[3:]
-valores = {}
-for par in pares:
-    nome, _, valor = par.partition("=")
-    valores[nome] = valor
-
-doc = yaml.safe_load(open(caminho, encoding="utf-8"))
-passos = [p for p in doc["jobs"]["deploy"]["steps"] if "script" in (p.get("with") or {})]
-if len(passos) != 1:
-    sys.exit("ERRO: esperado 1 step com script no job deploy, achei %d" % len(passos))
-script = passos[0]["with"]["script"]
-
-usados = set(re.findall(r"inputs\.([a-z0-9_]+)", script))
-faltando = sorted(usados - set(valores))
-if faltando:
-    sys.exit("ERRO: inputs do deploy.yml sem valor no harness: %s" % ", ".join(faltando))
-
-texto = re.sub(
-    r"\$\{\{\s*inputs\.([a-z0-9_]+)\s*\}\}",
-    lambda m: valores[m.group(1)],
-    script,
-)
+origem, destino = sys.argv[1], sys.argv[2]
+texto = open(origem, encoding="utf-8").read()
 sobrou = re.findall(r"\$\{\{[^}]*\}\}", texto)
 if sobrou:
-    sys.exit("ERRO: expressões não renderizadas: %s" % ", ".join(sorted(set(sobrou))))
+    sys.exit(
+        "ERRO: o script %s ainda tem expressao do GitHub, que so o GitHub "
+        "expandiria: %s" % (origem, ", ".join(sorted(set(sobrou))))
+    )
 open(destino, "w", encoding="utf-8").write(texto)
+PY
+}
+
+# ---------------------------------------------------------------------------
+# 1b. A fiação entre o workflow e o shell — o que substituiu o "todo input
+#     usado pelo script tem valor aqui" do renderizador
+# ---------------------------------------------------------------------------
+# input do workflow -> variável de ambiente exportada pelo step. É a MESMA
+# tabela que está documentada no cabeçalho de cada `.sh`; aqui ela é exigida do
+# workflow, não de um comentário.
+MAPA_DEPLOY="inputs.app_dir=APP_DIR inputs.web_port=WEB_PORT
+inputs.api_port=API_PORT inputs.host=HOST inputs.db_name=DB_NAME
+inputs.db_user=DB_USER inputs.env_label=ENV_LABEL inputs.git_mode=GIT_MODE
+inputs.git_ref=GIT_REF inputs.verify_ref=VERIFY_REF inputs.tls_enabled=TLS_ENABLED
+inputs.pr_number=PR_NUMBER inputs.allowed_hosts_extra=ALLOWED_HOSTS_EXTRA
+inputs.pm_suffix=GATE_PM_SUFFIX inputs.usuarios_teste=GATE_USUARIOS_TESTE"
+
+MAPA_VALIDATE="inputs.env_label=ENV_LABEL inputs.app_dir=APP_DIR
+inputs.web_port=WEB_PORT inputs.api_port=API_PORT inputs.host=HOST
+inputs.strict_validate=STRICT_VALIDATE inputs.tls_enabled=TLS_ENABLED
+inputs.verify_ref=VERIFY_REF inputs.pm_suffix=PM_SUFFIX
+needs.deploy.result=DEPLOY_RESULT"
+
+# Sem esta checagem o harness passaria a testar um arquivo que o workflow nem
+# usa. Reprova ALTO (exit 2) e afirma, no YAML:
+#   (a) cada job tem `script_path` e NAO tem `script:` inline;
+#   (b) o caminho do `script_path` existe no repositorio;
+#   (c) cada entrada da tabela tem no `env:` do step exatamente a expressao do
+#       caminho declarado (`inputs.x`, `needs.deploy.result`), sob o nome da
+#       variavel da tabela;
+#   (d) a lista `envs:` da action menciona TODA variavel do `env:` — sem nome
+#       ali a variavel morre no processo da action e o script nao a ve;
+#   (e) a variavel da tabela e realmente lida pelo arquivo apontado, para um
+#       mapeamento abandonado nao passar em silencio.
+verificar_fiacao() {
+  "$PY_YAML" - "$DEPLOY_YML" "$RAIZ" "$REL_DEPLOY" "$REL_VALIDATE" \
+    "$MAPA_DEPLOY" "$MAPA_VALIDATE" <<'PY' || exit 2
+import os, re, sys
+import yaml
+
+yml, raiz, rel_deploy, rel_validate, mapa_deploy, mapa_validate = sys.argv[1:7]
+doc = yaml.safe_load(open(yml, encoding="utf-8"))
+problemas = []
+
+
+def checa(job, rel_esperado, mapa_txt):
+    passos = [p for p in doc["jobs"][job]["steps"]
+              if "ssh-action" in str(p.get("uses", ""))]
+    if len(passos) != 1:
+        problemas.append("job %s: esperado 1 step com ssh-action, achei %d"
+                         % (job, len(passos)))
+        return
+    passo = passos[0]
+    with_ = passo.get("with") or {}
+    if "script" in with_:
+        problemas.append("job %s: ainda tem `script:` inline; o shell tem de "
+                         "estar em %s" % (job, rel_esperado))
+    caminho = with_.get("script_path")
+    if caminho != rel_esperado:
+        problemas.append("job %s: script_path=%r, esperado %r"
+                         % (job, caminho, rel_esperado))
+        return
+    alvo = os.path.join(raiz, caminho)
+    if not os.path.isfile(alvo):
+        problemas.append("job %s: script_path aponta para %s, que nao existe no "
+                         "repositorio" % (job, caminho))
+        return
+    corpo = open(alvo, encoding="utf-8").read()
+    env = passo.get("env") or {}
+    envs = [n.strip() for n in str(with_.get("envs") or "").split(",") if n.strip()]
+    for entrada, variavel in sorted(dict(
+            par.split("=", 1) for par in mapa_txt.split()).items()):
+        # `entrada` e o caminho da expressao no workflow (`inputs.x`,
+        # `needs.deploy.result`); o valor do `env:` tem de ser essa expressao
+        # exata, nem mais nem menos.
+        esperado = "${{ %s }}" % entrada
+        obtido = env.get(variavel)
+        if obtido is None:
+            problemas.append("job %s: o `env:` do step nao define %s (entrada %s)"
+                             % (job, variavel, entrada))
+        elif obtido != esperado:
+            problemas.append("job %s: %s = %r, esperado %r"
+                             % (job, variavel, obtido, esperado))
+        if variavel not in envs:
+            problemas.append("job %s: %s nao esta na lista `envs:` da action "
+                             "(a variavel morre no processo da action)"
+                             % (job, variavel))
+        # Consumi-la e ler `["$" + variavel]`, OU passa-la como ARGUMENTO para
+        # selo_do_ambiente_inicial (que a le de /proc/self/environ). As duas
+        # formas consomem de verdade; o que nao vale e a variavel mapear no
+        # workflow e o script nunca usa-la — que e o que este criterio existe
+        # para pegar. O nome da funcao e conferido contra o proprio arquivo,
+        # entao um script que inventa outra funcao com o mesmo nome nao passa
+        # de graca.
+        consumida = ("$" + variavel) in corpo
+        if not consumida and "selo_do_ambiente_inicial" in corpo:
+            assinatura = re.search(
+                r"selo_do_ambiente_inicial\(\)\s*\{(.*?)\n\}", corpo, re.S)
+            # o corpo da funcao precisa Really usar $1 e ler /proc/self/environ
+            if assinatura:
+                corpo_funcao = assinatura.group(1)
+                consumida = ("$1" in corpo_funcao
+                             and "/proc/self/environ" in corpo_funcao
+                             and re.search(r"\b%s\b" % re.escape(variavel), corpo) is not None)
+        if not consumida:
+            problemas.append("job %s: %s esta mapeada mas %s nao le essa variavel"
+                             % (job, variavel, caminho))
+    for variavel in sorted(env):
+        if variavel not in envs:
+            problemas.append("job %s: %s esta no `env:` mas nao em `envs:`"
+                             % (job, variavel))
+    for variavel in envs:
+        if variavel not in env:
+            problemas.append("job %s: %s esta em `envs:` mas nao tem valor no `env:`"
+                             % (job, variavel))
+
+
+checa("deploy", rel_deploy, mapa_deploy)
+checa("validate", rel_validate, mapa_validate)
+if problemas:
+    sys.exit("ERRO: a fiacao do workflow nao bate com o mapa do harness:\n  - "
+             + "\n  - ".join(problemas))
 PY
 }
 
@@ -295,13 +438,11 @@ montar_e_rodar() {
   } > "$APP/backend/.env"
   chmod 600 "$APP/backend/.env"
 
-  renderizar "$SCRIPT" \
-    "env_label=$SUF" "environment_name=env-$SUF" "app_dir=$APP" \
-    "git_mode=branch" "git_ref=main" "verify_ref=$SHA_FALSO" "pr_number=" \
-    "pm_suffix=$SUF" "web_port=8080" "api_port=8081" "host=harness.local" \
-    "tls_enabled=false" "allowed_hosts_extra=" "db_name=brd" "db_user=postgres" \
-    "strict_validate=false" "web_runtime=npm" "celery_systemd=false" \
-    "sentry_exigido=false" "usuarios_teste=$GATE" || return 2
+  # O shell vem DO DISCO (o mesmo arquivo que o workflow manda para a VPS) e o
+  # ambiente abaixo é montado exatamente como o `env:` do step monta: um nome de
+  # variável por input. É aqui que a extração se paga — estas linhas rodam sem
+  # GitHub nenhum, o que antes era impossível.
+  preparar_script "$SCRIPT_ALVO" "$SCRIPT" || return 2
 
   criar_estubos "$BIN"
   # shellcheck disable=SC2086
@@ -311,6 +452,21 @@ montar_e_rodar() {
       GATE_ARGV_LOG="$ARGV_LOG" \
       GATE_PM_SUF="$SUF" \
       FALHAR_QUANDO="$FALHAR_QUANDO" \
+      APP_DIR="$APP" \
+      WEB_PORT=8080 \
+      API_PORT=8081 \
+      HOST=harness.local \
+      DB_NAME=brd \
+      DB_USER=postgres \
+      ENV_LABEL="$SUF" \
+      GIT_MODE=branch \
+      GIT_REF=main \
+      VERIFY_REF="$SHA_FALSO" \
+      PR_NUMBER= \
+      TLS_ENABLED=false \
+      ALLOWED_HOSTS_EXTRA= \
+      GATE_PM_SUFFIX="$SUF" \
+      GATE_USUARIOS_TESTE="$GATE" \
       "$SHELL_ALVO" "$SCRIPT" > "$OUT" 2>&1; then
     RC=0
   else
@@ -339,7 +495,15 @@ reprova() {
 #   VPS com o gate ligado por variável de ambiente, em VARIOS nomes — porque
 #   trocar o nome da variável não resolve, o `.env` é arbitrário.
 # ===========================================================================
-EXPLOIT='USUARIOS_TESTE=true
+# `GATE_USUARIOS_TESTE` e `GATE_PM_SUFFIX` entraram aqui por um motivo que
+# vale registrar: com o selo lido do shell DEPOIS do `set -a; . ./.env`, um
+# `.env` com `GATE_USUARIOS_TESTE=true` religava o gate e criava 3 contas em
+# PROD. Foi medido, nao suposto. Enquanto estes dois nomes nao estiverem
+# NESTA lista, o harness nao enxerga a regressao — o que se verificou: com
+# eles fora, reverter o selo para a leitura do shell dava 25/25 e exit 0.
+EXPLOIT='GATE_USUARIOS_TESTE=true
+GATE_PM_SUFFIX=prod
+USUARIOS_TESTE=true
 PORTAL_USUARIOS_TESTE=true
 USUARIOS_TESTE_INPUT=true
 USUARIOS_TESTE_GATE=true
@@ -348,8 +512,16 @@ DJANGO_CREATE_TEST_USERS=true'
 
 echo "== gate usuarios_teste: prova executada =="
 echo "workflow: $DEPLOY_YML"
+echo "script:   $SCRIPT_ALVO"
 echo "shell:    $SHELL_ALVO"
 echo "yaml:     $PY_YAML"
+
+# A fiação workflow -> shell roda ANTES de qualquer cenário: é o que garante
+# que o arquivo testado é o mesmo que o `script_path` do job deploy manda para a
+# VPS, e que cada input do mapa tem no `env:` do step a variável que este
+# harness exporta. Reprova ALTO (exit 2) se algum dos dois lados estiver fora de
+# fação — inclusive se alguém apagar um par do `env:` do workflow.
+verificar_fiacao || exit 2
 
 # O cenário do exploit, isolado em função porque ele é usado duas vezes: contra
 # o workflow como está, e contra uma cópia com o selo removido (ver
@@ -546,38 +718,46 @@ echo "== $((CENARIOS - FALHAS))/$CENARIOS asserções passaram =="
 # ---------------------------------------------------------------------------
 # AUTOMUTACAO=1 — a prova de que a prova tem dente
 # ---------------------------------------------------------------------------
-# Remove, de uma CÓPIA do workflow, o bloco que reatribui o input do workflow
-# DEPOIS do `set -a; . ./.env` (o selo) e exige que o cenário do exploit
-# REPROVE. Sem esta checagem, um harness que passasse por acidente — ou que
-# tivesse parado de rodar o script de verdade — continuaria "verde".
+# Remove, de uma CÓPIA DO SCRIPT, o bloco que reatribui o valor do input do
+# workflow DEPOIS do `set -a; . ./.env` (o selo) e exige que o cenário do
+# exploit REPROVE. Sem esta checagem, um harness que passasse por acidente — ou
+# que tivesse parado de rodar o script de verdade — continuaria "verde".
+#
+# O alvo da mutação mudou com a extração: antes era uma cópia do
+# `deploy.yml`, porque era de lá que o harness tirava o shell; agora é uma
+# cópia de `infra/deploy/deploy.sh`, que é de onde o harness tira. O que a
+# mutação apaga é a mesma coisa em ambos: a reatribuição pós-`.env`.
 #
 # POR QUE A MUTAÇÃO PROCURA ESTRUTURA E NÃO A STRING DO FIX (Finding R2)
-# A versão anterior procurava a literal `USUARIOS_TESTE="${{ inputs.usuarios_teste }}"`
+# A versão anterior procurava a literal `USUARIOS_TESTE="<a expressao do input>"`
 # e, se não achasse, saía com rc=2 — punindo um fix ALTERNATIVO e igualmente
 # correto (por exemplo, passar o input por parâmetro de função depois do
 # source, que nenhum `.env` alcança). O comportamento do gate seria idêntico e
 # o CI ficaria vermelho: falso positivo barulhento.
 #
 # Agora a busca é estrutural: "a primeira linha Effectively executada depois do
-# source do `.env` que volta a mencionar o input `usuarios_teste`", mais o
-# bloco `case … esac` ou as atribuições imediatamente seguintes. Isso cobre o
-# fix atual, o `GATE_USUARIOS_TESTE="…"; USUARIOS_TESTE="$GATE_USUARIOS_TESTE"`
-# e a forma por parâmetro de função. E, se NENHUMA forma for encontrada, o
-# resultado é **NÃO APLICÁVEL**, que é um desfecho distinto de reprovação: o
-# selo sumiu de vez, e nesse caso quem acusa é o cenário do exploit, que é
-# comportamental e roda sempre.
+# source do `.env` que volta a atribuir `USUARIOS_TESTE` ou a ler o input pelo
+# nome próprio dele", mais o bloco `case … esac` ou as atribuições
+# imediatamente seguintes. Isso cobre a forma atual
+# (`USUARIOS_TESTE="$GATE_USUARIOS_TESTE"`), a forma intermediária
+# `GATE_USUARIOS_TESTE="…"; USUARIOS_TESTE="$GATE_USUARIOS_TESTE"` e a forma por
+# parâmetro de função. E, se NENHUMA forma for encontrada, o resultado é
+# **NÃO APLICÁVEL**, que é um desfecho distinto de reprovação: o selo sumiu de
+# vez, e nesse caso quem acusa é o cenário do exploit, que é comportamental e
+# roda sempre.
 if [ -n "${AUTOMUTACAO:-}" ]; then
   echo
   echo "== AUTOMUTACAO: removendo o selo pós-.env e exigindo que o exploit volte =="
-  MUTADO="$BASE/deploy-sem-selo.yml"
-  MUTACAO_MSG="$("$PY_YAML" - "$DEPLOY_YML" "$MUTADO" <<'PY'
+  MUTADO="$BASE/deploy-sem-selo.sh"
+  MUTACAO_MSG="$("$PY_YAML" - "$SCRIPT_ALVO" "$MUTADO" <<'PY'
 import re
 import sys
 
 caminho, saida = sys.argv[1], sys.argv[2]
 linhas = open(caminho, encoding="utf-8").read().split("\n")
 RE_ATRIB = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
-MARCA_INPUT = "inputs.usuarios_teste"
+RE_SELO = re.compile(r"^(export\s+)?USUARIOS_TESTE\s*=")
+NOME_DO_INPUT = "GATE_USUARIOS_TESTE"
 
 
 def proxima_util(i):
@@ -595,7 +775,8 @@ if fonte is None:
 
 inicio = next(
     (i for i in range(fonte + 1, len(linhas))
-     if linhas[i].strip() and not linhas[i].strip().startswith("#") and MARCA_INPUT in linhas[i]),
+     if linhas[i].strip() and not linhas[i].strip().startswith("#")
+     and (RE_SELO.match(linhas[i].strip()) or NOME_DO_INPUT in linhas[i])),
     None,
 )
 if inicio is None:
@@ -622,13 +803,13 @@ removido = "\n".join(linhas[inicio:fim + 1])
 open(saida, "w", encoding="utf-8").write(
     "\n".join(linhas[:inicio] + linhas[fim + 1:])
 )
-print("removido do workflow copiado:\n%s" % removido)
+print("removido do script copiado:\n%s" % removido)
 PY
 )"
   MUT_RC=$?
   if [ "$MUT_RC" -eq 0 ]; then
     printf '%s\n' "$MUTACAO_MSG"
-    YML_ALVO="$MUTADO"
+    SCRIPT_ALVO="$MUTADO"
     FALHAS_ANTES="$FALHAS"
     CENARIOS_ANTES="$CENARIOS"
     if cenario_exploit; then
@@ -653,7 +834,7 @@ PY
     # comportamental e roda em toda execução deste harness.
     CENARIOS=$((CENARIOS + 1))
     echo "MUTAÇÃO: NÃO APLICÁVEL — nenhuma linha depois do \`set -a; . ./.env\` volta a"
-    echo "           mencionar o input \`usuarios_teste\`. Isto NÃO é uma falha: se o selo"
+    echo "           atribuir \`USUARIOS_TESTE\` nem a ler \`GATE_USUARIOS_TESTE\`. Isto NÃO é uma falha: se o selo"
     echo "           foi implementado de outra forma, a mutação por string não tem o que"
     echo "           remover. O que protege a regressão é o cenário do exploit acima"
     echo "           (comportamental, roda sempre). Se a intenção era remover o selo de"
