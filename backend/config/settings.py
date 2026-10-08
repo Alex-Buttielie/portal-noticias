@@ -668,11 +668,33 @@ DEFAULT_FROM_EMAIL = os.environ.get("DJANGO_DEFAULT_FROM_EMAIL", "no-reply@brdpo
 # produto em aberto, não um bug. Um guard duro aqui derrubaria TODO deploy até
 # essa credencial existir. O que dá para fazer sem mentir sobre o estado:
 # tornar o furo barulhento no boot, no mesmo lugar onde o e-mail já vaza.
+# Esta e uma COPIA LITERAL de `config.email_entrega.BACKENDS_SEM_ENTREGA_REAL`,
+# e ela tem de ser IDENTICA a do gate. Nao e aqui que esta a fonte; e aqui que
+# esta o segundo consumidor.
+#
+# Por que uma copia e nao um import: este arquivo roda no import de
+# `config.settings`, e `config.email_entrega` importa `django.conf.settings`.
+# Importar aqui seria circular. E por isso que a igualdade e presa por
+# `config/tests/test_settings_producao.py::
+# test_lista_de_backends_do_boot_e_a_mesma_do_gate` — e nao por `is`, porque sao
+# dois `frozenset` construidos em modulos diferentes.
+#
+# MEDIDO (revisao final, 2026-09-30): esta copia tinha 3 entradas e a do gate
+# tinha 5 — faltavam `filebased` e `""`. O efeito era o pior par possivel:
+#
+#     DJANGO_EMAIL_BACKEND=django.core.mail.backends.filebased.EmailBackend
+#     -> verificar_canal_email().disponivel is False   (cadastro/contato 503)
+#     -> o ERROR de boot NAO dispara
+#
+# Quem le o painel ve "e-mail nao entregue" sem nenhuma linha que diga por que.
+# Gate que recusa e boot que cala e o furo que este ERROR existe para fechar.
 _EMAIL_BACKENDS_QUE_NAO_ENTREGAM = frozenset(
     {
+        "",
         "django.core.mail.backends.console.EmailBackend",
         "django.core.mail.backends.locmem.EmailBackend",
         "django.core.mail.backends.dummy.EmailBackend",
+        "django.core.mail.backends.filebased.EmailBackend",
     }
 )
 
