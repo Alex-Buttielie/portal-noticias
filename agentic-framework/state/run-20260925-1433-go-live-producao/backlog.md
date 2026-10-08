@@ -63,6 +63,7 @@ A coluna **WS / gate** liga cada item ao workstream e ao gate do `action-plan.md
 - Decisão **D-01**: `www` e **nomes de host de DEV/HOMOLOG/PROD** (nenhum hostname é inventado por agente).
 - Decisão sobre o **alinhamento dos valores de domínio** hoje divergentes nos workflows (`portal-noticias.com.br` × canônico `.com`) — **R-15**, lote posterior, sem mudar estrutura nem gatilhos.
 - Credenciais de Mercado Pago, Resend, OpenAI, Google OAuth, GA4 e AdSense.
+- **Contas de telemetria — RESPONDIDO em 2026-10-08: o solicitante NÃO possui Grafana Cloud nem Better Stack.** Consequência: **P2-01 não é observabilidade**; é configuração em arquivo sem nada rodando. Sem detecção de incidente, sem painel, e as 14 regras de alerta não avaliam nada. Registrado em `plano-de-arre-regular-20261008.md`, seção "BLOQUEIO — telemetria sem conta", com o custo medido da alternativa self-hosted (~2 GB livres de 3915 MB) e o motivo de não ser recomendada agora.
 - Storage externo para backup.
 - Status da conta AdSense.
 - Cadastro do plano Premium na Central.
