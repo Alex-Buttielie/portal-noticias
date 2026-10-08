@@ -58,6 +58,7 @@ cleanup() {
     trap - EXIT
     drop_validation_db || true
     restore_dump_group_ownership || true
+    [[ -n "$COUNTS_SQL_FILE" ]] && rm -f -- "$COUNTS_SQL_FILE" 2>/dev/null || true
     if [[ -n "$DUMP_TMP" ]]; then
         rm -f -- "$DUMP_TMP" || true
     fi
@@ -364,15 +365,34 @@ FROM counts;
 SQL
 )"
 
+# A SQL de contagem NAO viaja pelo shell quando a contagem roda como
+# superusuario: `su -c` reinterpreta a string, e o query_to_xml do Postgres
+# tem parenteses que quebram a citacao em duas camadas. Ela vai num arquivo e o
+# psql le com -f. Para o usuario do app, que nao passa por su, o caminho
+# direto continua igual.
+COUNTS_SQL_FILE=""
+escrever_counts_sql() {
+    COUNTS_SQL_FILE="$BACKUP_DIR/.contagens-$$.sql"
+    printf '%s' "$DATABASE_COUNT_SQL" > "$COUNTS_SQL_FILE" || return 1
+    chmod 0644 "$COUNTS_SQL_FILE"
+}
+
 database_counts() {
     local db_name="$1"
     local modo="${2:-app}"
     local result
-    local -a runner=(psql "${PG_CONNECTION_ARGS[@]}")
     if [[ "$modo" == "admin" ]]; then
-        runner=(as_pg psql "${PG_ADMIN_ARGS[@]}")
-    fi
-    if ! result="$("${runner[@]}" --no-password --no-psqlrc --quiet \
+        [[ -n "$COUNTS_SQL_FILE" && -f "$COUNTS_SQL_FILE" ]] || escrever_counts_sql || {
+            erro "não foi possível preparar o arquivo de contagem"
+            return 1
+        }
+        if ! result="$(as_pg psql "${PG_ADMIN_ARGS[@]}" --no-password --no-psqlrc --quiet \
+            --tuples-only --no-align --field-separator='|' --set=ON_ERROR_STOP=1 \
+            --dbname="$db_name" --file="$COUNTS_SQL_FILE")"; then
+            erro "não foi possível contar tabelas/linhas no banco $db_name"
+            return 1
+        fi
+    elif ! result="$(psql "${PG_CONNECTION_ARGS[@]}" --no-password --no-psqlrc --quiet \
         --tuples-only --no-align --field-separator='|' --set=ON_ERROR_STOP=1 \
         --dbname="$db_name" --command="$DATABASE_COUNT_SQL")"; then
         erro "não foi possível contar tabelas/linhas no banco $db_name"
