@@ -26,7 +26,7 @@ jobs:
       tls_enabled: false
       db_name: brd_portal_homolog
       db_user: portal_homolog
-      strict_validate: false
+      strict_validate: true
       # Gate de usuários de teste — idêntico ao de DEV, pelo mesmo motivo: em
       # homologação a conta precisa existir para o teste do PR, e não pode
       # nascer com senha conhecida (esta, ao contrário do localhost, não é
