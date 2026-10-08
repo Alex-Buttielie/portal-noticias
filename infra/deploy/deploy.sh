@@ -527,9 +527,21 @@ restart_or_start() {
   return 1
 }
 cd "$APP_DIR/frontend"
-# API_INTERNAL_URL (runtime, não bake): alimenta o rewrite /api/*
-# do next.config.js — proxy mesma-origem para acesso direto por
-# IP:porta (sem passar pelo Nginx).
+# API_INTERNAL_URL (runtime, não bake): é a base que o SERVIDOR usa para falar
+# com a API Django, e que o route handler `/api/[...path]` lê por request.
+#
+# NÃO é um `rewrites` do next.config.js: esse arquivo não tem nenhum rewrite,
+# e um rewrite seria congelado no build — que é justamente o que não pode
+# acontecer aqui, porque a porta do gunicorn muda por ambiente. O proxy mora no
+# route handler para poder ler a variável a cada request e funcionar via
+# domínio, IP ou localhost sem rebuild (incident 2026-09-19: acesso direto por
+# IP:porta não passa pelo Nginx).
+#
+# MEDIDO em 2026-10-08: enquanto o DNS não apontar o hostname público para esta
+# VPS, usar a origem pública no lado do servidor faz TODA busca de dado do SSR
+# falhar — o servidor não sai para a internet e `$HOST` não resolve de dentro
+# da própria máquina. Foi o que deixou `/categoria/*`, `/arquivo`, `/paginas/*`
+# e `/buscar` respondendo 200 com página vazia em DEV e HOMOLOG.
 API_INTERNAL_URL="http://127.0.0.1:$API_PORT" PORT="$WEB_PORT" \
   restart_or_start "portal-web-$SUF" npm --name "portal-web-$SUF" -- start
 cd "$APP_DIR/backend"
