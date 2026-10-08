@@ -355,7 +355,10 @@ cd "$APP_DIR/frontend"
 export NPM_CONFIG_CACHE="$HOME/.npm"
 mkdir -p "$NPM_CONFIG_CACHE"
 npm ci --cache "$NPM_CONFIG_CACHE" --prefer-offline
-NODE_OPTIONS="--max-old-space-size=1536" \
+# D-09 (solicitante, 2026-10-08): 1024 em vez de 1536. A VPS tem 3915 MB de RAM
+# com os 3 ambientes + 3 stacks disputando; o kernel ja matou `npm ci` por OOM
+# em 09/09, e um deploy derrubou o ambiente vizinho. Build mais lento, menos pico.
+NODE_OPTIONS="--max-old-space-size=1024" \
   NEXT_PUBLIC_API_BASE_URL="$API_ORIGIN" NEXT_PUBLIC_SITE_URL="$WEB_ORIGIN" \
   API_INTERNAL_URL="http://127.0.0.1:$API_PORT" \
   npm run build

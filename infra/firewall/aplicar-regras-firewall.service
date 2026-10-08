@@ -1,0 +1,21 @@
+# /etc/systemd/system/aplicar-regras-firewall.service
+[Unit]
+Description=Reaplica as regras de firewall do host que o Docker apaga
+After=docker.service network-online.target
+Requires=docker.service
+# Repete por alguns minutos: o Docker sobe aos poucos e pode reescrever as
+# chains depois deste servico rodar uma vez.
+StartLimitIntervalSec=300
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/aplicar-regras-firewall.sh
+ExecStart=/bin/sleep 30
+ExecStart=/usr/local/bin/aplicar-regras-firewall.sh
+ExecStart=/bin/sleep 30
+ExecStart=/usr/local/bin/aplicar-regras-firewall.sh
+
+[Install]
+WantedBy=multi-user.target
+
