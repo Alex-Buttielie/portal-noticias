@@ -668,11 +668,33 @@ DEFAULT_FROM_EMAIL = os.environ.get("DJANGO_DEFAULT_FROM_EMAIL", "no-reply@brdpo
 # produto em aberto, não um bug. Um guard duro aqui derrubaria TODO deploy até
 # essa credencial existir. O que dá para fazer sem mentir sobre o estado:
 # tornar o furo barulhento no boot, no mesmo lugar onde o e-mail já vaza.
+# Esta e uma COPIA LITERAL de `config.email_entrega.BACKENDS_SEM_ENTREGA_REAL`,
+# e ela tem de ser IDENTICA a do gate. Nao e aqui que esta a fonte; e aqui que
+# esta o segundo consumidor.
+#
+# Por que uma copia e nao um import: este arquivo roda no import de
+# `config.settings`, e `config.email_entrega` importa `django.conf.settings`.
+# Importar aqui seria circular. E por isso que a igualdade e presa por
+# `config/tests/test_settings_producao.py::
+# test_lista_de_backends_do_boot_e_a_mesma_do_gate` — e nao por `is`, porque sao
+# dois `frozenset` construidos em modulos diferentes.
+#
+# MEDIDO (revisao final, 2026-09-30): esta copia tinha 3 entradas e a do gate
+# tinha 5 — faltavam `filebased` e `""`. O efeito era o pior par possivel:
+#
+#     DJANGO_EMAIL_BACKEND=django.core.mail.backends.filebased.EmailBackend
+#     -> verificar_canal_email().disponivel is False   (cadastro/contato 503)
+#     -> o ERROR de boot NAO dispara
+#
+# Quem le o painel ve "e-mail nao entregue" sem nenhuma linha que diga por que.
+# Gate que recusa e boot que cala e o furo que este ERROR existe para fechar.
 _EMAIL_BACKENDS_QUE_NAO_ENTREGAM = frozenset(
     {
+        "",
         "django.core.mail.backends.console.EmailBackend",
         "django.core.mail.backends.locmem.EmailBackend",
         "django.core.mail.backends.dummy.EmailBackend",
+        "django.core.mail.backends.filebased.EmailBackend",
     }
 )
 
@@ -750,6 +772,25 @@ PASSWORD_RESET_TIMEOUT = int(
 # e-mail depois. Configurável por ambiente para não exigir deploy de código.
 NEWSLETTER_TOKEN_DESCADASTRO_MAX_AGE_SECONDS = int(
     os.environ.get("NEWSLETTER_TOKEN_DESCADASTRO_MAX_AGE_SECONDS", 30 * 24 * 60 * 60)  # 30d
+)
+
+# Prazo de validade do LINK DE CONFIRMAÇÃO da inscrição (double opt-in), e
+# portanto também da pendência: passado ele, o link deixa de confirmar
+# (`newsletter/tokens.py:ler_hash_do_token_de_confirmacao`, `unsign(max_age=…)`)
+# e `services.expirar_pendencias` carimba `pendencia_expirada_em` na linha.
+#
+# 7 dias, e não 30 como o descadastro, porque os dois prazos respondem a
+# perguntas opostas: o de descadastro mede "quanto tempo o titular demora para
+# decidir que quer sair" (e uma saída que expira rápido é um portal que empurra
+# a pessoa a pedir a um atendente), e o de confirmação mede "quanto tempo a
+# pessoa leva para achar o e-mail de confirmação" (e um prazo curto aqui
+# significa inscrições que nunca confirmam — que é o oposto do que o double
+# opt-in quer). 7 dias cobre fim de semana, feriado e quem usa o celular só de
+# vez em quando.
+#
+# Configurável por ambiente para não exigir deploy de código.
+NEWSLETTER_TOKEN_CONFIRMACAO_MAX_AGE_SECONDS = int(
+    os.environ.get("NEWSLETTER_TOKEN_CONFIRMACAO_MAX_AGE_SECONDS", 7 * 24 * 60 * 60)  # 7d
 )
 
 # Versão vigente dos Termos/Política de Privacidade que o cadastro exige aceite

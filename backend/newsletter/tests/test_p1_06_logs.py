@@ -56,6 +56,7 @@ from newsletter import services
 from newsletter.models import InscricaoNewsletter
 from newsletter.tests.doubles import CAMINHO_ENTREGA, CAMINHO_EXPLODE
 from newsletter.tokens import gerar_token_descadastro
+from newsletter.tests.fabrica import inscricao_confirmada_para
 
 pytestmark = pytest.mark.django_db
 User = get_user_model()
@@ -71,7 +72,7 @@ def _consentido(email):
 
 
 def _inscrito(email):
-    return services.inscrever(_consentido(email), InscricaoNewsletter.TIPO_PADRAO)
+    return inscricao_confirmada_para(_consentido(email), InscricaoNewsletter.TIPO_PADRAO)
 
 
 def _todo_o_log(caplog):
@@ -189,7 +190,7 @@ def test_revogacao_registra_se_ja_estava_desativada(caplog):
     APIClient().post(URL_DESCADASTRO, {"token": token}, format="json")
 
     # Reinscreve, usa o MESMO token de novo (já rotacionado, então não casa).
-    services.inscrever(usuario, InscricaoNewsletter.TIPO_PADRAO)
+    inscricao_confirmada_para(usuario, InscricaoNewsletter.TIPO_PADRAO)
     caplog.clear()  # só o que vier depois da reinscrição interessa
     with caplog.at_level(logging.INFO, logger="newsletter.services"):
         APIClient().post(URL_DESCADASTRO, {"token": token}, format="json")
@@ -203,6 +204,17 @@ def test_revogacao_registra_se_ja_estava_desativada(caplog):
 
 
 def test_inscricao_criada_e_registrada_sem_e_mail(caplog):
+    """O log do ato de PEDIR, e ele mudou de nome com o double opt-in.
+
+    Antes dizia "inscrição criada", que era verdadeiro e agora seria uma
+    meia-verdade: o que se cria é uma PENDÊNCIA, e a inscrição só existe como
+    tal depois do clique. Um log que continua dizendo "criada" para uma linha
+    que não recebe nada é a mesma mentira de entrega em miniatura.
+
+    Este teste usa `services.inscrever` direto (e não a fábrica) porque o que
+    ele mede é o log do CAMINHO DE ESCRITA, e a fábrica confirmaria por fora do
+    log — o que apagaria justamente a linha que se quer ver.
+    """
     _inscrito("criada@example.com")
     with caplog.at_level(logging.INFO, logger="newsletter.services"):
         services.inscrever(
@@ -212,8 +224,15 @@ def test_inscricao_criada_e_registrada_sem_e_mail(caplog):
     texto = "\n".join(
         r.getMessage() for r in caplog.records if r.name == "newsletter.services"
     )
-    assert "inscrição criada" in texto
+    assert "PENDENTE criada" in texto
+    # E o e-mail de confirmação também é registrado, o que é informação nova
+    # útil: quantas confirmações saíram hoje é a primeira pergunta de quem
+    # pergunta por que a taxa de confirmação está baixa.
+    assert "e-mail de confirmação entregue" in texto
     _nao_vazou(texto, "segunda@example.com")
+    # O TOKEN de confirmação não aparece: ele é o segredo de uso único que está
+    # no link, e um token no log é um token publicado.
+    assert "token=" not in texto
 
 
 def test_log_nao_traz_corpo_de_noticia_nem_conteudo_do_email(caplog):
@@ -259,9 +278,16 @@ def test_envio_bem_sucedido_nao_registra_o_endereco(caplog):
 def test_id_de_inscricao_nao_e_o_endereco():
     """O id da inscrição é um inteiro sequencial — por isso ele serve de ponteiro
     para o admin e não carrega nada do titular. Este teste registra essa
-    premissa: se um dia o `__str__`/log passar a incluir o e-mail, ele quebra."""
+    premissa: se um dia o `__str__`/log passar a incluir o e-mail, ele quebra.
+
+    O `__str__` passou a mostrar o ESTADO (`confirmada`) em vez de `ativa`, e
+    a coluna de estado também não pode carregar nada do titular — é uma das três
+    strings de um `CharField` derivado. Por isso a asserção continua sendo
+    sobre a string INTEIRA, e não sobre o e-mail: um `__str__` que trouxesse
+    qualquer outro campo do titular também quebraria.
+    """
     inscricao = _inscrito("inteiro@example.com")
     assert isinstance(inscricao.pk, int)
     assert str(inscricao) == (
-        f"Newsletter de {inscricao.user_id} (padrao, ativa)"
+        f"Newsletter de {inscricao.user_id} (padrao, confirmada)"
     )

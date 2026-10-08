@@ -60,6 +60,7 @@ from django.test import override_settings
 from newsletter import services
 from newsletter.models import InscricaoNewsletter
 from newsletter.tokens import gerar_token_descadastro, ler_hash_do_token
+from newsletter.tests.fabrica import inscricao_confirmada_para
 
 pytestmark = pytest.mark.django_db
 User = get_user_model()
@@ -71,7 +72,7 @@ def _inscrito(email=ENDERECO):
     user = User.objects.create_user(email=email, password="senha123", papel="free")
     user.consentimento_aceito_em = _agora()
     user.save(update_fields=["consentimento_aceito_em"])
-    return user, services.inscrever(user, InscricaoNewsletter.TIPO_PADRAO)
+    return user, inscricao_confirmada_para(user, InscricaoNewsletter.TIPO_PADRAO)
 
 
 def _agora():
@@ -262,14 +263,35 @@ class TestOEnderecoNaoERecuperavel:
                         f"{caminho.relative_to(raiz)}:{no.lineno} le `…user.email`"
                     )
 
-        # A ÚNICA leitura de endereço a partir de uma inscrição que existe no
-        # projeto: o envio. E ela nunca enxerga um registro anonimizado, porque
-        # `enviar_newsletters` filtra por `ativa=True` e `user__isnull=False`.
-        # Qualquer segunda ocorrência é um caminho novo — e um caminho novo é
-        # exatamente o que este teste existe para bloquear.
-        assert infracoes == [
-            f"newsletter/services.py:{_linha_do_envio()} le `…user.email`"
-        ], f"um novo caminho de leitura de e-mail a partir da inscrição: {infracoes}"
+        # AS DUAS leituras de endereço a partir de uma inscrição que existem no
+        # projeto, e as duas estão em `services.py`:
+        #
+        #   1. o ENVIO do resumo, e
+        #   2. o e-mail de CONFIRMAÇÃO (double opt-in, 2026-10-02).
+        #
+        # A segunda é legítima e tem a mesma defesa de leitura que a primeira:
+        # `_enviar_email_de_confirmacao` só é chamado de dentro de
+        # `inscrever_com_status`, e essa função grava a linha com
+        # `user=user` (ela não sabe sobre linhas anonimizadas) — mas
+        # `_localizar_por_hash_de_confirmacao` só devolve linhas
+        # `confirmado_em IS NULL`, e uma linha revogada tem `user=None` por
+        # `_campos_de_revogacao`. Nenhuma das duas enxerga um registro
+        # anonimizado.
+        #
+        # Qualquer TERCEIRA ocorrência é um caminho novo — e um caminho novo é
+        # exatamente o que este teste existe para bloquear. A lista é
+        # explícita e não por função: uma lista "calculada" que derivasse as
+        # linhas do próprio código passaria a aprovar o caminho novo. E a
+        # comparação é por conjunto (`sorted`), não por ordem: a ordem em que
+        # `ast.walk` encontra as duas leituras é um detalhe da árvore sintática,
+        # e um teste que reprova por causa dele é um teste que quebraria por uma
+        # refatoração que não tem nada a ver com anonimização.
+        assert sorted(infracoes) == sorted(
+            [
+                f"newsletter/services.py:{_linha_do_envio()} le `…user.email`",
+                f"newsletter/services.py:{_linha_da_confirmacao()} le `…user.email`",
+            ]
+        ), f"um novo caminho de leitura de e-mail a partir da inscrição: {infracoes}"
 
     def test_o_envio_so_enxerga_inscricao_vinculada_e_ativa(self):
         """
@@ -295,15 +317,28 @@ class TestOEnderecoNaoERecuperavel:
 
 def _linha_do_envio() -> int:
     """Linha do `recipient_list=[inscricao.user.email]` em `services.py`."""
+    return _linha_da_leitura(services.enviar_newsletters)
+
+
+def _linha_da_confirmacao() -> int:
+    """Linha do `destinatario = inscricao.user.email` em `services.py`."""
+    return _linha_da_leitura(services._enviar_email_de_confirmacao)
+
+
+def _linha_da_leitura(objeto) -> int:
+    """Linha em que a função recebida lê `…user.email` de uma inscrição."""
     import inspect
 
     from newsletter import services as s
 
-    fonte, inicio = inspect.getsourcelines(s.enviar_newsletters)
+    fonte, inicio = inspect.getsourcelines(objeto)
     for deslocamento, linha in enumerate(fonte):
-        if "inscricao.user.email" in linha:
+        if ".user.email" in linha:
             return inicio + deslocamento
-    raise AssertionError("a leitura de `inscricao.user.email` não está mais em enviar_newsletters")
+    raise AssertionError(
+        f"{objeto.__name__} não lê mais `…user.email` — se a leitura foi "
+        "removida, este teste precisa ser revisto junto com ela"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -362,7 +397,7 @@ class TestAProvaSobrevive:
         user = User.objects.create_user(email="escopo@example.com", password="senha123", papel="free")
         user.consentimento_aceito_em = timezone.now()
         user.save(update_fields=["consentimento_aceito_em"])
-        inscricao = services.inscrever(
+        inscricao = inscricao_confirmada_para(
             user,
             InscricaoNewsletter.TIPO_CATEGORIA,
             categorias=["esportes"],
@@ -407,7 +442,7 @@ class TestOsDoisCaminhosRevogamIgual:
         user_b = User.objects.create_user(email="b@example.com", password="senha123", papel="free")
         user_b.consentimento_aceito_em = _agora()
         user_b.save(update_fields=["consentimento_aceito_em"])
-        por_endpoint = services.inscrever(user_b, InscricaoNewsletter.TIPO_PADRAO)
+        por_endpoint = inscricao_confirmada_para(user_b, InscricaoNewsletter.TIPO_PADRAO)
         services.cancelar_inscricao(user_b)
         por_endpoint.refresh_from_db()
 
@@ -474,7 +509,7 @@ class TestAFronteiraDeclarada:
         user, inscricao = _inscrito()
         _revogar(inscricao)
 
-        services.inscrever(user, InscricaoNewsletter.TIPO_PADRAO)
+        inscricao_confirmada_para(user, InscricaoNewsletter.TIPO_PADRAO)
 
         assert InscricaoNewsletter.objects.count() == 2
         nova = InscricaoNewsletter.objects.get(user=user)

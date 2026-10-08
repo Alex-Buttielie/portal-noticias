@@ -23,6 +23,7 @@ from gating.models import ConfiguracaoSistema, FeatureLimit
 from newsletter import services
 from newsletter.models import InscricaoNewsletter
 from newsletter.tests.doubles import CAMINHO_ENTREGA
+from newsletter.tests.fabrica import inscricao_confirmada_para
 from newsletter.tokens import gerar_token_descadastro
 
 pytestmark = pytest.mark.django_db
@@ -72,7 +73,7 @@ def _item(titulo, url):
 def test_inscricao_personalizada_exige_premium():
     usuario_free = _usuario_consentido("free-news@example.com")
     with pytest.raises(services.RecursoGatedError):
-        services.inscrever(usuario_free, InscricaoNewsletter.TIPO_PERSONALIZADA)
+        inscricao_confirmada_para(usuario_free, InscricaoNewsletter.TIPO_PERSONALIZADA)
 
 
 def test_inscricao_personalizada_funciona_para_premium(fabrica_usuario_premium):
@@ -84,7 +85,7 @@ def test_inscricao_personalizada_funciona_para_premium(fabrica_usuario_premium):
         chave="newsletter_personalizada", plano="premium", defaults={"valor": "true"}
     )
 
-    inscricao = services.inscrever(usuario_premium, InscricaoNewsletter.TIPO_PERSONALIZADA)
+    inscricao = inscricao_confirmada_para(usuario_premium, InscricaoNewsletter.TIPO_PERSONALIZADA)
     assert inscricao.ativa is True
 
 
@@ -93,7 +94,7 @@ def test_descadastro_por_token_desativa_inscricao():
     banco. Antes desta correção o teste passava o segredo e ele era exatamente o
     que ia na URL — o que expunha o segredo de estado e nunca expirava."""
     usuario = _usuario_consentido("desc@example.com")
-    inscricao = services.inscrever(usuario, InscricaoNewsletter.TIPO_PADRAO)
+    inscricao = inscricao_confirmada_para(usuario, InscricaoNewsletter.TIPO_PADRAO)
 
     resultado = services.descadastrar_por_token(gerar_token_descadastro(inscricao))
 
@@ -118,14 +119,14 @@ def test_enviar_newsletters_respeita_consentimento_e_inscricao_ativa():
     """
     _item("Noticia 1", "https://g1/news-1")
     consentido = _usuario_consentido("envio1@example.com")
-    services.inscrever(consentido, InscricaoNewsletter.TIPO_PADRAO)
+    inscricao_confirmada_para(consentido, InscricaoNewsletter.TIPO_PADRAO)
 
     # Quem não consentiu nem chega a ter inscrição: a trava é no caminho de
     # escrita (`services.inscrever_com_status`). Antes desta correção o teste
     # criava a inscrição sem consentimento e só confiava no filtro do envio.
     sem_consentimento = User.objects.create_user(email="semconsent@example.com", password="senha123", papel="free")
     with pytest.raises(services.ConsentimentoAusenteError):
-        services.inscrever(sem_consentimento, InscricaoNewsletter.TIPO_PADRAO)
+        inscricao_confirmada_para(sem_consentimento, InscricaoNewsletter.TIPO_PADRAO)
 
     with override_settings(EMAIL_BACKEND=CAMINHO_ENTREGA):
         envio = services.enviar_newsletters()
@@ -144,22 +145,22 @@ def test_enviar_newsletters_respeita_consentimento_e_inscricao_ativa():
 
 def test_inscricao_padrao_usa_periodo_manha_por_default():
     usuario = _usuario_consentido("periodo-default@example.com")
-    inscricao = services.inscrever(usuario, InscricaoNewsletter.TIPO_PADRAO)
+    inscricao = inscricao_confirmada_para(usuario, InscricaoNewsletter.TIPO_PADRAO)
     assert inscricao.periodo == InscricaoNewsletter.PERIODO_MANHA
 
 
 def test_inscricao_pode_escolher_periodo_noite():
     usuario = _usuario_consentido("periodo-noite@example.com")
-    inscricao = services.inscrever(usuario, InscricaoNewsletter.TIPO_PADRAO, periodo=InscricaoNewsletter.PERIODO_NOITE)
+    inscricao = inscricao_confirmada_para(usuario, InscricaoNewsletter.TIPO_PADRAO, periodo=InscricaoNewsletter.PERIODO_NOITE)
     assert inscricao.periodo == InscricaoNewsletter.PERIODO_NOITE
 
 
 def test_enviar_newsletters_com_periodo_so_alcanca_inscricoes_daquele_periodo():
     _item("Noticia periodo", "https://g1/news-periodo")
     usuario_manha = _usuario_consentido("periodo-m@example.com")
-    services.inscrever(usuario_manha, InscricaoNewsletter.TIPO_PADRAO, periodo=InscricaoNewsletter.PERIODO_MANHA)
+    inscricao_confirmada_para(usuario_manha, InscricaoNewsletter.TIPO_PADRAO, periodo=InscricaoNewsletter.PERIODO_MANHA)
     usuario_noite = _usuario_consentido("periodo-n@example.com")
-    services.inscrever(usuario_noite, InscricaoNewsletter.TIPO_PADRAO, periodo=InscricaoNewsletter.PERIODO_NOITE)
+    inscricao_confirmada_para(usuario_noite, InscricaoNewsletter.TIPO_PADRAO, periodo=InscricaoNewsletter.PERIODO_NOITE)
 
     # P1-06: o backend precisa entregar para o total decir "1 enviado" — ver a
     # justificativa em `test_enviar_newsletters_respeita_consentimento_e_inscricao_ativa`.
@@ -174,7 +175,7 @@ def test_corpo_do_email_inclui_radar_de_tendencias_quando_ha_assuntos_em_alta():
     _item("Noticia A", "https://g1/radar-news-a")
     _item("Noticia B", "https://g1/radar-news-b")
     usuario = _usuario_consentido("radar-newsletter@example.com")
-    inscricao = services.inscrever(usuario, InscricaoNewsletter.TIPO_PADRAO)
+    inscricao = inscricao_confirmada_para(usuario, InscricaoNewsletter.TIPO_PADRAO)
 
     corpo = services.montar_corpo_email(inscricao)
 

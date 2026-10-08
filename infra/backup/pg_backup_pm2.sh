@@ -45,7 +45,7 @@ drop_validation_db() {
     if [[ "$VALIDATION_DB_CREATED" != "1" ]]; then
         return 0
     fi
-    if dropdb "${PG_CONNECTION_ARGS[@]}" --if-exists --no-password "$VALIDATION_DB" >/dev/null 2>&1; then
+    if as_pg dropdb "${PG_ADMIN_ARGS[@]}" --if-exists --no-password "$VALIDATION_DB" >/dev/null 2>&1; then
         log "banco descartável de validação removido: $VALIDATION_DB"
         VALIDATION_DB_CREATED=0
     else
@@ -57,6 +57,8 @@ cleanup() {
     local status=$?
     trap - EXIT
     drop_validation_db || true
+    restore_dump_group_ownership || true
+    [[ -n "$COUNTS_SQL_FILE" ]] && rm -f -- "$COUNTS_SQL_FILE" 2>/dev/null || true
     if [[ -n "$DUMP_TMP" ]]; then
         rm -f -- "$DUMP_TMP" || true
     fi
@@ -205,9 +207,35 @@ elif [[ -n "$S3_ENDPOINT" || -n "$S3_ACCESS_KEY" || -n "$S3_SECRET_KEY" ]]; then
     exit 12
 fi
 
+# --- midia ausente NAO impede o backup do banco ---------------------------
+# O banco e o irreplacecivel; o arquivo de midia e secundario. Antes, a
+# validacao da midia era a PRIMEIRA etapa e um exit 1 impedia o dump de
+# existir. Medido na VPS: nao ha diretorio de midia em DEV, HOMOLOG nem PROD,
+# nenhum MEDIA_ROOT declarado e nenhum volume — o portal nao tem midia local.
+#
+# Nao se aponta BACKUP_MEDIA_DIR para um diretorio vazio: um tar vazio seria
+# um "backup de midia" que nao protege nada, que e a mentira que este programa
+# existe para eliminar. Ou existe midia e o caminho esta errado, ou nao existe
+# midia — e as duas coisas precisam ser ditas, nao emuladas.
+# --- piso de conteudo do dump -------------------------------------------
+# Medido: um banco sem tabelas de usuario produz um archive de ~800 B; um
+# banco com 2 tabelas e ZERO linhas produz ~4 KB e a TOC ainda lista TABLE
+# DATA.Ou seja, contar entradas na TOC NAO detecta dump vazio, e o sintoma
+# observado em producao (48 KB sem dados) passaria. O que carrega a garantia
+# e o piso em BYTES, com um piso minimo de linhas como segunda camada.
+BACKUP_MIN_LINHAS="${BACKUP_MIN_LINHAS:-1}"
+BACKUP_MIN_BYTES="${BACKUP_MIN_BYTES:-1048576}"
+
+MEDIA_PRESENTE=1
 if [[ ! -d "$MEDIA_DIR" ]]; then
-    erro "MEDIA_ROOT não existe: $MEDIA_DIR (ajuste BACKUP_MEDIA_DIR somente se o layout da VPS mudar)"
-    exit 1
+    if [[ "${BACKUP_MEDIA_OBRIGATORIA:-0}" == "1" ]]; then
+        erro "MEDIA_ROOT não existe: $MEDIA_DIR e BACKUP_MEDIA_OBRIGATORIA=1"
+        exit 1
+    fi
+    MEDIA_PRESENTE=0
+    log "AVISO: MEDIA_ROOT não existe: $MEDIA_DIR"
+    log "AVISO: o dump do BANCO será gerado, validado e publicado normalmente; apenas o arquivo de mídia não será produzido. Nenhum caminho substituto foi apontado, de propósito."
+    log "AVISO: se este ambiente deveria ter mídia, a ausência é um achado de produto e não um detalhe de backup. Defina BACKUP_MEDIA_DIR se o layout mudou."
 fi
 
 mkdir -p -- "$BACKUP_DIR"
@@ -259,6 +287,54 @@ export PGPASSWORD="$DB_PASSWORD"
 export PGCONNECT_TIMEOUT="${PGCONNECT_TIMEOUT:-10}"
 PG_CONNECTION_ARGS=(--host="$DB_HOST" --port="$DB_PORT" --username="$DB_USER")
 
+# --- validacao do restore sem CREATEDB no usuario do aplicativo -----------
+# A validacao cria um banco DESCARTAVEL no mesmo cluster, restaura o dump
+# nele, conta e descarta. Isso e responsabilidade da FERRAMENTA de backup, nao
+# do aplicativo: conceder CREATEDB ao usuario do app seria uma regressao de
+# seguranca (ele passaria a poder criar banco no cluster de producao).
+# Entao a validacao roda como o superusuario do Postgres, pelo socket local
+# (autenticacao peer), e o dump continua sendo lido pelo usuario do app.
+SUPERUSER_DISPONIVEL=0
+if [[ "$(id -u)" == "0" ]] && id -u postgres >/dev/null 2>&1; then
+    SUPERUSER_DISPONIVEL=1
+fi
+PG_SOCKET_DIR="${PG_SOCKET_DIR:-/var/run/postgresql}"
+PG_ADMIN_ARGS=(--host="$PG_SOCKET_DIR")
+
+# Executa um comando como o superusuario do Postgres quando disponivel; caso
+# contrario, executa direto (o comportamento anterior, que pode recusar).
+# Devolve o dump temporario ao grupo original depois da validacao. O dump sobe
+# com grupo `postgres` enquanto o superusuario precisa le-lo; se o script morrer
+# antes, o cleanup tambem chama isto.
+DUMP_TMP_GRUPO_RESTAURADO=0
+PG_DUMP_GRUPO_ORIGEM=""
+
+restore_dump_group_ownership() {
+    if [[ "$DUMP_TMP_GRUPO_RESTAURADO" != "1" || -z "$DUMP_TMP" || ! -f "$DUMP_TMP" ]]; then
+        return 0
+    fi
+    if chgrp "$PG_DUMP_GRUPO_ORIGEM" "$DUMP_TMP" 2>/dev/null && chmod 0600 "$DUMP_TMP" 2>/dev/null; then
+        log "propriedade do dump temporario restaurada ao grupo $PG_DUMP_GRUPO_ORIGEM"
+    else
+        log "AVISO: não foi possível devolver o dump temporario ao grupo $PG_DUMP_GRUPO_ORIGEM; ele segue legível pelo grupo postgres"
+    fi
+    DUMP_TMP_GRUPO_RESTAURADO=0
+}
+
+as_pg() {
+    if (( SUPERUSER_DISPONIVEL )); then
+        local cmd="" a
+        for a in "$@"; do cmd+="$(printf '%q ' "$a")"; done
+        su -s /bin/sh postgres -c "$cmd"
+    else
+        "$@"
+    fi
+}
+
+if (( ! SUPERUSER_DISPONIVEL )); then
+    log "AVISO: sem superusuario do Postgres disponivel (uid!=0 ou usuario postgres ausente); a validacao do restore usara o usuario do aplicativo e pode recusar por falta de CREATEDB"
+fi
+
 # Conta todas as tabelas de usuário e todas as linhas antes e depois do restore.
 # query_to_xml permite montar SELECT count(*) com quoting seguro para schemas e
 # tabelas com nomes incomuns; o resultado é apenas "tabelas|linhas".
@@ -289,10 +365,34 @@ FROM counts;
 SQL
 )"
 
+# A SQL de contagem NAO viaja pelo shell quando a contagem roda como
+# superusuario: `su -c` reinterpreta a string, e o query_to_xml do Postgres
+# tem parenteses que quebram a citacao em duas camadas. Ela vai num arquivo e o
+# psql le com -f. Para o usuario do app, que nao passa por su, o caminho
+# direto continua igual.
+COUNTS_SQL_FILE=""
+escrever_counts_sql() {
+    COUNTS_SQL_FILE="$BACKUP_DIR/.contagens-$$.sql"
+    printf '%s' "$DATABASE_COUNT_SQL" > "$COUNTS_SQL_FILE" || return 1
+    chmod 0644 "$COUNTS_SQL_FILE"
+}
+
 database_counts() {
     local db_name="$1"
+    local modo="${2:-app}"
     local result
-    if ! result="$(psql "${PG_CONNECTION_ARGS[@]}" --no-password --no-psqlrc --quiet \
+    if [[ "$modo" == "admin" ]]; then
+        [[ -n "$COUNTS_SQL_FILE" && -f "$COUNTS_SQL_FILE" ]] || escrever_counts_sql || {
+            erro "não foi possível preparar o arquivo de contagem"
+            return 1
+        }
+        if ! result="$(as_pg psql "${PG_ADMIN_ARGS[@]}" --no-password --no-psqlrc --quiet \
+            --tuples-only --no-align --field-separator='|' --set=ON_ERROR_STOP=1 \
+            --dbname="$db_name" --file="$COUNTS_SQL_FILE")"; then
+            erro "não foi possível contar tabelas/linhas no banco $db_name"
+            return 1
+        fi
+    elif ! result="$(psql "${PG_CONNECTION_ARGS[@]}" --no-password --no-psqlrc --quiet \
         --tuples-only --no-align --field-separator='|' --set=ON_ERROR_STOP=1 \
         --dbname="$db_name" --command="$DATABASE_COUNT_SQL")"; then
         erro "não foi possível contar tabelas/linhas no banco $db_name"
@@ -335,13 +435,27 @@ if (( VALIDATE_RESTORE_ENABLED )); then
         erro "a contagem do banco de origem falhou; dump não será publicado"
         exit 7
     fi
-    if ! createdb "${PG_CONNECTION_ARGS[@]}" --no-password -T template0 "$VALIDATION_DB"; then
-        erro "não foi possível criar o banco descartável para validar o restore; o dump não será publicado (permissão CREATEDB é necessária)"
+    # Banco descartável: criação, restore, contagem e descarte são da
+    # ferramenta de backup, não do aplicativo — daí o superusuário.
+    #
+    # O superusuário roda como o usuário do SO `postgres` e precisa LER o dump
+    # temporário, que é do root. Não se abre o arquivo para o mundo (o dump é o
+    # banco inteiro): cede-se apenas o grupo, e só enquanto a validação lasts.
+    if (( SUPERUSER_DISPONIVEL )); then
+        PG_DUMP_GRUPO_ORIGEM="$(stat -c '%g' "$DUMP_TMP" 2>/dev/null || echo root)"
+        if ! chgrp postgres "$DUMP_TMP" 2>/dev/null || ! chmod 0640 "$DUMP_TMP" 2>/dev/null; then
+            erro "não foi possível tornar o dump legível pelo superusuário para a validação; o dump não será publicado"
+            exit 8
+        fi
+        DUMP_TMP_GRUPO_RESTAURADO=1
+    fi
+    if ! as_pg createdb "${PG_ADMIN_ARGS[@]}" --no-password -T template0 "$VALIDATION_DB"; then
+        erro "não foi possível criar o banco descartável para validar o restore; o dump não será publicado (permissão CREATEDB é necessária e nenhum superusuário estava disponível)"
         exit 8
     fi
     VALIDATION_DB_CREATED=1
-    if ! pg_restore \
-        "${PG_CONNECTION_ARGS[@]}" \
+    if ! as_pg pg_restore \
+        "${PG_ADMIN_ARGS[@]}" \
         --no-password \
         --exit-on-error \
         --no-owner \
@@ -351,7 +465,7 @@ if (( VALIDATE_RESTORE_ENABLED )); then
         erro "pg_restore falhou ao restaurar o dump em $VALIDATION_DB; arquivo inválido descartado"
         exit 9
     fi
-    if ! RESTORED_COUNTS="$(database_counts "$VALIDATION_DB")"; then
+    if ! RESTORED_COUNTS="$(database_counts "$VALIDATION_DB" admin)"; then
         erro "não foi possível contar o banco restaurado; arquivo descartado"
         exit 10
     fi
@@ -361,6 +475,7 @@ if (( VALIDATE_RESTORE_ENABLED )); then
     fi
     log "restore validado: $VALIDATION_DB ($RESTORED_COUNTS; tabelas|linhas)"
     drop_validation_db
+    restore_dump_group_ownership
 else
     log "AVISO: BACKUP_VALIDATE_RESTORE=0; restore descartável e contagem desligados por decisão explícita"
     if ! pg_restore --exit-on-error --file=/dev/null "$DUMP_TMP" >/dev/null; then
@@ -370,26 +485,43 @@ else
     log "leitura integral do archive validada, mas o restore em banco foi pulado"
 fi
 
+# --- piso de conteudo: antes de publicar ---------------------------------
+DUMP_BYTES="$(stat -c '%s' "$DUMP_TMP")"
+DUMP_LINHAS="${SOURCE_COUNTS#*|}"
+if (( VALIDATE_RESTORE_ENABLED )); then
+    if (( DUMP_LINHAS < BACKUP_MIN_LINHAS )); then
+        erro "dump com $DUMP_LINHAS linha(s), abaixo do piso de $BACKUP_MIN_LINHAS: um dump sem dados e um backup que nao protege nada; arquivo descartado"
+        exit 7
+    fi
+fi
+if (( DUMP_BYTES < BACKUP_MIN_BYTES )); then
+    erro "CONTEUDO INSUFICIENTE: o dump tem $DUMP_BYTES bytes, abaixo do piso de $BACKUP_MIN_BYTES. Archive desse tamanho e sintoma de esquema sem dados, nao de um backup do portal; arquivo descartado. Ajuste BACKUP_MIN_BYTES se o tamanho real do banco for menor."
+    exit 7
+fi
+log "piso de conteudo: $DUMP_BYTES bytes, $DUMP_LINHAS linha(s)"
+
 mv -f -- "$DUMP_TMP" "$DUMP_FILE"
 DUMP_TMP=""
 log "dump validado: $DUMP_FILE"
 
-log "arquivando MEDIA_ROOT: $MEDIA_DIR"
-if ! tar -czf "$MEDIA_TMP" -C "$MEDIA_DIR" .; then
-    erro "tar da mídia falhou; nenhum arquivo final foi publicado"
-    exit 13
+if (( MEDIA_PRESENTE )); then
+    log "arquivando MEDIA_ROOT: $MEDIA_DIR"
+    if ! tar -czf "$MEDIA_TMP" -C "$MEDIA_DIR" .; then
+        erro "tar da mídia falhou; nenhum arquivo final foi publicado"
+        exit 13
+    fi
+    if [[ ! -s "$MEDIA_TMP" ]]; then
+        erro "tar da mídia produziu um arquivo vazio: $MEDIA_TMP"
+        exit 14
+    fi
+    if ! tar -tzf "$MEDIA_TMP" >/dev/null; then
+        erro "o arquivo compactado da mídia está corrompido; arquivo inválido descartado"
+        exit 15
+    fi
+    mv -f -- "$MEDIA_TMP" "$MEDIA_FILE"
+    MEDIA_TMP=""
+    log "mídia validada: $MEDIA_FILE"
 fi
-if [[ ! -s "$MEDIA_TMP" ]]; then
-    erro "tar da mídia produziu um arquivo vazio: $MEDIA_TMP"
-    exit 14
-fi
-if ! tar -tzf "$MEDIA_TMP" >/dev/null; then
-    erro "o arquivo compactado da mídia está corrompido; arquivo inválido descartado"
-    exit 15
-fi
-mv -f -- "$MEDIA_TMP" "$MEDIA_FILE"
-MEDIA_TMP=""
-log "mídia validada: $MEDIA_FILE"
 
 if (( S3_REMOTE_ENABLED )); then
     BUCKET="${S3_BUCKET%/}"
@@ -398,17 +530,24 @@ if (( S3_REMOTE_ENABLED )); then
         exit 16
     fi
     DUMP_KEY="db/$(basename "$DUMP_FILE")"
-    MEDIA_KEY="media/$(basename "$MEDIA_FILE")"
+    MEDIA_KEY=""
+    if (( MEDIA_PRESENTE )); then
+        MEDIA_KEY="media/$(basename "$MEDIA_FILE")"
+    fi
 
     log "enviando dump para s3://$BUCKET/$DUMP_KEY"
     if ! "${AWS_CMD[@]}" s3 cp "$DUMP_FILE" "s3://$BUCKET/$DUMP_KEY" --only-show-errors; then
         erro "upload do dump falhou; nenhum backup local será removido"
         exit 17
     fi
-    log "enviando mídia para s3://$BUCKET/$MEDIA_KEY"
-    if ! "${AWS_CMD[@]}" s3 cp "$MEDIA_FILE" "s3://$BUCKET/$MEDIA_KEY" --only-show-errors; then
-        erro "upload da mídia falhou; nenhum backup local será removido"
-        exit 18
+    if (( MEDIA_PRESENTE )); then
+        log "enviando mídia para s3://$BUCKET/$MEDIA_KEY"
+        if ! "${AWS_CMD[@]}" s3 cp "$MEDIA_FILE" "s3://$BUCKET/$MEDIA_KEY" --only-show-errors; then
+            erro "upload da mídia falhou; nenhum backup local será removido"
+            exit 18
+        fi
+    else
+        log "mídia ausente: nenhum objeto em media/ será publicado (e nenhum seria fingido)"
     fi
 
     # Não confie apenas no exit zero de `cp`: confirma o objeto e o tamanho
@@ -430,7 +569,7 @@ if (( S3_REMOTE_ENABLED )); then
     if ! verify_s3_object "$DUMP_FILE" "$DUMP_KEY"; then
         exit 19
     fi
-    if ! verify_s3_object "$MEDIA_FILE" "$MEDIA_KEY"; then
+    if (( MEDIA_PRESENTE )) && ! verify_s3_object "$MEDIA_FILE" "$MEDIA_KEY"; then
         exit 19
     fi
     log "upload S3 concluído e objetos verificados"
@@ -445,4 +584,8 @@ else
     log "AVISO: configure R2/B2/S3 e uma lifecycle rule remota; esta cópia local não sobrevive à perda do host."
 fi
 
-log "backup concluído: $DUMP_FILE + $MEDIA_FILE"
+if (( MEDIA_PRESENTE )); then
+    log "backup concluído: $DUMP_FILE + $MEDIA_FILE"
+else
+    log "backup concluído: $DUMP_FILE (sem mídia: $MEDIA_DIR não existe e nada foi apontado no lugar)"
+fi

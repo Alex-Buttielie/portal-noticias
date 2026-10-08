@@ -3,7 +3,10 @@
 # e o build de produção do
 # frontend a cada push/PR — fecha a lacuna descrita na memória do projeto
 # ("project-portal-noticias-tool-outage": boa parte do código foi escrita
-# sem poder executar/testar de verdade). Também é chamado pelos workflows
+# sem poder executar/testar de verdade). No job do frontend o gate também
+# roda lint (ESLint), typecheck (tsc --noEmit, DEPOIS do build, porque antes
+# dele o Next ainda não gerou os tipos) e npm audit sobre as dependências.
+# Também é chamado pelos workflows
 # de deploy como o job `verify`; nesse caso é o gate do mesmo run, antes
 # de qualquer conexão SSH. Só valida, não faz deploy: o provisionamento é
 # papel dos workflows deploy-dev/homolog/prod (PM2 + Nginx na VPS).
@@ -87,6 +90,8 @@ jobs:
           node-version: "20"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
+      # ÚNICO install do job. Lint, build, typecheck e audit abaixo rodam
+      # todos contra este mesmo node_modules — nenhum passo reinstala.
       - run: npm ci
       - name: Verificar datas civis e instantes em TZ UTC/Tokyo
         run: |
@@ -97,8 +102,45 @@ jobs:
       # token/PII. Node puro, sem dependências; fail fast antes do tsc/build.
       - name: Verificar política de cache do query client (TanStack Query)
         run: node scripts/verificar-query-client.mjs
-      - run: npx tsc --noEmit
+      - name: Lint (ESLint)
+        run: npm run lint
       - run: npm run build
         env:
           NEXT_PUBLIC_API_BASE_URL: http://localhost:8000
           NEXT_PUBLIC_SITE_URL: http://localhost:3000
+      # typecheck DEPOIS do build, não antes: antes dele o Next ainda não
+      # gerou os tipos de rota (.next/types, next-env.d.ts) e o tsc falha por
+      # arquivo ausente — reprovação falsa. Depois do build os tipos existem
+      # e o gate passa a medir o código realmente gerado.
+      - name: Typecheck (tsc --noEmit, após o build)
+        run: npm run typecheck
+      # O gate de audit é `frontend/scripts/verificar-audit.mjs`, que chama
+      # `npm audit --json` por dentro e classifica cada advisory RAIZ.
+      #
+      # Por que não `npm audit --audit-level=high` direto: existia 1 advisory
+      # raiz sem NENHUMA versão corrigida (`braces`, CVE-2026-93687,
+      # first_patched_version: null). Um gate que exige o impossível não é um
+      # gate — é uma porta trancada sem chave, que só ensina a pessoa a parar
+      # de olhar. Em 2026-10-08 esse gate reprovava com 9 high e travava TODO o
+      # pipeline, inclusive o `verify` dos deploys.
+      #
+      # Por que não `--omit=dev`, que era a alternativa óbvia e menor: NÃO
+      # FUNCIONA aqui. `tailwindcss` está em `dependencies`, e é por ele que
+      # `braces` entra na árvore, então `--omit=dev` continua listando `braces`.
+      # E se alguém mover um dia uma dependência de runtime para
+      # `devDependencies`, ele passaria a esconder exatamente o que este gate
+      # existe para enxergar. Omitir não é auditar o que importa.
+      #
+      # O que o script faz: reprova por QUALQUER advisory raiz fora da lista
+      # documentada no próprio script — advisory novo, dependência nova, bump
+      # de versão, tudo reprova. Só o que está na lista, com a justificativa
+      # escrita e a verificação que a sustenta, passa; e a saída do log imprime
+      # o tolerado com o motivo, para o verde nunca ser silencioso.
+      #
+      # A classificação não veio de ler o audit: `braces` está AUSENTE de
+      # .next/standalone (output tracing do next build). Os dois advisories de
+      # runtime que existiam — `sharp` CVE-2026-96889 e `source-map-js`
+      # CVE-2026-93749 — estão PRESENTES, e por isso foram corrigidos, não
+      # tolerados.
+      - name: Auditoria de dependências (classificada por risco real)
+        run: node scripts/verificar-audit.mjs

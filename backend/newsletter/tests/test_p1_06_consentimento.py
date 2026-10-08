@@ -52,6 +52,7 @@ from rest_framework.test import APIClient
 from newsletter import services
 from newsletter.models import InscricaoNewsletter
 from newsletter.tests.doubles import CAMINHO_ENTREGA
+from newsletter.tests.fabrica import inscricao_confirmada_para
 
 pytestmark = pytest.mark.django_db
 User = get_user_model()
@@ -91,7 +92,7 @@ def test_inscricao_e_recusada_quando_a_conta_nao_tem_consentimento():
     `services.inscrever_com_status`."""
     user = _sem_consentimento("sem-aceite@example.com")
     with pytest.raises(services.ConsentimentoAusenteError):
-        services.inscrever(user, InscricaoNewsletter.TIPO_PADRAO)
+        inscricao_confirmada_para(user, InscricaoNewsletter.TIPO_PADRAO)
     assert not InscricaoNewsletter.objects.filter(user=user).exists()
 
 
@@ -133,7 +134,7 @@ def test_consentimento_ausente_nao_impede_o_envio_dos_outros():
     """A trava é por PESSOA, não global: quem tem consentimento continua
     recebendo normalmente quando há outra conta sem consentimento no banco."""
     _consentido("com-aceite@example.com")
-    services.inscrever(
+    inscricao_confirmada_para(
         User.objects.get(email="com-aceite@example.com"), InscricaoNewsletter.TIPO_PADRAO
     )
     _sem_consentimento("outro-sem-aceite@example.com")
@@ -158,7 +159,7 @@ def test_consentimento_registrado_tem_data_e_versao_do_texto():
     assert user.consentimento_aceito_em.tzinfo is not None
     assert user.consentimento_versao_termos
 
-    inscricao = services.inscrever(user, InscricaoNewsletter.TIPO_PADRAO)
+    inscricao = inscricao_confirmada_para(user, InscricaoNewsletter.TIPO_PADRAO)
     assert inscricao.ativa is True
     # A inscrição tem data de criação própria (quando a pessoa pediu para
     # receber) — é o segundo carimbo do mesmo ato.
@@ -169,7 +170,7 @@ def test_envio_exige_consentimento_registrado():
     """Sem consentimento não há inscrição (trava de escrita), e o filtro de
     leitura também não deixaria passar. As duas defesas, verificadas."""
     com = _consentido("envia@example.com")
-    services.inscrever(com, InscricaoNewsletter.TIPO_PADRAO)
+    inscricao_confirmada_para(com, InscricaoNewsletter.TIPO_PADRAO)
 
     # Simula o estado legado que existia antes do P1-06: uma inscrição ativa de
     # alguém sem consentimento (criada por um caminho que não exigia aceite).
@@ -194,7 +195,7 @@ def test_descadastro_revoga_o_efeito_do_consentimento():
     from newsletter.tokens import gerar_token_descadastro
 
     user = _consentido("revoga@example.com")
-    inscricao = services.inscrever(user, InscricaoNewsletter.TIPO_PADRAO)
+    inscricao = inscricao_confirmada_para(user, InscricaoNewsletter.TIPO_PADRAO)
     token = gerar_token_descadastro(inscricao)
 
     with override_settings(EMAIL_BACKEND=CAMINHO_ENTREGA):
@@ -230,7 +231,7 @@ def test_revogacao_registra_o_instante():
     """
     from newsletter.tokens import gerar_token_descadastro
 
-    inscricao = services.inscrever(
+    inscricao = inscricao_confirmada_para(
         _consentido("quando@example.com"), InscricaoNewsletter.TIPO_PADRAO
     )
     antes = inscricao.criado_em

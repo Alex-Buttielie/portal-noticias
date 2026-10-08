@@ -25,6 +25,7 @@ from django.utils import timezone
 from newsletter import services
 from newsletter.models import EnvioNewsletter, InscricaoNewsletter
 from newsletter.tokens import gerar_token_descadastro, ler_hash_do_token
+from newsletter.tests.fabrica import inscricao_confirmada_para
 
 pytestmark = pytest.mark.django_db
 User = get_user_model()
@@ -72,7 +73,7 @@ def test_token_de_tipo_nao_texto_e_recusado_sem_erro(valor):
 
 def test_token_com_espacos_ao_redor_e_aceito():
     """Link copiado com espaço no fim não pode falhar por isso."""
-    inscricao = services.inscrever(
+    inscricao = inscricao_confirmada_para(
         _consentido("espaco@example.com"), InscricaoNewsletter.TIPO_PADRAO
     )
     token = gerar_token_descadastro(inscricao)
@@ -84,7 +85,7 @@ def test_token_com_espacos_ao_redor_e_aceito():
 def test_segredo_vazio_nao_casa_com_nada():
     """`token_descadastro` tem `default=gerar_token` e `unique=True`, mas o
     código não deve depender dessa invariante para não explodir em `sha256`."""
-    inscricao = services.inscrever(
+    inscricao = inscricao_confirmada_para(
         _consentido("vazio@example.com"), InscricaoNewsletter.TIPO_PADRAO
     )
     InscricaoNewsletter.objects.filter(pk=inscricao.pk).update(token_descadastro="")
@@ -100,7 +101,7 @@ def test_corrida_entre_select_e_update_nao_deixa_a_inscricao_ativa(monkeypatch):
     código precisa tratar isso como "já foi feito por outro" — e, sobre tudo, não
     pode relançar nem reativar nada.
     """
-    inscricao = services.inscrever(
+    inscricao = inscricao_confirmada_para(
         _consentido("corrida@example.com"), InscricaoNewsletter.TIPO_PADRAO
     )
     token = gerar_token_descadastro(inscricao)
@@ -123,7 +124,7 @@ def test_corrida_entre_select_e_update_nao_deixa_a_inscricao_ativa(monkeypatch):
 def test_modalidade_padrao_traz_o_resumo_geral():
     _noticia("Geral A", "https://exemplo.test/geral-a")
     _noticia("Esportes B", "https://exemplo.test/esportes-b", categoria="esportes")
-    inscricao = services.inscrever(
+    inscricao = inscricao_confirmada_para(
         _consentido("conteudo-padrao@example.com"), InscricaoNewsletter.TIPO_PADRAO
     )
     corpo = services.montar_corpo_email(inscricao)
@@ -134,7 +135,7 @@ def test_modalidade_padrao_traz_o_resumo_geral():
 
 def test_modalidade_categoria_filtra_pelas_editorias_escolhidas():
     _noticia("Esportes B", "https://exemplo.test/esportes-b", categoria="esportes")
-    inscricao = services.inscrever(
+    inscricao = inscricao_confirmada_para(
         _consentido("conteudo-categoria@example.com"),
         InscricaoNewsletter.TIPO_CATEGORIA,
         categorias=["esportes"],
@@ -146,7 +147,7 @@ def test_modalidade_categoria_filtra_pelas_editorias_escolhidas():
 
 def test_modalidade_categoria_sem_categorias_cai_para_o_resumo_geral():
     _noticia("Geral A", "https://exemplo.test/geral-a")
-    inscricao = services.inscrever(
+    inscricao = inscricao_confirmada_para(
         _consentido("conteudo-categoria-vazia@example.com"),
         InscricaoNewsletter.TIPO_CATEGORIA,
         categorias=[],
@@ -160,14 +161,14 @@ def test_modalidade_personalizada_usa_os_interesses_do_usuario():
     user.interesses = ["esportes"]
     user.save(update_fields=["interesses"])
 
-    inscricao = services.inscrever(user, InscricaoNewsletter.TIPO_PERSONALIZADA)
+    inscricao = inscricao_confirmada_para(user, InscricaoNewsletter.TIPO_PERSONALIZADA)
     corpo = services.montar_corpo_email(inscricao)
     assert "Esportes B" in corpo
 
 
 def test_modalidade_personalizada_sem_interesse_cai_para_o_resumo_geral():
     _noticia("Geral A", "https://exemplo.test/geral-a")
-    inscricao = services.inscrever(
+    inscricao = inscricao_confirmada_para(
         _consentido("personalizado-sem-interesse@example.com", papel="premium"),
         InscricaoNewsletter.TIPO_PERSONALIZADA,
     )
@@ -176,7 +177,7 @@ def test_modalidade_personalizada_sem_interesse_cai_para_o_resumo_geral():
 
 def test_categorias_repetidas_nao_duplicam_itens_no_e_mail():
     _noticia("Esportes B", "https://exemplo.test/esportes-b", categoria="esportes")
-    inscricao = services.inscrever(
+    inscricao = inscricao_confirmada_para(
         _consentido("repetida@example.com"),
         InscricaoNewsletter.TIPO_CATEGORIA,
         categorias=["esportes", "esportes"],
@@ -191,11 +192,21 @@ def test_categorias_repetidas_nao_duplicam_itens_no_e_mail():
 
 
 def test_representacao_textual_da_inscricao_nao_tem_e_mail():
-    inscricao = services.inscrever(
+    """O `__str__` mudou de `ativa` para o ESTADO, e a propriedade continua.
+
+    `estado()` devolve uma das três strings de um vocabulário fechado
+    (`newsletter/models.py`), nenhuma delas derivada do titular. Este teste
+    trava essa invariante: o `__str__` é o que aparece no admin, no Django
+    Admin e em qualquer `print` — e é a superfície mais visível da linha.
+    """
+    inscricao = inscricao_confirmada_para(
         _consentido("repr@example.com"), InscricaoNewsletter.TIPO_PADRAO
     )
     assert "repr@example.com" not in str(inscricao)
-    assert str(inscricao) == f"Newsletter de {inscricao.user_id} (padrao, ativa)"
+    assert str(inscricao) == f"Newsletter de {inscricao.user_id} (padrao, confirmada)"
+    # E o vocabulário é mesmo fechado: as três strings que `estado()` pode
+    # devolver, e nenhuma delas contém nada do titular.
+    assert inscricao.estado() in {"pendente", "confirmada", "rejeitada"}
 
 
 def test_representacao_textual_do_envio():
@@ -271,7 +282,7 @@ def test_registro_datado_do_consentimento_existe_e_e_preenchido():
     assert "anonimizado_em" in campos
     assert "referencia_opaca" in campos
 
-    inscricao = services.inscrever(
+    inscricao = inscricao_confirmada_para(
         _consentido("datas@example.com"), InscricaoNewsletter.TIPO_PADRAO
     )
     # A concessão é gravada no ato da inscrição, e não é o aceite dos Termos.
@@ -314,7 +325,7 @@ def test_a_data_da_revogacao_sobrevive_a_uma_reescrita_da_linha():
     de primeira classe, nem como proxy. Um titular que perguntasse "quando
     cancelei?" não tinha resposta, e a documentação dizia que tinha.
     """
-    inscricao = services.inscrever(
+    inscricao = inscricao_confirmada_para(
         _consentido("proxy@example.com"), InscricaoNewsletter.TIPO_PADRAO
     )
     antes_do_descadastro = inscricao.atualizado_em
@@ -349,14 +360,14 @@ def test_o_vinculo_com_a_pessoa_e_cortado_nos_dois_caminhos_de_revogacao():
     revogar o consentimento mantendo o endereço linkedado — e um caminho é
     exatamente o que uma anonimização não pode ter.
     """
-    por_token = services.inscrever(
+    por_token = inscricao_confirmada_para(
         _consentido("token@example.com"), InscricaoNewsletter.TIPO_PADRAO
     )
     services.descadastrar_por_token(gerar_token_descadastro(por_token))
     por_token.refresh_from_db()
     assert por_token.user_id is None, "descadastro por token não cortou o vínculo"
 
-    por_endpoint = services.inscrever(
+    por_endpoint = inscricao_confirmada_para(
         _consentido("endpoint@example.com"), InscricaoNewsletter.TIPO_PADRAO
     )
     services.cancelar_inscricao(por_endpoint.user)
@@ -389,7 +400,7 @@ def test_versao_do_texto_de_consentimento_da_newsletter_continua_pendente():
     imediata, no mesmo POST — mudar isso é mudança de fluxo e de produto, não
     de retenção, e por isso não é coberto por teste aqui.
     """
-    inscricao = services.inscrever(
+    inscricao = inscricao_confirmada_para(
         _consentido("versao@example.com"), InscricaoNewsletter.TIPO_PADRAO
     )
 

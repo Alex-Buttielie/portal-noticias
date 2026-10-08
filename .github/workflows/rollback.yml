@@ -152,3 +152,10 @@ jobs:
       VPS_USER: ${{ secrets.VPS_USER }}
       VPS_PASSWORD: ${{ secrets.VPS_PASSWORD }}
       VPS_PORT: ${{ secrets.VPS_PORT }}
+      # Autenticacao do SSH por CHAVE, igual aos outros tres chamadores.
+      # `VPS_SSH_KEY` e `required: true` no deploy.yml: um chamador que nao o
+      # passa e INVALIDADO pelo GitHub, e o rollback — que existe justamente para
+      # ser acionado quando algo deu errado — ficaria indisponivel. Foi o que
+      # aconteceu com deploy-dev/homolog/prod em 2026-10-02: quatro runs
+      # seguidos terminaram em 0s, sem job nenhum.
+      VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
