@@ -797,15 +797,87 @@ def test_classificador_de_allowed_hosts():
 
 
 def test_backends_que_nao_entregam_de_e_mail():
-    """A lista é a decisão de segurança do furo 3: um backend que também não
-    entrega precisa entrar aqui para o sinal continuar valendo. Os três são os
-    que o Django traz de fábrica e que não fazem I/O de rede."""
+    """A lista e a decisao de seguranca do furo 3: um backend que tambem nao
+    entrega precisa entrar aqui para o sinal continuar valendo.
+
+    Este teste NAO fixava a lista num instantaneo (`==` com as tres entradas de
+    fabrica) — e essa era a razao pela qual ele quebrou quando a lista foi
+    corrigida, e pela qual ele nao impedia coisa nenhuma: ele era uma TERCEIRA
+    copia do mesmo fato, que ia divergir sozinha sem ninguem perceber. O
+    snapshot literal so seria redobravel quando alguem adicionasse um backend
+    que nao entrega, que e exatamente o caso que o teste devia aceitar.
+
+    O que este teste passa a medir sao as PROPRIEDADES que o instantaneo nao
+    expressava:
+
+    1. a lista CONTEM todo backend conhecido que nao entrega. `>=`, nao `==`:
+       o gate pode crescer — e quando crescer, o teste
+       `test_lista_de_backends_do_boot_e_a_mesma_do_gate` garante que o boot
+       acompanhou;
+    2. a lista NAO contem nenhum backend que entrega de verdade. Um `smtp` ou o
+       Resend nessa lista calaria o ERROR de boot de um deploy saudavel, que e
+       o erroOposto e tambem grave.
+    """
     from config.settings import _EMAIL_BACKENDS_QUE_NAO_ENTREGAM as nao_entregam
 
-    assert nao_entregam == frozenset(
-        {
-            "django.core.mail.backends.console.EmailBackend",
-            "django.core.mail.backends.locmem.EmailBackend",
-            "django.core.mail.backends.dummy.EmailBackend",
-        }
+    # 1. contem, no minimo, todos os que nao entregam — medido no gate
+    obrigatorios = {
+        "",  # variavel vazia: o Django cai no backend padrao, que nao entrega
+        "django.core.mail.backends.console.EmailBackend",
+        "django.core.mail.backends.locmem.EmailBackend",
+        "django.core.mail.backends.dummy.EmailBackend",
+        "django.core.mail.backends.filebased.EmailBackend",
+    }
+    faltando = obrigatorios - set(nao_entregam)
+    assert not faltando, (
+        "a lista do boot perdeu um backend que nao entrega: "
+        f"{sorted(faltando)}. O gate recusa a entrega e o boot nao anuncia: "
+        "o painel mostra 'e-mail nao entregue' sem nenhuma linha explicando "
+        "por que."
+    )
+
+    # 2. nao contem nenhum que entrega de verdade
+    entregam = {
+        "django.core.mail.backends.smtp.EmailBackend",
+        "config.email_resend.ResendEmailBackend",
+    }
+    invadidos = sorted(entregam & set(nao_entregam))
+    assert not invadidos, (
+        f"a lista do boot contem backend que ENTREGA: {invadidos}. "
+        "Com isso o ERROR de boot cala em um deploy saudavel, que e o erro "
+        "oposto ao que este sinal existe para fechar."
+    )
+
+
+def test_lista_de_backends_do_boot_e_a_mesma_do_gate():
+    """`config/settings.py` e `config/email_entrega.py` guardam a MESMA lista de
+    "backends que nao entregam", em duas copias — porque o guard do boot roda no
+    import dos settings e um import seria circular.
+
+    Este teste existe porque elas DIVERGIRAM. Estado medido na revisao final
+    (2026-09-30): a copia do boot tinha 3 entradas (console, locmem, dummy) e a
+    do gate tinha 5 (as 3 + `""` + `filebased`). O efeito e o pior par possivel —
+    o gate RECUSA a entrega e o boot fica em silencio:
+
+        DJANGO_EMAIL_BACKEND=django.core.mail.backends.filebased.EmailBackend
+        -> verificar_canal_email().disponivel is False   (cadastro/contato 503)
+        -> o ERROR de boot NAO dispara
+
+    Quem le o painel ve "e-mail nao entregue" sem nenhuma linha que diga por que
+    — que e o furo que este ERROR existe para fechar.
+
+    Por que `==` e nao `is`: as duas sao `frozenset` construidos em modulos
+    diferentes, entao identidade de objeto e impossivel aqui. E por que nao basta
+    `>=`: o gate pode crescer (um backend novo que nao entrega) e o boot ficar
+    para tras em silencio, que e exatamente o defeito.
+    """
+    from config.email_entrega import BACKENDS_SEM_ENTREGA_REAL
+    from config.settings import _EMAIL_BACKENDS_QUE_NAO_ENTREGAM as do_boot
+
+    assert do_boot == BACKENDS_SEM_ENTREGA_REAL, (
+        "a lista do boot de config/settings.py e a do gate de "
+        "config/email_entrega.py divergiram: "
+        f"so no gate={sorted(set(BACKENDS_SEM_ENTREGA_REAL) - set(do_boot))} "
+        f"so no boot={sorted(set(do_boot) - set(BACKENDS_SEM_ENTREGA_REAL))}. "
+        "O que o gate recusa e o boot nao anuncia e o furo."
     )
