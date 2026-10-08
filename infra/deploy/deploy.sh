@@ -357,6 +357,7 @@ mkdir -p "$NPM_CONFIG_CACHE"
 npm ci --cache "$NPM_CONFIG_CACHE" --prefer-offline
 NODE_OPTIONS="--max-old-space-size=1536" \
   NEXT_PUBLIC_API_BASE_URL="$API_ORIGIN" NEXT_PUBLIC_SITE_URL="$WEB_ORIGIN" \
+  API_INTERNAL_URL="http://127.0.0.1:$API_PORT" \
   npm run build
 cd "$APP_DIR/backend"
 python3 -m venv .venv 2>/dev/null || true
@@ -527,23 +528,29 @@ restart_or_start() {
   return 1
 }
 cd "$APP_DIR/frontend"
-# API_INTERNAL_URL (runtime, não bake): é a base que o SERVIDOR usa para falar
-# com a API Django, e que o route handler `/api/[...path]` lê por request.
+# API_INTERNAL_URL (runtime E build): e a base que o SERVIDOR usa para falar
+# com a API Django, e que o route handler /api/[...path] le.
 #
-# NÃO é um `rewrites` do next.config.js: esse arquivo não tem nenhum rewrite,
-# e um rewrite seria congelado no build — que é justamente o que não pode
+# NOS DOIS MOMENTOS, e isso e o ponto. MEDIDO em 2026-10-08: passar a variavel
+# so no runtime (a linha do restart_or_start abaixo) NAO FUNCIONA -- o
+# Next/webpack substitui `process.env.X` no bundle do servidor pelo valor
+# disponivel no BUILD, e uma variavel ausente no build vira literalmente
+# `undefined` dentro do bundle. Resultado medido no bundle deployed: 549
+# ocorrencias do hostname publico, ZERO mencoes a API_INTERNAL_URL, e o SSR
+# continuando a falhar com `getaddrinfo ENOTFOUND`. Por isso a mesma variavel
+# e passada tambem na linha do `npm run build`, mais abaixo.
+#
+# NAO e um `rewrites` do next.config.js: esse arquivo nao tem rewrite nenhum,
+# e um rewrite seria congelado no build -- que e justamente o que nao pode
 # acontecer aqui, porque a porta do gunicorn muda por ambiente. O proxy mora no
-# route handler para poder ler a variável a cada request e funcionar via
-# domínio, IP ou localhost sem rebuild (incident 2026-09-19: acesso direto por
-# IP:porta não passa pelo Nginx).
+# route handler para poder ler a variavel e funcionar via dominio, IP ou
+# localhost sem depender do Nginx (incidente 2026-09-19: acesso direto por
+# IP:porta nao passa pelo Nginx).
 #
-# MEDIDO em 2026-10-08: enquanto o DNS não apontar o hostname público para esta
-# VPS, usar a origem pública no lado do servidor faz TODA busca de dado do SSR
-# falhar — o servidor não sai para a internet e `$HOST` não resolve de dentro
-# da própria máquina. Foi o que deixou `/categoria/*`, `/arquivo`, `/paginas/*`
-# e `/buscar` respondendo 200 com página vazia em DEV e HOMOLOG.
-API_INTERNAL_URL="http://127.0.0.1:$API_PORT" PORT="$WEB_PORT" \
-  restart_or_start "portal-web-$SUF" npm --name "portal-web-$SUF" -- start
+# Como nao tem o prefixo `NEXT_PUBLIC_`, o valor NAO e embutido no bundle do
+# navegador: `http://127.0.0.1:$API_PORT` nao existe na maquina de quem le o
+# site, e vazaria a porta interna do gunicorn.
+restart_or_start "portal-web-$SUF" npm --name "portal-web-$SUF" -- start
 cd "$APP_DIR/backend"
 # Binário + args separados: pm2 não resolve string única citada
 # como executável. --interpreter explícito: o binário gunicorn não
