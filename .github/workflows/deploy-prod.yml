@@ -43,10 +43,15 @@ jobs:
       db_name: brd_portal_prod
       db_user: portal_prod
       strict_validate: true
+      # Usuários de teste: EXPLICITAMENTE desligado, e o valor explícito é o
+      # ponto. O default do `deploy.yml` já é `false` — mas o default é uma
+      # propriedade do arquivo, e esta linha é uma afirmação sobre o PROD, que
+      # não depende de ninguém abrir o reusable para ser conferida.
+      # `rollback.yml` não declara o input e fica em `false` pelo mesmo motivo.
+      usuarios_teste: false
     secrets:
       VPS_HOST: ${{ secrets.VPS_HOST }}
       VPS_USER: ${{ secrets.VPS_USER }}
-      VPS_PASSWORD: ${{ secrets.VPS_PASSWORD }}
       VPS_PORT: ${{ secrets.VPS_PORT }}
       # Autenticacao do SSH por CHAVE. Sem este secret o `deploy.yml` RECUSA o
       # run inteiro: `VPS_SSH_KEY` e `required: true` la, e nao ha fallback para a

@@ -150,7 +150,6 @@ jobs:
     secrets:
       VPS_HOST: ${{ secrets.VPS_HOST }}
       VPS_USER: ${{ secrets.VPS_USER }}
-      VPS_PASSWORD: ${{ secrets.VPS_PASSWORD }}
       VPS_PORT: ${{ secrets.VPS_PORT }}
       # Autenticacao do SSH por CHAVE, igual aos outros tres chamadores.
       # `VPS_SSH_KEY` e `required: true` no deploy.yml: um chamador que nao o

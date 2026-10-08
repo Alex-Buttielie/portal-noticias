@@ -278,7 +278,7 @@ não há promessa de zero downtime.
   dependência é declarada no arquivo dev, que é o que o job `backend-tests`
   instala depois do lock.
 
-Secrets exigidos (os mesmos de antes): `VPS_HOST`, `VPS_USER`, `VPS_PASSWORD`, `VPS_PORT` — vinculados a cada **GitHub Environment** (`development`/`homolog`/`production`) em Settings → Environments. O job `verify` não recebe secrets; o job de provisionamento roda com `environment: ${{ inputs.environment_name }}` (ver `.github/workflows/deploy.yml`), então só enxerga os secrets daquele Environment, com proteção de branch/tag. A configuração de regras de proteção/approvals do Environment continua sendo uma decisão humana no GitHub; o gate de CI já está no repositório.
+Secrets exigidos: `VPS_HOST`, `VPS_USER`, `VPS_PORT` e **`VPS_SSH_KEY`** — vinculados a cada **GitHub Environment** (`development`/`homolog`/`production`) em Settings → Environments. O job `verify` não recebe secrets; o job de provisionamento roda com `environment: ${{ inputs.environment_name }}` (ver `.github/workflows/deploy.yml`), então só enxerga os secrets daquele Environment, com proteção de branch/tag. `VPS_PASSWORD` saiu do contrato em 2026-10-08: o SSH autentica por chave, o secret no GitHub era obsoleto desde a rotação da senha do root, e não há fallback para a senha por desenho. A configuração de regras de proteção/approvals do Environment continua sendo uma decisão humana no GitHub; o gate de CI já está no repositório.
 
 ### O gate `usuarios_teste` — contas de teste sem senha em DEV/HOMOLOG
 
@@ -429,7 +429,7 @@ Configurar no GitHub, por decisão humana, branch protection/ruleset para
 Environments; essas regras complementsam o gate versionado, mas não o
 substituem.
 
-> **Rotação:** se qualquer secret (`VPS_PASSWORD`, `VPS_USER`, host/porta) for exposto em chat, log ou commit, rotacione imediatamente na VPS (`sudo passwd <usuario>` / troca de porta em `/etc/ssh/sshd_config` + `systemctl reload sshd`) e em Settings → Environments, antes do próximo deploy.
+> **Rotação:** se qualquer secret (`VPS_SSH_KEY`, `VPS_USER`, host/porta) for exposto em chat, log ou commit, rotacione imediatamente na VPS (`sudo passwd <usuario>` / troca de porta em `/etc/ssh/sshd_config` + `systemctl reload sshd`) e em Settings → Environments, antes do próximo deploy.
 
 ### Banco de dados (Postgres na VPS — único pré-requisito novo)
 

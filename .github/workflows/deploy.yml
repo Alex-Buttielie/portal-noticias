@@ -117,8 +117,6 @@ on:
         required: true
       VPS_USER:
         required: true
-      VPS_PASSWORD:
-        required: true
       VPS_PORT:
         required: true
       # Chave privada de deploy (formato PEM, tipo OpenSSH). O par publico
@@ -131,8 +129,6 @@ on:
       # contra o root esta acontecendo hoje (47 tentativas em 24 h de um
       # unico IP, 1813 falhas acumuladas).
       #
-      # `VPS_PASSWORD` continua declarado porque outros usos podem depender
-      # dele, mas NAO e mais o mecanismo de autenticacao do SSH.
       VPS_SSH_KEY:
         required: true
       # Chave da API do Resend (https://resend.com/api-keys), usada para
