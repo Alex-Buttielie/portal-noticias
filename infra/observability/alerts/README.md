@@ -71,7 +71,7 @@ existem de fato assim que o Alloy roda:
 | `regras-disponibilidade.yaml:87` *(nova)* | `absent(portal_readyz_total)` | **SIM** (o `absent` é real) | `backend/config/views.py:116` |
 | `regras-disponibilidade.yaml:127` | `up{job="alloy"}` | **SIM** (coletor) | `config.alloy` `prometheus.scrape "alloy"` |
 | `regras-disponibilidade.yaml:148` | `absent(up{ambiente="production",...})` | **SIM**, **e foi corrigido** | só funciona porque `config.alloy` posta `ambiente` como rótulo **em banda** via `prometheus.relabel`; com só `external_labels` esta regra é incapaz de disparar |
-| `regras-disponibilidade.yaml:267` | `absent(portal_http_requests_total or …)` | **`absent` é real**; as 16 séries ausentes são o que se quer denunciar | ver §1.3 |
+| `regras-disponibilidade.yaml:267` | `absent(portal_http_requests_total or …)` | **`absent` é real**; as 15 séries ausentes são o que se quer denunciar | ver §1.3 |
 | `regras-operacao.yaml:99` *(nova)* | `portal_health_detail_total{situacao="degradado"}` | **SIM** | `backend/config/views.py:142` |
 | `regras-operacao.yaml:124` *(nova)* | `absent(up{…}) and absent(portal_config_insegura_total)` | **SIM** | `views.py:142,160,183` |
 | `regras-operacao.yaml:172` *(nova)* | `portal_email_entrega_total{situacao="sem_canal"}` | **SIM** | `backend/config/email_entrega.py:184` |
@@ -85,7 +85,7 @@ existem de fato assim que o Alloy roda:
 | *(WIP)* `regras-operacao.yaml:123,153` | `portal_job_task_idle_seconds` | **NÃO** | idem (`filas_estado.py` existe, não é exposto) |
 | *(WIP)* `regras-operacao.yaml:187` | `portal_health_check_not_configured` | **NÃO** | substituído por `PortalReadinessNaoSondada` (piso) + leitura de `nao_verificadas` no corpo de `/readyz` |
 | *(WIP)* `regras-operacao.yaml:212,229` | `portal_dependency_checks_total` | **NÃO** | substituído por `portal_health_detail_total{situacao="degradado"}` |
-| *(WIP)* `regras-operacao.yaml:250` | `portal_collector_disk_free_ratio` | **NÃO** | nenhum componente do Alloy nem do Prometheus a expõe; só `node_filesystem_*` do node_exporter, que o projeto não tem |
+| *(WIP)* `regras-operacao.yaml:250` | `portal_collector_disk_free_ratio` | **NÃO** | nenhum componente do Alloy nem do Prometheus a expõe; só `node_filesystem_*` do node_exporter, que o projeto não tem. **Removida da expressão de `PortalTelemetriaNaoInstrumentada`** — ver §1.3.1 e §7.2. A cobertura de disco continua inexistente |
 | *(WIP)* `regras-operacao.yaml:271` | `portal_sentry_events_dropped_total` | **NÃO** | `develop` não tem Sentry. Substituído por `PortalEmailNaoEntregue`, que é a mesma classe de falha (serviço "verde" que não entrega) com dado real |
 | *(WIP)* `regras-operacao.yaml:289` | `portal_metrics_series_dropped_total` | **NÃO** | `develop` **não tem teto de séries**. Substituído por `PortalCardinalidadeAcimaDoOrcamento`, que mede em vez de contar descarte |
 | `portal-disponibilidade.json` | `portal_ready` | **NÃO** | painel substituído por `portal_readyz_total` |
@@ -104,7 +104,7 @@ existem de fato assim que o Alloy roda:
 | `portal-saude-dependencias.json` | `portal_dependency_checks_total` | **NÃO** | substituído por `portal_health_detail_total` |
 | `portal-saude-dependencias.json` | `portal_dependency_check_duration_seconds_bucket` | **NÃO** | substituído por `portal_readyz_duracao_ms` (`views.py:117`) |
 | `portal-saude-dependencias.json` | `portal_health_degraded_total` | **NÃO** | substituído por `portal_health_detail_total{situacao="degradado"}` |
-| `portal-saude-dependencias.json` | `portal_collector_disk_free_ratio` | **NÃO** | ver acima |
+| `portal-saude-dependencias.json` | `portal_collector_disk_free_ratio` | **NÃO** | ver §1.3.1; o painel também não a consome |
 | `portal-saude-dependencias.json` | `portal_sentry_events_dropped_total` | **NÃO** | ver acima |
 | `portal-saude-dependencias.json` | `portal_metrics_series_dropped_total` | **NÃO** | ver acima |
 | `portal-saude-dependencias.json` | `portal_observability_access_denied_total` | **NÃO** | substituído por `portal_acesso_negado_total{recurso}` |
@@ -115,7 +115,7 @@ existem de fato assim que o Alloy roda:
 Das 47, **40 foram corrigidas** no artefato: 21 viraram métrica real de
 `develop`, 19 viraram "NÃO MEDIDO" declarado + uma regra de ausência.
 
-### 1.3 As 16 séries que `develop` não expõe
+### 1.3 As 15 séries que `develop` não expõe
 
 Esta lista é literalmente a expressão de
 `PortalTelemetriaNaoInstrumentada`
@@ -134,12 +134,41 @@ Esta lista é literalmente a expressão de
 `portal_health_check_not_configured`,
 `portal_sentry_events_dropped_total`,
 `portal_metrics_series_dropped_total`,
-`portal_collector_disk_free_ratio`,
 `portal_observability_access_denied_total`,
 `portal_metrics_scrapes_total`
 
 Enquanto esta regra estiver de pé, ninguém pode confundir "o painel está vazio"
 com "o portal está tranquilo". É a regra que transforma a lacuna em barulho.
+
+#### 1.3.1 `portal_collector_disk_free_ratio` foi removida — e a cobertura de disco continua inexistente
+
+A 16ª entrada desta lista era `portal_collector_disk_free_ratio`. Ela foi
+removida da expressão de `PortalTelemetriaNaoInstrumentada`, e é preciso dizer
+o que isso muda e o que não muda.
+
+**O que muda (medido, não raciocinado).** `absent(A or B or …)` vale 1 quando
+NENHUMA das séries existe. Com `portal_collector_disk_free_ratio` na lista, a
+regra ficava presa num termo que nenhum componente deste projeto satisfaz: ela
+dispararia para sempre, mesmo depois de o backend instrumentar as outras 15.
+Ou seja, a referência prendia a regra de lacuna a um `node_exporter` que não
+existe, e a regra estavaazando de "falta instrumentação no backend" para
+"falta node_exporter". Sem o termo, a regra RESOLVE no dia em que qualquer das
+15 séries de instrumentação aparecer — que é o que ela promete medir e o que
+`proving/provar-regras.py` testa no caso SILENT.
+
+**O que NÃO muda: a cobertura de disco.** Não existe alerta de disco cheio em
+nenhum arquivo deste diretório, antes ou depois. Remover a referência removeu
+um LEMBRETE de que disco não é medido, não uma cobertura: a métrica nunca foi
+exposta por nada aqui, e portanto nunca houve alerta sobre ela. O buraco é
+real e continua aberto.
+
+**Quem fecha:** `node_filesystem_avail_bytes / node_filesystem_size_bytes` de
+um `node_exporter` (item de infra, não de código), ou um check externo de
+disco. Enquanto nenhum dos dois existir, a linha de
+`infra/observability/README.md` §4 que registra essa lacuna é a única
+menção — e ela é texto, não sinal.
+
+A prova reproduzível do parágrafo "o que muda" está em §7.1.
 
 ---
 
@@ -391,6 +420,52 @@ assim eram verde para sempre. Nenhuma das duas apareceria em revisão de texto:
    renderiza isso como `up{production, job=...}`, que é **sintaxe inválida** —
    todo painel que usasse a variável de ambiente seria um `No data`. A forma
    correta é `up{ambiente=~"${ambiente:raw}"}`, com operador explícito.
+
+### 7.2 `portal_collector_disk_free_ratio`: o quarto caso, medido
+
+Este é o caso que documenta §1.3.1, e ele é o mais fácil de piorar porque
+`promtool check rules` passa em cima dele sem reclamar.
+
+A pergunta que o item pedia era: dos três desfechos possíveis de um alerta que
+cita métrica inexistente — (a) nunca disparar, (b) disparar sempre, (c)
+depender de como o `absent()` está escrito — qual é este? **A resposta é (b) com
+a condição (c), e as duas medidas.**
+
+O que foi medido, com `promtool test rules` sobre a expressão real da regra
+(`count(<expr>)` a 20 min, `evaluation_interval: 1m`, séries injetadas
+cobrindo todo o intervalo):
+
+| cenário | expressão | dado injetado | resultado |
+|---|---|---|---|
+| A | as 17 de `develop` | nenhum | **1** (dispara) |
+| B | as 16, sem a de disco | nenhum | **1** (dispara) |
+| C | as 17 | só `portal_collector_disk_free_ratio` | 0 (silencia) |
+| D | as 17 | só `portal_http_requests_total` | 0 (silencia) |
+| E | as 16, sem a de disco | só `portal_collector_disk_free_ratio` | **1** (continua disparando) |
+| F | as 17 | todas as 16 | 0 (silencia) |
+
+Leitura:
+
+* **Não é (a).** A regra dispara hoje, e dispara pelo motivo certo: nenhuma das
+  séries existe. Isto não é um alerta que não pode falhar.
+* **É (b) no que importa.** Com o termo de disco na lista, a regra dependia de
+  um componente que ninguém instalou. O cenário C mostra que ela calaria se
+  `portal_collector_disk_free_ratio` aparecesse — mas essa série não é de
+  backend: é `node_filesystem_*` do `node_exporter`, e o nome até divergiria.
+  Então, na prática, o termo era insatisfazível, e o alarme de lacuna ficava
+  preso em "falta node_exporter", não em "falta instrumentação do backend".
+* **E (c) governa o efeito da remoção.** O cenário E é o que decide: sem a
+  referência, a existência de `portal_collector_disk_free_ratio` já não cala a
+  regra. A regra passa a depender exclusivamente das 15 séries de
+  instrumentação — que é a sua tese — e a resolver no dia em que o backend
+  instrumentar uma delas, como o caso SILENT de `provar-regras.py` exige.
+
+O que se perde: **nada de cobertura**, porque não havia cobertura de disco para
+perder (ver §1.3.1). O que se ganha é uma regra que resolve.
+
+Reproduzir: o script que gera esta tabela está junto do harness de validação
+usado no commit; na forma mínima, é um `promtool test rules` com a expressão
+acima nos seis cenários.
 
 ---
 

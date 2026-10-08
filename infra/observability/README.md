@@ -186,7 +186,7 @@ O resumo do que falta, e o que fecha cada item:
 | histograma de latência | idem | item de backend |
 | `portal_celery_queue_depth`, `portal_celery_tasks_total` | `manage.py saude_filas --json` — **já existe**, e é o que este diretório usa (§6) | já coberto |
 | `portal_dependency_checks_total{dependency}` | métrica por dependência no `_Registro` | item de backend |
-| `portal_collector_disk_free_ratio` | `node_filesystem_*` do node_exporter, que o projeto não tem | item de infra |
+| `portal_collector_disk_free_ratio` | `node_filesystem_*` do node_exporter, que o projeto não tem | item de infra. **NÃO EXISTE ALERTA DE DISCO NESTE DIRETÓRIO** — a referência foi removida da expressão de `PortalTelemetriaNaoInstrumentada` e o buraco continua aberto (ver `alerts/README.md` §1.3.1 e §7.2) |
 | `portal_sentry_events_dropped_total` | Sentry, que `develop` não tem | item de produto |
 | `portal_health_check_not_configured` | publicar `Relatorio.nao_verificadas` como métrica | item de backend |
 | `portal_metrics_series_dropped_total` | **não se aplica**: `develop` não tem teto de séries. Substituído por `PortalCardinalidadeAcimaDoOrcamento`, que mede | coberto |
@@ -265,17 +265,29 @@ promete mais do que entrega.
 2. **Gauge sobrevive a restart; contador não.** Só
    `portal_tempo_de_atividade_segundos` e `portal_readyz_duracao_ms` são
    fiáveis como estado.
-3. **O log de borda não é JSON.** `infra/nginx/http-cache.conf` de `develop`
-   **não define nenhum `log_format`** (verificado: zero ocorrências de
-   `log_format` nos sete arquivos de `infra/nginx/`). Enquanto isso não
-   existir, o `loki.source.file "edge"` não tem o que coletar e o painel de
-   acesso fica vazio. `verificar-env.sh` exige o arquivo e avisa se a
-   primeira linha não for JSON.
-4. **Não existe bloqueio de borda para `/metrics` e `/health-detail`.** O
-   comentário do rascunho afirmava que `infra/nginx/portal-*.conf` tinha
-   `location ^/(health-detail|metrics)$`; verificado, **não existe**. A
-   aplicação é hoje a única barreira (`health.py:414-418`), e o check
-   `portao-privado-metrics` do Better Stack existe para vigir isso de fora.
+3. **O log de borda é JSON, mas depende de o include estar instalado.** O
+   `log_format portal_acesso` existe em `infra/nginx/http-cache.conf`
+   (contexto `http`), com `escape=json` e todos os valores quotados; o
+   `access_log` que o consome está nos três `infra/nginx/portal-*.conf`, em
+   `server`, para `/var/log/nginx/portal-<amb>.access.log`. Isto está no
+   repositório, **não na VPS**: o `log_format` só vale depois de
+   `http-cache.conf` ser instalado dentro do `http {}` e o `nginx -t` passar.
+   O `verificar-env.sh` exige o arquivo e avisa se a primeira linha não for
+   JSON — é essa dupla verificação que transforma "não instalei o include" em
+   aviso em vez de painel de acesso vazio. Um `log_format` que não foi
+   instalado devolve o `combined` padrão, que é texto livre: o `stage.json`
+   não extrai nada e o painel fica vazio **sem erro em lugar nenhum**.
+4. **`/metrics` e `/health-detail` têm duas camadas, mas a de borda ainda não
+   está na VPS.** Nos três `infra/nginx/portal-*.conf` há `location =
+   /metrics` e `location = /health-detail` com `allow 127.0.0.1; allow ::1;
+   deny all;` (o mesmo padrão do `/healthz`), no bloco HTTP e no TLS. A
+   aplicação continua sendo a segunda camada e continua valendo: em loopback
+   sem token ela devolve 401 (`health.py:414-418`). Isto é configuração no
+   repositório: só vale depois do `nginx -t` e do reload na VPS. Medido antes
+   da mudança, `/metrics` e `/health-detail` respondiam **404 pelo frontend**
+   em HTTPS — barreira real, mas por acidente, dependente de o Next.js não
+   ganhar um catch-all. O check `portao-privado-metrics` do Better Stack
+   existe para vigir a exposição de fora e não depende do Nginx.
 5. **A retenção de 90 dias do R2 é decisão humana**, não ratificada. O número
    está parametrizado, não aprovado.
 6. **Uma instância do coletor por ambiente.** Um coletor único misturaria dev,
