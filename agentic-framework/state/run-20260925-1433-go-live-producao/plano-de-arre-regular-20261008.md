@@ -162,7 +162,64 @@ e sozinho.
 
 ---
 
-## Depende exclusivamente do solicitante
+## BLOQUEIO INVESTIGADO — `Deploy DEV` sem jobs (2026-10-08)
+
+### O sintoma
+
+`Deploy DEV` termina em **0s**, `conclusion=failure`, com **zero jobs**. Não é o
+CI: `verify` nunca chega a rodar. `develop` está verde no CI
+(`✓ frontend-build`, `✓ backend-tests`) e o deploy continua sem nascer.
+
+**Não é a credencial ausente.** Em 2026-10-08 eu apostei que faltava o secret
+`VPS_SSH_KEY` nos chamadores, corrigi os quatro (deploy-dev, deploy-homolog,
+deploy-prod e **rollback**, que eu tinha esquecido) e o run continuou com zero
+jobs. A hipótese era plausível e **falsa**.
+
+### O isolamento, por sonda em branch separado
+
+`develop` não foi tocado durante a investigação. O branch `probe/deploy-bisect`
+foi apagado depois — as variantes do `deploy.yml` que ele carrega quebram o
+deploy se alguém mesclar.
+
+| variante | linhas | bytes | chars de script | jobs |
+|---|---|---|---|---|
+| `deploy.yml` de 2026-09-29 | 644 | 33.190 | 21.576 | **4** |
+| atual menos 16 linhas | 737 | 39.172 | 24.407 | **4** |
+| atual menos 8 linhas | 754 | 40.387 | 25.408 | **0** |
+| atual | 762 | 40.966 | 25.883 | **0** |
+
+O que **não** é a causa, medido: as declarações de `secrets` no
+`on.workflow_call`; o bloco `with:` do `ssh-action` (`key:`, `env:`, `envs:`); a
+validação de `ALLOWED_HOSTS` isolada; as mudanças de dependência.
+
+### O que ficou em aberto, e deliberadamente
+
+**Não identifiquei o limite.** O limiar está entre 24.407 e 25.408 caracteres de
+script. **Não existe número redondo conhecido de limite do GitHub Actions que
+caiba aí**, e uma virada em 8 linhas não é base para declarar "é limite de
+tamanho". Registrado como correlação medida, não como causa. Declarar o número
+seria inventar.
+
+### A causa raiz é de manutenção, e ela é anterior ao sintoma
+
+Um shell de **25.883 caracteres dentro de YAML** é a razão pela qual a sessão
+anterior passou **35 execuções** de uma sonda (`zz-sonda.yml`, runs intitulados
+"27 de 30 comentários", "tamanho: 250 linhas de comentário") sem fechar. O que a
+sonda provou, quando alguém foi buscar os jobs de um run dela: **o `deploy.yml`
+era válido**, os 4 jobs existiam, e a falha era de verdade nos testes — porque a
+própria sonda passava `verify_ref` com 40 zeros. Ela mediu a coisa errada.
+
+Corção autorizada pelo solicitante: **extrair os dois scripts para
+`infra/deploy/`**, trocando cada `${{ inputs.X }}` por variável de ambiente. O
+YAML cai para ~200 linhas, a pergunta do limite desaparece sem depender de
+adivinhá-lo, e o script passa a ser executável **fora do GitHub** — que é o que
+o harness do gate `usuarios_teste` já faz hoje com o script embutido.
+
+### Erro de método meu, duas vezes
+
+Imprimi a conclusão **invertida** — "a causa é X" quando `jobs=4` significa que X
+*funcionava* — porque confiei no `if` sem reler o dado. Duas vezes. Quase
+anunciei a causa errada. O `if` é o que se corrige primeiro, antes de falar.
 
 - **DNS**: `portal-noticias.com` e `www` → `108.174.147.50`. Sem isso não há
   TLS, e sem TLS PROD não é PROD.
