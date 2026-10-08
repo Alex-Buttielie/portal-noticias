@@ -85,6 +85,66 @@ test("erro sem origem conhecida NAO e tratado como afirmacao do backend", () => 
   }
 });
 
+test("a politica sobrevive a DUAS copias da classe ApiError", () => {
+  // REGRESSAO REAL, medida em 2026-10-08. A primeira versao usava so
+  // `erro instanceof ApiError`. Os testes passavam; em DEV a pagina devolvia
+  // 200 com o estado de indisponibilidade quando o backend respondia 404.
+  //
+  // A causa: a pagina importa `@/lib/api` e a politica importa `./api`, e no
+  // bundle do servidor do Next isso pode dar DUAS classes `ApiError`. `instanceof`
+  // compara identidade de construtor, entao a segunda copia nao e reconhecido.
+  // Este teste em Node puro carrega o modulo UMA vez -- e por isso nao via o
+  // problema. Aqui as duas identities sao construidas de proposito.
+  //
+  // Uma classe com a MESMA forma, mas identidade diferente: e o que o bundle
+  // produz.
+  class ApiErrorDeOutraCopia extends Error {
+    constructor(status, detail, message) {
+      super(message);
+      this.name = "ApiError";
+      this.status = status;
+      this.detail = detail;
+    }
+  }
+  assert.notEqual(
+    ApiErrorDeOutraCopia,
+    ApiError,
+    "esta simulacao parou de simular: as duas classes viraram a mesma"
+  );
+
+  // A copia estranha, com 404, tem de ser reconhecida como 404.
+  assert.equal(
+    classificarErroPaginaEditorial(new ApiErrorDeOutraCopia(404, { detail: "nao encontrada" }, "nao encontrada")),
+    "inexistente",
+    "uma ApiError de outra copia do modulo nao foi reconhecida; o bundle do Next produz exatamente isso"
+  );
+
+  // E o inverso: a copia estranha NAO pode fabricar um 404 onde nao ha.
+  assert.equal(classificarErroPaginaEditorial(new ApiErrorDeOutraCopia(500, null, "erro")), "indisponivel");
+  assert.equal(classificarErroPaginaEditorial(new ApiErrorDeOutraCopia(0, null, "sem rede")), "indisponivel");
+
+  // Uma classe com `status: 404` mas que NAO se declara ApiError continua nao
+  // sendo afirmação do backend -- a checagem por `name` tem que valer.
+  class OutroErro extends Error {
+    constructor() {
+      super("404");
+      this.name = "OutroErro";
+      this.status = 404;
+    }
+  }
+  assert.equal(classificarErroPaginaEditorial(new OutroErro()), "indisponivel");
+
+  // E o motivo de `name` ser exigido: uma classe com `name` correto e status
+  // nao numerico nao vira 404.
+  class ApiErrorSemStatus extends Error {
+    constructor() {
+      super("sem status");
+      this.name = "ApiError";
+    }
+  }
+  assert.equal(classificarErroPaginaEditorial(new ApiErrorSemStatus()), "indisponivel");
+});
+
 test("o erro que o backend manda e' lido do status, nao da mensagem", () => {
   // Dois erros com mensagens opostas e o mesmo status tem de dar a mesma
   // resposta: o status e a afirmacao do backend, a mensagem e para o humano.

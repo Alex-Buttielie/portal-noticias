@@ -38,21 +38,58 @@ import { ApiError } from "./api";
 
 export type SituacaoPaginaEditorial = "inexistente" | "indisponivel";
 
+/** `status` numerico, quando o erro o carrega de alguma forma. */
+function statusNumerico(erro: unknown): number | null {
+  if (typeof erro !== "object" || erro === null) return null;
+  const s = (erro as { status?: unknown }).status;
+  return typeof s === "number" ? s : null;
+}
+
+/** `name` declarado, quando o erro o carrega. */
+function nomeDeclarado(erro: unknown): string | null {
+  if (typeof erro !== "object" || erro === null) return null;
+  const n = (erro as { name?: unknown }).name;
+  return typeof n === "string" ? n : null;
+}
+
 /**
  * Classifica uma falha vinda de `obterPaginaEditorial`.
  *
- * Só 404 é `inexistente`. Todo o resto — 5xx, 429, 401, timeout, DNS,
- * `TypeError: fetch failed`, `ApiError` com status 0 (que é o que
- * `lib/api.ts` lança quando o `fetch` não alcança a rede) — é
+ * So 404 e `inexistente`. Todo o resto -- 5xx, 429, 401, timeout, DNS,
+ * `TypeError: fetch failed`, `ApiError` com status 0 (que e o que
+ * `lib/api.ts` lanca quando o `fetch` nao alcanca a rede) -- e
  * `indisponivel`.
  *
- * A checagem é por `instanceof ApiError` e não por `status === 404` num
- * objeto qualquer, para que um erro sem origem conhecida não seja tratado
- * como afirmação do backend. É conservador de propósito: o custo de errar
- * para `indisponivel` é mostrar um estado de erro onde havia conteúdo; o custo
- * de errar para `inexistente` é um 404 em página que existe.
+ * POR QUE A CHECAGEM E POR FORMA E NAO SO POR `instanceof`
+ * -------------------------------------------------------
+ * A primeira versao usava apenas `erro instanceof ApiError`. Os testes
+ * passavam. Em DEV, **nao** (medido em 2026-10-08): a pagina
+ * `/paginas/<slug-que-nao-existe>` devolvia HTTP 200 com o estado de
+ * indisponibilidade, quando o backend responde 404 -- medido direto em
+ * `/api/moderacao/paginas/<slug>/`, que da 404 com corpo vazio.
+ *
+ * A causa e IDENTIDADE DE MODULO. A pagina importa `@/lib/api` e este arquivo
+ * importa `./api`; no bundle do servidor do Next os dois caminhos podem
+ * produzir DUAS classes `ApiError` distintas, e `instanceof` compara
+ * identidade de construtor -- nao forma. Um teste em Node puro nao enxerga
+ * isso, porque la o modulo e carregado uma vez so: O TESTE PASSAVA E A
+ * APLICACAO ESTAVA ERRADA. E o motivo de a checagem exigir `name` alem de
+ * `status`.
+ *
+ * `lib/api.ts` faz `this.name = "ApiError"` no construtor. `name` e
+ * propriedade de instancia em tempo de execucao, entao sobrevive a duplicacao
+ * de modulo, minificacao e reordenacao de import. O `instanceof` continua sendo
+ * consultado: e o caminho mais direto quando ele funciona.
+ *
+ * E a exigencia de que o erro se declare `ApiError` continua valendo. Um
+ * objeto solto com `{ status: 404 }` nao e afirmacao do backend. E
+ * conservador de proposito: o custo de errar para `indisponivel` e mostrar um
+ * estado de erro onde havia conteudo; o custo de errar para `inexistente` e um
+ * 404 em pagina que existe.
  */
 export function classificarErroPaginaEditorial(erro: unknown): SituacaoPaginaEditorial {
-  if (erro instanceof ApiError && erro.status === 404) return "inexistente";
+  if (statusNumerico(erro) !== 404) return "indisponivel";
+  if (erro instanceof ApiError) return "inexistente";
+  if (nomeDeclarado(erro) === "ApiError") return "inexistente";
   return "indisponivel";
 }
