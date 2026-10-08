@@ -48,6 +48,17 @@ jobs:
       VPS_USER: ${{ secrets.VPS_USER }}
       VPS_PASSWORD: ${{ secrets.VPS_PASSWORD }}
       VPS_PORT: ${{ secrets.VPS_PORT }}
+      # Autenticacao do SSH por CHAVE. Sem este secret o `deploy.yml` RECUSA o
+      # run inteiro: `VPS_SSH_KEY` e `required: true` la, e nao ha fallback para a
+      # senha por proposito. Passe-o aqui, nos tres chamadores, e o pipeline
+      # funciona por chave.
+      #
+      # Medido em 2026-10-08: enquanto esta linha faltava, os quatro `Deploy DEV`
+      # seguintes terminaram em 0s com "This run likely failed because of a
+      # workflow file issue" — o workflow reutilizavel exige o secret e o
+      # chamador nao o fornecia. Um secret obrigatorio que ninguem passa falha
+      # cedo e sem mensagem util; por isso o comentario.
+      VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
 
   # A release só é criada depois que o reusable deploy terminou. Se verify,
   # SSH, migrate, PM2 ou validate falhar, este job fica skipped e nenhum
