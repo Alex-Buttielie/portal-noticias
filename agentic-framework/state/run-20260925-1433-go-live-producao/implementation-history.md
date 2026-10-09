@@ -938,3 +938,84 @@ saída final está no relatório do subagente.
 
 *Seção acrescentada em 2026-09-25 pelo subagente de correção do defeito da
 checagem 7. Append-only: §1–§13 inalteradas.*
+
+## 15 FASE 3 (integração P2-02 + P2-01) e o D-24 — 2026-10-09
+
+### 15.1 Os merges (nenhuma branch publicada; merge a partir das worktrees)
+
+| commit | conteúdo |
+|---|---|
+| `38c3516` | merge de `p2-02-expurgo` (`b25debe`, worktree `/home/alex-buttielie/wt/p2`): retenção e expurgo de analytics + `backend/metricas/tasks.py` + 1072 linhas de testes |
+| `93d4516` | merge de `p2-01-furos` (`e089993`, worktree `/home/alex-buttielie/wt/o1p`): `location = /metrics` e `location = /health-detail` com `allow/deny` nos três confs + observabilidade |
+| `1eb2e75` | D-19: check `portao-privado-metrics` espera `401,403` |
+
+Colisão entre as duas branches: `infra/observability/README.md` — auto-mergeou
+sem conflito; verificado por marcador de conteúdo (o texto do P2-02 "NÃO EXISTE
+ALERTA DE DISCO" está presente no resultado mesclado).
+
+### 15.2 D-19 (a base medida)
+
+O nginx do P2-01 usa `deny all` no `location = /metrics` — origem externa
+recebe **403** ANTES de a aplicação. O check que esperava só `401` reprovaria
+injustamente. `expected_status` agora `401,403`: 403 = barreira de borda em
+operação; 401 = aplicação recusando sem token (transitório); 200 = rota
+exposta, que reprova. Meta do `checks.json` + frase do `README.md` do
+observability atualizados para coerência (o texto antigo dizia que o check "não
+depende do Nginx" — inverídico com a barreira em operação). O alerta de
+`/metrics` em `alerts/regras-disponibilidade.yaml` vigia o SCRAPE INTERNO
+(loopback com token, permitido por `allow 127.0.0.1`) — camada distinta, sem
+conflito com o check externo.
+
+### 15.3 Validação A/B das 4 falhas (nenhuma é regressão — provado)
+
+| estado | resultado |
+|---|---|
+| pré-merge (`8be2ee2`), suíte completa sqlite/locmem | **4 failed, 1666 passed** (356s) |
+| pós-merge (`38c3516`+`93d4516`), mesma suíte | **4 failed, 1709 passed** (356s) |
+
+As 4 falhas idênticas uma a uma nas duas bases: `b2b/tests/test_sanity.py::
+test_criterio_casa_com_itens_publicaveis` (order-dependent pré-existente —
+passa focado no arquivo, 10 passed, nas DUAS bases), as duas `TestMetrica` de
+`catalogo_noticias/tests/test_fallback_local.py` e a de
+`test_fallback_local_limites.py`. O merge adicionou 43 testes novos e **zero
+falhas novas**.
+
+### 15.4 Gate
+
+`scripts/release/verificar-proveniencia.sh --expected-sha <HEAD>` sobre
+`1eb2e75`: **exit 0, 10 checagens-ok, 0 falha, 0 incompleta, 0 achados**. O sha
+do gate bate com o congelado (`32ed34b…`) — regra intacta. Nota: sem
+`--expected-sha` a checagem 3 (sha-release) sai INCOMPLETA por desenho — a
+chamada completa é a que vale.
+
+### 15.5 O achado D-24 (todo deploy de DEV falhava — causa raiz provada)
+
+Todo deploy de DEV falhou desde `0a45c2f` (2026-10-08 20:56 UTC), inclusive o
+do push da FASE 3 (run `37871104053`). O deploy em si PASSA (backend-tests
+7m46s, frontend-build, deploy 57s com pm2 delete+start e `pm2 save`); quem
+falha é o step validate: probe da API **200**, probe web **connection refused
+em 127.0.0.1:3101**.
+
+Causa raiz, provada por comparação do env do pm2: `deploy.sh` iniciava o web
+com `npm --name X -- start` — **sem PORT**. `portal-web-dev` tinha
+`WEB_PORT=3101` e NÃO tinha `PORT` → `next start` subiu em 3000.
+`portal-web-homolog` tinha `PORT=3102` (do start manual do restore) — por isso
+o HOMOLOG estava de pé. O `strict_validate` funcionou corretamente: a falha é
+honesta e o marker não promove quando o probe falha de verdade.
+
+Correção (`0a7145b`, D-24): `export PORT="$WEB_PORT"` antes do
+`restart_or_start` do web — o pm2 herda o env do shell do deploy. O
+`rollback.yml` reusa `deploy.yml`/`deploy.sh`, então a correção o cobre.
+`bash -n` OK. Gate sobre `0a7145b`: **exit 0, achados 0**.
+
+### 15.6 A prova do D-24 (deploy real que PASSA)
+
+Deploy de DEV do `0a7145b` (run `37878912233`): **success**. Medido na VPS
+depois do run:
+
+- `.deployed-sha` do DEV = `0a7145b…` — **marker promovido** (era `7a599f8`)
+- env do pm2 de `portal-web-dev`: `PORT = 3101` (era `(sem)`)
+- `ss`: `next-server` escutando em `*:3101` (estava em `*:3000`)
+- checkout do DEV = `0a7145b` = marker — divergência fechada
+
+*Seção acrescentada em 2026-10-09. Append-only: §1–§14 inalteradas.*
