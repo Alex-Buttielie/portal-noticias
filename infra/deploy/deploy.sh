@@ -553,6 +553,15 @@ cd "$APP_DIR/frontend"
 # Como nao tem o prefixo `NEXT_PUBLIC_`, o valor NAO e embutido no bundle do
 # navegador: `http://127.0.0.1:$API_PORT` nao existe na maquina de quem le o
 # site, e vazaria a porta interna do gunicorn.
+#
+# D-24 (solicitante, 2026-10-09): o `next start` le a porta da variavel PORT e,
+# sem ela, sobe em 3000. MEDIDO em 2026-10-09: o env do pm2 de portal-web-dev
+# tinha WEB_PORT=3101 e NAO tinha PORT — o processo subiu em 3000 e o probe web
+# do validate.sh deu connection refused em 127.0.0.1:3101; todo deploy de DEV
+# falhou desde 0a45c2f por isso. O WEB_PORT so e lido por este script (mapa
+# input->variavel no cabecalho) — o next nunca o ve. O export abaixo e o que
+# leva a porta ao processo: o pm2 herda o env do shell do deploy.
+export PORT="$WEB_PORT"
 restart_or_start "portal-web-$SUF" npm --name "portal-web-$SUF" -- start
 cd "$APP_DIR/backend"
 # Binário + args separados: pm2 não resolve string única citada
