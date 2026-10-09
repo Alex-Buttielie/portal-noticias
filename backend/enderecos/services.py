@@ -211,7 +211,7 @@ def reverter_coordenadas(lat: float, lon: float) -> dict:
             resposta = sessao.get(
                 url,
                 timeout=_timeout(),
-                headers={"User-Agent": "BRDPortalNoticias/1.0 (+https://portal-noticias.com.br)", "Accept": "application/json"},
+                headers={"User-Agent": "BRDPortalNoticias/1.0 (+https://portal-noticias.com)", "Accept": "application/json"},
             )
     except EgressBloqueado as exc:
         logger.error("enderecos reverso bloqueado pela política de saída: %s", exc)
