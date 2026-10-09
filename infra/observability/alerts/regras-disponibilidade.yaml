@@ -183,15 +183,20 @@ groups:
       # `PortalTelemetriaNaoInstrumentada` abaixo, que dispara enquanto o sinal
       # não existir.
       #
-      # A rota para fechar isso é DUPLA e está escrita no runbook:
-      #   (a) borda — `log_format` JSON em `infra/nginx/http-cache.conf` (hoje
-      #       nenhum dos sete arquivos de `infra/nginx/` define `log_format`);
-      #       com isso o Loki passa a permitir taxa de 5xx e p95 por `uri`;
-      #   (b) aplicação — `portal_http_requests_total{status,route}` com
-      #       `route` de vocabulário FECHADO (o WIP usava o path resolvido, o
-      #       que é controlado pelo cliente e estoura cardinalidade).
-      # Nenhuma das duas é infraestrutura de observabilidade: é código de
-      # aplicação, e por isso não entra neste lote.
+      # A rota para fechar isso era DUPLA. A perta (a) EXISTE no repositório
+      # desde P2-01; a (b) continua aberta:
+      #   (a) borda — FEITA: `log_format portal_acesso` (JSON, `escape=json`)
+      #       em `infra/nginx/http-cache.conf`, com `access_log` nos três
+      #       `infra/nginx/portal-*.conf`. O Loki passa a permitir taxa de 5xx
+      #       e latência por `uri`. IMPORTANTE: isto é configuração de borda,
+      #       NÃO substitui a (b): o log não tem as garantias de uma métrica
+      #       com `route` de vocabulário fechado, e o painel de disponibilidade
+      #       continua lendo o `absent()` abaixo.
+      #   (b) aplicação — AINDA NÃO EXISTE: `portal_http_requests_total
+      #       {status,route}` com `route` de vocabulário FECHADO (o WIP usava
+      #       o path resolvido, que é controlado pelo cliente e estoura
+      #       cardinalidade). É esta que fecha a regra.
+      # A (b) não entra neste lote: é código de aplicação.
 
       # ---------------------------------------------------------------------
       # 4) O coletor está vivo?
@@ -258,6 +263,37 @@ groups:
         # contra o backend de develop. A tabela com `arquivo:linha` dos dois
         # lados está em `alerts/README.md` §1.
         #
+        # `portal_collector_disk_free_ratio` FOI REMOVIDA DESTA LISTA, e o que
+        # se perde está escrito aqui para não ser descoberto por ausência:
+        #
+        #   A COBERTURA DE DISCO DO COLETOR CONTINUA NÃO EXISTINDO. Não há
+        #   alerta de disco cheio em nenhum arquivo deste diretório, antes ou
+        #   depois deste commit. Remover a referência NÃO removeu cobertura —
+        #   ela nunca existiu, porque nenhum componente expõe a métrica: só
+        #   `node_filesystem_avail_bytes / node_filesystem_size_bytes` do
+        #   `node_exporter` mediria isto, e o projeto não tem node_exporter.
+        #
+        #   POR QUE A REFERÊNCIA ESTAVA AQUI E POR QUE FOI REMOVIDA — medido
+        #   com `promtool test rules` (ver `proving/provar-regras.py` e a
+        #   prova reproduzível em `alerts/README.md` §7.1):
+        #
+        #   * `absent(A or B or ... )` vale 1 quando NENHUMA das séries
+        #     existe. Com `portal_collector_disk_free_ratio` na lista, a
+        #     regra ficava presa num termo que NUNCA satisfaz: o alerta
+        #     dispararia para sempre mesmo depois de o backend instrumentar
+        #     as outras 15 séries. Ou seja, a presença do termo fazia a
+        #     regra dependente de um `node_exporter` que não existe.
+        #   * Sem o termo, a regra passa a RESOLVER no dia em que qualquer
+        #     das 15 séries de instrumentação aparecer — que é o que ela
+        #     promete medir, e o que `provar-regras.py` testa (caso SILENT).
+        #
+        #   O que se perde ao remover: o alerta deixa de "lembrar" que disco
+        #   não é medido. Perde-se um lembrete, não uma cobertura. Para que
+        #   essa lacuna não vire silêncio, ela está nomeada em
+        #   `alerts/README.md` §1.3 e em `infra/observability/README.md` §4,
+        #   e fecha com `node_exporter` (item de infra) ou com um check
+        #   externo de disco — nenhum dos dois é código.
+        #
         # `severity: warning` e NÃO `critical` por uma razão deliberada: isto
         # não é um incidente do portal, é uma lacuna de instrumentação
         # conhecida. Precisa ser alto e visível — nunca silencioso — mas não
@@ -278,7 +314,6 @@ groups:
             or portal_health_check_not_configured
             or portal_sentry_events_dropped_total
             or portal_metrics_series_dropped_total
-            or portal_collector_disk_free_ratio
             or portal_observability_access_denied_total
             or portal_metrics_scrapes_total
           )
@@ -301,13 +336,16 @@ groups:
             `portal_health_check_not_configured`,
             `portal_sentry_events_dropped_total`,
             `portal_metrics_series_dropped_total`,
-            `portal_collector_disk_free_ratio`,
             `portal_observability_access_denied_total`, `portal_metrics_scrapes_total`.
             Isto NÃO é o portal quebrado: é o painel de disponibilidade rodando
             sobre 9 métricas de verdade. Enquanto esta regra estiver de pé, os
             painéis `portal-disponibilidade` e `portal-ingestao` mostram "NÃO
             MEDIDO" em vez de número. Cada painel deste diretório nomeia, no
             próprio texto, qual é o item de backend que fecha a lacuna.
+            A COBERTURA DE DISCO NÃO ESTÁ NESTA LISTA E NÃO EXISTE: nenhum
+            componente deste projeto expõe métrica de disco livre (só o
+            `node_filesystem_*` do `node_exporter` mediria, e ele não existe
+            aqui). Ver o comentário da expressão, acima.
           impacto: "Sem sinal de 5xx, latência, fila, dependência nomeada ou ingestão. O diagnóstico de incidente depende de leitura de log."
           runbook_url: "https://runbooks.portal.exemplo.invalid/telemetria-nao-instrumentada.md"
           primeiro_passo: "ver `infra/observability/alerts/README.md` §1 (tabela de correspondência) e o painel `portal-telemetria-nao-instrumentada`"

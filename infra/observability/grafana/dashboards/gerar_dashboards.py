@@ -297,7 +297,7 @@ def disponibilidade():
         unit="short", text_mode="value"))
     p.append(stat(4, "LACUNAS DE INSTRUMENTAÇÃO (1 = falta sinal)",
         {"h": 4, "w": 5, "x": 14, "y": 0},
-        "`absent()` sobre as 16 séries que `develop` não expõe — é a MESMA expressão "
+        "`absent()` sobre as 15 séries que `develop` não expõe — é a MESMA expressão "
         "de `PortalTelemetriaNaoInstrumentada`. Valor 1 (vermelho) significa: os "
         "painéis de taxa de erro, latência, fila e ingestão NÃO TÊM DADO. Valor "
         "ausente (cinza) significa que algum dia o backend passou a expor pelo menos "
@@ -318,7 +318,6 @@ def disponibilidade():
                 "  or portal_health_check_not_configured\n"
                 "  or portal_sentry_events_dropped_total\n"
                 "  or portal_metrics_series_dropped_total\n"
-                "  or portal_collector_disk_free_ratio\n"
                 "  or portal_observability_access_denied_total\n"
                 "  or portal_metrics_scrapes_total\n"
                 ")", "faltando sinal")],
@@ -398,7 +397,7 @@ O que fecha cada lacuna — e por que **nada** disso é infraestrutura:
 
 | Sinal que falta | Fecha com | Onde |
 |---|---|---|
-| taxa de 5xx, por `status` | `log_format` JSON em `infra/nginx/http-cache.conf` (hoje **nenhum** dos 7 arquivos de `infra/nginx/` define `log_format`) | item de nginx |
+| taxa de 5xx, por `status` | **existe na borda desde P2-01**: `log_format portal_acesso` em `infra/nginx/http-cache.conf` + `access_log` nos três sites. Já fecha no Loki | feito (borda) |
 | taxa de 5xx, por `route` | `portal_http_requests_total{status,route}` com `route` de **vocabulário fechado** | item de backend |
 | p50/p90/p95 de requisição | histograma no middleware — `health.py` hoje só mede as checagens de saúde | item de backend |
 | ingestões por minuto | hoje só existe `RegistroExecucaoIngestao` no banco (`catalogo_noticias/models.py:288`), que é dado de produto, não de operação | item de backend |
