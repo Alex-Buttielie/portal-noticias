@@ -29,7 +29,29 @@ o `verify` chamado pelo deploy cobre a tag e verifica seu SHA.
 > concluída depois de observada no run correspondente e na própria VPS; validação
 > local de YAML, shell ou containers não é evidência de um deploy remoto.
 
-### Ambientes na VPS (inalterados)
+> **Cutover para Docker Compose + GHCR — pronto no código, NÃO ativo na VPS.**
+> O restante deste documento descreve a topologia **PM2 + Nginx**, que é a
+> que roda de verdade hoje. Em paralelo, os cinco workflows
+> (`deploy.yml`, `deploy-{dev,homolog,prod}.yml`, `rollback.yml`) e o
+> `docker-compose.yml` da raiz já foram reescritos para uma topologia nova:
+> as imagens são buildadas e publicadas no GHCR pelo próprio Actions (nunca
+> mais pip/npm na VPS), a VPS só faz `docker compose pull && up -d`, e um
+> Caddy único compartilhado (`infra/docker-edge/`) substitui o Nginx —
+> dizer isto "entregue" antes do corte real na VPS seria o mesmo falso
+> verde que este projeto existe para evitar. Verificado até aqui (sem
+> acesso à VPS): `actionlint` limpo nos 6 workflows, sintaxe shell dos
+> scripts embutidos, `docker compose config`/`caddy validate`/`alloy
+> validate` com as imagens oficiais, e um teste de ponta a ponta com
+> containers reais (Django + Next.js + Caddy) respondendo corretamente a
+> `/livez`, `/readyz`, `/health-detail` (com e sem token) e `/api/*`. O que
+> falta para a seção abaixo deixar de valer: provisionar os secrets
+> `GHCR_PULL_TOKEN`/`GHCR_PULL_USER`, instalar `infra/docker-edge/` na VPS,
+> migrar os dados do Postgres do host para os volumes dos containers
+> (backup-first, ambiente por ambiente) e confirmar saudável antes de
+> desligar PM2/Nginx — nessa ordem, nunca em produção primeiro. Ver
+> `infra/docker-edge/README.md` para a instalação do Caddy compartilhado.
+
+### Ambientes na VPS (PM2 + Nginx — topologia ATIVA hoje)
 
 | Ambiente | Ref git | Dir VPS | PM2 web/api | Portas |
 |----------|---------|---------|-------------|--------|

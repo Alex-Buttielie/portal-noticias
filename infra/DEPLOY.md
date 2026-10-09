@@ -1,15 +1,21 @@
 # Deploy na VPS — passo a passo
 
-> **Caminho ativo: PM2 + Nginx** (ver `CI-CD.md`) — mesma infra do deploy
-> anterior: `/home/apps/portal-{dev,homolog,prod}`, portas 310x/510x,
-> secrets `VPS_HOST/USER/PASSWORD/PORT`. Este arquivo documenta a variante
-> Docker + Caddy, mantida como alternativa local/opcional (não usada pela
-> esteira). O deploy de produção sai da tag `v*` via
+> **Caminho ativo na VPS hoje: PM2 + Nginx** (ver `CI-CD.md`) —
+> `/home/apps/portal-{dev,homolog,prod}`, portas 310x/510x, secrets
+> `VPS_HOST/USER/PASSWORD/PORT`. O deploy de produção sai da tag `v*` via
 > `.github/workflows/deploy-prod.yml`.
 >
-> **Nota de drift Docker vs PM2:** VPS roda PM2 (não Docker Compose);
-> healthcheck Docker é só para localhost (`docker-compose.yml` / `docker-compose.localhost.yml`).
-> Não usar `docker compose --env-file .env.production` na VPS.
+> **Cutover Docker em preparação (não ativo na VPS ainda):** os workflows
+> (`deploy.yml` e os 3 callers) já foram reescritos para build+push no GHCR
+> e `docker compose pull && up -d` na VPS, com um Caddy único compartilhado
+> em `infra/docker-edge/` no lugar do Nginx — tudo verificado localmente
+> (containers reais, `actionlint`, `caddy validate`), mas **sem execução
+> real na VPS ainda** (ver a nota equivalente em `CI-CD.md`, logo após o
+> diagrama do pipeline). Até essa execução acontecer e ser confirmada
+> saudável, continue seguindo este documento normalmente — ele descreve a
+> variante Docker/Caddy como estava antes do cutover (uso local/opcional),
+> e as seções abaixo sobre a topologia PM2 continuam sendo as que valem de
+> verdade na VPS.
 >
 > Guia de provisionamento da VPS HostGator (root/SSH) para a nova arquitetura
 > de infra (`docker-compose.yml` + `Caddyfile` na raiz do projeto). Faça uma
