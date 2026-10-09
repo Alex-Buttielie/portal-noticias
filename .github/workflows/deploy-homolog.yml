@@ -18,20 +18,12 @@ jobs:
       pr_number: ${{ github.event.pull_request.number }}
       # O deploy busca o head do PR; o mesmo SHA é passado ao CI.
       verify_ref: ${{ github.event.pull_request.head.sha }}
-      pm_suffix: homolog
       web_port: "3102"
       api_port: "5102"
-      host: homolog.portal-noticias.com.br
-      # TLS só é ativado depois da emissão do certificado neste ambiente.
-      tls_enabled: false
+      host: homolog.portal-noticias.com
       db_name: brd_portal_homolog
       db_user: portal_homolog
       strict_validate: true
-      # Gate de usuários de teste — idêntico ao de DEV, pelo mesmo motivo: em
-      # homologação a conta precisa existir para o teste do PR, e não pode
-      # nascer com senha conhecida (esta, ao contrário do localhost, não é
-      # ambiente de uma pessoa só).
-      usuarios_teste: true
     secrets:
       VPS_HOST: ${{ secrets.VPS_HOST }}
       VPS_USER: ${{ secrets.VPS_USER }}
@@ -47,3 +39,20 @@ jobs:
       # chamador nao o fornecia. Um secret obrigatorio que ninguem passa falha
       # cedo e sem mensagem util; por isso o comentario.
       VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+      VPS_HOST_FINGERPRINT: ${{ secrets.VPS_HOST_FINGERPRINT }}
+      GHCR_PULL_TOKEN: ${{ secrets.GHCR_PULL_TOKEN }}
+      GHCR_PULL_USER: ${{ secrets.GHCR_PULL_USER }}
+      # Resend (P1-04): opcional. Ausente mantém DJANGO_EMAIL_BACKEND=console.
+      RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+      # Sentry (C2.4): opcionais, usados só para o upload de source map do
+      # `verify`. Sem eles, o passo é pulado (fail-open) e o CI segue verde —
+      # comportamento CORRETO em homolog (D1: só PROD exige credencial).
+      SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+      SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+      SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
+      SENTRY_URL: ${{ secrets.SENTRY_URL }}
+      NEXT_PUBLIC_ADSENSE_CLIENT_ID: ${{ secrets.NEXT_PUBLIC_ADSENSE_CLIENT_ID }}
+      NEXT_PUBLIC_ADSENSE_SLOT_HORIZONTAL: ${{ secrets.NEXT_PUBLIC_ADSENSE_SLOT_HORIZONTAL }}
+      NEXT_PUBLIC_ADSENSE_SLOT_RETANGULO: ${{ secrets.NEXT_PUBLIC_ADSENSE_SLOT_RETANGULO }}
+      NEXT_PUBLIC_ADSENSE_SLOT_VERTICAL: ${{ secrets.NEXT_PUBLIC_ADSENSE_SLOT_VERTICAL }}
+      NEXT_PUBLIC_ADSENSE_SLOT_INFEED: ${{ secrets.NEXT_PUBLIC_ADSENSE_SLOT_INFEED }}

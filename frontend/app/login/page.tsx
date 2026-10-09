@@ -21,7 +21,9 @@ export default function Page(){
   // por Google (P1-05b) precisa exatamente da mesma decisão — e o caminho
   // principal (e-mail/senha) não pode divergir do que já funcionava.
   const irAposLogin=useCallback((u:Usuario|null)=>{ if(u?.deve_trocar_senha){ r.push("/trocar-senha"); return; } if(u && !u.onboarding_concluido){ setDlgOnboarding(true); return; } if(u?.papel==="admin"){ setDlgAdmin(true); return; } r.push("/minha-conta"); },[r]);
-  const onSubmit=async(d:{email:string;senha:string})=>{ setErro(null); try{ await fazerLogin(d.email,d.senha); let u:any=null; try{ const raw=typeof window!=="undefined"? window.localStorage.getItem("portal_noticias_usuario"):null; if(raw) u=JSON.parse(raw);}catch{} irAposLogin(u); }catch(e:any){ setErro(e?.message||"Falha no login."); } };
+  // sessionStorage (não localStorage): reduz a janela de exposição do token a
+  // XSS — a sessão não sobrevive ao fechar a aba, mesmo padrão de auth-context.
+  const onSubmit=async(d:{email:string;senha:string})=>{ setErro(null); try{ await fazerLogin(d.email,d.senha); let u:any=null; try{ const raw=typeof window!=="undefined"? window.sessionStorage.getItem("portal_noticias_usuario"):null; if(raw) u=JSON.parse(raw);}catch{} irAposLogin(u); }catch(e:any){ setErro(e?.message||"Falha no login."); } };
   // O `BotaoGoogle` só chama isto DEPOIS do `POST /api/auth/google/` ter
   // devolvido token — nunca depois de "o Google respondeu". Por isso a sessão
   // é adotada pelo contexto e o erro do formulário continua sendo só do

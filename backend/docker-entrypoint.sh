@@ -5,6 +5,9 @@
 # comum de "esqueci de rodar a migration em produção").
 set -e
 
+echo "[entrypoint] checando configuração..."
+python manage.py check
+
 echo "[entrypoint] aplicando migrations..."
 python manage.py migrate --noinput
 

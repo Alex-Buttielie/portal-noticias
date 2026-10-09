@@ -1,15 +1,21 @@
 # Deploy na VPS — passo a passo
 
-> **Caminho ativo: PM2 + Nginx** (ver `CI-CD.md`) — mesma infra do deploy
-> anterior: `/home/apps/portal-{dev,homolog,prod}`, portas 310x/510x,
-> secrets `VPS_HOST/USER/PASSWORD/PORT`. Este arquivo documenta a variante
-> Docker + Caddy, mantida como alternativa local/opcional (não usada pela
-> esteira). O deploy de produção sai da tag `v*` via
+> **Caminho ativo na VPS hoje: PM2 + Nginx** (ver `CI-CD.md`) —
+> `/home/apps/portal-{dev,homolog,prod}`, portas 310x/510x, secrets
+> `VPS_HOST/USER/PASSWORD/PORT`. O deploy de produção sai da tag `v*` via
 > `.github/workflows/deploy-prod.yml`.
 >
-> **Nota de drift Docker vs PM2:** VPS roda PM2 (não Docker Compose);
-> healthcheck Docker é só para localhost (`docker-compose.yml` / `docker-compose.localhost.yml`).
-> Não usar `docker compose --env-file .env.production` na VPS.
+> **Cutover Docker em preparação (não ativo na VPS ainda):** os workflows
+> (`deploy.yml` e os 3 callers) já foram reescritos para build+push no GHCR
+> e `docker compose pull && up -d` na VPS, com um Caddy único compartilhado
+> em `infra/docker-edge/` no lugar do Nginx — tudo verificado localmente
+> (containers reais, `actionlint`, `caddy validate`), mas **sem execução
+> real na VPS ainda** (ver a nota equivalente em `CI-CD.md`, logo após o
+> diagrama do pipeline). Até essa execução acontecer e ser confirmada
+> saudável, continue seguindo este documento normalmente — ele descreve a
+> variante Docker/Caddy como estava antes do cutover (uso local/opcional),
+> e as seções abaixo sobre a topologia PM2 continuam sendo as que valem de
+> verdade na VPS.
 >
 > Guia de provisionamento da VPS HostGator (root/SSH) para a nova arquitetura
 > de infra (`docker-compose.yml` + `Caddyfile` na raiz do projeto). Faça uma
@@ -271,7 +277,7 @@ configuração, portanto não se promete economia ou percentual sem medir.
 
 ## 3-Z. ESTADO ATUAL NA VPS: variante HTTP-only (sem DNS, sem certificado)
 
-> **Situação real em 2026-09-24.** `portal-noticias.com.br` **não tem registro
+> **Situação real em 2026-09-24.** `portal-noticias.com` **não tem registro
 > A nem NS** (confirmado de dentro da VPS consultando o 8.8.8.8 — o resolver
 > funciona, o domínio do projeto não resolve). Com isso:
 >
@@ -933,8 +939,8 @@ stack na mesma VPS com domínios e portas diferentes, usando o override
 
 ```bash
 cp .env.production.example .env.homolog
-# edite .env.homolog: DOMAIN_API=homolog-api.seu-dominio.com.br,
-# DOMAIN_FRONTEND=homolog.seu-dominio.com.br, senha do Postgres DIFERENTE
+# edite .env.homolog: DOMAIN_API=homolog-api.seu-dominio.com,
+# DOMAIN_FRONTEND=homolog.seu-dominio.com, senha do Postgres DIFERENTE
 # da produção, SECRET_KEY diferente.
 chmod 600 .env.homolog
 docker compose --env-file .env.homolog -f docker-compose.yml \
@@ -1046,12 +1052,12 @@ que ele não faz)*.)
 
 | Ambiente | E-mail | Papel | Staff (`/admin` e Central) |
 |---|---|---|---|
-| DEV | `teste-free@dev.portal-noticias.com.br` | `free` | não |
-| DEV | `teste-premium@dev.portal-noticias.com.br` | `premium` | não |
-| DEV | `teste-admin@dev.portal-noticias.com.br` | `admin` | **sim** (superuser) |
-| HOMOLOG | `teste-free@homolog.portal-noticias.com.br` | `free` | não |
-| HOMOLOG | `teste-premium@homolog.portal-noticias.com.br` | `premium` | não |
-| HOMOLOG | `teste-admin@homolog.portal-noticias.com.br` | `admin` | **sim** (superuser) |
+| DEV | `teste-free@dev.portal-noticias.com` | `free` | não |
+| DEV | `teste-premium@dev.portal-noticias.com` | `premium` | não |
+| DEV | `teste-admin@dev.portal-noticias.com` | `admin` | **sim** (superuser) |
+| HOMOLOG | `teste-free@homolog.portal-noticias.com` | `free` | não |
+| HOMOLOG | `teste-premium@homolog.portal-noticias.com` | `premium` | não |
+| HOMOLOG | `teste-admin@homolog.portal-noticias.com` | `admin` | **sim** (superuser) |
 
 Só o perfil `admin` vira superuser. O link de redefinição é uma credencial da
 conta e o stdout do processo web é legível por quem tem shell na VPS: com as
@@ -1070,7 +1076,7 @@ atribui ao shell qualquer chave que exista nele. Quem decide é só o workflow.
 ### Como entrar (passo a passo)
 
 1. Abra `/recuperar-senha` no ambiente e informe o e-mail da conta
-   (`http://dev.portal-noticias.com.br/recuperar-senha`; o esquema segue
+   (`http://dev.portal-noticias.com/recuperar-senha`; o esquema segue
    `tls_enabled`, então é `https` depois que o TLS for ativado na §3A).
 2. A tela responde sucesso — **mas hoje o e-mail não chega em nenhuma caixa de
    entrada**. Veja *O e-mail de recuperação sai no log da API* abaixo.
@@ -1110,7 +1116,7 @@ python manage.py shell -c "
 from django.contrib.auth import get_user_model
 U = get_user_model()
 for p in ('free', 'premium', 'admin'):
-    u = U.objects.filter(email='teste-%s@$SUF.portal-noticias.com.br' % p).first()
+    u = U.objects.filter(email='teste-%s@$SUF.portal-noticias.com' % p).first()
     print(p, 'inexistente' if not u else 'papel=%s superuser=%s tem_senha=%s deve_trocar=%s'
           % (u.papel, u.is_superuser, u.has_usable_password(), u.deve_trocar_senha))
 "
@@ -1162,7 +1168,7 @@ da API. Se a linha saiu dele (ou se você nunca guardou o link), o que existe é
   cd "/home/apps/portal-$SUF/backend"
   . .venv/bin/activate
   set -a; . ./.env; set +a
-  python manage.py changepassword "teste-free@$SUF.portal-noticias.com.br"
+  python manage.py changepassword "teste-free@$SUF.portal-noticias.com"
   ```
 
   `changepassword` é o comando do próprio Django (existe porque
@@ -1199,7 +1205,7 @@ cd "/home/apps/portal-$SUF/backend"
 . .venv/bin/activate
 set -a; . ./.env; set +a
 python manage.py criar_usuario_carga \
-  --email "teste-free@$SUF.portal-noticias.com.br" --sem-senha --papel free
+  --email "teste-free@$SUF.portal-noticias.com" --sem-senha --papel free
 # Troque `free` por `premium` ou `admin` nas outras duas. O sufixo de PROD
 # (`prod`) não usa essas contas — ver o início desta seção.
 ```

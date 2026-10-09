@@ -32,6 +32,9 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
+// `sessionStorage`, não `localStorage` (mesma escolha de `consent-token.ts`):
+// reduz a janela de exposição a um XSS futuro — o token morre ao fechar a
+// aba/navegador em vez de sobreviver indefinidamente no disco.
 const CHAVE_TOKEN = "portal_noticias_token";
 const CHAVE_USUARIO = "portal_noticias_usuario";
 
@@ -42,8 +45,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     try {
-      const tokenSalvo = window.localStorage.getItem(CHAVE_TOKEN);
-      const usuarioSalvo = window.localStorage.getItem(CHAVE_USUARIO);
+      const tokenSalvo = window.sessionStorage.getItem(CHAVE_TOKEN);
+      const usuarioSalvo = window.sessionStorage.getItem(CHAVE_USUARIO);
       if (tokenSalvo) {
         setToken(tokenSalvo);
         // code-review-contract.md (run 20260903-1134-seo-lgpd-design-system,
@@ -57,7 +60,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       if (usuarioSalvo) setUsuario(JSON.parse(usuarioSalvo) as api.Usuario);
     } catch {
-      // localStorage indisponível (ex.: modo privado) — segue sem sessão persistida.
+      // sessionStorage indisponível (ex.: modo privado) — segue sem sessão persistida.
     } finally {
       setCarregando(false);
     }
@@ -67,8 +70,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setToken(novoToken);
     setUsuario(novoUsuario);
     try {
-      window.localStorage.setItem(CHAVE_TOKEN, novoToken);
-      window.localStorage.setItem(CHAVE_USUARIO, JSON.stringify(novoUsuario));
+      window.sessionStorage.setItem(CHAVE_TOKEN, novoToken);
+      window.sessionStorage.setItem(CHAVE_USUARIO, JSON.stringify(novoUsuario));
     } catch {
       // ignora falha de persistência — sessão continua válida em memória nesta aba.
     }
@@ -78,8 +81,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setToken(null);
     setUsuario(null);
     try {
-      window.localStorage.removeItem(CHAVE_TOKEN);
-      window.localStorage.removeItem(CHAVE_USUARIO);
+      window.sessionStorage.removeItem(CHAVE_TOKEN);
+      window.sessionStorage.removeItem(CHAVE_USUARIO);
     } catch {
       // ignora
     }
@@ -122,7 +125,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const atualizarUsuario = useCallback((novoUsuario: api.Usuario) => {
     setUsuario(novoUsuario);
     try {
-      window.localStorage.setItem(CHAVE_USUARIO, JSON.stringify(novoUsuario));
+      window.sessionStorage.setItem(CHAVE_USUARIO, JSON.stringify(novoUsuario));
     } catch {
       // ignora
     }
@@ -131,7 +134,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const atualizarToken = useCallback((novoToken: string) => {
     setToken(novoToken);
     try {
-      window.localStorage.setItem(CHAVE_TOKEN, novoToken);
+      window.sessionStorage.setItem(CHAVE_TOKEN, novoToken);
     } catch {
       // ignora
     }

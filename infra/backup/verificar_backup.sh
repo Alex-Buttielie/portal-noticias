@@ -138,12 +138,14 @@ MAX_AGE_SEGUNDOS=$(( BACKUP_MAX_AGE_HOURS * 3600 ))
 # mesmo que o watchdog do WIP queria saber, sem depender de marcador.
 DUMP_MAIS_NOVO=""
 IDADE_DUMP=""
-DUMP_MAIS_NOVO="$(find "$BACKUP_DIR" -maxdepth 1 -type f -name 'pm2-db-*.dump' -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2-)"
+# `pm2-db-*.dump` (pg_backup_pm2.sh) ou `db-*.dump` (pg_backup.sh, variante
+# Docker) — o watchdog é agnóstico de qual produtor rodou.
+DUMP_MAIS_NOVO="$(find "$BACKUP_DIR" -maxdepth 1 -type f \( -name 'pm2-db-*.dump' -o -name 'db-*.dump' \) -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2-)"
 if [[ -n "$DUMP_MAIS_NOVO" ]]; then
     IDADE_DUMP="$(( AGORA - $(stat -c '%Y' "$DUMP_MAIS_NOVO") ))"
     log "dump validado mais recente: $(basename "$DUMP_MAIS_NOVO") (idade $(( IDADE_DUMP / 3600 ))h$(( (IDADE_DUMP % 3600) / 60 ))min)"
 else
-    log "nenhum pm2-db-*.dump em $BACKUP_DIR"
+    log "nenhum pm2-db-*.dump ou db-*.dump em $BACKUP_DIR"
 fi
 
 # O dump é meio do backup: o script também publica a mídia

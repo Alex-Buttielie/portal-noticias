@@ -1,10 +1,17 @@
 name: Rollback manual do portal
 
-# Recuperação explícita para a topologia PM2 de VPS única. Este workflow
-# não promete zero downtime: ele reutiliza o mesmo verify → build/install →
-# PM2 restart/sanity → smoke do deploy reutilizável, mas só após um dispatch
-# humano e com um SHA completo. A promoção do marker `.deployed-sha` continua
-# condicionada ao smoke verde.
+# Recuperação explícita (cutover Docker). Diferença-chave da topologia PM2
+# anterior: o rollback NÃO rebuilda nada — reusa a imagem já publicada no
+# GHCR para o SHA alvo (tag `<ambiente>-<sha40>`), a mesma que rodou de
+# verdade quando aquele SHA foi implantado pela última vez. `verify` ainda
+# roda (nunca confiar num estado histórico sem reconferir); só o
+# `build-and-push` é pulado (`skip_build: true` no deploy.yml reutilizável).
+#
+# Pré-requisito: a tag daquele SHA ainda precisa existir no GHCR — se a
+# política de retenção de pacotes já a removeu, o `docker compose pull` na
+# VPS falha com erro claro (imagem não encontrada), não com um rollback
+# silenciosamente incompleto. Mantenha pelo menos as últimas N tags por
+# ambiente, e nunca a que `.deployed-sha` aponta.
 on:
   workflow_dispatch:
     inputs:
@@ -17,14 +24,9 @@ on:
           - homolog
           - production
       target_sha:
-        description: "SHA completo do commit conhecido como bom (normalmente o valor de .deployed-sha antes da falha)"
+        description: "SHA completo do commit conhecido como bom (normalmente o valor de .deployed-sha antes da falha) — a imagem desse SHA precisa já estar publicada no GHCR"
         required: true
         type: string
-      tls_enabled:
-        description: "Deve corresponder ao edge atual; não habilita certificado por si só"
-        required: false
-        default: false
-        type: boolean
       confirm:
         description: "Confirmo que este rollback foi autorizado e que o SHA é o último bom"
         required: false
@@ -42,13 +44,13 @@ jobs:
       environment_name: ${{ steps.config.outputs.environment_name }}
       app_dir: ${{ steps.config.outputs.app_dir }}
       git_ref: ${{ steps.config.outputs.git_ref }}
-      pm_suffix: ${{ steps.config.outputs.pm_suffix }}
       web_port: ${{ steps.config.outputs.web_port }}
       api_port: ${{ steps.config.outputs.api_port }}
       host: ${{ steps.config.outputs.host }}
       db_name: ${{ steps.config.outputs.db_name }}
       db_user: ${{ steps.config.outputs.db_user }}
       allowed_hosts_extra: ${{ steps.config.outputs.allowed_hosts_extra }}
+      image_tag: ${{ steps.config.outputs.image_tag }}
     steps:
       - name: Validar alvo e mapear ambiente
         id: config
@@ -72,10 +74,9 @@ jobs:
               ENV_LABEL=DEV
               ENVIRONMENT_NAME=development
               APP_DIR=/home/apps/portal-dev
-              PM_SUFFIX=dev
               WEB_PORT=3101
               API_PORT=5101
-              HOST=dev.portal-noticias.com.br
+              HOST=dev.portal-noticias.com
               DB_NAME=brd_portal_dev
               DB_USER=portal_dev
               ALLOWED_HOSTS_EXTRA=""
@@ -84,10 +85,9 @@ jobs:
               ENV_LABEL=HOMOLOG
               ENVIRONMENT_NAME=homolog
               APP_DIR=/home/apps/portal-homolog
-              PM_SUFFIX=homolog
               WEB_PORT=3102
               API_PORT=5102
-              HOST=homolog.portal-noticias.com.br
+              HOST=homolog.portal-noticias.com
               DB_NAME=brd_portal_homolog
               DB_USER=portal_homolog
               ALLOWED_HOSTS_EXTRA=""
@@ -96,13 +96,12 @@ jobs:
               ENV_LABEL=PROD
               ENVIRONMENT_NAME=production
               APP_DIR=/home/apps/portal-prod
-              PM_SUFFIX=prod
               WEB_PORT=3103
               API_PORT=5103
-              HOST=portal-noticias.com.br
+              HOST=portal-noticias.com
               DB_NAME=brd_portal_prod
               DB_USER=portal_prod
-              ALLOWED_HOSTS_EXTRA=",www.portal-noticias.com.br"
+              ALLOWED_HOSTS_EXTRA=",www.portal-noticias.com"
               ;;
             *)
               echo "ERRO: ambiente de rollback inválido: $ENVIRONMENT" >&2
@@ -114,13 +113,13 @@ jobs:
             printf 'environment_name=%s\n' "$ENVIRONMENT_NAME"
             printf 'app_dir=%s\n' "$APP_DIR"
             printf 'git_ref=%s\n' "$TARGET_SHA"
-            printf 'pm_suffix=%s\n' "$PM_SUFFIX"
             printf 'web_port=%s\n' "$WEB_PORT"
             printf 'api_port=%s\n' "$API_PORT"
             printf 'host=%s\n' "$HOST"
             printf 'db_name=%s\n' "$DB_NAME"
             printf 'db_user=%s\n' "$DB_USER"
             printf 'allowed_hosts_extra=%s\n' "$ALLOWED_HOSTS_EXTRA"
+            printf 'image_tag=%s-%s\n' "$ENVIRONMENT_NAME" "$TARGET_SHA"
           } >> "$GITHUB_OUTPUT"
 
   rollback:
@@ -131,22 +130,23 @@ jobs:
       env_label: ${{ needs.prepare.outputs.env_label }}
       environment_name: ${{ needs.prepare.outputs.environment_name }}
       app_dir: ${{ needs.prepare.outputs.app_dir }}
-      # rollback faz fetch do SHA, reset, rebuild e restart pelo mesmo caminho
-      # gated do deploy; não existe um segundo script de provisionamento.
+      # rollback faz fetch do SHA + reset (config only — a imagem não é
+      # rebuildada) pelo mesmo caminho gated do deploy; não existe um
+      # segundo script de provisionamento.
       git_mode: rollback
       git_ref: ${{ needs.prepare.outputs.git_ref }}
       verify_ref: ${{ needs.prepare.outputs.git_ref }}
-      pm_suffix: ${{ needs.prepare.outputs.pm_suffix }}
       web_port: ${{ needs.prepare.outputs.web_port }}
       api_port: ${{ needs.prepare.outputs.api_port }}
       host: ${{ needs.prepare.outputs.host }}
-      tls_enabled: ${{ inputs.tls_enabled }}
       allowed_hosts_extra: ${{ needs.prepare.outputs.allowed_hosts_extra }}
       db_name: ${{ needs.prepare.outputs.db_name }}
       db_user: ${{ needs.prepare.outputs.db_user }}
       # Um rollback deve falhar se a recuperação não ficar saudável, mesmo em
       # DEV/HOMOLOG; o operador pode repetir o dispatch depois de corrigir a VPS.
       strict_validate: true
+      skip_build: true
+      image_tag_override: ${{ needs.prepare.outputs.image_tag }}
     secrets:
       VPS_HOST: ${{ secrets.VPS_HOST }}
       VPS_USER: ${{ secrets.VPS_USER }}
@@ -158,3 +158,14 @@ jobs:
       # aconteceu com deploy-dev/homolog/prod em 2026-10-02: quatro runs
       # seguidos terminaram em 0s, sem job nenhum.
       VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+      VPS_HOST_FINGERPRINT: ${{ secrets.VPS_HOST_FINGERPRINT }}
+      GHCR_PULL_TOKEN: ${{ secrets.GHCR_PULL_TOKEN }}
+      GHCR_PULL_USER: ${{ secrets.GHCR_PULL_USER }}
+      # Resend (P1-04): opcional. Ausente mantém DJANGO_EMAIL_BACKEND=console.
+      RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+      # Sentry (C2.4): opcionais, usados só para o upload de source map do
+      # `verify`. Sem eles, o passo é pulado (fail-open) e o CI segue verde.
+      SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+      SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+      SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
+      SENTRY_URL: ${{ secrets.SENTRY_URL }}

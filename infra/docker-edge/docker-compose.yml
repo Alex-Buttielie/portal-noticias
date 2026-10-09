@@ -1,0 +1,69 @@
+# Caddy único, compartilhado pelos três ambientes da VPS (ver Caddyfile
+# deste mesmo diretório para o porquê). Instalação (uma vez por VPS):
+#
+#   cd infra/docker-edge
+#   sed -i \
+#     -e "s/__DOMAIN_DEV__/dev.portal-noticias.com/" \
+#     -e "s/__DOMAIN_HOMOLOG__/homolog.portal-noticias.com/" \
+#     -e "s/__DOMAIN_PROD_WWW__/www.portal-noticias.com/" \
+#     -e "s/__DOMAIN_PROD__/portal-noticias.com/" \
+#     Caddyfile
+#   # OBSERVABILITY_METRICS_TOKEN: o MESMO valor dos três backend/.env.production
+#   echo "OBSERVABILITY_METRICS_TOKEN=<token>" > .env
+#   docker compose up -d
+#
+# `network_mode: host`: o Caddy precisa alcançar `web`/`frontend` de CADA
+# ambiente em 127.0.0.1:<porta> — eles publicam só em loopback do HOST (ver
+# docker-compose.yml da raiz), e loopback de um container normal é o
+# container, não o host. `network_mode: host` dá ao Caddy a mesma visão de
+# rede do host, exatamente como o Nginx (que não é container) já tem hoje.
+# Consequência: `ports:` não se aplica (ignorado com host network) — o
+# Caddy já escuta 80/443 do host diretamente.
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    network_mode: host
+    env_file:
+      - path: .env
+        required: true
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+      - caddy_logs:/var/log/caddy
+      # Mídia/estático de cada ambiente, pelo NOME REAL do volume Docker
+      # (prefixado pelo nome do projeto Compose daquele ambiente — por
+      # padrão, o nome do diretório de deploy: /home/apps/portal-<env> vira
+      # o projeto `portal-<env>`). Se o diretório de deploy tiver outro
+      # nome, ajuste os `name:` abaixo — não adivinhe: `docker volume ls`
+      # confirma o nome real antes de instalar.
+      - static_dev:/srv/static-dev:ro
+      - media_dev:/srv/media-dev:ro
+      - static_homolog:/srv/static-homolog:ro
+      - media_homolog:/srv/media-homolog:ro
+      - static_prod:/srv/static-prod:ro
+      - media_prod:/srv/media-prod:ro
+
+volumes:
+  caddy_data:
+  caddy_config:
+  caddy_logs:
+  static_dev:
+    external: true
+    name: portal-dev_static_data
+  media_dev:
+    external: true
+    name: portal-dev_media_data
+  static_homolog:
+    external: true
+    name: portal-homolog_static_data
+  media_homolog:
+    external: true
+    name: portal-homolog_media_data
+  static_prod:
+    external: true
+    name: portal-prod_static_data
+  media_prod:
+    external: true
+    name: portal-prod_media_data
