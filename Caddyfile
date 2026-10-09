@@ -1,75 +1,142 @@
-# Nova arquitetura de infra (2026-09-03). Caddy termina TLS automaticamente
-# (Let's Encrypt, renovação automática — zero custo, zero configuração
-# manual de certificado) e faz proxy reverso para o backend/frontend
-# rodando nos outros containers. DOMAIN_API/DOMAIN_FRONTEND vêm de
-# .env.production (ver .env.production.example).
+# Caddy — topologia Docker (cutover do PM2+Nginx). Um domínio por ambiente,
+# roteamento por path (replica infra/nginx/portal-{dev,homolog,prod}.conf,
+# que fica arquivado como histórico em CI-CD.md/infra/DEPLOY.md).
 #
-# NOTA DE DRIFT: a VPS ativa (2026-09) usa Nginx + PM2 (ver CI-CD.md e
-# infra/nginx/portal-{dev,homolog,prod}.conf), NÃO este Caddyfile.
-# Este arquivo é a variante Docker alternativa — idêntica em comportamento
-# de proxy/TLS, mantida para uso local (`docker-compose.yml`) ou migração
-# futura. Não aplicar este Caddyfile na VPS sem antes alinhar com o deploy
-# ativo.
+# Variáveis de ambiente (ver .env.production.example / .env.localhost.example):
+#   DOMAIN               — ex.: dev.portal-noticias.com, portal-noticias.com
+#   DOMAIN_EXTRA          — vazio, ou ", www.portal-noticias.com" (só PROD;
+#                           mesma convenção de `allowed_hosts_extra` nos workflows)
+#   OBSERVABILITY_METRICS_TOKEN — mesmo valor do backend (backend/.env)
 #
-# Se estiver atrás do Cloudflare (proxy laranja ativado): configure o modo
-# SSL/TLS do Cloudflare como "Full (strict)" para que a ponta
-# Cloudflare->VPS também seja criptografada com o certificado que o Caddy
-# já emite sozinho — ver infra/DEPLOY.md.
+# A rede de origem confiável para /health-detail e /metrics (abaixo) é
+# ESTÁTICA no arquivo, não lida de env — mesma escolha do `geo` do Nginx
+# (infra/nginx/http-cache.conf), que por motivo igual (config não expande
+# `$VAR` da mesma forma em todo lugar, e a lista é sensível) também é
+# hardcoded. Edite a lista de `remote_ip` diretamente se o operador
+# precisar declarar mais uma rede de proxy — nunca "qualquer rede
+# privada": atrás de proxy o tráfego público também chega com IP privado.
+# `OBSERVABILITY_TRUSTED_PROXY_NETWORKS` (comma-separated) é uma variável
+# DIFERENTE, lida só pelo Django (`backend/config/proxies.py`) para decidir
+# se confia no `X-Forwarded-For` que o Caddy anexou — continua necessária
+# e deve incluir a subnet do bridge do Compose nesta topologia.
+#
+# TLS: automático (Caddy emite/renova Let's Encrypt sozinho; HTTP→HTTPS e o
+# desafio ACME também são automáticos — não há bloco `:80` nem `tls` aqui).
+# Aposenta Certbot e os scripts de renovação associados a ele.
+#
+# Rate limit de borda: DELIBERADAMENTE AUSENTE (decisão registrada na
+# migração) — Caddy core não tem rate limit nativo, e um build customizado
+# (xcaddy + plugin) foi descartado para não criar uma segunda imagem a
+# manter. A proteção fica só no throttling do DRF
+# (`backend/config/throttling.py`), que já cobre login/cadastro/newsletter/
+# interações. Pelo mesmo motivo (ausência de plugin), o cache de borda de
+# feed/radar que o Nginx tinha (`infra/nginx/portal-location-cache.conf`)
+# também NÃO foi portado — o cache de aplicação já existe
+# (`FEED_CACHE_TTL_SEGUNDOS`, `feed/views.py`) e cobre o mesmo propósito,
+# um nível abaixo.
 
-{$DOMAIN_API} {
-	# API JSON não deve ser armazenada em cache por proxies intermediários
-	# por padrão — cada app decide seu próprio Cache-Control (ver
-	# feed/views.py). Aqui só definimos os headers de segurança que fazem
-	# sentido para TODAS as respostas do backend.
+{$DOMAIN}{$DOMAIN_EXTRA} {
+	# Aplica a toda resposta deste site, sem a pegadinha do Nginx (lá,
+	# `add_header` numa location substitui os do server — por isso o Nginx
+	# repete os 4 headers em /static/, /health-detail, etc. Aqui não precisa).
 	header {
-		X-Content-Type-Options nosniff
-		Referrer-Policy strict-origin-when-cross-origin
-		# HSTS já é enviado pelo Django (SECURE_HSTS_SECONDS em
-		# config/settings.py) quando DEBUG=False — não duplicar aqui.
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		X-Frame-Options "DENY"
+		Permissions-Policy "geolocation=(), microphone=(), camera=()"
+		# HSTS já sai do Django (SECURE_HSTS_SECONDS, DEBUG=False) — não duplicar.
 	}
 
 	encode zstd gzip
 
-	# Estático e mídia pública diretamente do volume compartilhado, sem passar
-	# pelo Django/Gunicorn — mais rápido e mais barato em CPU do que servir binário
-	# via WhiteNoise para o volume alto de leitura esperado (thumbnails de
-	# notícias). O volume de credenciamento nunca é exposto pelo edge.
+	# Log de acesso em JSON nativo, para o Grafana Alloy (substitui o
+	# log_format manual + $portal_request_id do Nginx — aqui é só um campo).
+	# O X-Request-ID é propagado como o cliente mandou (nunca reescrito): o
+	# Django já normaliza/gera UUID4 quando ausente ou inválido
+	# (`backend/config/middleware.py`), então a borda não precisa duplicar
+	# essa lógica — só não pode apagar o header no caminho.
+	log {
+		output file /var/log/caddy/access.log
+		format json
+	}
+
+	# --- Observabilidade: /livez e /readyz são PÚBLICOS por contrato do
+	# backend (backend/config/observability_views.py) — sem rota própria
+	# cairiam no catch-all do frontend e o check externo receberia 404 de
+	# um portal saudável.
+	handle /livez {
+		reverse_proxy web:8000
+	}
+	handle /readyz {
+		reverse_proxy web:8000
+	}
+	handle /healthz {
+		reverse_proxy web:8000
+	}
+
+	# `/health-detail` e `/metrics`: mesma política de acesso em duas camadas
+	# que o Nginx tem (infra/nginx/http-cache.conf) — origem de rede confiável
+	# OU token Bearer. Nega com 404, nunca 403 (um 403 já confirmaria que o
+	# diagnóstico existe ali — backend/config/observability_views.py::_negado
+	# segue a mesma regra). O app repete as duas regras do lado dele
+	# (loopback, redes declaradas, staff ou token, com compare_digest) — a
+	# defesa é em camadas, esta é só a primeira.
+	@obs_negado {
+		path /health-detail /metrics
+		not remote_ip 127.0.0.1 ::1
+		not header Authorization "Bearer {$OBSERVABILITY_METRICS_TOKEN}"
+	}
+	handle @obs_negado {
+		respond 404
+	}
+	handle /health-detail {
+		reverse_proxy web:8000
+	}
+	handle /metrics {
+		reverse_proxy web:8000
+	}
+
+	# Estático do Django (collectstatic → backend/staticfiles). WhiteNoise
+	# continua como fallback se o volume não estiver montado.
 	handle_path /static/* {
 		root * /srv/static
 		file_server
 	}
 
-	# O MEDIA_ROOT também contém documentos de credenciamento em
-	# `credenciamento/<user_id>/`. Esses documentos são servidos somente pela
-	# DocumentoView autenticada do Django; nunca pelo Caddy.
-	@mediaCredenciamento path /media/credenciamento /media/credenciamento/*
-	handle @mediaCredenciamento {
+	# MEDIA_ROOT também guarda documentos de credenciamento
+	# (`credenciamento/<user_id>/`, foto E documento na mesma árvore — não é
+	# seguro inferir privacidade pela extensão). Nunca servido pelo Caddy;
+	# só pela `DocumentoView` autenticada do Django. Ordem importa: estas
+	# regras mais específicas vêm antes do catch-all de `/media/public/*`.
+	handle /media {
 		respond 404
 	}
-
-	# Somente a subtree pública é servida diretamente. `handle_path` remove o
-	# prefixo `/media/public/` antes de procurar o arquivo sob a raiz abaixo.
+	handle /media/ {
+		respond 404
+	}
+	handle /media/credenciamento {
+		respond 404
+	}
+	handle /media/credenciamento/* {
+		respond 404
+	}
 	handle_path /media/public/* {
 		root * /srv/media/public
 		file_server
 	}
 
-	# Qualquer outro caminho de MEDIA_ROOT fica fechado, inclusive `/media/`
-	# e a raiz, para não criar uma segunda porta de acesso ao volume.
-	handle /media* {
-		respond 404
+	# `/api/*` preserva o path completo (sem strip de prefixo — Django serve
+	# `/api/...`, e o frontend chama `{ORIGEM}/api/...`).
+	handle /api/* {
+		reverse_proxy web:8000
 	}
 
-	reverse_proxy web:8000
-}
-
-{$DOMAIN_FRONTEND} {
-	header {
-		X-Content-Type-Options nosniff
-		Referrer-Policy strict-origin-when-cross-origin
+	# Resto vai para o Next.js. `reverse_proxy` do Caddy já anexa o IP real do
+	# cliente ao `X-Forwarded-For` existente por padrão (mesmo efeito do
+	# `$proxy_add_x_forwarded_for` do Nginx, que existe para o MAJOR-1: o
+	# cliente nunca escolhe o próprio balde de rate limit/whatever lado que
+	# ler X-Forwarded-For) — não precisa de `header_up` manual aqui.
+	handle {
+		reverse_proxy frontend:3000
 	}
-
-	encode zstd gzip
-
-	reverse_proxy frontend:3000
 }

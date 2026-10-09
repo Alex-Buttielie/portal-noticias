@@ -6,6 +6,16 @@
 // A exposição de métricas do backend em `develop` (1dec732) tem ONZE nomes de
 // métrica e nada mais. Este arquivo coleta exatamente o que existe:
 //
+// COLETA DE LOG DA APLICAÇÃO: PM2 (glob de arquivo) OU DOCKER
+// ------------------------------------------------------------
+// Migração Docker (cutover em andamento, ver infra/DEPLOY.md): os logs de
+// `web`/`celery-worker`/`celery-beat` passam a ser coletados também via
+// `discovery.docker` + `loki.source.docker`, lendo `/var/run/docker.sock`
+// direto — sem variável de ambiente nova. Os dois caminhos (glob PM2 e
+// descoberta Docker) coexistem nesta config; cada um só produz linha se o
+// que ele observa existir no ambiente, então nenhum dos dois quebra o outro
+// enquanto a VPS tiver as duas topologias lado a lado.
+//
 //   backend/config/health.py   portal_tempo_de_atividade_segundos
 //   backend/config/views.py    portal_healthz_total{situacao}
 //                              portal_livez_total{situacao}
@@ -257,6 +267,51 @@ loki.source.file "app" {
         sync_period       = "30s"
     }
     forward_to = [loki.process.app.receiver]
+}
+
+// Migração Docker (cutover do PM2): `web`/`celery-worker`/`celery-beat` não
+// escrevem mais `~/.pm2/logs/*` — o Gunicorn/Celery escrevem em stdout
+// (PYTHONUNBUFFERED=1, backend/Dockerfile) e o Docker captura via driver
+// `json-file` (docker-compose.yml, `x-logging`). Em vez de tailar o arquivo
+// interno do driver (caminho instável, muda a cada recriação de container),
+// descobre os containers direto no socket do Docker — sobrevive a qualquer
+// `docker compose up` recriando IDs. Coexiste com `loki.source.file "app"`
+// acima (migração, não cutover instantâneo): o que não existir no ambiente
+// simplesmente não produz linha nenhuma, mesma filosofia de "vazio nunca vira
+// coleta demais" do restante deste arquivo. Alloy precisa rodar com acesso a
+// `/var/run/docker.sock` (grupo `docker`, ou socket montado se o próprio
+// Alloy também for containerizado — não é o padrão aqui, que é no host).
+discovery.docker "app_docker" {
+    host             = "unix:///var/run/docker.sock"
+    refresh_interval = "15s"
+}
+
+// Só os 3 serviços do backend (mesma imagem/logs); `frontend`, `db`, `redis` e
+// o próprio `caddy` ficam fora — Next.js não emite o JSON do
+// `RedactingJsonFormatter`, e db/redis/caddy têm pipelines próprios (caddy via
+// `loki.source.file "edge"`, acima). O nome do container no Compose é
+// `<projeto>-<serviço>-<N>`; a allowlist ancora no SERVIÇO, não no prefixo do
+// projeto (que varia por diretório de checkout).
+discovery.relabel "app_docker" {
+    targets = discovery.docker.app_docker.targets
+    rule {
+        source_labels = ["__meta_docker_container_name"]
+        regex         = "^/?[A-Za-z0-9_.-]+-(web|celery-worker|celery-beat)-[0-9]+$"
+        action        = "keep"
+    }
+    rule {
+        source_labels = ["__meta_docker_container_name"]
+        regex         = "^/?[A-Za-z0-9_.-]+-(web|celery-worker|celery-beat)-[0-9]+$"
+        target_label  = "componente"
+        replacement   = "portal-api"
+    }
+}
+
+loki.source.docker "app_docker" {
+    host          = "unix:///var/run/docker.sock"
+    targets       = discovery.relabel.app_docker.output
+    relabel_rules = discovery.relabel.app_docker.rules
+    forward_to    = [loki.process.app.receiver]
 }
 
 loki.process "app" {

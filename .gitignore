@@ -2,6 +2,7 @@
 .env.production
 .env.homolog
 .env.dev
+infra/docker-edge/.env
 
 # Artefatos/lock de backup gerados localmente (scripts PM2 e Docker).
 infra/backup/*.dump
