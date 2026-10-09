@@ -94,16 +94,16 @@
       "frequency": 900,
       "timeout": 20,
       "method": "GET",
-      "expected_status": "401",
+      "expected_status": "401,403",
       "team_id": "<TEAM_ID>",
       "notification_channels": ["<CP_CRITICO_PRINCIPAL>"],
       "priority": "critical",
       "incident_severity": "critical",
       "tags": ["portal", "producao", "seguranca", "observabilidade"],
       "meta": {
-        "porque": "CHECK DE VERDADEIRA EXPOSTA, e o único deste arquivo que vigia a malha de observabilidade. `/metrics` expõe uso interno e é autenticado por token ou sessão de staff (`backend/config/health.py:414-418`, `views.py:206-222`). Este check espera 401 e REPROVA se receber 200 — ou seja, se alguém deixar a rota pública, se o token vazar para o proxy, ou se um proxy local for parar na frente dela.",
-        "por_que_esta_ausencia_agora_importa": "O rascunho do WIP afirmava que `infra/nginx/portal-*.conf` tinha `location ^/(health-detail|metrics)$` barrando origem externa. VERIFICADO em develop: esse location NÃO EXISTE (grep nos sete arquivos de infra/nginx/ devolve apenas `location = /healthz`). A aplicação é hoje a ÚNICA barreira, e um check externo que observa a barreira de fora é a forma de ela deixar de ser uma afirmação.",
-        "por_que_401_e_nao_403": "develop devolve 401 tanto para anônimo sem token quanto para token errado (`health.py:376-385` — sem token configurado, QUALQUER candidato é recusado). Se um dia a resposta virar 403, este check vai reprovar e o operador descobre a mudança."
+        "porque": "CHECK DE VERDADEIRA EXPOSTA, e o único deste arquivo que vigia a malha de observabilidade. `/metrics` expõe uso interno e é autenticado por token ou sessão de staff (`backend/config/health.py:414-418`, `views.py:206-222`). Este check espera 401,403 e REPROVA se receber 200 — ou seja, se alguém deixar a rota pública, se o token vazar para o proxy, ou se um proxy local for parar na frente dela.",
+        "por_que_esta_ausencia_agora_importa": "O rascunho do WIP afirmava que `infra/nginx/portal-*.conf` tinha `location ^/(health-detail|metrics)$` barrando origem externa. VERIFICADO em develop: esse location NÃO EXISTIA (grep nos sete arquivos de infra/nginx/ devolvia apenas `location = /healthz`). O P2-01 (`e089993`) fechou o furo: `location = /metrics` e `location = /health-detail` com `allow/deny` existem agora nos três confs — a barreira de borda é real, e este check a observa de fora.",
+        "por_que_401_e_403": "develop devolve 401 tanto para anônimo sem token quanto para token errado (`health.py:376-385` — sem token configurado, QUALQUER candidato é recusado); o nginx de P2-01 (`location = /metrics` com `deny all`) barra a origem externa com 403 ANTES de a requisição chegar à aplicação. O check aceita AMBOS (D-19): 403 é a barreira de borda em operação, 401 é a aplicação recusando sem token (origem permitida, p.ex. antes do deploy do nginx). Continua a REPROVAR com 200 — a única resposta que significa rota exposta."
       }
     },
     {
@@ -239,7 +239,7 @@
   },
   "nao_monitorado_de_propósito": [
     "PostgreSQL 5432 e Redis 6379 por TCP: não estão expostos à internet (por desenho — o Nginx é a única entrada), e um check externo não conseguiria alcançá-los. A saúde do banco é observada por /readyz e, dentro da aplicação, por portal_readyz_total{situacao=\"nao_pronto\"}.",
-    "/health-detail: privado por contrato e autenticado por token (backend/config/health.py:414-418). Um check externo dele seria uma rota autenticada com segredo de terceiro — risco de exposição maior que o valor. É o MESMO motivo pelo qual o check portao-privado-metrics espera 401 em vez de consultar o endpoint.",
+    "/health-detail: privado por contrato e autenticado por token (backend/config/health.py:414-418). Um check externo dele seria uma rota autenticada com segredo de terceiro — risco de exposição maior que o valor. É o MESMO motivo pelo qual o check portao-privado-metrics espera 401,403 em vez de consultar o endpoint.",
     "Sentry: não existe em develop. Se for adotado, tem o próprio sistema de detecção de issue; duplicar em uptime monitor gera alerta duplicado sem informação nova.",
     "Gráficos de taxa de 5xx e de latência p95: não são check de uptime e hoje nem são métrica. São painel, e o painel diz que não está medindo (ver infra/observability/grafana/dashboards/portal-disponibilidade.json, painéis 11 e 12). Um check de uptime não substitui uma série de latência, e uma série que não existe não pode ser transformada em check sem inventar o backend que a produziria."
   ]

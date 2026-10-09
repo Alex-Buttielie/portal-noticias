@@ -291,7 +291,10 @@ promete mais do que entrega.
    da mudança, `/metrics` e `/health-detail` respondiam **404 pelo frontend**
    em HTTPS — barreira real, mas por acidente, dependente de o Next.js não
    ganhar um catch-all. O check `portao-privado-metrics` do Better Stack
-   existe para vigir a exposição de fora e não depende do Nginx.
+   existe para vigir a exposição de fora: com a barreira do nginx em operação ele
+   observa **403**, e com a aplicação recusando sem token **401** — ambos
+   aceitos (D-19, `better-stack/checks.json`); uma resposta 200 (rota exposta)
+   reprova.
 5. **A retenção de 90 dias do R2 é decisão humana**, não ratificada. O número
    está parametrizado, não aprovado.
 6. **Uma instância do coletor por ambiente.** Um coletor único misturaria dev,
