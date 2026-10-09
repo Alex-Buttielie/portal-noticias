@@ -963,6 +963,100 @@ if ASSINATURA_PAYMENT_GATEWAY_PROVIDER == "mercadopago" and not ASSINATURA_MP_WE
 B2B_INTERVALO_VERIFICAR_ALERTAS_MINUTOS = int(
     os.environ.get("B2B_INTERVALO_VERIFICAR_ALERTAS_MINUTOS", 60)
 )
+
+# ---------------------------------------------------------------------------
+# Retenção e expurgo de analytics de produto (P2-02, WS-13/WS-14) —
+# `metricas/tasks.py::expurar_analytics`.
+#
+# ONDE O PRAZO MORA
+# -----------------
+# 365 dias (12 meses) é o valor documentado em `infra/observability/README.md`
+# ("Analytics de produto ... 12 meses, expurgo diário") e é o DEFAULT abaixo.
+# Mas o prazo é OPERADOR, não código: quem roda o expurgo muda a retenção
+# por variável de ambiente, sem deploy. É o mesmo formato de "limite explícito
+# e ajustável por ambiente" dos blocos acima (P1-03/P1-04).
+#
+# VALOR INVÁLIDO É ERRO, NÃO DEFAULT
+# ----------------------------------
+# Isto é deliberadamente diferente de todo o resto deste arquivo. As outras
+# configurações caem num default quando a variável está malformada porque o
+# pior desfecho é um job um pouco mais lento. Aqui o pior desfecho é
+# APAGAR O BANCO DE ANALYTICS INTEIRO: `0` e valores negativos significam
+# "corte = agora", e "anteriores a agora" é tudo. Por isso o texto malformado
+# ou fora da faixa [1, 36500] recusa a SUBIDA do processo com
+# ImproperlyConfigured — fail-closed no boot, que é o único ponto em que
+# ninguém pode ignorar o erro, em vez de um default silencioso de 365 que
+# esconderia a configuração errada por semanas. `metricas.tasks` revalida no
+# ponto de uso (a task pode ser chamada com override em teste/manual) e
+# também recusa, com `registrar_ciclo(estado=falha)` para o
+# `manage.py saude_filas` enxergar.
+ANALYTICS_RETENCAO_DIAS_PADRAO = 365
+
+#: Teto de 100 anos. É uma trava de plausibilidade (dá para detectar
+#: `ANALYTICS_RETENCAO_DIAS=99999999`, quase sempre um erro de digitação que
+#: com 10^8 dias significaria "nunca expurgar"), não uma política de negócio.
+ANALYTICS_RETENCAO_DIAS_MAXIMA = 36500
+
+ANALYTICS_RETENCAO_DIAS = os.environ.get("ANALYTICS_RETENCAO_DIAS", "").strip()
+
+
+def _erro_retencao_analytics(valor: str) -> str | None:
+    """
+    Motivo para recusar `ANALYTICS_RETENCAO_DIAS`, ou None se válida.
+
+    String vazia (ou só espaços) NÃO é erro: significa "não configurado", e
+    o default documentado de 365 dias vale. O que é erro é um texto que
+    parece querer ser um número e não é — `""` virando `int("")` levantaria
+    ValueError, e o `except` abaixo existe para dar a esse caso a mesma
+    resposta que a variável ausente recebe.
+    """
+    if valor is None or not str(valor).strip():
+        return None
+    try:
+        dias = int(valor)
+    except (TypeError, ValueError):
+        return (
+            f"ANALYTICS_RETENCAO_DIAS={valor!r} não é um número inteiro. Uma "
+            "retenção malformada faria o expurgo apagar tudo; por isso o "
+            "processo recusa subir em vez de assumir um default."
+        )
+    if dias < 1:
+        return (
+            f"ANALYTICS_RETENCAO_DIAS={dias} é menor que 1. Zero ou negativo "
+            "significaria 'corte = agora', isto é, apagar TODO o histórico de "
+            "analytics. Configure uma retenção positiva em dias."
+        )
+    if dias > ANALYTICS_RETENCAO_DIAS_MAXIMA:
+        return (
+            f"ANALYTICS_RETENCAO_DIAS={dias} excede o máximo de "
+            f"{ANALYTICS_RETENCAO_DIAS_MAXIMA} dias; recusado por trava de "
+            " plausibilidade (quase sempre é erro de digitação)."
+        )
+    return None
+
+
+if ANALYTICS_RETENCAO_DIAS:
+    _problema_retencao = _erro_retencao_analytics(ANALYTICS_RETENCAO_DIAS)
+    if _problema_retencao is not None:
+        raise ImproperlyConfigured(_problema_retencao)
+    ANALYTICS_RETENCAO_DIAS = int(ANALYTICS_RETENCAO_DIAS)
+else:
+    ANALYTICS_RETENCAO_DIAS = ANALYTICS_RETENCAO_DIAS_PADRAO
+
+#: Linhas por lote e por requisição no expurgo. `DELETE` de tabela inteira
+#: numa base segura segura lock de tabela e degrada o banco INTEIRO (o app todo
+#: fica lento). 500 é deliberadamente modesto: em PostgreSQL o custo de um
+#: lote é dominado pelo round-trip e pelo fsync, não pelo número de linhas, e
+#: o job roda uma vez por dia — não há ganho em lotes grandes e há risco real.
+ANALYTICS_EXPURGO_LOTE = int(os.environ.get("ANALYTICS_EXPURGO_LOTE", "500"))
+
+#: Intervalo do expurgo. Diário (86 400 s) porque a promessa documentada em
+#: `infra/observability/README.md` é "expurgo diário", e o efeito de reter um
+#: dia a mais é despreciável perto de uma janela de 365 dias.
+ANALYTICS_EXPURGO_INTERVALO_SEGUNDOS = int(
+    os.environ.get("ANALYTICS_EXPURGO_INTERVALO_SEGUNDOS", str(86400))
+)
+
 CELERY_BEAT_SCHEDULE = {
     "catalogo-noticias-ingerir-noticias": {
         "task": "catalogo_noticias.tasks.ingerir_noticias",
@@ -1015,6 +1109,18 @@ CELERY_BEAT_SCHEDULE = {
     "portal-heartbeat-beat": {
         "task": "config.tasks.heartbeat_beat",
         "schedule": FILAS_HEARTBEAT_INTERVALO_SEGUNDOS,
+    },
+    # P2-02 (WS-13/WS-14): expurgo de analytics de produto. É a task que faz
+    # verdadeira a promessa de "12 meses, expurgo diário" da tabela de
+    # `infra/observability/README.md` — até ela existir, essa linha era
+    # promessa sem código.
+    #
+    # A retenção (365 dias por default) é lida pela própria task a partir de
+    # `ANALYTICS_RETENCAO_DIAS`, e recusada no boot se vier malformada: ver o
+    # bloco dela, acima. Aqui só mora o INTERVALO, que é o que o beat precisa.
+    "metricas-expurgar-analytics": {
+        "task": "metricas.tasks.expurgar_analytics",
+        "schedule": ANALYTICS_EXPURGO_INTERVALO_SEGUNDOS,
     },
 }
 
