@@ -15,7 +15,10 @@
 > saudável, continue seguindo este documento normalmente — ele descreve a
 > variante Docker/Caddy como estava antes do cutover (uso local/opcional),
 > e as seções abaixo sobre a topologia PM2 continuam sendo as que valem de
-> verdade na VPS.
+> verdade na VPS. **Exceção:** a seção *As contas de teste de DEV e HOMOLOG*
+> abaixo descreve o gate `usuarios_teste`, que o cutover Docker **retirou**
+> (decisão registrada em `CI-CD.md`, seção do gate) — ela deixa de valer
+> quando o corte Docker virar real, e não há substituto automático.
 >
 > Guia de provisionamento da VPS HostGator (root/SSH) para a nova arquitetura
 > de infra (`docker-compose.yml` + `Caddyfile` na raiz do projeto). Faça uma
