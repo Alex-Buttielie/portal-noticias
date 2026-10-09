@@ -142,7 +142,7 @@ done
 
 # Permissão de execução: um script de cron sem `+x` falha em silêncio no crontab
 # (que ignora a linha com "command not found" e segue para a próxima).
-for s in infra/backup/pg_backup_pm2.sh infra/backup/verificar_backup.sh \
+for s in infra/backup/pg_backup_pm2.sh infra/backup/pg_backup.sh infra/backup/verificar_backup.sh \
          infra/standalone/run-standalone.sh infra/observability/alloy/verificar-env.sh; do
     if [[ -x "$s" ]]; then ok "executável: $s"; else falha "sem permissão de execução: $s"; fi
 done
@@ -192,21 +192,17 @@ else
     printf '%s\n' "$out" | sed 's/^/          /'
 fi
 
-# A distribuição de variáveis de ambiente do deploy já falhou duas vezes nesta
-# run, do mesmo jeito: a variável chegava a um lado e não ao outro. O teste
-# executa a função REAL do `deploy.yml` contra um `/etc` falso e prova as duas
-# pontas do heartbeat e do canal de job —inclusive o caso de valor divergente,
-# onde a resposta correta é avisar e preservar, e o `.env` sem escrita, onde a
-# resposta correta é avisar sem derrubar o deploy.
-if (( RAPIDO )); then
-    pulado "pontas do heartbeat e do canal de job pulados por --rapido"
-elif out="$(bash scripts/observability/testar-variaveis-de-ambiente.sh 2>&1)"; then
-    ok "deploy: as duas pontas do heartbeat e do canal de job fecham"
-    printf '%s\n' "$out" | sed -n 's/^  \[OK\]/          /p' | tail -6
-else
-    falha "deploy: alguma ponta do heartbeat ou do canal de job divergiu:"
-    printf '%s\n' "$out" | sed 's/^/          /'
-fi
+# Cutover Docker (2026-10-09): o teste de duas pontas (`ativar_celery_systemd`
+# em deploy.yml, achados B4/rodada 2) validava EXATAMENTE o problema de uma
+# variável chegar a um produtor (unit systemd) e não ao consumidor (gunicorn
+# que lê só backend/.env) — dois arquivos, duas verdades possíveis. Esse
+# problema não existe mais: `deploy.yml` não instala systemd do Celery, e
+# `web`/`celery-worker`/`celery-beat` compartilham o MESMO `.env.production`
+# via `env_file:` (docker-compose.yml) — uma só verdade, estruturalmente.
+# `scripts/observability/testar-variaveis-de-ambiente.sh` e a função que ele
+# testava foram removidos junto com o resto da topologia PM2/systemd deste
+# workflow; nada substitui este bloco porque não há mais duas pontas a
+# reconciliar.
 fi
 
 # ---------------------------------------------------------------------------
@@ -718,6 +714,70 @@ ast.parse(p[p.index("-c") + 1])
 else
     pulado "Docker indisponível: docker compose config NÃO executado"
 fi
+
+# `caddy validate` com a imagem oficial — mesmo padrão do `nginx -t` acima
+# (docker cp em vez de bind mount: /tmp quase nunca é path compartilhado no
+# Docker Desktop). Dois arquivos: o Caddyfile por-ambiente da raiz (variante
+# standalone/local, lê env em runtime) e o Caddyfile único do
+# infra/docker-edge/ (cutover real, lê MARCADORES de texto substituídos na
+# instalação — mesmo padrão do __DOMAIN_FRONTEND__ do Nginx).
+if (( RAPIDO )); then
+    pulado "caddy validate pulado por --rapido"
+elif command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+    validar_caddy_em_container() {
+        local arquivo_local="$1" rotulo="$2" cid
+        cid="$(docker create caddy:2-alpine caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile 2>/dev/null)"
+        if [[ -z "$cid" ]]; then
+            falha "não foi possível criar o container de validação do Caddy ($rotulo)"
+            return
+        fi
+        docker cp "$arquivo_local" "$cid:/etc/caddy/Caddyfile" >/dev/null 2>&1
+        if out="$(docker start -a "$cid" 2>&1)"; then
+            ok "caddy validate ($rotulo)"
+        else
+            falha "caddy validate ($rotulo): $(printf '%s' "$out" | tail -4)"
+        fi
+        docker rm -f "$cid" >/dev/null 2>&1
+    }
+    # Caddyfile por-ambiente: {$VAR} é expandido pelo PRÓPRIO Caddy a partir
+    # do ambiente do processo — passamos via `docker create -e`, não texto.
+    cid_env="$(docker create -e DOMAIN=portal.invalid -e DOMAIN_EXTRA= \
+        -e OBSERVABILITY_METRICS_TOKEN=placeholder-de-validacao \
+        caddy:2-alpine caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile 2>/dev/null)"
+    if [[ -z "$cid_env" ]]; then
+        falha "não foi possível criar o container de validação do Caddy (por-ambiente)"
+    else
+        docker cp "Caddyfile" "$cid_env:/etc/caddy/Caddyfile" >/dev/null 2>&1
+        if out="$(docker start -a "$cid_env" 2>&1)"; then
+            ok "caddy validate (por-ambiente, raiz)"
+        else
+            falha "caddy validate (por-ambiente, raiz): $(printf '%s' "$out" | tail -4)"
+        fi
+        docker rm -f "$cid_env" >/dev/null 2>&1
+    fi
+    # Caddyfile do edge compartilhado: marcadores de texto, substituídos
+    # igual ao __DOMAIN_FRONTEND__ do Nginx — nunca lidos do ambiente real.
+    sed -e "s/__DOMAIN_DEV__/dev.portal.invalid/" \
+        -e "s/__DOMAIN_HOMOLOG__/homolog.portal.invalid/" \
+        -e "s/__DOMAIN_PROD_WWW__/www.portal.invalid/" \
+        -e "s/__DOMAIN_PROD__/portal.invalid/" \
+        "infra/docker-edge/Caddyfile" > "$TMP/edge.Caddyfile"
+    cid_edge="$(docker create -e OBSERVABILITY_METRICS_TOKEN=placeholder-de-validacao \
+        caddy:2-alpine caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile 2>/dev/null)"
+    if [[ -z "$cid_edge" ]]; then
+        falha "não foi possível criar o container de validação do Caddy (edge compartilhado)"
+    else
+        docker cp "$TMP/edge.Caddyfile" "$cid_edge:/etc/caddy/Caddyfile" >/dev/null 2>&1
+        if out="$(docker start -a "$cid_edge" 2>&1)"; then
+            ok "caddy validate (edge compartilhado, infra/docker-edge/)"
+        else
+            falha "caddy validate (edge compartilhado): $(printf '%s' "$out" | tail -4)"
+        fi
+        docker rm -f "$cid_edge" >/dev/null 2>&1
+    fi
+else
+    pulado "Docker indisponível: caddy validate NÃO executado"
+fi
 fi
 
 # ---------------------------------------------------------------------------
@@ -899,7 +959,7 @@ else
 fi
 
 if (( divergencias > 0 )); then
-    echo "  Dica: portal-noticias.com precisa de registro A para a VPS antes de tls_enabled=true, ou o probe https falha."
+    echo "  Dica: portal-noticias.com precisa de registro A para a VPS antes do Certbot (PM2/Nginx, ativo) ou do Caddy emitir certificado (cutover Docker) — sem DNS resolvendo, os dois falham do mesmo jeito."
 fi
 fi
 
