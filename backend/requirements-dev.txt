@@ -6,12 +6,3 @@
 pytest==9.1.1
 pytest-django==4.14.0
 pytest-cov==7.1.0
-
-# Leitura de YAML usada pela PROVA EXECUTADA do gate `usuarios_teste`
-# (scripts/verificar-gate-usuarios-teste.sh), que extrai o `script:` do job
-# `deploy` e roda o shell de verdade em dash. Sem esta dependência o pytest
-# test_gate_deploy_usuarios_teste.py era PULADO no CI — porque o job
-# `backend-tests` (ci.yml) instala este arquivo, e só ele: o teste da correção
-# de segurança do gate não rodava em lugar nenhum. É dependência de TESTE:
-# o lock de runtime (requirements-lock.txt) e a imagem de produção não a recebem.
-pyyaml==6.0.3

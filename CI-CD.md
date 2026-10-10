@@ -50,6 +50,9 @@ o `verify` chamado pelo deploy cobre a tag e verifica seu SHA.
 > (backup-first, ambiente por ambiente) e confirmar saudável antes de
 > desligar PM2/Nginx — nessa ordem, nunca em produção primeiro. Ver
 > `infra/docker-edge/README.md` para a instalação do Caddy compartilhado.
+> **Retirada, não portada: o gate `usuarios_teste`** (contas de teste
+> sem senha em DEV/HOMOLOG — ver a seção dedicada mais abaixo). Decisão
+> registrada ali, não um gap pendente.
 
 ### Ambientes na VPS (PM2 + Nginx — topologia ATIVA hoje)
 
@@ -289,20 +292,33 @@ não há promessa de zero downtime.
   do CI, mas não deve entrar na imagem ou no runtime PM2. O
   `backend/.dockerignore` mantém esse manifesto fora do contexto Docker. É
   **ele** — e não o lock — que satisfaz os requisitos dos testes: `pytest`,
-  `pytest-django`, `pytest-cov` e `pyyaml`. O `pyyaml` não é acidental: a prova
-  executada do gate `usuarios_teste`
-  (`scripts/verificar-gate-usuarios-teste.sh`, executada por
-  `backend/identidade/tests/test_gate_deploy_usuarios_teste.py`) lê o `script:`
-  do job `deploy` e roda o shell da VPS; sem `pyyaml` no manifesto esse teste
-  era **pulado** no CI, e a proteção de segurança do gate deixava de existir sem
-  aparecer nenhum vermelho. O `requirements-lock.txt` é o lock de **runtime** e
-  não a recebe de propósito (é ele que a imagem e o PM2 instalam); por isso a
-  dependência é declarada no arquivo dev, que é o que o job `backend-tests`
-  instala depois do lock.
+  `pytest-django` e `pytest-cov`. (Teve `pyyaml` até a retirada do gate
+  `usuarios_teste` no cutover Docker — ver a seção dedicada mais abaixo — cujo
+  harness era o único consumidor; removido junto, sem substituto.)
 
 Secrets exigidos: `VPS_HOST`, `VPS_USER`, `VPS_PORT` e **`VPS_SSH_KEY`** — vinculados a cada **GitHub Environment** (`development`/`homolog`/`production`) em Settings → Environments. O job `verify` não recebe secrets; o job de provisionamento roda com `environment: ${{ inputs.environment_name }}` (ver `.github/workflows/deploy.yml`), então só enxerga os secrets daquele Environment, com proteção de branch/tag. `VPS_PASSWORD` saiu do contrato em 2026-10-08: o SSH autentica por chave, o secret no GitHub era obsoleto desde a rotação da senha do root, e não há fallback para a senha por desenho. A configuração de regras de proteção/approvals do Environment continua sendo uma decisão humana no GitHub; o gate de CI já está no repositório.
 
 ### O gate `usuarios_teste` — contas de teste sem senha em DEV/HOMOLOG
+
+> **Retirado no cutover Docker (decisão de 2026-10-09), não portado.** O que
+> esta seção descreve abaixo é real **enquanto PM2 + Nginx for a topologia
+> ativa** (ver a nota no topo deste documento). O `deploy.yml` do cutover
+> Docker (`feat(deploy): reescreve deploy.yml/callers/rollback.yml para
+> Docker+GHCR`) eliminou inteiramente o input `usuarios_teste`, o
+> `script_path`/`infra/deploy/deploy.sh` e qualquer caminho de criação de
+> conta — não sobrou onde pendurar o gate. A decisão foi **retirar a
+> feature**, não redesenhá-la, por dois motivos: (1) o `docker-entrypoint.sh`
+> roda a cada *restart* do container `web`, em **todos** os ambientes
+> (inclusive PROD) — amarrar uma mutação de banco condicional a esse ponto
+> trocaria um script de deploy único por uma superfície de risco maior, sob
+> o pretexto de "portar"; (2) nada no plano do cutover (`agentic-framework/
+> state/run-20260925-1433-go-live-producao/`) lista as contas de teste como
+> bloqueador do go-live Docker. Se precisar de login sem senha em DEV/HOMOLOG
+> depois do cutover, criar a conta à mão (receita em `infra/DEPLOY.md`,
+> seção *Como entrar*) continua funcionando — só o automatismo do deploy que
+> não existe mais. `backend/identidade/tests/test_gate_deploy_usuarios_teste.py`
+> e `scripts/verificar-gate-usuarios-teste.sh` foram removidos junto com esta
+> decisão; o texto abaixo é histórico da topologia PM2.
 
 Novo input booleano do `deploy.yml` (`default: false`), no mesmo formato dos
 outros inputs do workflow (`tls_enabled`, `web_runtime`, `celery_systemd`):
