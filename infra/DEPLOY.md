@@ -124,6 +124,27 @@ sudo chmod 0640 /var/log/pg_backup.log
 crontab -l
 ```
 
+**Dev e homolog usam o mesmo script com um piso de bytes menor.** O piso
+padrão de `BACKUP_MIN_BYTES` (1 MiB, ver cabeçalho de `pg_backup_pm2.sh`)
+existe para pegar o sintoma de "dump de esquema sem dados" visto em produção;
+em dev/homolog os bancos são genuinamente pequenos (dump nativo de
+~350-370 KB para 55 tabelas) e esse mesmo piso rejeitaria um backup correto.
+Para esses ambientes, exporte `BACKUP_MIN_BYTES` na mesma linha do crontab,
+com o path de cada ambiente:
+
+```bash
+(
+  crontab -l 2>/dev/null | grep -v 'pg_backup_pm2[.]sh' || true
+  printf '%s\n' '0 3 * * * BACKUP_ENV_FILE=/home/apps/portal-dev/backend/.env BACKUP_MIN_BYTES=100000 /home/apps/portal-dev/infra/backup/pg_backup_pm2.sh >> /var/log/pg_backup.log 2>&1'
+  printf '%s\n' '0 3 * * * BACKUP_ENV_FILE=/home/apps/portal-homolog/backend/.env BACKUP_MIN_BYTES=100000 /home/apps/portal-homolog/infra/backup/pg_backup_pm2.sh >> /var/log/pg_backup.log 2>&1'
+) | crontab -
+```
+
+100 KB continua bem acima do que um esquema genuinamente vazio produz (o
+cabeçalho do script mede ~800 B a ~48 KB para esses casos) e bem abaixo do
+tamanho real medido em dev/homolog — a margem é intencional. Prod não precisa
+de ajuste porque seu dump já passa do piso padrão de 1 MiB.
+
 Execute o backup e instale essa linha no mesmo usuário efetivo que mantém o
 processo PM2, o checkout, `backend/.env` e `backend/media`; não use root apenas
 porque a instalação do sistema foi feita com `sudo`. O script registra owner e
