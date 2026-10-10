@@ -3,6 +3,16 @@
 # `appleboy/ssh-action@v1.2.0` via `script_path: infra/deploy/deploy.sh`
 # (o `deploy.yml` so aponta o caminho).
 #
+# ATUALIZACAO (cutover Docker — CI-CD.md): o `deploy.yml` desta branch
+# (`cutover-docker-dev`) deixou de ter `script_path` apontando pra aqui — o
+# deploy agora e `docker compose`/GHCR embutido no proprio workflow. Este
+# arquivo so continua vivo porque `scripts/verificar-gate-usuarios-teste.sh`
+# ainda le ele do disco (`SCRIPT_ALVO`/`REL_DEPLOY`) pra exercer o gate
+# `usuarios_teste` antigo; o teste correspondente
+# (`backend/identidade/tests/test_gate_deploy_usuarios_teste.py`) esta em
+# `xfail` explicito ate esse gate ser portado pra Docker. Nao apagar antes
+# disso — e a referencia de que o porte vai partir.
+#
 # POR QUE O SHELL SAIU DO WORKFLOW
 # O script vivia dentro de um `script:` do `.github/workflows/deploy.yml`: 450
 # linhas / 21.629 chars de shell num arquivo que chegou a 762 linhas / 40.966
