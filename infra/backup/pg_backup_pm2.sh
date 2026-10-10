@@ -9,6 +9,15 @@
 # pelo deploy PM2. O fallback <checkout>/.env e as variáveis PG* também são
 # aceitos. O path da mídia é <checkout>/backend/media (MEDIA_ROOT no Django).
 #
+# BACKUP_MIN_BYTES (piso de bytes do dump, ver seção "piso de conteudo" mais
+# abaixo) é por ambiente, não por topologia: dev/homolog têm bancos
+# genuinamente pequenos e um dump de ~350-370 KB ali é um backup válido, não
+# o sintoma de esquema-sem-dados que o piso existe para pegar. Baixe o piso
+# na própria linha do crontab desses ambientes, por exemplo:
+#   0 3 * * * BACKUP_ENV_FILE=/home/apps/portal-dev/backend/.env BACKUP_MIN_BYTES=100000 /home/apps/portal-dev/infra/backup/pg_backup_pm2.sh >> /var/log/pg_backup.log 2>&1
+#   0 3 * * * BACKUP_ENV_FILE=/home/apps/portal-homolog/backend/.env BACKUP_MIN_BYTES=100000 /home/apps/portal-homolog/infra/backup/pg_backup_pm2.sh >> /var/log/pg_backup.log 2>&1
+# Prod mantém o padrão de 1 MiB.
+#
 # BACKUP_VALIDATE_RESTORE=0 é um escape de emergência: nesse caso o archive
 # ainda é lido integralmente por pg_restore, mas o restore em banco descartável
 # e a contagem de linhas ficam desligados. O padrão é 1; desligar a validação
@@ -225,6 +234,8 @@ fi
 # e o piso em BYTES, com um piso minimo de linhas como segunda camada.
 BACKUP_MIN_LINHAS="${BACKUP_MIN_LINHAS:-1}"
 BACKUP_MIN_BYTES="${BACKUP_MIN_BYTES:-1048576}"
+[[ "$BACKUP_MIN_LINHAS" =~ ^[0-9]+$ ]] || { erro "BACKUP_MIN_LINHAS deve ser um inteiro não negativo; recebido: '$BACKUP_MIN_LINHAS'"; exit 2; }
+[[ "$BACKUP_MIN_BYTES" =~ ^[0-9]+$ ]] || { erro "BACKUP_MIN_BYTES deve ser um inteiro não negativo; recebido: '$BACKUP_MIN_BYTES'"; exit 2; }
 
 MEDIA_PRESENTE=1
 if [[ ! -d "$MEDIA_DIR" ]]; then
