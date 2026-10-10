@@ -1,9 +1,17 @@
 name: Deploy PROD
 
-# Thin caller — toda a lógica vive em deploy.yml (reutilizável). Tag v*
-# implanta /home/apps/portal-prod (3103/5103) + GitHub Release.
-# Mesma infra do deploy antigo (backup/remote-*-20260904): PM2 + Nginx na
-# VPS. Muda só o software: frontend/ + backend/ (Django real).
+# Thin caller — toda a lógica vive em deploy-pm2.yml (reutilizável, PM2+Nginx).
+# Tag v* implanta /home/apps/portal-prod (3103/5103) + GitHub Release.
+#
+# 2026-10-10: restaurado para PM2 depois de um incidente — o cutover Docker
+# do dev (PR #31/#32) reescreveu o `deploy.yml` reutilizável inteiro para
+# Docker/GHCR e os TRÊS callers continuaram apontando pra ele, então PROD
+# (que nunca passou pelo cutover de verdade — sem inventário, sem backup,
+# sem migração de dados) ficou uma tag `v*` de distância de tentar um
+# `docker compose up` não preparado contra o banco de produção de verdade.
+# `deploy-pm2.yml` é o `deploy.yml` de antes do cutover (script_path:
+# infra/deploy/deploy.sh, mantido/atualizado desde então — ver D-24 em
+# infra/deploy/deploy.sh) — a Fase E do plano ainda não chegou em PROD.
 on:
   push:
     tags:
@@ -23,7 +31,7 @@ jobs:
 
   deploy-prod:
     needs: pre
-    uses: ./.github/workflows/deploy.yml
+    uses: ./.github/workflows/deploy-pm2.yml
     with:
       env_label: PROD
       environment_name: production
@@ -32,59 +40,28 @@ jobs:
       git_ref: ${{ needs.pre.outputs.version }}
       # A tag pode ser movida depois do evento; o gate fixa o commit original.
       verify_ref: ${{ github.sha }}
+      pm_suffix: prod
       web_port: "3103"
       api_port: "5103"
       host: portal-noticias.com
+      # Manter false até o certbot emitir, o nginx -t passar e o reload HTTPS
+      # ser verificado. Depois, altere para true e siga o runbook de TLS.
+      tls_enabled: false
       allowed_hosts_extra: ",www.portal-noticias.com"
       db_name: brd_portal_prod
       db_user: portal_prod
       strict_validate: true
-      # D1: em PRODUÇÃO o source map não é mais fail-open. Sem
-      # SENTRY_AUTH_TOKEN (ou sem .map no build) o job `verify` reprova e o
-      # deploy não chega ao SSH: publicar uma release que não chega ao Sentry
-      # é publicar um stack trace de produção sem mapa, e o critério 20 fica
-      # não atendido sem ninguém perceber. Consequência operacional, e ela é
-      # deliberada: o PRIMEIRO deploy por tag depois deste merge vai reprovar
-      # se os três secrets não estiverem cadastrados no repositório. É o
-      # comportamento correto, e o conserto é cadastrar o secret — não desligar
-      # o gate.
-      sentry_exigido: true
-      # TLS: sempre automático (Caddy compartilhado, infra/docker-edge/) —
-      # não existe mais um flag `tls_enabled` por ambiente.
+      # Usuários de teste: EXPLICITAMENTE desligado, e o valor explícito é o
+      # ponto. O default do `deploy-pm2.yml` já é `false` — mas o default é
+      # uma propriedade do arquivo, e esta linha é uma afirmação sobre PROD.
+      usuarios_teste: false
     secrets:
       VPS_HOST: ${{ secrets.VPS_HOST }}
       VPS_USER: ${{ secrets.VPS_USER }}
       VPS_PORT: ${{ secrets.VPS_PORT }}
-      # Autenticacao do SSH por CHAVE. Sem este secret o `deploy.yml` RECUSA o
-      # run inteiro: `VPS_SSH_KEY` e `required: true` la, e nao ha fallback para a
-      # senha por proposito. Passe-o aqui, nos tres chamadores, e o pipeline
-      # funciona por chave.
-      #
-      # Medido em 2026-10-08: enquanto esta linha faltava, os quatro `Deploy DEV`
-      # seguintes terminaram em 0s com "This run likely failed because of a
-      # workflow file issue" — o workflow reutilizavel exige o secret e o
-      # chamador nao o fornecia. Um secret obrigatorio que ninguem passa falha
-      # cedo e sem mensagem util; por isso o comentario.
       VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
-      VPS_HOST_FINGERPRINT: ${{ secrets.VPS_HOST_FINGERPRINT }}
-      GHCR_PULL_TOKEN: ${{ secrets.GHCR_PULL_TOKEN }}
-      GHCR_PULL_USER: ${{ secrets.GHCR_PULL_USER }}
       # Resend (P1-04): opcional. Ausente mantém DJANGO_EMAIL_BACKEND=console.
       RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
-      # Sentry (C2.4/D1): usados só para o upload de source map do `verify`.
-      # Aqui a ausência NÃO é tolerada — com `sentry_exigido: true` acima, o
-      # verify reprova e o deploy não segue. O que reprova é o gate, não a
-      # declaração do secret (que precisa continuar opcional para o `ci.yml`
-      # não quebrar fork e PR de terceiros).
-      SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
-      SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
-      SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
-      SENTRY_URL: ${{ secrets.SENTRY_URL }}
-      NEXT_PUBLIC_ADSENSE_CLIENT_ID: ${{ secrets.NEXT_PUBLIC_ADSENSE_CLIENT_ID }}
-      NEXT_PUBLIC_ADSENSE_SLOT_HORIZONTAL: ${{ secrets.NEXT_PUBLIC_ADSENSE_SLOT_HORIZONTAL }}
-      NEXT_PUBLIC_ADSENSE_SLOT_RETANGULO: ${{ secrets.NEXT_PUBLIC_ADSENSE_SLOT_RETANGULO }}
-      NEXT_PUBLIC_ADSENSE_SLOT_VERTICAL: ${{ secrets.NEXT_PUBLIC_ADSENSE_SLOT_VERTICAL }}
-      NEXT_PUBLIC_ADSENSE_SLOT_INFEED: ${{ secrets.NEXT_PUBLIC_ADSENSE_SLOT_INFEED }}
 
   # A release só é criada depois que o reusable deploy terminou. Se verify,
   # SSH, migrate, PM2 ou validate falhar, este job fica skipped e nenhum

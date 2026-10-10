@@ -1,17 +1,12 @@
 name: Rollback manual do portal
 
-# Recuperação explícita (cutover Docker). Diferença-chave da topologia PM2
-# anterior: o rollback NÃO rebuilda nada — reusa a imagem já publicada no
-# GHCR para o SHA alvo (tag `<ambiente>-<sha40>`), a mesma que rodou de
-# verdade quando aquele SHA foi implantado pela última vez. `verify` ainda
-# roda (nunca confiar num estado histórico sem reconferir); só o
-# `build-and-push` é pulado (`skip_build: true` no deploy.yml reutilizável).
-#
-# Pré-requisito: a tag daquele SHA ainda precisa existir no GHCR — se a
-# política de retenção de pacotes já a removeu, o `docker compose pull` na
-# VPS falha com erro claro (imagem não encontrada), não com um rollback
-# silenciosamente incompleto. Mantenha pelo menos as últimas N tags por
-# ambiente, e nunca a que `.deployed-sha` aponta.
+# Recuperação explícita. 2026-10-10: DEV é Docker (cutover PR #31/#32);
+# HOMOLOG/PROD continuam PM2+Nginx — a Fase E do plano ainda não chegou lá.
+# Por isso este workflow bifurca depois do `prepare`: `rollback-docker` só
+# roda para `development` (reusa a imagem já publicada no GHCR, sem
+# rebuild); `rollback-pm2` roda para `homolog`/`production` (fetch do SHA +
+# reset + rebuild pelo caminho `infra/deploy/deploy.sh`, igual ao deploy
+# normal). Nunca os dois no mesmo dispatch — `if:` em cada job garante isso.
 on:
   workflow_dispatch:
     inputs:
@@ -24,7 +19,7 @@ on:
           - homolog
           - production
       target_sha:
-        description: "SHA completo do commit conhecido como bom (normalmente o valor de .deployed-sha antes da falha) — a imagem desse SHA precisa já estar publicada no GHCR"
+        description: "SHA completo do commit conhecido como bom (normalmente o valor de .deployed-sha antes da falha). Para 'development', a imagem desse SHA precisa já estar publicada no GHCR."
         required: true
         type: string
       confirm:
@@ -44,6 +39,7 @@ jobs:
       environment_name: ${{ steps.config.outputs.environment_name }}
       app_dir: ${{ steps.config.outputs.app_dir }}
       git_ref: ${{ steps.config.outputs.git_ref }}
+      pm_suffix: ${{ steps.config.outputs.pm_suffix }}
       web_port: ${{ steps.config.outputs.web_port }}
       api_port: ${{ steps.config.outputs.api_port }}
       host: ${{ steps.config.outputs.host }}
@@ -74,6 +70,7 @@ jobs:
               ENV_LABEL=DEV
               ENVIRONMENT_NAME=development
               APP_DIR=/home/apps/portal-dev
+              PM_SUFFIX=dev
               WEB_PORT=3101
               API_PORT=5101
               HOST=dev.portal-noticias.com
@@ -85,6 +82,7 @@ jobs:
               ENV_LABEL=HOMOLOG
               ENVIRONMENT_NAME=homolog
               APP_DIR=/home/apps/portal-homolog
+              PM_SUFFIX=homolog
               WEB_PORT=3102
               API_PORT=5102
               HOST=homolog.portal-noticias.com
@@ -96,6 +94,7 @@ jobs:
               ENV_LABEL=PROD
               ENVIRONMENT_NAME=production
               APP_DIR=/home/apps/portal-prod
+              PM_SUFFIX=prod
               WEB_PORT=3103
               API_PORT=5103
               HOST=portal-noticias.com
@@ -113,6 +112,7 @@ jobs:
             printf 'environment_name=%s\n' "$ENVIRONMENT_NAME"
             printf 'app_dir=%s\n' "$APP_DIR"
             printf 'git_ref=%s\n' "$TARGET_SHA"
+            printf 'pm_suffix=%s\n' "$PM_SUFFIX"
             printf 'web_port=%s\n' "$WEB_PORT"
             printf 'api_port=%s\n' "$API_PORT"
             printf 'host=%s\n' "$HOST"
@@ -122,17 +122,15 @@ jobs:
             printf 'image_tag=%s-%s\n' "$ENVIRONMENT_NAME" "$TARGET_SHA"
           } >> "$GITHUB_OUTPUT"
 
-  rollback:
+  # Só DEV — reusa a imagem já publicada no GHCR, sem rebuild.
+  rollback-docker:
     needs: prepare
-    if: ${{ needs.prepare.result == 'success' }}
+    if: ${{ needs.prepare.result == 'success' && needs.prepare.outputs.environment_name == 'development' }}
     uses: ./.github/workflows/deploy.yml
     with:
       env_label: ${{ needs.prepare.outputs.env_label }}
       environment_name: ${{ needs.prepare.outputs.environment_name }}
       app_dir: ${{ needs.prepare.outputs.app_dir }}
-      # rollback faz fetch do SHA + reset (config only — a imagem não é
-      # rebuildada) pelo mesmo caminho gated do deploy; não existe um
-      # segundo script de provisionamento.
       git_mode: rollback
       git_ref: ${{ needs.prepare.outputs.git_ref }}
       verify_ref: ${{ needs.prepare.outputs.git_ref }}
@@ -142,8 +140,6 @@ jobs:
       allowed_hosts_extra: ${{ needs.prepare.outputs.allowed_hosts_extra }}
       db_name: ${{ needs.prepare.outputs.db_name }}
       db_user: ${{ needs.prepare.outputs.db_user }}
-      # Um rollback deve falhar se a recuperação não ficar saudável, mesmo em
-      # DEV/HOMOLOG; o operador pode repetir o dispatch depois de corrigir a VPS.
       strict_validate: true
       skip_build: true
       image_tag_override: ${{ needs.prepare.outputs.image_tag }}
@@ -151,21 +147,40 @@ jobs:
       VPS_HOST: ${{ secrets.VPS_HOST }}
       VPS_USER: ${{ secrets.VPS_USER }}
       VPS_PORT: ${{ secrets.VPS_PORT }}
-      # Autenticacao do SSH por CHAVE, igual aos outros tres chamadores.
-      # `VPS_SSH_KEY` e `required: true` no deploy.yml: um chamador que nao o
-      # passa e INVALIDADO pelo GitHub, e o rollback — que existe justamente para
-      # ser acionado quando algo deu errado — ficaria indisponivel. Foi o que
-      # aconteceu com deploy-dev/homolog/prod em 2026-10-02: quatro runs
-      # seguidos terminaram em 0s, sem job nenhum.
       VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
       VPS_HOST_FINGERPRINT: ${{ secrets.VPS_HOST_FINGERPRINT }}
       GHCR_PULL_TOKEN: ${{ secrets.GHCR_PULL_TOKEN }}
       GHCR_PULL_USER: ${{ secrets.GHCR_PULL_USER }}
-      # Resend (P1-04): opcional. Ausente mantém DJANGO_EMAIL_BACKEND=console.
       RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
-      # Sentry (C2.4): opcionais, usados só para o upload de source map do
-      # `verify`. Sem eles, o passo é pulado (fail-open) e o CI segue verde.
       SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
       SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
       SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
       SENTRY_URL: ${{ secrets.SENTRY_URL }}
+
+  # HOMOLOG/PROD — ainda PM2: fetch do SHA + reset + rebuild, mesmo caminho
+  # gated do deploy normal (infra/deploy/deploy.sh).
+  rollback-pm2:
+    needs: prepare
+    if: ${{ needs.prepare.result == 'success' && needs.prepare.outputs.environment_name != 'development' }}
+    uses: ./.github/workflows/deploy-pm2.yml
+    with:
+      env_label: ${{ needs.prepare.outputs.env_label }}
+      environment_name: ${{ needs.prepare.outputs.environment_name }}
+      app_dir: ${{ needs.prepare.outputs.app_dir }}
+      git_mode: rollback
+      git_ref: ${{ needs.prepare.outputs.git_ref }}
+      verify_ref: ${{ needs.prepare.outputs.git_ref }}
+      pm_suffix: ${{ needs.prepare.outputs.pm_suffix }}
+      web_port: ${{ needs.prepare.outputs.web_port }}
+      api_port: ${{ needs.prepare.outputs.api_port }}
+      host: ${{ needs.prepare.outputs.host }}
+      allowed_hosts_extra: ${{ needs.prepare.outputs.allowed_hosts_extra }}
+      db_name: ${{ needs.prepare.outputs.db_name }}
+      db_user: ${{ needs.prepare.outputs.db_user }}
+      strict_validate: true
+    secrets:
+      VPS_HOST: ${{ secrets.VPS_HOST }}
+      VPS_USER: ${{ secrets.VPS_USER }}
+      VPS_PORT: ${{ secrets.VPS_PORT }}
+      VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+      RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
