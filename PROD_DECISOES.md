@@ -273,6 +273,19 @@
 
 ### R-2 — divergência de domínio: ABERTO, registrada
 
+> **[HISTÓRICO — substituído em 2026-09-30]** Esta seção descrevia o estado
+> do lote P0-1 (2026-09-25), quando a divergência ainda existia. Ela foi
+> **resolvida em 2026-09-30** (ver item 16 da seção anterior): o domínio de
+> produção é `portal-noticias.com`, com DEV/HOMOLOG como subdomínios, e os
+> três callers, o `rollback.yml` e a documentação já usam esse valor —
+> confirmado em 2026-10-10 (nenhuma ocorrência de `.com.br` em
+> `.github/workflows/*.yml`). Texto original preservado abaixo. **Atenção:**
+> a resolução trocou só o VALOR do domínio nos workflows — o registro DNS em
+> si (A record apontando pra VPS) é pendência separada, ainda aberta (ver
+> achado de 2026-10-10: `portal-noticias.com` resolve pra `50.116.87.204`,
+> que não é a VPS `108.174.147.50`, e os subdomínios `dev.`/`homolog.` não
+> resolvem).
+
 O canônico do programa é `https://portal-noticias.com/`; os workflows usam
 `portal-noticias.com.br` (DEV/HOMOLOG/PROD e `www`). Registrado como
 pendência de lote posterior, sem alteração de workflow, gatilho ou
