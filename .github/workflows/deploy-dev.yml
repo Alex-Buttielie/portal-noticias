@@ -18,20 +18,15 @@ jobs:
       # SHA do push: o gate e o checkout da VPS não podem testar/implantar
       # commits diferentes se outro push entrar enquanto o run está na fila.
       verify_ref: ${{ github.sha }}
-      pm_suffix: dev
       web_port: "3101"
       api_port: "5101"
-      host: dev.portal-noticias.com.br
-      # TLS só é ativado depois da emissão do certificado neste ambiente.
-      tls_enabled: false
+      host: dev.portal-noticias.com
       db_name: brd_portal_dev
       db_user: portal_dev
-      strict_validate: false
-      usuarios_teste: true
+      strict_validate: true
     secrets:
       VPS_HOST: ${{ secrets.VPS_HOST }}
       VPS_USER: ${{ secrets.VPS_USER }}
-      VPS_PASSWORD: ${{ secrets.VPS_PASSWORD }}
       VPS_PORT: ${{ secrets.VPS_PORT }}
       # Autenticacao do SSH por CHAVE. Sem este secret o `deploy.yml` RECUSA o
       # run inteiro: `VPS_SSH_KEY` e `required: true` la, e nao ha fallback para a
@@ -44,3 +39,26 @@ jobs:
       # chamador nao o fornecia. Um secret obrigatorio que ninguem passa falha
       # cedo e sem mensagem util; por isso o comentario.
       VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+      VPS_HOST_FINGERPRINT: ${{ secrets.VPS_HOST_FINGERPRINT }}
+      # GHCR (cutover Docker): token de PULL para a VPS, escopo read:packages
+      # — distinto do GITHUB_TOKEN automático que o build-and-push usa pra
+      # PUSH. Obrigatório nos três ambientes (sem ele a VPS não faz `docker
+      # compose pull`).
+      GHCR_PULL_TOKEN: ${{ secrets.GHCR_PULL_TOKEN }}
+      GHCR_PULL_USER: ${{ secrets.GHCR_PULL_USER }}
+      # Resend (P1-04): opcional. Ausente mantém DJANGO_EMAIL_BACKEND=console.
+      RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+      # Sentry (C2.4): opcionais, usados só para o upload de source map do
+      # `verify`. Sem eles, o passo é pulado (fail-open) e o CI segue verde —
+      # comportamento CORRETO em dev (D1: só PROD exige credencial).
+      SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+      SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+      SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
+      SENTRY_URL: ${{ secrets.SENTRY_URL }}
+      # AdSense (PROD_DECISOES.md item 3): opcional nos três ambientes;
+      # vazio é seguro (ver frontend/Dockerfile).
+      NEXT_PUBLIC_ADSENSE_CLIENT_ID: ${{ secrets.NEXT_PUBLIC_ADSENSE_CLIENT_ID }}
+      NEXT_PUBLIC_ADSENSE_SLOT_HORIZONTAL: ${{ secrets.NEXT_PUBLIC_ADSENSE_SLOT_HORIZONTAL }}
+      NEXT_PUBLIC_ADSENSE_SLOT_RETANGULO: ${{ secrets.NEXT_PUBLIC_ADSENSE_SLOT_RETANGULO }}
+      NEXT_PUBLIC_ADSENSE_SLOT_VERTICAL: ${{ secrets.NEXT_PUBLIC_ADSENSE_SLOT_VERTICAL }}
+      NEXT_PUBLIC_ADSENSE_SLOT_INFEED: ${{ secrets.NEXT_PUBLIC_ADSENSE_SLOT_INFEED }}

@@ -1,7 +1,16 @@
 name: Deploy HOMOLOG
 
-# Thin caller — toda a lógica vive em deploy.yml (reutilizável). PR para
-# main implanta o código do PR em /home/apps/portal-homolog (3102/5102).
+# Thin caller — toda a lógica vive em deploy-pm2.yml (reutilizável, PM2+Nginx).
+# PR para main implanta o código do PR em /home/apps/portal-homolog (3102/5102).
+#
+# 2026-10-10: restaurado para PM2 depois de um incidente — o cutover Docker
+# do dev (PR #31/#32) reescreveu o `deploy.yml` reutilizável inteiro para
+# Docker/GHCR e os TRÊS callers continuaram apontando pra ele, então HOMOLOG
+# (que nunca passou pelo cutover de verdade — sem inventário, sem backup,
+# sem migração de dados) ficou um `pull_request` de distância de tentar um
+# `docker compose up` não preparado. `deploy-pm2.yml` é o `deploy.yml` de
+# antes do cutover (script_path: infra/deploy/deploy.sh, inalterado desde
+# então) — a Fase E do plano ainda não chegou em HOMOLOG.
 on:
   pull_request:
     branches: [main]
@@ -9,7 +18,7 @@ on:
 
 jobs:
   deploy-homolog:
-    uses: ./.github/workflows/deploy.yml
+    uses: ./.github/workflows/deploy-pm2.yml
     with:
       env_label: HOMOLOG
       environment_name: homolog
@@ -21,12 +30,12 @@ jobs:
       pm_suffix: homolog
       web_port: "3102"
       api_port: "5102"
-      host: homolog.portal-noticias.com.br
+      host: homolog.portal-noticias.com
       # TLS só é ativado depois da emissão do certificado neste ambiente.
       tls_enabled: false
       db_name: brd_portal_homolog
       db_user: portal_homolog
-      strict_validate: false
+      strict_validate: true
       # Gate de usuários de teste — idêntico ao de DEV, pelo mesmo motivo: em
       # homologação a conta precisa existir para o teste do PR, e não pode
       # nascer com senha conhecida (esta, ao contrário do localhost, não é
@@ -35,16 +44,7 @@ jobs:
     secrets:
       VPS_HOST: ${{ secrets.VPS_HOST }}
       VPS_USER: ${{ secrets.VPS_USER }}
-      VPS_PASSWORD: ${{ secrets.VPS_PASSWORD }}
       VPS_PORT: ${{ secrets.VPS_PORT }}
-      # Autenticacao do SSH por CHAVE. Sem este secret o `deploy.yml` RECUSA o
-      # run inteiro: `VPS_SSH_KEY` e `required: true` la, e nao ha fallback para a
-      # senha por proposito. Passe-o aqui, nos tres chamadores, e o pipeline
-      # funciona por chave.
-      #
-      # Medido em 2026-10-08: enquanto esta linha faltava, os quatro `Deploy DEV`
-      # seguintes terminaram em 0s com "This run likely failed because of a
-      # workflow file issue" — o workflow reutilizavel exige o secret e o
-      # chamador nao o fornecia. Um secret obrigatorio que ninguem passa falha
-      # cedo e sem mensagem util; por isso o comentario.
       VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+      # Resend (P1-04): opcional. Ausente mantém DJANGO_EMAIL_BACKEND=console.
+      RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}

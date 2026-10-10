@@ -1,0 +1,112 @@
+# Caddy ÚNICO e COMPARTILHADO pelos três ambientes na mesma VPS — o mesmo
+# papel que o Nginx único faz hoje (infra/nginx/portal-{dev,homolog,prod}.conf):
+# três ambientes não podem ter três processos próprios disputando as portas
+# 80/443 do mesmo host. Cada ambiente continua com seu próprio
+# `docker-compose.yml` completo (db/redis/web/celery-worker/celery-beat/
+# frontend), SEM Caddy — só publica `web`/`frontend` em loopback (127.0.0.1),
+# e é esse loopback que os blocos abaixo alcançam (ver
+# `infra/docker-edge/docker-compose.yml`, `network_mode: host`).
+#
+# Instalação na VPS (mesmo padrão dos marcadores do Nginx,
+# infra/nginx/http-cache.conf): substitua ANTES de subir —
+#   __DOMAIN_DEV__       -> dev.portal-noticias.com
+#   __DOMAIN_HOMOLOG__   -> homolog.portal-noticias.com
+#   __DOMAIN_PROD__      -> portal-noticias.com
+#   __DOMAIN_PROD_WWW__  -> www.portal-noticias.com
+#   __OBS_TOKEN_ESPERADO__ -> o MESMO valor de OBSERVABILITY_METRICS_TOKEN
+#     nos três backend/.env.production (um token para os três ambientes,
+#     mesma escolha que o Nginx já faz hoje — `map $host` só tem `default`).
+#
+# TLS automático (Caddy emite/renova Let's Encrypt sozinho para os 4
+# hostnames); HTTP→HTTPS e o desafio ACME também são automáticos.
+#
+# Rate limit de borda: DELIBERADAMENTE AUSENTE (mesma decisão do Caddyfile
+# por-ambiente — ver a raiz do repo). A proteção fica no throttling do DRF.
+#
+# Cada bloco abaixo é estruturalmente IDÊNTICO — só o hostname e as portas de
+# upstream mudam. Replica, por ambiente, a mesma lógica já validada em
+# Caddyfile (raiz): rotas de observabilidade, gate de /health-detail e
+# /metrics, mídia fail-closed, headers de segurança, log JSON.
+
+(rotas_comuns) {
+	header {
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		X-Frame-Options "DENY"
+		Permissions-Policy "geolocation=(), microphone=(), camera=()"
+	}
+
+	encode zstd gzip
+
+	log {
+		output file /var/log/caddy/{args[0]}-access.log
+		format json
+	}
+
+	handle /livez {
+		reverse_proxy 127.0.0.1:{args[1]}
+	}
+	handle /readyz {
+		reverse_proxy 127.0.0.1:{args[1]}
+	}
+	handle /healthz {
+		reverse_proxy 127.0.0.1:{args[1]}
+	}
+
+	@obs_negado_{args[0]} {
+		path /health-detail /metrics
+		not remote_ip 127.0.0.1 ::1
+		not header Authorization "Bearer {$OBSERVABILITY_METRICS_TOKEN}"
+	}
+	handle @obs_negado_{args[0]} {
+		respond 404
+	}
+	handle /health-detail {
+		reverse_proxy 127.0.0.1:{args[1]}
+	}
+	handle /metrics {
+		reverse_proxy 127.0.0.1:{args[1]}
+	}
+
+	handle_path /static/* {
+		root * /srv/static-{args[0]}
+		file_server
+	}
+
+	handle /media {
+		respond 404
+	}
+	handle /media/ {
+		respond 404
+	}
+	handle /media/credenciamento {
+		respond 404
+	}
+	handle /media/credenciamento/* {
+		respond 404
+	}
+	handle_path /media/public/* {
+		root * /srv/media-{args[0]}/public
+		file_server
+	}
+
+	handle /api/* {
+		reverse_proxy 127.0.0.1:{args[1]}
+	}
+
+	handle {
+		reverse_proxy 127.0.0.1:{args[2]}
+	}
+}
+
+__DOMAIN_DEV__ {
+	import rotas_comuns dev 5101 3101
+}
+
+__DOMAIN_HOMOLOG__ {
+	import rotas_comuns homolog 5102 3102
+}
+
+__DOMAIN_PROD__, __DOMAIN_PROD_WWW__ {
+	import rotas_comuns prod 5103 3103
+}

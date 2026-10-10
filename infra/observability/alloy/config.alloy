@@ -6,6 +6,16 @@
 // A exposição de métricas do backend em `develop` (1dec732) tem ONZE nomes de
 // métrica e nada mais. Este arquivo coleta exatamente o que existe:
 //
+// COLETA DE LOG DA APLICAÇÃO: PM2 (glob de arquivo) OU DOCKER
+// ------------------------------------------------------------
+// Migração Docker (cutover em andamento, ver infra/DEPLOY.md): os logs de
+// `web`/`celery-worker`/`celery-beat` passam a ser coletados também via
+// `discovery.docker` + `loki.source.docker`, lendo `/var/run/docker.sock`
+// direto — sem variável de ambiente nova. Os dois caminhos (glob PM2 e
+// descoberta Docker) coexistem nesta config; cada um só produz linha se o
+// que ele observa existir no ambiente, então nenhum dos dois quebra o outro
+// enquanto a VPS tiver as duas topologias lado a lado.
+//
 //   backend/config/health.py   portal_tempo_de_atividade_segundos
 //   backend/config/views.py    portal_healthz_total{situacao}
 //                              portal_livez_total{situacao}
@@ -68,12 +78,18 @@
 //   * `loki.source.journal` só coleta com o usuário efetivo nos grupos `adm`
 //     e `systemd-journal`;
 //   * o `loki.source.file` da borda só produz algo útil se o arquivo de log
-//     existir E for JSON — `infra/nginx/*.conf` de `develop` NÃO define
-//     `log_format` (verificado: zero ocorrências de `log_format` nos sete
-//     arquivos). Sem o `log_format portal_acesso` de um item futuro, a
-//     borda não tem dado. O coletor continua no ar e o painel de acesso fica
-//     vazio: é o mesmo falso verde do item anterior, e por isso o
-//     `verificar-env.sh` exige o arquivo e avisa quando ele não é JSON.
+//     existir E for JSON. O `log_format portal_acesso` existe, em
+//     `infra/nginx/http-cache.conf` (contexto `http`), com `escape=json` e
+//     com TODOS os valores quotados — inclusive os numéricos, porque
+//     `$upstream_addr`/`$upstream_status` ficam vazios quando não há upstream
+//     e um vazio sem aspas produziria JSON inválido. O `access_log` que o
+//     consome está nos três `infra/nginx/portal-*.conf`, em `server`
+//     (`log_format` não é válido em `server`), apontando para
+//     `/var/log/nginx/portal-<amb>.access.log` — um arquivo por ambiente,
+//     porque um arquivo único misturaria dev, homolog e prod no mesmo
+//     índice. O `verificar-env.sh` continua exigindo o arquivo e avisando
+//     quando a primeira linha não é JSON: é o que transforma "a instalação
+//     não instalou o include" em aviso, em vez de painel vazio.
 
 logging {
     level  = sys.env("ALLOY_LOG_LEVEL")
@@ -87,19 +103,30 @@ logging {
 // chama `autorizado_para_detalhe` e devolve 401 para anônimo, sem token e
 // sem sessão de staff (`backend/config/health.py:414-418`).
 //
-// CONTRASTE COM O QUE O WIP AFIRMAVA: os comentários do WIP diziam que "o
-// Nginx também barra a origem externa" e citavam um `location
-// ^/(health-detail|metrics)$` em `infra/nginx/portal-*.conf`. VERIFICADO em
-// `develop` (1dec732): esse location NÃO EXISTE — `grep -n 'metrics\|
-// health-detail' infra/nginx/portal-prod.conf` devolve apenas `location =
-// /healthz`. A única proteção de `/metrics` hoje é a da aplicação. Isso é
-// dito aqui em vez de ser omitido porque a afirmação erradaLEVaria o
-// instalante a acreditar que há duas camadas quando há uma.
+// DUAS CAMADAS, E AS DUAS SÃO REAIS (medido)
+// O WIP afirmava que o Nginx barrava a origem externa e citava um `location
+// ^/(health-detail|metrics)$`. Na `develop` (1dec732) esse location NÃO
+// EXISTIA, e o comentário antigo deste arquivo registrava isso — estava
+// certo NA ÉPOCA. Hoje há `location = /metrics` e `location =
+// /health-detail` com `allow 127.0.0.1; allow ::1; deny all;` e `proxy_pass`
+// para a API, nos três `infra/nginx/portal-{dev,homolog,prod}.conf`, no bloco
+// HTTP e no TLS. (`=` exato, e não `^~`: para path exato o `=` tem precedência
+// máxima e nem chega a avaliar os `location ~` do arquivo.)
 //
-// O token é enviado SEMPRE, mesmo com o coletor na mesma máquina: é o que
-// exercita o mesmo caminho de autenticação do resto da malha, e o valor é o
-// mesmo de `HEALTH_DETAIL_TOKEN` no ambiente da aplicação (é esse o nome em
-// `develop`; `OBSERVABILITY_METRICS_TOKEN` não existe em `develop`).
+// O QUE ISSO NÃO MUDA: o scrape deste bloco. `ALLOY_BACKEND_METRICS_ADDR` é o
+// host:porta do Gunicorn (ex.: `127.0.0.1:5103`), então este coletor NUNCA
+// passa pelo Nginx e a restrição de origem não o afeta em nada. O token é
+// enviado SEMPRE pelo mesmo motivo — exercita o mesmo caminho de
+// autenticação do resto da malha — e o valor é o mesmo de
+// `HEALTH_DETAIL_TOKEN` no ambiente da aplicação (é esse o nome em `develop`;
+// `OBSERVABILITY_METRICS_TOKEN` não existe em `develop`).
+//
+// O QUE ISSO COMPRA: o resto. Antes, `/metrics` e `/health-detail` caíam em
+// `location /` e respondiam 404 pelo frontend — barreira real, MAS POR
+// ACIDENTE, dependente de o Next.js não ganhar um catch-all, um rewrite ou um
+// `trailingSlash`. Com `deny all` a barreira é do Nginx. A aplicação
+// continua sendo a segunda camada e continua valendo: em loopback, sem token,
+// ela devolve 401 mesmo com o Nginx permitindo.
 prometheus.scrape "portal_api" {
     targets = [{
         __address__ = sys.env("ALLOY_BACKEND_METRICS_ADDR"),
@@ -240,6 +267,51 @@ loki.source.file "app" {
         sync_period       = "30s"
     }
     forward_to = [loki.process.app.receiver]
+}
+
+// Migração Docker (cutover do PM2): `web`/`celery-worker`/`celery-beat` não
+// escrevem mais `~/.pm2/logs/*` — o Gunicorn/Celery escrevem em stdout
+// (PYTHONUNBUFFERED=1, backend/Dockerfile) e o Docker captura via driver
+// `json-file` (docker-compose.yml, `x-logging`). Em vez de tailar o arquivo
+// interno do driver (caminho instável, muda a cada recriação de container),
+// descobre os containers direto no socket do Docker — sobrevive a qualquer
+// `docker compose up` recriando IDs. Coexiste com `loki.source.file "app"`
+// acima (migração, não cutover instantâneo): o que não existir no ambiente
+// simplesmente não produz linha nenhuma, mesma filosofia de "vazio nunca vira
+// coleta demais" do restante deste arquivo. Alloy precisa rodar com acesso a
+// `/var/run/docker.sock` (grupo `docker`, ou socket montado se o próprio
+// Alloy também for containerizado — não é o padrão aqui, que é no host).
+discovery.docker "app_docker" {
+    host             = "unix:///var/run/docker.sock"
+    refresh_interval = "15s"
+}
+
+// Só os 3 serviços do backend (mesma imagem/logs); `frontend`, `db`, `redis` e
+// o próprio `caddy` ficam fora — Next.js não emite o JSON do
+// `RedactingJsonFormatter`, e db/redis/caddy têm pipelines próprios (caddy via
+// `loki.source.file "edge"`, acima). O nome do container no Compose é
+// `<projeto>-<serviço>-<N>`; a allowlist ancora no SERVIÇO, não no prefixo do
+// projeto (que varia por diretório de checkout).
+discovery.relabel "app_docker" {
+    targets = discovery.docker.app_docker.targets
+    rule {
+        source_labels = ["__meta_docker_container_name"]
+        regex         = "^/?[A-Za-z0-9_.-]+-(web|celery-worker|celery-beat)-[0-9]+$"
+        action        = "keep"
+    }
+    rule {
+        source_labels = ["__meta_docker_container_name"]
+        regex         = "^/?[A-Za-z0-9_.-]+-(web|celery-worker|celery-beat)-[0-9]+$"
+        target_label  = "componente"
+        replacement   = "portal-api"
+    }
+}
+
+loki.source.docker "app_docker" {
+    host          = "unix:///var/run/docker.sock"
+    targets       = discovery.relabel.app_docker.output
+    relabel_rules = discovery.relabel.app_docker.rules
+    forward_to    = [loki.process.app.receiver]
 }
 
 loki.process "app" {

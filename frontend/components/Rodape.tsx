@@ -17,7 +17,7 @@ export function Rodape() {
             <h2 className="text-sm font-semibold text-[var(--cor-texto)]">Institucional</h2>
             <ul className="space-y-1 text-sm text-[var(--cor-texto-suave)]">
               <li><Link href="/empresa" className="hover:text-[var(--cor-texto)] hover:underline">Empresa</Link></li>
-              <li><Link href="/paginas/sobre" className="hover:text-[var(--cor-texto)] hover:underline">Sobre</Link></li>
+              <li><Link href="/sobre" className="hover:text-[var(--cor-texto)] hover:underline">Sobre</Link></li>
               <li><Link href="/planos" className="hover:text-[var(--cor-texto)] hover:underline">Planos</Link></li>
             </ul>
           </nav>
@@ -34,8 +34,8 @@ export function Rodape() {
             <h2 className="text-sm font-semibold text-[var(--cor-texto)]">Legal</h2>
             <ul className="space-y-1 text-sm text-[var(--cor-texto-suave)]">
               <li><Link href="/privacidade" className="hover:text-[var(--cor-texto)] hover:underline">Privacidade</Link></li>
-              <li><Link href="/privacidade/cookies" className="hover:text-[var(--cor-texto)] hover:underline">Cookies</Link></li>
-              <li><Link href="/privacidade/termos" className="hover:text-[var(--cor-texto)] hover:underline">Termos</Link></li>
+              <li><Link href="/cookies" className="hover:text-[var(--cor-texto)] hover:underline">Cookies</Link></li>
+              <li><Link href="/termos" className="hover:text-[var(--cor-texto)] hover:underline">Termos</Link></li>
             </ul>
           </nav>
         </div>

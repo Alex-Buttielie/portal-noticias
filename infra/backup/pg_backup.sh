@@ -148,6 +148,7 @@ cleanup() {
     fi
     [[ -z "$DUMP_TMP" ]] || rm -f -- "$DUMP_TMP" || true
     [[ -z "$MEDIA_TMP" ]] || rm -f -- "$MEDIA_TMP" || true
+    [[ -z "$MARCADOR_TMP" ]] || rm -f -- "$MARCADOR_TMP" || true
     if (( status != 0 )); then
         printf '[pg_backup] FALHA (exit %d): %s\n' "$status" "$MOTIVO_FALHA" >&2
         notificar_falha "$WEBHOOK_URL" "$status" "$MOTIVO_FALHA"
@@ -277,6 +278,14 @@ if ! mkdir -p -- "$BACKUP_DIR" 2>/dev/null; then
     falhar 1 "não foi possível criar $BACKUP_DIR. Ele fica fora da árvore do projeto de propósito. Crie uma vez com: sudo install -d -o \"\$(id -un)\" -g \"\$(id -gn)\" -m 0750 '$BACKUP_DIR'  (ou aponte BACKUP_DIR para um caminho gravável)"
 fi
 [[ -w "$BACKUP_DIR" ]] || falhar 1 "$BACKUP_DIR existe mas não é gravável pelo usuário efetivo (uid $(id -u)); o cron não roda como root por padrão"
+# Marcador de sucesso que `verificar_backup.sh` já sabe ler (MARCADOR,
+# linha 90) como fonte preferencial quando existir — hoje nenhum produtor o
+# escreve (ver o cabeçalho daquele script, linhas 7-30). Escrito só depois do
+# dump + mídia + upload S3 (quando configurado) estarem confirmados; o
+# heartbeat da seção 9 é um canal de notificação separado e não bloqueia esta
+# escrita.
+MARCADOR="$BACKUP_DIR/.ultimo-backup-ok"
+MARCADOR_TMP=""
 
 # --- 5. Storage remoto (R2 / B2 / S3) --------------------------------------
 # Fail-closed quando parcial: credencial sem bucket não pode ser confundida com
@@ -521,6 +530,21 @@ else
     log "AVISO: BACKUP_S3_BUCKET não configurado — o backup ficará SOMENTE nesta VPS, que não sobrevive à perda do host, e a retenção local fica suspensa (nenhum arquivo é apagado)"
     log "AVISO: configure BACKUP_S3_ENDPOINT/BACKUP_S3_BUCKET/BACKUP_S3_ACCESS_KEY/BACKUP_S3_SECRET_KEY (Cloudflare R2 ou Backblaze B2) — ver infra/backup/RESTORE.md e infra/DEPLOY.md"
 fi
+
+# --- 8b. Marcador de sucesso ------------------------------------------------
+# Escrito por `mv` (mesmo padrão do dump/mídia) só depois de dump, mídia e
+# upload S3 (quando configurado) estarem confirmados acima — nenhum `falhar`
+# anterior deixa chegar aqui. `verificar_backup.sh` usa o mtime deste arquivo
+# como fonte preferencial quando existir (hoje ele não exige, só confere; ver
+# o cabeçalho daquele script). Não contém segredo nenhum, só os mesmos campos
+# do resumo final da linha 545.
+MARCADOR_TMP="$MARCADOR.$$"
+printf 'dump=%s\nmedia=%s\nremoto=%s\nem=%s\n' \
+    "$(basename "$DUMP_FILE")" "$(basename "$MEDIA_FILE")" "$REMOTO_CONFIRMADO" \
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$MARCADOR_TMP"
+mv -f -- "$MARCADOR_TMP" "$MARCADOR"
+MARCADOR_TMP=""
+log "marcador de sucesso escrito: $MARCADOR"
 
 # --- 9. Heartbeat ----------------------------------------------------------
 # O canal que sobrevive à VPS morta. `cron_monitor_backup` em

@@ -13,7 +13,50 @@ zero neste momento.
 | 2 | DNS: apontar **só** `portal-noticias.com` e `www` para `108.174.147.50`. DEV e HOMOLOG por **IP + Host header** |
 | 3 | **Fechar `8080` e `8443`** (Caddy do `plataforma-educacao`) |
 | 4 | **Rotacionar a senha do root** e desligar `passwordauthentication`/`permitrootlogin` **depois** que um deploy por chave passar no CI |
-| 5 | Alcance: o que bloqueia PROD · publicar `develop`→`main` · levantar DEV para navegação · **os 6 itens de P2/observabilidade**. **Revisão jurídica da LGPD fora** (registrada como pendência) |
+| 5 | Alcance: o que bloqueia PROD · publicar `develop`→`main` · levantar DEV para navegação · **os 7 itens de P2/observabilidade (P2-01..P2-07 do backlog recuperado)**. **Revisão jurídica da LGPD fora** (registrada como pendência) |
+| 6 | **Não possui conta no Grafana Cloud nem no Better Stack** (perguntado e respondido em 2026-10-08). Consequência registrada: **P2-01 não é observabilidade** — é configuração em arquivo que não roda em nenhum ambiente. Ver "BLOQUEIO — telemetria sem conta" abaixo |
+
+---
+
+## BLOQUEIO — telemetria sem conta (2026-10-08)
+
+Perguntado ao solicitante se havia conta no **Grafana Cloud** e no **Better
+Stack**. Resposta: **não, por enquanto**.
+
+Isso não é "falta instalar". É dependência externa com MFA. O que está no
+repositório, e o que de fato **não** está rodando em lugar nenhum:
+
+| No repositório | Estado real |
+|---|---|
+| 4 painéis Grafana em JSON | **arquivo**; nenhum Grafana apontando para eles |
+| 14 regras de alerta Prometheus | **arquivo**; sem Prometheus, `absent()` e `for:` não são avaliados |
+| coletor Alloy | **configuração**; nenhuma instância instalada |
+| `verify-env.sh` do observability | roda, e **avisa** que falta — é a única parte que fiscaliza a verdade |
+
+**O que isso significa na prática, sem eufemismo:**
+
+- **Não existe detecção de incidente.** Nenhum alerta dispara em DEV, HOMOLOG ou
+  PROD. Se PROD cair, o descobrimento é o visitante, não o sistema.
+- **Não há painel nenhum.** Os 4 JSON não têm onde aparecer.
+- **14 regras de alerta não avaliam nada.** Um arquivo de regras que ninguém
+  executa é documentação, não proteção — e é o que a seção 8 do
+  `infra/observability/README.md` já registra como a rejeição do WIP.
+- **O `/metrics` da aplicação não tem consumidor.** A aplicação expõe
+  métricas em formato Prometheus, e não há quem as colha.
+
+**O que NÃO fazer com essa informação:** escrever "observabilidade pronta" ou
+"resolvido". Qualquer relatório deste programa que diga isso está errado, e o
+motivo está nesta seção.
+
+**Alternativa que existe e não foi escolhida — custo explícito.** Dá para rodar
+Grafana + Prometheus + Loki **na própria VPS**, sem conta externa. Medido hoje:
+a máquina tem **3915 MB de RAM, com 1936 MB em uso** — sobram ~2 GB. Prometheus e
+Loki sozinho cabem; o Grafana também, mas é apertado. O custo é Maintenance e
+superfície de falha numa máquina que está **estável e é o único ambiente de
+produção**. Decisão do solicitante, não minha, e **não recomendada enquanto DNS,
+TLS e a reconciliação de PROD estiverem abertos** — porque o objetivo declarado
+agora é estabilidade, e adicionar três serviços a um servidor de 4 GB é o
+contrário disso.
 
 ---
 
@@ -150,7 +193,7 @@ depois.
 
 ---
 
-## FASE 7 — P2 / observabilidade (6 itens)
+## FASE 7 — P2 / observabilidade (7 itens)
 
 **`observability-20260925-1020` NÃO É MERGEÁVEL.** Ele tentaria apagar
 `scripts/release/verificar-proveniencia.sh` (851 linhas, sha256 congelado em

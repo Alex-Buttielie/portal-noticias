@@ -1,10 +1,12 @@
 name: Rollback manual do portal
 
-# Recuperação explícita para a topologia PM2 de VPS única. Este workflow
-# não promete zero downtime: ele reutiliza o mesmo verify → build/install →
-# PM2 restart/sanity → smoke do deploy reutilizável, mas só após um dispatch
-# humano e com um SHA completo. A promoção do marker `.deployed-sha` continua
-# condicionada ao smoke verde.
+# Recuperação explícita. 2026-10-10: DEV é Docker (cutover PR #31/#32);
+# HOMOLOG/PROD continuam PM2+Nginx — a Fase E do plano ainda não chegou lá.
+# Por isso este workflow bifurca depois do `prepare`: `rollback-docker` só
+# roda para `development` (reusa a imagem já publicada no GHCR, sem
+# rebuild); `rollback-pm2` roda para `homolog`/`production` (fetch do SHA +
+# reset + rebuild pelo caminho `infra/deploy/deploy.sh`, igual ao deploy
+# normal). Nunca os dois no mesmo dispatch — `if:` em cada job garante isso.
 on:
   workflow_dispatch:
     inputs:
@@ -17,14 +19,9 @@ on:
           - homolog
           - production
       target_sha:
-        description: "SHA completo do commit conhecido como bom (normalmente o valor de .deployed-sha antes da falha)"
+        description: "SHA completo do commit conhecido como bom (normalmente o valor de .deployed-sha antes da falha). Para 'development', a imagem desse SHA precisa já estar publicada no GHCR."
         required: true
         type: string
-      tls_enabled:
-        description: "Deve corresponder ao edge atual; não habilita certificado por si só"
-        required: false
-        default: false
-        type: boolean
       confirm:
         description: "Confirmo que este rollback foi autorizado e que o SHA é o último bom"
         required: false
@@ -49,6 +46,7 @@ jobs:
       db_name: ${{ steps.config.outputs.db_name }}
       db_user: ${{ steps.config.outputs.db_user }}
       allowed_hosts_extra: ${{ steps.config.outputs.allowed_hosts_extra }}
+      image_tag: ${{ steps.config.outputs.image_tag }}
     steps:
       - name: Validar alvo e mapear ambiente
         id: config
@@ -75,7 +73,7 @@ jobs:
               PM_SUFFIX=dev
               WEB_PORT=3101
               API_PORT=5101
-              HOST=dev.portal-noticias.com.br
+              HOST=dev.portal-noticias.com
               DB_NAME=brd_portal_dev
               DB_USER=portal_dev
               ALLOWED_HOSTS_EXTRA=""
@@ -87,7 +85,7 @@ jobs:
               PM_SUFFIX=homolog
               WEB_PORT=3102
               API_PORT=5102
-              HOST=homolog.portal-noticias.com.br
+              HOST=homolog.portal-noticias.com
               DB_NAME=brd_portal_homolog
               DB_USER=portal_homolog
               ALLOWED_HOSTS_EXTRA=""
@@ -99,10 +97,10 @@ jobs:
               PM_SUFFIX=prod
               WEB_PORT=3103
               API_PORT=5103
-              HOST=portal-noticias.com.br
+              HOST=portal-noticias.com
               DB_NAME=brd_portal_prod
               DB_USER=portal_prod
-              ALLOWED_HOSTS_EXTRA=",www.portal-noticias.com.br"
+              ALLOWED_HOSTS_EXTRA=",www.portal-noticias.com"
               ;;
             *)
               echo "ERRO: ambiente de rollback inválido: $ENVIRONMENT" >&2
@@ -121,18 +119,54 @@ jobs:
             printf 'db_name=%s\n' "$DB_NAME"
             printf 'db_user=%s\n' "$DB_USER"
             printf 'allowed_hosts_extra=%s\n' "$ALLOWED_HOSTS_EXTRA"
+            printf 'image_tag=%s-%s\n' "$ENVIRONMENT_NAME" "$TARGET_SHA"
           } >> "$GITHUB_OUTPUT"
 
-  rollback:
+  # Só DEV — reusa a imagem já publicada no GHCR, sem rebuild.
+  rollback-docker:
     needs: prepare
-    if: ${{ needs.prepare.result == 'success' }}
+    if: ${{ needs.prepare.result == 'success' && needs.prepare.outputs.environment_name == 'development' }}
     uses: ./.github/workflows/deploy.yml
     with:
       env_label: ${{ needs.prepare.outputs.env_label }}
       environment_name: ${{ needs.prepare.outputs.environment_name }}
       app_dir: ${{ needs.prepare.outputs.app_dir }}
-      # rollback faz fetch do SHA, reset, rebuild e restart pelo mesmo caminho
-      # gated do deploy; não existe um segundo script de provisionamento.
+      git_mode: rollback
+      git_ref: ${{ needs.prepare.outputs.git_ref }}
+      verify_ref: ${{ needs.prepare.outputs.git_ref }}
+      web_port: ${{ needs.prepare.outputs.web_port }}
+      api_port: ${{ needs.prepare.outputs.api_port }}
+      host: ${{ needs.prepare.outputs.host }}
+      allowed_hosts_extra: ${{ needs.prepare.outputs.allowed_hosts_extra }}
+      db_name: ${{ needs.prepare.outputs.db_name }}
+      db_user: ${{ needs.prepare.outputs.db_user }}
+      strict_validate: true
+      skip_build: true
+      image_tag_override: ${{ needs.prepare.outputs.image_tag }}
+    secrets:
+      VPS_HOST: ${{ secrets.VPS_HOST }}
+      VPS_USER: ${{ secrets.VPS_USER }}
+      VPS_PORT: ${{ secrets.VPS_PORT }}
+      VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+      VPS_HOST_FINGERPRINT: ${{ secrets.VPS_HOST_FINGERPRINT }}
+      GHCR_PULL_TOKEN: ${{ secrets.GHCR_PULL_TOKEN }}
+      GHCR_PULL_USER: ${{ secrets.GHCR_PULL_USER }}
+      RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+      SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+      SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+      SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
+      SENTRY_URL: ${{ secrets.SENTRY_URL }}
+
+  # HOMOLOG/PROD — ainda PM2: fetch do SHA + reset + rebuild, mesmo caminho
+  # gated do deploy normal (infra/deploy/deploy.sh).
+  rollback-pm2:
+    needs: prepare
+    if: ${{ needs.prepare.result == 'success' && needs.prepare.outputs.environment_name != 'development' }}
+    uses: ./.github/workflows/deploy-pm2.yml
+    with:
+      env_label: ${{ needs.prepare.outputs.env_label }}
+      environment_name: ${{ needs.prepare.outputs.environment_name }}
+      app_dir: ${{ needs.prepare.outputs.app_dir }}
       git_mode: rollback
       git_ref: ${{ needs.prepare.outputs.git_ref }}
       verify_ref: ${{ needs.prepare.outputs.git_ref }}
@@ -140,22 +174,13 @@ jobs:
       web_port: ${{ needs.prepare.outputs.web_port }}
       api_port: ${{ needs.prepare.outputs.api_port }}
       host: ${{ needs.prepare.outputs.host }}
-      tls_enabled: ${{ inputs.tls_enabled }}
       allowed_hosts_extra: ${{ needs.prepare.outputs.allowed_hosts_extra }}
       db_name: ${{ needs.prepare.outputs.db_name }}
       db_user: ${{ needs.prepare.outputs.db_user }}
-      # Um rollback deve falhar se a recuperação não ficar saudável, mesmo em
-      # DEV/HOMOLOG; o operador pode repetir o dispatch depois de corrigir a VPS.
       strict_validate: true
     secrets:
       VPS_HOST: ${{ secrets.VPS_HOST }}
       VPS_USER: ${{ secrets.VPS_USER }}
-      VPS_PASSWORD: ${{ secrets.VPS_PASSWORD }}
       VPS_PORT: ${{ secrets.VPS_PORT }}
-      # Autenticacao do SSH por CHAVE, igual aos outros tres chamadores.
-      # `VPS_SSH_KEY` e `required: true` no deploy.yml: um chamador que nao o
-      # passa e INVALIDADO pelo GitHub, e o rollback — que existe justamente para
-      # ser acionado quando algo deu errado — ficaria indisponivel. Foi o que
-      # aconteceu com deploy-dev/homolog/prod em 2026-10-02: quatro runs
-      # seguidos terminaram em 0s, sem job nenhum.
       VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+      RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}

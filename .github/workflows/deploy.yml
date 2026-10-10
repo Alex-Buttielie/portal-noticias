@@ -1,40 +1,38 @@
 name: Deploy portal (reutilizável)
 
 # Workflow ÚNICO que implanta UM ambiente (DEV/HOMOLOG/PROD) na VPS via
-# PM2 + Nginx. Os callers (deploy-dev/homolog/prod.yml) só definem trigger +
-# parâmetros; o caller manual de rollback reutiliza este mesmo caminho — qualquer
-# correção aqui vale para os ambientes de uma vez (anti-drift por construção;
-# ver PROD_DECISOES.md "homogeneidade").
+# Docker Compose + GHCR. Os callers (deploy-dev/homolog/prod.yml) só definem
+# trigger + parâmetros; o caller manual de rollback reutiliza este mesmo
+# caminho — qualquer correção aqui vale para os três ambientes de uma vez.
 #
-# Invariantes preservadas dos workflows antigos (não mudar sem motivo):
+# CUTOVER (substitui a topologia PM2 + Nginx, agora histórica — ver
+# CI-CD.md/infra/DEPLOY.md). O que mudou, em uma tela:
+# - as imagens são buildadas e publicadas no GHCR AQUI, no runner do GitHub
+#   (job build-and-push), nunca mais na VPS — zero pip/npm/venv por SSH;
+# - a VPS só faz `docker compose pull && up -d`; o rollback é repontar a
+#   mesma imagem de uma tag antiga, nunca rebuild (ver rollback.yml);
+# - `.env.production` ainda é criado UMA vez por ambiente (nunca
+#   sobrescrito), mas é mais simples: TLS é sempre automático (Caddy
+#   compartilhado, infra/docker-edge/), sem o antigo flag `tls_enabled`;
+# - migrate/collectstatic/check acontecem DENTRO do container `web` a cada
+#   start (backend/docker-entrypoint.sh) — nenhum passo manual por SSH;
+# - não há mais PM2, release symlink nem systemd do Celery: os 6 serviços
+#   (db/redis/web/celery-worker/celery-beat/frontend) são o
+#   docker-compose.yml da raiz, com restart policy e healthcheck próprios;
+# - `web`/`frontend` publicam só em 127.0.0.1 (loopback) — quem alcança de
+#   fora é o Caddy único e compartilhado dos três ambientes
+#   (infra/docker-edge/), não parte deste workflow;
+# - `.deployed-sha` continua sendo a fronteira de recuperação, promovida só
+#   depois do probe pós-deploy (mesmo contrato de antes).
+#
+# Invariantes preservadas da topologia anterior (não mudar sem motivo):
 # - o job verify chama o MESMO ci.yml usado no push/PR; deploy só começa
-#   depois que backend-tests e frontend-build terminam com sucesso;
-# - o runner de CI é o gate; o build de produção continua na VPS, sem
-#   repetir npm/pip/check sem cache;
-# - .env criado UMA vez (nunca sobrescrito) com SECRET aleatória;
-# - migrate + collectstatic a cada deploy; PM2 restart/start + save (sem
-#   janela explícita de delete);
-# - cada restart tem 3 tentativas e confirma `online` no PM2 antes de seguir;
-# - o SHA anterior fica em `.deployed-sha` até o smoke pós-restart promover
-#   o novo SHA; um workflow manual reutiliza este mesmo caminho para rollback;
-# - frontend rebuild com NEXT_PUBLIC_* do ambiente, cache npm persistente
-#   no home da VPS e heap Node limitado (decisão conservadora P1-5);
-# - validate: DEV/HOMOLOG avisam (warn), PROD falha (exit 1).
-#
-# O SHELL NÃO ESTÁ MAIS AQUI (2026-10-08)
-# Os dois `script:` (450 + 112 linhas de shell) foram para
-# `infra/deploy/deploy.sh` e `infra/deploy/validate.sh`, referenciados por
-# `script_path`. Motivo: com o shell inline este arquivo chegou a 762 linhas /
-# 40.966 bytes e o GitHub passou a RECUSÁ-lo antes de qualquer job ("Deploy DEV"
-# com 0 jobs, `conclusion=failure`, 0 s — falha de validação do workflow). As
-# sondas não acharam o limite exato (cortar 16 linhas resolvia, cortar 8 não, e
-# as duas metades de um bloco falhavam isoladas), e a solução escolhida não
-# depende do número. O ganho maior que o tamanho: cada input agora chega ao
-# script por VARIÁVEL DE AMBIENTE (blocos `env:` + lista `envs:` dos jobs
-# abaixo, mapa input->variável no cabeçalho de cada `.sh`), então o mesmo shell
-# roda e é testado fora do GitHub — o que `${{ inputs.* }}` impedia.
-# Consequência operacional: os jobs passaram a precisar de `actions/checkout`
-# (é de onde a action lê o script) — ver o comentário do step.
+#   depois que backend-tests, frontend-build e infra-validate terminam com
+#   sucesso;
+# - validate: DEV/HOMOLOG avisam (warn), PROD falha (exit 1);
+# - `git_mode: rollback` continua sendo o caminho de recuperação, com o
+#   mesmo verify e o mesmo script (rollback.yml) — não existe um segundo
+#   script de provisionamento.
 
 on:
   workflow_call:
@@ -69,30 +67,20 @@ on:
         required: false
         type: string
         default: ""
-      pm_suffix:
-        description: "Sufixo dos processos pm2 (dev, homolog, prod)"
-        required: true
-        type: string
       web_port:
+        description: "Porta de loopback do frontend (WEB_PORT em .env.production) — mesmo valor da topologia anterior"
         required: true
         type: string
       api_port:
+        description: "Porta de loopback da API (API_PORT em .env.production) — mesmo valor da topologia anterior"
         required: true
         type: string
       host:
         description: "Domínio canônico do ambiente"
         required: true
         type: string
-      tls_enabled:
-        description: "true somente depois de certbot, nginx -t e reload bem-sucedidos"
-        required: false
-        type: boolean
-        default: false
-        # Com true, o .env novo recebe:
-        # DJANGO_SECURE_SSL_REDIRECT=true, DJANGO_SESSION_COOKIE_SECURE=true
-        # e DJANGO_CSRF_COOKIE_SECURE=true.
       allowed_hosts_extra:
-        description: "Sufixo extra de hosts, ex.: ',www.portal-noticias.com.br' (só PROD)"
+        description: "Sufixo extra de hosts/domínio, ex.: ',www.portal-noticias.com' (só PROD) — usado em DJANGO_ALLOWED_HOSTS e, com o mesmo valor, no DOMAIN_EXTRA do Caddy compartilhado"
         required: false
         type: string
         default: ""
@@ -107,186 +95,455 @@ on:
         required: false
         type: boolean
         default: false
-      usuarios_teste:
-        description: "true = cria uma conta de teste por perfil, sem senha utilizavel"
+      # D1: repassado ao `ci.yml` no job `verify`. `true` = o build de
+      # VERIFICAÇÃO deste ambiente reprova quando a credencial do Sentry (ou os
+      # `.map`) faltam. Só PROD liga.
+      sentry_exigido:
+        description: "true = o verify reprova sem credencial do Sentry (só PROD); false = fail-open"
         required: false
         type: boolean
         default: false
+      # Rollback (rollback.yml): pula o rebuild e reusa uma imagem já
+      # publicada — o ganho do cutover Docker é exatamente este: nenhum
+      # risco de a imagem do rollback ser diferente da que rodou de
+      # verdade, porque não há rebuild nenhum. `verify` continua rodando
+      # mesmo em rollback (nunca confiar num estado histórico sem
+      # reconferir); só `build-and-push` é pulado.
+      skip_build:
+        description: "true = pula build-and-push e usa image_tag_override (rollback.yml)"
+        required: false
+        type: boolean
+        default: false
+      image_tag_override:
+        description: "Tag já publicada no GHCR a reusar quando skip_build=true, ex.: production-<sha40>"
+        required: false
+        type: string
+        default: ""
     secrets:
       VPS_HOST:
         required: true
       VPS_USER:
         required: true
-      VPS_PASSWORD:
-        required: true
       VPS_PORT:
         required: true
-      # Chave privada de deploy (formato PEM, tipo OpenSSH). O par publico
-      # correspondente tem de estar em /root/.ssh/authorized_keys da VPS
-      # ANTES de este secret existir, ou o deploy falha na conexao.
-      #
-      # OBRIGATORIA e SEM fallback para a senha: se faltar, o deploy QUEBRA.
-      # E de proposito. Um fallback silencioso seria a porta que estamos
-      # fechando voltando sem ninguem perceber — e o ataque de forca bruta
-      # contra o root esta acontecendo hoje (47 tentativas em 24 h de um
-      # unico IP, 1813 falhas acumuladas).
-      #
-      # `VPS_PASSWORD` continua declarado porque outros usos podem depender
-      # dele, mas NAO e mais o mecanismo de autenticacao do SSH.
       VPS_SSH_KEY:
+        required: false
+      VPS_HOST_FINGERPRINT:
+        required: false
+      # GHCR: a VPS não tem o GITHUB_TOKEN do runner (ele só vive dentro do
+      # job do Actions) — precisa de um Personal Access Token próprio, com
+      # escopo `read:packages`, para `docker login ghcr.io` e dar `pull`.
+      # Nunca o mesmo token usado para PUSH (esse fica só no build-and-push,
+      # como GITHUB_TOKEN automático do runner).
+      GHCR_PULL_TOKEN:
         required: true
-      # Chave da API do Resend (https://resend.com/api-keys), usada para
-      # gravar RESEND_API_KEY no backend/.env do PRIMEIRO deploy e habilitar
-      # o canal de e-mail real (P1-04). NÃO é required de propósito: os
+      GHCR_PULL_USER:
+        required: true
+      SENTRY_AUTH_TOKEN:
+        required: false
+      SENTRY_ORG:
+        required: false
+      SENTRY_PROJECT:
+        required: false
+      SENTRY_URL:
+        required: false
+      # AdSense (PROD_DECISOES.md item 3): build-arg do frontend, não segredo
+      # (publisher ID e slots são públicos por natureza — vão embutidos no
+      # bundle JS de qualquer forma), mas como `secrets` em vez de `vars`
+      # porque o caller de cada ambiente decide se já tem valor ou não.
+      NEXT_PUBLIC_ADSENSE_CLIENT_ID:
+        required: false
+      NEXT_PUBLIC_ADSENSE_SLOT_HORIZONTAL:
+        required: false
+      NEXT_PUBLIC_ADSENSE_SLOT_RETANGULO:
+        required: false
+      NEXT_PUBLIC_ADSENSE_SLOT_VERTICAL:
+        required: false
+      NEXT_PUBLIC_ADSENSE_SLOT_INFEED:
+        required: false
+      # Chave da API do Resend (resend.com/api-keys), usada para gravar
+      # RESEND_API_KEY no .env.production do PRIMEIRO deploy e habilitar o
+      # canal de e-mail real (P1-04). NÃO é required de propósito: os
       # callers hoje não mapeiam este secret, e exigir aqui reprovaria 100%
-      # dos deploys. Ausente/vazia mantém DJANGO_EMAIL_BACKEND=console, que é
-      # exatamente o comportamento de antes desta mudança — só o envio real
-      # continua recusado pelo gate, sem novo erro. Nunca comitar o valor:
-      # vem de secret, entra no .env da VPS e não volta para o repositório.
+      # dos deploys. Ausente/vazia mantém DJANGO_EMAIL_BACKEND=console —
+      # mesmo comportamento de antes, só o envio real continua recusado pelo
+      # gate, sem novo erro. Nunca comitar o valor.
       RESEND_API_KEY:
         required: false
 
-# Impede que dois deploys do mesmo ambiente alterem o PM2 ao mesmo tempo. Um
-# run já em andamento nunca é cancelado; uma atualização mais nova espera sua
-# vez.
+# Impede que dois deploys do mesmo ambiente rodem ao mesmo tempo. Um run já
+# em andamento nunca é cancelado; uma atualização mais nova espera sua vez.
 concurrency:
   group: portal-deploy-${{ inputs.environment_name }}
   cancel-in-progress: false
 
 jobs:
   # Reutiliza a definição única de CI. Se qualquer um dos jobs internos
-  # (pytest/check ou tsc/build) falhar, este called workflow não fica verde
-  # e o job de provisionamento abaixo fica skipped automaticamente.
+  # falhar, os jobs abaixo ficam skipped automaticamente.
   verify:
     name: Verify ${{ inputs.env_label }} (${{ inputs.git_mode }})
     uses: ./.github/workflows/ci.yml
     with:
       checkout_ref: ${{ inputs.verify_ref }}
+      # `ci.yml` ainda não tem gate de Sentry (só checkout_ref existe na sua
+      # interface) — `sentry_exigido` e os secrets SENTRY_* ficam declarados
+      # neste workflow só para o build-arg do job `build-and-push` abaixo,
+      # não para o `verify`.
     permissions:
       contents: read
 
-  deploy:
+  # Builda e publica as duas imagens (backend serve web/celery-worker/
+  # celery-beat; frontend serve o Next standalone) no GHCR, tagged
+  # `<environment_name>-<sha completo>`. Roda no runner — nunca na VPS.
+  build-and-push:
+    name: Build & push ${{ inputs.env_label }}
     needs: verify
+    if: ${{ !inputs.skip_build }}
     runs-on: ubuntu-latest
-    environment: ${{ inputs.environment_name }}
-    # Minimo do `actions/checkout`, que o step de SSH exige para ler o script do
-    # disco (ver o comentario do proprio step).
     permissions:
       contents: read
+      packages: write
+    outputs:
+      image_tag: ${{ steps.tag.outputs.value }}
     steps:
-      # POR QUE ESTE CHECKOUT EXISTE (e nao existia antes)
-      # `script_path` faz a action ler o arquivo no FILESYSTEM do runner: o
-      # drone-ssh faz `os.Stat` e `os.ReadFile` nele e aborta se o caminho nao
-      # existir. Este job nao tinha checkout nenhum (a logica vivia inteira no
-      # `script:` inline), entao sem este passo o deploy nem chega na VPS.
-      #
-      # `github.sha`, e nao `inputs.verify_ref`: o script e INFRA deste run, e
-      # o codigo que sera implantado e buscado pela propria action na VPS
-      # (`git clone` / `git reset --hard "$VERIFY_REF"`). O tem de ser o ref que
-      # DEFINIU o workflow — assim um rollback para um SHA anterior a esta
-      # mudanca continua achando o script, porque o `deploy.yml` do rollback vem
-      # do ref do workflow e nao do SHA alvo.
-      - name: Checkout do script
+      - name: Checkout no commit verificado
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ inputs.verify_ref }}
+
+      - name: Define a tag da imagem
+        id: tag
+        # GHCR exige repositório em minúsculas; `github.repository_owner` não
+        # é garantidamente minúsculo (ex.: Alex-Buttielie) — sem isto, o
+        # buildx recusa a tag com "repository name must be lowercase".
+        run: |
+          echo "value=${{ inputs.environment_name }}-${{ inputs.verify_ref }}" >> "$GITHUB_OUTPUT"
+          echo "owner=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Login no GHCR (push — token automático do runner)
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build & push — backend
+        uses: docker/build-push-action@v6
+        with:
+          context: ./backend
+          push: true
+          tags: ghcr.io/${{ steps.tag.outputs.owner }}/portal-noticias-backend:${{ steps.tag.outputs.value }}
+          cache-from: type=gha,scope=backend-${{ inputs.environment_name }}
+          cache-to: type=gha,mode=max,scope=backend-${{ inputs.environment_name }}
+
+      - name: Build & push — frontend
+        uses: docker/build-push-action@v6
+        with:
+          context: ./frontend
+          push: true
+          tags: ghcr.io/${{ steps.tag.outputs.owner }}/portal-noticias-frontend:${{ steps.tag.outputs.value }}
+          cache-from: type=gha,scope=frontend-${{ inputs.environment_name }}
+          cache-to: type=gha,mode=max,scope=frontend-${{ inputs.environment_name }}
+          build-args: |
+            NEXT_PUBLIC_API_BASE_URL=https://${{ inputs.host }}
+            NEXT_PUBLIC_SITE_URL=https://${{ inputs.host }}
+            NEXT_PUBLIC_SENTRY_DSN=${{ vars.NEXT_PUBLIC_SENTRY_DSN }}
+            NEXT_PUBLIC_SENTRY_ENVIRONMENT=${{ inputs.environment_name }}
+            NEXT_PUBLIC_SENTRY_RELEASE=${{ inputs.verify_ref }}
+            SENTRY_ORG=${{ secrets.SENTRY_ORG }}
+            SENTRY_PROJECT=${{ secrets.SENTRY_PROJECT }}
+            SENTRY_AUTH_TOKEN=${{ secrets.SENTRY_AUTH_TOKEN }}
+            SENTRY_RELEASE=${{ inputs.verify_ref }}
+            NEXT_PUBLIC_ADSENSE_CLIENT_ID=${{ secrets.NEXT_PUBLIC_ADSENSE_CLIENT_ID }}
+            NEXT_PUBLIC_ADSENSE_SLOT_HORIZONTAL=${{ secrets.NEXT_PUBLIC_ADSENSE_SLOT_HORIZONTAL }}
+            NEXT_PUBLIC_ADSENSE_SLOT_RETANGULO=${{ secrets.NEXT_PUBLIC_ADSENSE_SLOT_RETANGULO }}
+            NEXT_PUBLIC_ADSENSE_SLOT_VERTICAL=${{ secrets.NEXT_PUBLIC_ADSENSE_SLOT_VERTICAL }}
+            NEXT_PUBLIC_ADSENSE_SLOT_INFEED=${{ secrets.NEXT_PUBLIC_ADSENSE_SLOT_INFEED }}
+
+  deploy:
+    needs: [verify, build-and-push]
+    # build-and-push pode estar `skipped` de propósito (rollback,
+    # skip_build=true) — o padrão do GitHub Actions seria pular este job
+    # também (skip propaga por padrão); esta condição tolera exatamente
+    # esse caso, sem abrir a porta para um build-and-push que FALHOU.
+    if: ${{ needs.build-and-push.result == 'success' || needs.build-and-push.result == 'skipped' }}
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment_name }}
+    steps:
       - name: Deploy to VPS (${{ inputs.env_label }})
         uses: appleboy/ssh-action@v1.2.0
         env:
-          # Secret ausente resolve para string vazia (nunca $null/erro) e o
-          # passo decide o backend no script remoto — ver o fallback no
-          # bloco do printf de backend/.env.
+          IMAGE_TAG: ${{ inputs.skip_build && inputs.image_tag_override || needs.build-and-push.outputs.image_tag }}
+          GHCR_PULL_TOKEN: ${{ secrets.GHCR_PULL_TOKEN }}
+          GHCR_PULL_USER: ${{ secrets.GHCR_PULL_USER }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
-          # ---- inputs do workflow virados em variavel de ambiente ----
-          # `${{ inputs.* }}` e resolvido pelo GitHub e nao existe fora dele;
-          # dentro de um arquivo em disco o script so pode ler o valor de uma
-          # variavel. Cada input abaixo tem um par nome proprio, e a action so
-          # repassa para a VPS os nomes que estiverem em `envs:` abaixo (e o
-          # `env:` e o que da o valor). O mapa completo input->variavel esta
-          # no cabecalho de infra/deploy/deploy.sh.
-          APP_DIR: ${{ inputs.app_dir }}
-          WEB_PORT: ${{ inputs.web_port }}
-          API_PORT: ${{ inputs.api_port }}
-          HOST: ${{ inputs.host }}
-          DB_NAME: ${{ inputs.db_name }}
-          DB_USER: ${{ inputs.db_user }}
-          ENV_LABEL: ${{ inputs.env_label }}
-          GIT_MODE: ${{ inputs.git_mode }}
-          GIT_REF: ${{ inputs.git_ref }}
-          VERIFY_REF: ${{ inputs.verify_ref }}
-          TLS_ENABLED: ${{ inputs.tls_enabled }}
-          PR_NUMBER: ${{ inputs.pr_number }}
-          ALLOWED_HOSTS_EXTRA: ${{ inputs.allowed_hosts_extra }}
-          # `GATE_` nos dois que o script RELE depois do `set -a; . ./.env`:
-          # com um nome comum, uma chave `USUARIOS_TESTE=true` ou `SUF=prod`
-          # deixada no `.env` da VPS os sobrescreveria (Finding 1 / Finding R3).
-          GATE_PM_SUFFIX: ${{ inputs.pm_suffix }}
-          GATE_USUARIOS_TESTE: ${{ inputs.usuarios_teste }}
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
-          # Autenticacao por CHAVE. A senha nao e usada no SSH: e o que
-          # permite desligar `passwordauthentication` sem quebrar o pipeline.
-          # Sem fallback — ver o comentario de VPS_SSH_KEY acima.
+          # Autenticação por CHAVE — sem fallback de senha (mesma decisão do
+          # job `validate`): é o que permite desligar `passwordauthentication`
+          # na VPS sem quebrar o pipeline.
           key: ${{ secrets.VPS_SSH_KEY }}
+          fingerprint: ${{ secrets.VPS_HOST_FINGERPRINT }}
           port: ${{ secrets.VPS_PORT }}
-          # Exporta a variável no shell da VPS em vez de interpolar o valor
-          # no texto do script: a chave não aparece no comando enviado por
-          # SSH nem em log. Se a action não exportar (ou vier vazia), o
-          # script cai no fallback "console" — degrada para o comportamento
-          # anterior, não quebra o deploy.
-          #
-          # A lista acima precisa ter um nome para cada variavel do `env:`:
-          # sem nome aqui, a variável morre no processo da action e o script
-          # nao a ve.
-          envs: RESEND_API_KEY,APP_DIR,WEB_PORT,API_PORT,HOST,DB_NAME,DB_USER,ENV_LABEL,GIT_MODE,GIT_REF,VERIFY_REF,TLS_ENABLED,PR_NUMBER,ALLOWED_HOSTS_EXTRA,GATE_PM_SUFFIX,GATE_USUARIOS_TESTE
-          # O shell em si mora em infra/deploy/deploy.sh. Ver o cabecalho do
-          # arquivo: alem de tirar 450 linhas de dentro do YAML, e o que
-          # permite rodar e testar este script FORA do GitHub.
-          script_path: infra/deploy/deploy.sh
+          # Variáveis do step (acima) que a action exporta para dentro da
+          # sessão SSH — é assim, e não com `${{ }}` dentro do script, que o
+          # token do GHCR chega ao `docker login` sem passar em texto puro
+          # pelo `script:` renderizado no log do run.
+          envs: IMAGE_TAG,GHCR_PULL_TOKEN,GHCR_PULL_USER,RESEND_API_KEY
+          script: |
+            set -e
+            APP_DIR="${{ inputs.app_dir }}"; API_PORT=${{ inputs.api_port }}; WEB_PORT=${{ inputs.web_port }}
+            HOST="${{ inputs.host }}"; DB_NAME="${{ inputs.db_name }}"; DB_USER="${{ inputs.db_user }}"
+            LABEL="${{ inputs.env_label }}"; ALLOWED_EXTRA="${{ inputs.allowed_hosts_extra }}"
+            GIT_MODE="${{ inputs.git_mode }}"; GIT_REF="${{ inputs.git_ref }}"; VERIFY_REF="${{ inputs.verify_ref }}"
+            DEPLOYED_SHA_FILE="$APP_DIR/.deployed-sha"
+            echo "=== Deploy $LABEL portal-noticias (Docker) ==="
 
-  # Mesmo quando o deploy falha depois de um restart, o probe é executado para
-  # deixar o estado da API/web explícito no run. `always` também cobre o caso
-  # de verify/interrupção; em DEV/HOMOLOG o aviso é não bloqueante.
+            case "$GIT_MODE" in
+              branch|pr|tag|rollback) ;;
+              *) echo "ERRO: git_mode inválido: $GIT_MODE"; exit 1 ;;
+            esac
+            if [ "$GIT_MODE" = "rollback" ] && { [ "${#VERIFY_REF}" -ne 40 ] || [ -n "$(printf '%s' "$VERIFY_REF" | tr -d '0-9a-fA-F')" ]; }; then
+              echo "ERRO: rollback exige verify_ref com exatamente 40 caracteres hexadecimais"
+              exit 1
+            fi
+            if [ -z "$VERIFY_REF" ]; then echo "ERRO: verify_ref obrigatório para impedir deploy de commit não verificado"; exit 1; fi
+            if [ -z "$GIT_REF" ] && [ "$GIT_MODE" != "pr" ] && [ "$GIT_MODE" != "rollback" ]; then
+              echo "ERRO: git_ref obrigatório para git_mode=$GIT_MODE"; exit 1
+            fi
+            if [ -z "$IMAGE_TAG" ]; then
+              echo "ERRO: IMAGE_TAG vazio — build-and-push não publicou nada e skip_build não passou image_tag_override. Nada será pulled/upped."
+              exit 1
+            fi
+
+            write_deployed_sha() {
+              local sha="$1"
+              local marker_tmp="$DEPLOYED_SHA_FILE.tmp.$$"
+              if ! (umask 077; printf '%s\n' "$sha" > "$marker_tmp"); then
+                rm -f -- "$marker_tmp" || true
+                return 1
+              fi
+              if ! chmod 600 -- "$marker_tmp" || ! mv -f -- "$marker_tmp" "$DEPLOYED_SHA_FILE"; then
+                rm -f -- "$marker_tmp" || true
+                return 1
+              fi
+            }
+
+            mkdir -p /home/apps
+            if [ ! -d "$APP_DIR/.git" ]; then
+              if [ "$GIT_MODE" = "pr" ] || [ "$GIT_MODE" = "rollback" ]; then
+                git clone https://github.com/${{ github.repository }}.git "$APP_DIR"
+              else
+                git clone -b "$GIT_REF" https://github.com/${{ github.repository }}.git "$APP_DIR"
+              fi
+            fi
+            cd "$APP_DIR"
+
+            # Antes de trocar o checkout, conserva o SHA que já estava no ar
+            # (fronteira de recuperação — mesmo contrato de antes).
+            PREVIOUS_SHA=""
+            if [ -f "$DEPLOYED_SHA_FILE" ]; then
+              PREVIOUS_SHA="$(tr -d '[:space:]' < "$DEPLOYED_SHA_FILE" 2>/dev/null || true)"
+            fi
+            if ! printf '%s' "$PREVIOUS_SHA" | grep -Eq '^[0-9a-fA-F]{40}$'; then
+              PREVIOUS_SHA=""
+              if [ -n "$(docker compose -f docker-compose.yml --env-file .env.production ps -q web 2>/dev/null)" ]; then
+                PREVIOUS_SHA="$(git rev-parse HEAD 2>/dev/null || true)"
+              fi
+            fi
+            if printf '%s' "$PREVIOUS_SHA" | grep -Eq '^[0-9a-fA-F]{40}$'; then
+              echo "SHA anterior registrado: $PREVIOUS_SHA"
+              if ! write_deployed_sha "$PREVIOUS_SHA"; then
+                echo "ERRO: não foi possível registrar/preservar $DEPLOYED_SHA_FILE antes do deploy"
+                exit 1
+              fi
+            else
+              echo "nenhum SHA anterior encontrado; este será o primeiro marker após o smoke"
+            fi
+
+            if [ "$GIT_MODE" = "pr" ]; then
+              git fetch origin "+refs/pull/${{ inputs.pr_number }}/head:pr-head"
+              git reset --hard "$VERIFY_REF"
+            elif [ "$GIT_MODE" = "tag" ]; then
+              git fetch --all --tags --force; git reset --hard "origin/main"; git checkout "$GIT_REF"
+              git reset --hard "$VERIFY_REF"
+            elif [ "$GIT_MODE" = "rollback" ]; then
+              echo "Rollback solicitado para o SHA verificado $VERIFY_REF"
+              git fetch --all --tags --force
+              if ! git cat-file -e "$VERIFY_REF^{commit}" 2>/dev/null; then
+                if ! git fetch origin "$VERIFY_REF"; then
+                  echo "ERRO: SHA de rollback $VERIFY_REF não pôde ser obtido do origin"
+                  exit 1
+                fi
+              fi
+              git reset --hard "$VERIFY_REF"
+            else
+              git fetch origin
+              git reset --hard "$VERIFY_REF"
+            fi
+            ACTUAL_COMMIT="$(git rev-parse HEAD)"
+            EXPECTED_COMMIT="$(git rev-parse "$VERIFY_REF^{commit}" 2>/dev/null || true)"
+            if [ -z "$EXPECTED_COMMIT" ] || [ "$ACTUAL_COMMIT" != "$EXPECTED_COMMIT" ]; then
+              echo "ERRO: checkout ficou em $ACTUAL_COMMIT, mas o gate verificou $EXPECTED_COMMIT"
+              exit 1
+            fi
+
+            # `.env.production` criado UMA vez (nunca sobrescrito). TLS é
+            # sempre automático (Caddy compartilhado) — sem o antigo flag
+            # tls_enabled: os três cookies/redirect ficam sempre `true`.
+            if [ ! -f .env.production ]; then
+              SECRET=$(python3 -c "import secrets;print(secrets.token_urlsafe(50))")
+              ENV_TMP=".env.production.tmp.$$"
+              (umask 077; : > "$ENV_TMP")
+              # RESEND_API_KEY (P1-04): chave com formato inesperado (ex.: um
+              # segredo mal colado) é tratada como ausente — console + aviso,
+              # nunca grava um valor que não vá funcionar sem dizer por quê.
+              RESEND_API_KEY_ENV="${RESEND_API_KEY:-}"
+              case "$RESEND_API_KEY_ENV" in
+                *[!A-Za-z0-9._-]*)
+                  echo "AVISO: RESEND_API_KEY tem formato inesperado; ignorando o valor e gravando DJANGO_EMAIL_BACKEND=console."
+                  RESEND_API_KEY_ENV=""
+                  ;;
+              esac
+              if [ -n "$RESEND_API_KEY_ENV" ]; then
+                DJANGO_EMAIL_BACKEND="config.email_resend.ResendEmailBackend"
+              else
+                DJANGO_EMAIL_BACKEND="django.core.mail.backends.console.EmailBackend"
+                echo "AVISO: secret RESEND_API_KEY ausente/vazio; gravando DJANGO_EMAIL_BACKEND=console. O cadastro segue recusado pelo gate de e-mail (503) até a chave existir."
+              fi
+              if ! printf 'DJANGO_SECRET_KEY=%s\nDJANGO_DEBUG=false\nDJANGO_ALLOWED_HOSTS=%s%s,127.0.0.1,localhost\nDJANGO_SECURE_SSL_REDIRECT=true\nDJANGO_SESSION_COOKIE_SECURE=true\nDJANGO_CSRF_COOKIE_SECURE=true\nDJANGO_DB_NAME=%s\nDJANGO_DB_USER=%s\nDJANGO_DB_PASSWORD=troque-aqui\nFRONTEND_BASE_URL=https://%s\nNEXT_PUBLIC_API_BASE_URL=https://%s\nNEXT_PUBLIC_SITE_URL=https://%s\nAPI_PORT=%s\nWEB_PORT=%s\nOBSERVABILITY_METRICS_TOKEN=troque-aqui-por-um-valor-aleatorio-longo\nOBSERVABILITY_HEALTH_TOKEN=troque-aqui-por-um-valor-aleatorio-longo\nDJANGO_EMAIL_BACKEND=%s\nRESEND_API_KEY=%s\n' \
+                "$SECRET" "$HOST" "$ALLOWED_EXTRA" "$DB_NAME" "$DB_USER" "$HOST" "$HOST" "$HOST" "$API_PORT" "$WEB_PORT" "$DJANGO_EMAIL_BACKEND" "$RESEND_API_KEY_ENV" > "$ENV_TMP"; then
+                rm -f -- "$ENV_TMP" || true
+                exit 1
+              fi
+              if ! chmod 600 "$ENV_TMP" || ! mv -f -- "$ENV_TMP" .env.production; then
+                rm -f -- "$ENV_TMP" || true
+                echo "ERRO: não foi possível publicar atomicamente .env.production"
+                exit 1
+              fi
+              echo "AVISO: .env.production criado com placeholders (DJANGO_DB_PASSWORD, OBSERVABILITY_*_TOKEN) — preencha antes do primeiro \`up\` funcionar de verdade (ver CI-CD.md)."
+            fi
+            if grep -qE '^DJANGO_DB_PASSWORD=troque-aqui$' .env.production; then
+              echo "ERRO: preencha DJANGO_DB_PASSWORD em $APP_DIR/.env.production (ver CI-CD.md)"; exit 1
+            fi
+
+            # Login no GHCR só para PULL — token com escopo read:packages,
+            # diferente do GITHUB_TOKEN que fez o push no build-and-push.
+            echo "$GHCR_PULL_TOKEN" | docker login ghcr.io -u "$GHCR_PULL_USER" --password-stdin
+
+            echo "IMAGE_TAG=$IMAGE_TAG" > .env.deploy
+            echo "=== pull das imagens ($IMAGE_TAG) ==="
+            docker compose -f docker-compose.yml --env-file .env.production --env-file .env.deploy pull db redis web celery-worker celery-beat frontend
+
+            echo "=== docker compose up -d ==="
+            if ! docker compose -f docker-compose.yml --env-file .env.production --env-file .env.deploy up -d --remove-orphans db redis web celery-worker celery-beat frontend; then
+              echo "ERRO: docker compose up falhou"
+              docker compose -f docker-compose.yml --env-file .env.production --env-file .env.deploy logs --tail=50 web celery-worker celery-beat frontend
+              echo "Recuperação manual: rode o workflow 'Rollback manual do portal' com target_sha=$PREVIOUS_SHA (se houver)."
+              exit 1
+            fi
+            docker logout ghcr.io >/dev/null 2>&1 || true
+            echo "=== $LABEL deployed (imagem $IMAGE_TAG, loopback $WEB_PORT/web $API_PORT/api) ==="
+
+  # Mesmo quando o deploy falha, o probe é executado para deixar o estado da
+  # API/web explícito no run. `always` também cobre interrupção; em
+  # DEV/HOMOLOG o aviso é não bloqueante.
   validate:
-    needs: [verify, deploy]
+    needs: [verify, build-and-push, deploy]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     environment: ${{ inputs.environment_name }}
-    # Mesmo minimo do job `deploy`: o `validate` tambem le o script do disco.
-    permissions:
-      contents: read
     steps:
-      # Mesma razao do checkout do job `deploy`, e o mesmo `github.sha`: o
-      # arquivo do probe vem do ref que definiu o workflow.
-      - name: Checkout do script
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.sha }}
       - name: Validate ${{ inputs.env_label }}
         uses: appleboy/ssh-action@v1.2.0
-        env:
-          # Mapa input->variavel no cabecalho de infra/deploy/validate.sh.
-          ENV_LABEL: ${{ inputs.env_label }}
-          APP_DIR: ${{ inputs.app_dir }}
-          WEB_PORT: ${{ inputs.web_port }}
-          API_PORT: ${{ inputs.api_port }}
-          HOST: ${{ inputs.host }}
-          STRICT_VALIDATE: ${{ inputs.strict_validate }}
-          TLS_ENABLED: ${{ inputs.tls_enabled }}
-          VERIFY_REF: ${{ inputs.verify_ref }}
-          PM_SUFFIX: ${{ inputs.pm_suffix }}
-          # Unico valor do arquivo que nao vem de `inputs.*`: o resultado do
-          # job `deploy` entra pelo mesmo caminho dos outros, nunca como
-          # `${{ }}` dentro do shell.
-          DEPLOY_RESULT: ${{ needs.deploy.result }}
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
-          # Autenticacao por CHAVE. A senha nao e usada no SSH: e o que
-          # permite desligar `passwordauthentication` sem quebrar o pipeline.
-          # Sem fallback — ver o comentario de VPS_SSH_KEY acima.
+          # Autenticação por CHAVE — sem fallback de senha: é o que permite
+          # desligar `passwordauthentication` na VPS sem quebrar o pipeline.
           key: ${{ secrets.VPS_SSH_KEY }}
+          fingerprint: ${{ secrets.VPS_HOST_FINGERPRINT }}
           port: ${{ secrets.VPS_PORT }}
-          envs: ENV_LABEL,APP_DIR,WEB_PORT,API_PORT,HOST,STRICT_VALIDATE,TLS_ENABLED,VERIFY_REF,PM_SUFFIX,DEPLOY_RESULT
-          script_path: infra/deploy/validate.sh
+          script: |
+            set -e
+            APP_DIR="${{ inputs.app_dir }}"
+            API_PORT="${{ inputs.api_port }}"
+            WEB_PORT="${{ inputs.web_port }}"
+            STRICT="${{ inputs.strict_validate }}"
+            EXPECTED_SHA="${{ inputs.verify_ref }}"
+            DEPLOY_RESULT="${{ needs.deploy.result }}"
+            DEPLOYED_SHA_FILE="$APP_DIR/.deployed-sha"
+            API_OK=0
+            WEB_OK=0
+            cd "$APP_DIR" 2>/dev/null || true
+            write_deployed_sha() {
+              local sha="$1"
+              local marker_tmp="$DEPLOYED_SHA_FILE.tmp.$$"
+              if ! (umask 077; printf '%s\n' "$sha" > "$marker_tmp"); then
+                rm -f -- "$marker_tmp" || true
+                return 1
+              fi
+              if ! chmod 600 -- "$marker_tmp" || ! mv -f -- "$marker_tmp" "$DEPLOYED_SHA_FILE"; then
+                rm -f -- "$marker_tmp" || true
+                return 1
+              fi
+            }
+            # Probe pelo loopback, direto nos containers — não depende do
+            # Caddy compartilhado estar no ar nem do DNS externo. Mesma razão
+            # do X-Forwarded-Proto do Nginx de antes: com
+            # DJANGO_SECURE_SSL_REDIRECT=true (sempre, agora), um GET sem esse
+            # header redirecionaria (301) em vez de responder 200.
+            sleep 5
+            API_HTTP_CODE="$(curl -sS -o /dev/null -w '%{http_code}' -H 'X-Forwarded-Proto: https' "http://127.0.0.1:$API_PORT/livez" || echo 000)"
+            echo "${{ inputs.env_label }} api: http_code=$API_HTTP_CODE"
+            if [ "$API_HTTP_CODE" = "200" ]; then
+              API_OK=1
+              echo "${{ inputs.env_label }} api ok"
+            elif [ "$STRICT" = "true" ]; then
+              echo "${{ inputs.env_label }} api FAIL http_code=$API_HTTP_CODE"
+              docker compose -f docker-compose.yml --env-file .env.production logs --tail=30 web 2>/dev/null || true
+              exit 1
+            else
+              echo "${{ inputs.env_label }} api warn http_code=$API_HTTP_CODE"
+            fi
+            WEB_HTTP_CODE="$(curl -sS -o /dev/null -w '%{http_code}' "http://127.0.0.1:$WEB_PORT/" || echo 000)"
+            echo "${{ inputs.env_label }} web: http_code=$WEB_HTTP_CODE"
+            if [ "$WEB_HTTP_CODE" = "200" ]; then
+              WEB_OK=1
+              echo "${{ inputs.env_label }} web ok"
+            elif [ "$STRICT" = "true" ]; then
+              echo "${{ inputs.env_label }} web FAIL http_code=$WEB_HTTP_CODE"
+              exit 1
+            else
+              echo "${{ inputs.env_label }} web warn http_code=$WEB_HTTP_CODE"
+            fi
+
+            # `.deployed-sha` é a fronteira de recuperação — só promove com
+            # probe verde, deploy com sucesso e checkout no SHA esperado.
+            if [ "$API_OK" -eq 1 ] && [ "$WEB_OK" -eq 1 ]; then
+              if [ "$DEPLOY_RESULT" != "success" ]; then
+                echo "Marker preservado: deploy não terminou com sucesso (result=$DEPLOY_RESULT)."
+              elif [ ! -d "$APP_DIR/.git" ]; then
+                echo "Marker preservado: checkout $APP_DIR não existe após o deploy."
+                [ "$STRICT" = "true" ] && exit 1
+              else
+                ACTUAL_SHA="$(git -C "$APP_DIR" rev-parse HEAD 2>/dev/null || true)"
+                EXPECTED_COMMIT="$(git -C "$APP_DIR" rev-parse "$EXPECTED_SHA^{commit}" 2>/dev/null || true)"
+                if [ -z "$ACTUAL_SHA" ] || [ "$ACTUAL_SHA" != "$EXPECTED_COMMIT" ]; then
+                  echo "Marker preservado: smoke verde, mas checkout não é o SHA verificado ($ACTUAL_SHA != $EXPECTED_COMMIT)."
+                  [ "$STRICT" = "true" ] && exit 1
+                elif ! write_deployed_sha "$ACTUAL_SHA"; then
+                  echo "ERRO: smoke verde, mas não foi possível promover $DEPLOYED_SHA_FILE."
+                  [ "$STRICT" = "true" ] && exit 1
+                else
+                  echo "SHA deploy registrado após smoke: $ACTUAL_SHA"
+                fi
+              fi
+            else
+              echo "Marker anterior preservado: pelo menos um probe não retornou HTTP 200; não promova um deploy parcial."
+            fi
+            echo "--- docker compose ps ---"
+            docker compose -f docker-compose.yml --env-file .env.production ps 2>/dev/null || true

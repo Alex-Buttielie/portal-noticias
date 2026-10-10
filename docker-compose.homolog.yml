@@ -7,7 +7,7 @@
 #     -f docker-compose.homolog.yml up -d --build
 #
 # Copie `.env.production.example` para `.env.homolog` e troque os domínios
-# (ex.: homolog-api.seu-dominio.com.br) + credenciais. NUNCA commitar o
+# (ex.: homolog-api.seu-dominio.com) + credenciais. NUNCA commitar o
 # `.env.homolog` real (ver .gitignore).
 #
 # O que este override muda em relação à produção:

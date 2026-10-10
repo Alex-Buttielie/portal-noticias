@@ -3,6 +3,16 @@
 # `appleboy/ssh-action@v1.2.0` via `script_path: infra/deploy/deploy.sh`
 # (o `deploy.yml` so aponta o caminho).
 #
+# ATUALIZACAO (cutover Docker — CI-CD.md): o `deploy.yml` desta branch
+# (`cutover-docker-dev`) deixou de ter `script_path` apontando pra aqui — o
+# deploy agora e `docker compose`/GHCR embutido no proprio workflow. Este
+# arquivo so continua vivo porque `scripts/verificar-gate-usuarios-teste.sh`
+# ainda le ele do disco (`SCRIPT_ALVO`/`REL_DEPLOY`) pra exercer o gate
+# `usuarios_teste` antigo; o teste correspondente
+# (`backend/identidade/tests/test_gate_deploy_usuarios_teste.py`) esta em
+# `xfail` explicito ate esse gate ser portado pra Docker. Nao apagar antes
+# disso — e a referencia de que o porte vai partir.
+#
 # POR QUE O SHELL SAIU DO WORKFLOW
 # O script vivia dentro de um `script:` do `.github/workflows/deploy.yml`: 450
 # linhas / 21.629 chars de shell num arquivo que chegou a 762 linhas / 40.966
@@ -355,8 +365,12 @@ cd "$APP_DIR/frontend"
 export NPM_CONFIG_CACHE="$HOME/.npm"
 mkdir -p "$NPM_CONFIG_CACHE"
 npm ci --cache "$NPM_CONFIG_CACHE" --prefer-offline
-NODE_OPTIONS="--max-old-space-size=1536" \
+# D-09 (solicitante, 2026-10-08): 1024 em vez de 1536. A VPS tem 3915 MB de RAM
+# com os 3 ambientes + 3 stacks disputando; o kernel ja matou `npm ci` por OOM
+# em 09/09, e um deploy derrubou o ambiente vizinho. Build mais lento, menos pico.
+NODE_OPTIONS="--max-old-space-size=1024" \
   NEXT_PUBLIC_API_BASE_URL="$API_ORIGIN" NEXT_PUBLIC_SITE_URL="$WEB_ORIGIN" \
+  API_INTERNAL_URL="http://127.0.0.1:$API_PORT" \
   npm run build
 cd "$APP_DIR/backend"
 python3 -m venv .venv 2>/dev/null || true
@@ -527,11 +541,38 @@ restart_or_start() {
   return 1
 }
 cd "$APP_DIR/frontend"
-# API_INTERNAL_URL (runtime, não bake): alimenta o rewrite /api/*
-# do next.config.js — proxy mesma-origem para acesso direto por
-# IP:porta (sem passar pelo Nginx).
-API_INTERNAL_URL="http://127.0.0.1:$API_PORT" PORT="$WEB_PORT" \
-  restart_or_start "portal-web-$SUF" npm --name "portal-web-$SUF" -- start
+# API_INTERNAL_URL (runtime E build): e a base que o SERVIDOR usa para falar
+# com a API Django, e que o route handler /api/[...path] le.
+#
+# NOS DOIS MOMENTOS, e isso e o ponto. MEDIDO em 2026-10-08: passar a variavel
+# so no runtime (a linha do restart_or_start abaixo) NAO FUNCIONA -- o
+# Next/webpack substitui `process.env.X` no bundle do servidor pelo valor
+# disponivel no BUILD, e uma variavel ausente no build vira literalmente
+# `undefined` dentro do bundle. Resultado medido no bundle deployed: 549
+# ocorrencias do hostname publico, ZERO mencoes a API_INTERNAL_URL, e o SSR
+# continuando a falhar com `getaddrinfo ENOTFOUND`. Por isso a mesma variavel
+# e passada tambem na linha do `npm run build`, mais abaixo.
+#
+# NAO e um `rewrites` do next.config.js: esse arquivo nao tem rewrite nenhum,
+# e um rewrite seria congelado no build -- que e justamente o que nao pode
+# acontecer aqui, porque a porta do gunicorn muda por ambiente. O proxy mora no
+# route handler para poder ler a variavel e funcionar via dominio, IP ou
+# localhost sem depender do Nginx (incidente 2026-09-19: acesso direto por
+# IP:porta nao passa pelo Nginx).
+#
+# Como nao tem o prefixo `NEXT_PUBLIC_`, o valor NAO e embutido no bundle do
+# navegador: `http://127.0.0.1:$API_PORT` nao existe na maquina de quem le o
+# site, e vazaria a porta interna do gunicorn.
+#
+# D-24 (solicitante, 2026-10-09): o `next start` le a porta da variavel PORT e,
+# sem ela, sobe em 3000. MEDIDO em 2026-10-09: o env do pm2 de portal-web-dev
+# tinha WEB_PORT=3101 e NAO tinha PORT — o processo subiu em 3000 e o probe web
+# do validate.sh deu connection refused em 127.0.0.1:3101; todo deploy de DEV
+# falhou desde 0a45c2f por isso. O WEB_PORT so e lido por este script (mapa
+# input->variavel no cabecalho) — o next nunca o ve. O export abaixo e o que
+# leva a porta ao processo: o pm2 herda o env do shell do deploy.
+export PORT="$WEB_PORT"
+restart_or_start "portal-web-$SUF" npm --name "portal-web-$SUF" -- start
 cd "$APP_DIR/backend"
 # Binário + args separados: pm2 não resolve string única citada
 # como executável. --interpreter explícito: o binário gunicorn não

@@ -31,11 +31,15 @@ A separação é deliberada:
 | Pergunta | "o sistema está saudável?" | "o produto está sendo usado?" |
 | Quem consome | operação, alerta, Sentry | time de produto, BI |
 | Base | log do servidor, métricas, checks | eventos de produto com consentimento |
-| Retenção | o que o Loki reter | 12 meses, expurgo diário |
+| Retenção | o que o Loki reter | 12 meses, expurgo diário (`metricas.tasks.expurgar_analytics`) |
 | Destination | Grafana Cloud (Loki/Mimir) | banco de dados |
 
 Nunca misture os dois. Um painel de "queda de readership" não é sinal de
 incidente; um `5xx/s` não é métrica de negócio.
+
+A linha "12 meses, expurgo diário" agora tem código: `backend/metricas/tasks.py::expurar_analytics`,
+agendado no `CELERY_BEAT_SCHEDULE` como `metricas-expurgar-analytics` (P2-02). Ver
+§8.1 para o que essa task cobre e o que ainda é promessa.
 
 ## O mapa do desenho
 
@@ -186,7 +190,7 @@ O resumo do que falta, e o que fecha cada item:
 | histograma de latência | idem | item de backend |
 | `portal_celery_queue_depth`, `portal_celery_tasks_total` | `manage.py saude_filas --json` — **já existe**, e é o que este diretório usa (§6) | já coberto |
 | `portal_dependency_checks_total{dependency}` | métrica por dependência no `_Registro` | item de backend |
-| `portal_collector_disk_free_ratio` | `node_filesystem_*` do node_exporter, que o projeto não tem | item de infra |
+| `portal_collector_disk_free_ratio` | `node_filesystem_*` do node_exporter, que o projeto não tem | item de infra. **NÃO EXISTE ALERTA DE DISCO NESTE DIRETÓRIO** — a referência foi removida da expressão de `PortalTelemetriaNaoInstrumentada` e o buraco continua aberto (ver `alerts/README.md` §1.3.1 e §7.2) |
 | `portal_sentry_events_dropped_total` | Sentry, que `develop` não tem | item de produto |
 | `portal_health_check_not_configured` | publicar `Relatorio.nao_verificadas` como métrica | item de backend |
 | `portal_metrics_series_dropped_total` | **não se aplica**: `develop` não tem teto de séries. Substituído por `PortalCardinalidadeAcimaDoOrcamento`, que mede | coberto |
@@ -265,17 +269,32 @@ promete mais do que entrega.
 2. **Gauge sobrevive a restart; contador não.** Só
    `portal_tempo_de_atividade_segundos` e `portal_readyz_duracao_ms` são
    fiáveis como estado.
-3. **O log de borda não é JSON.** `infra/nginx/http-cache.conf` de `develop`
-   **não define nenhum `log_format`** (verificado: zero ocorrências de
-   `log_format` nos sete arquivos de `infra/nginx/`). Enquanto isso não
-   existir, o `loki.source.file "edge"` não tem o que coletar e o painel de
-   acesso fica vazio. `verificar-env.sh` exige o arquivo e avisa se a
-   primeira linha não for JSON.
-4. **Não existe bloqueio de borda para `/metrics` e `/health-detail`.** O
-   comentário do rascunho afirmava que `infra/nginx/portal-*.conf` tinha
-   `location ^/(health-detail|metrics)$`; verificado, **não existe**. A
-   aplicação é hoje a única barreira (`health.py:414-418`), e o check
-   `portao-privado-metrics` do Better Stack existe para vigir isso de fora.
+3. **O log de borda é JSON, mas depende de o include estar instalado.** O
+   `log_format portal_acesso` existe em `infra/nginx/http-cache.conf`
+   (contexto `http`), com `escape=json` e todos os valores quotados; o
+   `access_log` que o consome está nos três `infra/nginx/portal-*.conf`, em
+   `server`, para `/var/log/nginx/portal-<amb>.access.log`. Isto está no
+   repositório, **não na VPS**: o `log_format` só vale depois de
+   `http-cache.conf` ser instalado dentro do `http {}` e o `nginx -t` passar.
+   O `verificar-env.sh` exige o arquivo e avisa se a primeira linha não for
+   JSON — é essa dupla verificação que transforma "não instalei o include" em
+   aviso em vez de painel de acesso vazio. Um `log_format` que não foi
+   instalado devolve o `combined` padrão, que é texto livre: o `stage.json`
+   não extrai nada e o painel fica vazio **sem erro em lugar nenhum**.
+4. **`/metrics` e `/health-detail` têm duas camadas, mas a de borda ainda não
+   está na VPS.** Nos três `infra/nginx/portal-*.conf` há `location =
+   /metrics` e `location = /health-detail` com `allow 127.0.0.1; allow ::1;
+   deny all;` (o mesmo padrão do `/healthz`), no bloco HTTP e no TLS. A
+   aplicação continua sendo a segunda camada e continua valendo: em loopback
+   sem token ela devolve 401 (`health.py:414-418`). Isto é configuração no
+   repositório: só vale depois do `nginx -t` e do reload na VPS. Medido antes
+   da mudança, `/metrics` e `/health-detail` respondiam **404 pelo frontend**
+   em HTTPS — barreira real, mas por acidente, dependente de o Next.js não
+   ganhar um catch-all. O check `portao-privado-metrics` do Better Stack
+   existe para vigir a exposição de fora: com a barreira do nginx em operação ele
+   observa **403**, e com a aplicação recusando sem token **401** — ambos
+   aceitos (D-19, `better-stack/checks.json`); uma resposta 200 (rota exposta)
+   reprova.
 5. **A retenção de 90 dias do R2 é decisão humana**, não ratificada. O número
    está parametrizado, não aprovado.
 6. **Uma instância do coletor por ambiente.** Um coletor único misturaria dev,
@@ -337,3 +356,47 @@ de nenhum pinger.
 | `backend/metricas/**` | já existe em `develop` e é analytics de produto, não telemetria técnica. |
 | `infra/observability/grafana/validar-infra.sh` e `scripts/observability/**` | não estavam no escopo fechado deste item, e `.github/` não pode ser tocado. O que era verificação de infra virou `verificar-correspondencia.py` + as duas provas em `proving/`, ambos rodáveis localmente. |
 | os 6 workflows de CI/CD | fora de escopo por decisão explícita. |
+
+### 8.1 P2-02 — expurgo de analytics: o que virou código e o que não virou
+
+O commit `1b97836` (run `20260925-1020-observabilidade`) trazia
+`backend/metricas/tasks.py`, escrito contra uma base de setembro. **Não foi
+copiado**: foi reescrito, porque a telemetria de que ele dependia
+(`config.metrics.METRICS`) foi rejeitada de propósito — ver a primeira linha
+desta seção. O que foi aproveitado foi o modelo mental, não a implementação.
+
+| | |
+|---|---|
+| Task | `backend/metricas/tasks.py::expurar_analytics`, nome público `metricas.tasks.expurgar_analytics` |
+| Agendamento | `CELERY_BEAT_SCHEDULE["metricas-expurgar-analytics"]`, a cada `ANALYTICS_EXPURGO_INTERVALO_SEGUNDOS` (86 400 = diário) |
+| Prazo | `ANALYTICS_RETENCAO_DIAS`, default 365 (12 meses), ajustável por ambiente |
+| Lote | `ANALYTICS_EXPURGO_LOTE`, default 500 linhas por `DELETE` |
+| Tabela | `metricas.EventoSite`, `feed.InteracaoNoticia`, `feed.EventoBusca` |
+| Também invalida | `feed:autocomplete:v2:populares` (snapshot derivado de `EventoBusca`) |
+| Observabilidade | ciclo gravado em `config/filas_estado.py`, legível por `manage.py saude_filas` (§6) |
+
+**Por que o estado durável e não uma métrica.** Um contador em
+`config.health.METRICAS` seria invisível: a task roda no worker do Celery e
+`/metrics` é servido pelo Gunicorn — processo diferente. Sinal não lido é
+pior que sinal ausente. O registro em disco é durável, compartilhado, e já é a
+fonte que o §6 indexa.
+
+**Valor de retenção malformado é erro, não default.** `0` ou negativo
+significaria corte = agora, isto é, apagar tudo. O processo recusa subir
+(`ImproperlyConfigured`) e a task também recusa, registrando o ciclo como
+falha. Isto difere de todo o resto de `settings.py`, que cai num default
+quando a variável está malformada.
+
+**Ainda é promessa, sem código:**
+
+1. **Nenhum alerta específico de expurgo.** Um ciclo de falha aparece no
+   relatório de filas, mas não há regra em `alerts/` que dispare sobre "o
+   expurgo não roda há 3 dias". Fechar isso é P2-03.
+2. **A retenção não é diferenciada por ambiente.** O default é 365 em DEV,
+   HOMOLOG e PROD; a promessa de 12 meses é a de produção. Ajustar por
+   ambiente é só definir `ANALYTICS_RETENCAO_DIAS`, mas nenhuma disso foi
+   feito.
+3. **Não há verificação de que o expurgo roda de fato em produção.** O código
+   registra o ciclo e o beat agenda, mas o primeiro ciclo real depende do
+   `celery-beat` estar provisionado com esta versão — que é P0-07/P1-03, não
+   este item.

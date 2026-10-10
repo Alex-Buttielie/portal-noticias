@@ -12,11 +12,47 @@
 // para a API local — assim o bundle funciona via domínio, IP ou localhost
 // sem precisar rebakear a URL a cada deploy (incidente 2026-09-18/19:
 // "Não foi possível conectar ao servidor" com domínio ainda sem DNS).
-// Servidor (SSR) e `next dev` mantêm a URL absoluta de antes.
+//
+// SERVIDOR (SSR) usa `API_INTERNAL_URL`, que é o endereço LOCAL do gunicorn
+// (`http://127.0.0.1:$API_PORT`) e chega em runtime pelo PM2 — ver
+// `infra/deploy/deploy.sh`, na linha que sobe `portal-web-$SUF`. O
+// route handler `app/api/[...path]/route.ts` já faz exatamente isso, e é
+// por isso que o mesmo valor serve aqui.
+//
+// POR QUE ISSO FOI UM BUG GRAVE (medido em 2026-10-08)
+// -----------------------------------------------------
+// O lado do servidor usava antes `NEXT_PUBLIC_API_BASE_URL`, que o deploy
+// grava como a ORIGEM PÚBLICA (`http://$HOST`). Mas o servidor não é o
+// navegador: ele não sai para a internet, e `$HOST` não resolve a partir da
+// própria VPS enquanto o DNS não apontar para ela.
+//
+// O resultado medido em DEV e HOMOLOG (que rodam o código atual) era: o
+// bundle continha `dev.portal-noticias.com.br` 543 vezes, o hostname não
+// resolvia, e TODA busca de dado no servidor falhava por DNS. `/categoria/*`,
+// `/arquivo`, `/paginas/*` e `/buscar` respondiam 200 com "Não foi possível
+// carregar"; a home respondia 200 com 593 caracteres, ou seja, o esqueleto
+// da página sem nenhum conteúdo. PROD não era afetado por rodar o código de
+// 24/09.
+//
+// E o pior: `/paginas/<slug>` tinha um fallback que FABRICAVA conteúdo quando
+// a busca falhava (violação do P0-08). Esse fallback estava escondendo
+// exatamente este defeito — a página parecia funcionar.
+//
+// A variável do servidor NÃO pode ser `NEXT_PUBLIC_*`: o sufixo `PUBLIC_`
+// manda o Next embutir o valor no bundle do NAVEGADOR, e `http://127.0.0.1:5101`
+// no cliente é um endereço que não existe na máquina de quem lê o site (e
+// vazaria a porta interna). `API_INTERNAL_URL` não tem o sufixo, então o
+// navegador não a vê, e `lib/cep.ts`, `lib/regiao.ts`, `lib/ibge.ts` — que
+// rodam no cliente e leem `NEXT_PUBLIC_API_BASE_URL` de propósito — continuam
+// com a origem pública.
+//
+// A ordem é: interna (SSR) → pública (dev/navegador) → fallback de
+// desenvolvimento. Um servidor sem `API_INTERNAL_URL` e sem a pública
+// continua no `localhost:8000` de antes, que é o default de dev local.
 export const API_BASE_URL =
   typeof window !== "undefined" && process.env.NODE_ENV === "production"
     ? ""
-    : process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+    : process.env.API_INTERNAL_URL || process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
 export class ApiError extends Error {
   status: number;

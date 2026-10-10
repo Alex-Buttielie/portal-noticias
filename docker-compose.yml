@@ -5,8 +5,15 @@
 # BRD seção 30 ("Custo de IA/infraestrutura" = risco Alto dado o ticket
 # baixo de R$20-30/assinante).
 #
-# Uso: `docker compose --env-file .env.production up -d --build`
+# Uso local/build: `docker compose --env-file .env.production up -d --build`
 # Ver infra/DEPLOY.md para o passo a passo completo de provisionamento da VPS.
+#
+# Registry (cutover para Docker como deploy ativo): os serviços `web`,
+# `celery-worker`, `celery-beat` e `frontend` declaram `image:` além de
+# `build:` — o CI builda e publica em `ghcr.io/alex-buttielie/portal-noticias-*`
+# por ambiente+SHA (`IMAGE_TAG=<ambiente>-<sha>`), e a VPS só faz `docker
+# compose pull && up -d` (nunca `--build`). Local/dev continua com `--build`
+# e `IMAGE_TAG` cai no default `local` — não precisa de login no GHCR.
 
 # Limite comum dos logs json-file para a variante Docker. Evita que stdout/stderr
 # de containers que ficam 24/7 consumam o disco da VPS. Não afeta a topologia PM2.
@@ -53,6 +60,7 @@ services:
       - internal
 
   web:
+    image: ghcr.io/alex-buttielie/portal-noticias-backend:${IMAGE_TAG:-local}
     build:
       context: ./backend
     restart: unless-stopped
@@ -65,6 +73,15 @@ services:
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/1
       DJANGO_CACHE_REDIS_URL: redis://redis:6379/2
+    # Só loopback — nunca 0.0.0.0: numa VPS com Docker, uma porta publicada
+    # pode furar regras do ufw (DOCKER-USER vs INPUT, armadilha conhecida),
+    # então o bind explícito em 127.0.0.1 é a garantia, não o firewall. Quem
+    # alcança isto de fora é só o Caddy compartilhado (infra/docker-edge/),
+    # pelo loopback do HOST — não desta rede `internal`. Os três ambientes
+    # reutilizam as portas já reservadas pela topologia PM2 (CI-CD.md):
+    # dev 5101, homolog 5102, prod 5103 (API_PORT em .env.production).
+    ports:
+      - "127.0.0.1:${API_PORT:-8000}:8000"
     volumes:
       - media_data:/app/media
       - static_data:/app/staticfiles
@@ -77,6 +94,7 @@ services:
       - internal
 
   celery-worker:
+    image: ghcr.io/alex-buttielie/portal-noticias-backend:${IMAGE_TAG:-local}
     build:
       context: ./backend
     restart: unless-stopped
@@ -112,6 +130,7 @@ services:
       - internal
 
   celery-beat:
+    image: ghcr.io/alex-buttielie/portal-noticias-backend:${IMAGE_TAG:-local}
     build:
       context: ./backend
     restart: unless-stopped
@@ -142,22 +161,52 @@ services:
       - internal
 
   frontend:
+    image: ghcr.io/alex-buttielie/portal-noticias-frontend:${IMAGE_TAG:-local}
     build:
       context: ./frontend
       args:
         NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:?defina em .env.production}
         NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:?defina em .env.production}
+        # Sentry/AdSense: achado da migração — nenhum caminho de build (Docker
+        # ou PM2) passava estas 5 variáveis antes desta correção, mesmo com o
+        # Dockerfile já aceitando-as como ARG. Vazio continua seguro (ver
+        # frontend/Dockerfile).
+        NEXT_PUBLIC_SENTRY_DSN: ${NEXT_PUBLIC_SENTRY_DSN:-}
+        NEXT_PUBLIC_SENTRY_ENVIRONMENT: ${SENTRY_ENVIRONMENT:-}
+        NEXT_PUBLIC_SENTRY_RELEASE: ${SENTRY_RELEASE:-}
+        SENTRY_ORG: ${SENTRY_ORG:-}
+        SENTRY_PROJECT: ${SENTRY_PROJECT:-}
+        SENTRY_AUTH_TOKEN: ${SENTRY_AUTH_TOKEN:-}
+        SENTRY_RELEASE: ${SENTRY_RELEASE:-}
+        NEXT_PUBLIC_ADSENSE_CLIENT_ID: ${NEXT_PUBLIC_ADSENSE_CLIENT_ID:-}
+        NEXT_PUBLIC_ADSENSE_SLOT_HORIZONTAL: ${NEXT_PUBLIC_ADSENSE_SLOT_HORIZONTAL:-}
+        NEXT_PUBLIC_ADSENSE_SLOT_RETANGULO: ${NEXT_PUBLIC_ADSENSE_SLOT_RETANGULO:-}
+        NEXT_PUBLIC_ADSENSE_SLOT_VERTICAL: ${NEXT_PUBLIC_ADSENSE_SLOT_VERTICAL:-}
+        NEXT_PUBLIC_ADSENSE_SLOT_INFEED: ${NEXT_PUBLIC_ADSENSE_SLOT_INFEED:-}
     restart: unless-stopped
     logging: *default-logging
+    # Mesmo motivo do `web` acima — loopback, nunca 0.0.0.0. Portas: dev
+    # 3101, homolog 3102, prod 3103 (WEB_PORT em .env.production).
+    ports:
+      - "127.0.0.1:${WEB_PORT:-3000}:3000"
     depends_on:
       - web
     networks:
       - internal
 
+  # Opcional — só para rodar ESTE ambiente isolado com TLS local (teste
+  # manual, um único ambiente por vez). A VPS real com os três ambientes
+  # (dev/homolog/prod) NÃO ativa este serviço: usa um Caddy único e
+  # compartilhado em `infra/docker-edge/`, que faz o mesmo papel do Nginx
+  # único de hoje — três ambientes não podem ter três processos próprios
+  # disputando as portas 80/443 do mesmo host. `profiles` mantém este
+  # serviço fora de um `docker compose up -d` comum; ative só com
+  # `--profile standalone`.
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
     logging: *default-logging
+    profiles: ["standalone"]
     env_file:
       - path: .env.production
         required: false
@@ -168,6 +217,7 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
+      - caddy_logs:/var/log/caddy
       - static_data:/srv/static:ro
       - media_data:/srv/media:ro
     depends_on:
@@ -177,9 +227,12 @@ services:
       - internal
 
 networks:
-  # Rede isolada entre os containers deste projeto — só `caddy` publica
-  # portas no host (80/443). Postgres/Redis/backend/worker nunca ficam
-  # acessíveis diretamente pela internet, só por dentro dessa rede.
+  # Rede isolada entre os containers deste projeto. Postgres/Redis/
+  # celery-worker/celery-beat nunca publicam porta no host — só `web` e
+  # `frontend` publicam, e só em loopback (127.0.0.1), para o Caddy
+  # compartilhado da VPS alcançar (infra/docker-edge/) ou para acesso
+  # local direto; nenhum dos dois fica exposto na internet por conta
+  # própria sem o Caddy/Nginx na frente.
   internal:
     driver: bridge
 
@@ -190,3 +243,4 @@ volumes:
   static_data:
   caddy_data:
   caddy_config:
+  caddy_logs:

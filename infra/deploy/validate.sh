@@ -3,6 +3,13 @@
 # promocao do marker `.deployed-sha`. Executado por
 # `appleboy/ssh-action@v1.2.0` via `script_path: infra/deploy/validate.sh`.
 #
+# ATUALIZACAO (cutover Docker — CI-CD.md): mesma situacao do `deploy.sh`
+# vizinho — o `deploy.yml` desta branch (`cutover-docker-dev`) deixou de ter
+# `script_path` apontando pra aqui, e este arquivo so continua vivo porque
+# `scripts/verificar-gate-usuarios-teste.sh` ainda le ele do disco pra
+# exercer o gate `usuarios_teste` antigo (teste em `xfail` explicito ate o
+# porte pra Docker). Nao apagar antes disso.
+#
 # POR QUE O SHELL SAIU DO WORKFLOW
 # Mesma razao do `deploy.sh` vizinho: o `script:` inline estava no mesmo arquivo
 # que o GitHub recusava (0 jobs, conclusion=failure, 0 s) e nao da para continuar

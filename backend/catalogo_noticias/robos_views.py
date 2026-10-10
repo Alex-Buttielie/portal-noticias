@@ -4,12 +4,9 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .models import ConfiguracaoRobo, FonteRobo, RegistroExecucaoIngestao
+from .permissions import IsAdmin
 from .robos_serializers import ConfiguracaoRoboSerializer, FonteRoboSerializer, RegistroExecucaoIngestaoSerializer
 from .services.ingestao import executar_ingestao
-
-
-def _eh_admin(user):
-    return getattr(user, "papel", None) == "admin"
 
 
 def _executar_ingestao_em_background(rid: str) -> None:
@@ -53,17 +50,13 @@ def _executar_ingestao_em_background(rid: str) -> None:
 
 
 class FontesRoboView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsAdmin]
 
     def get(self, request):
-        if not _eh_admin(request.user):
-            return Response(status=status.HTTP_403_FORBIDDEN)
         qs = FonteRobo.objects.all().order_by("nome")
         return Response(FonteRoboSerializer(qs, many=True).data)
 
     def post(self, request):
-        if not _eh_admin(request.user):
-            return Response(status=status.HTTP_403_FORBIDDEN)
         s = FonteRoboSerializer(data=request.data)
         s.is_valid(raise_exception=True)
         s.save()
@@ -71,7 +64,7 @@ class FontesRoboView(APIView):
 
 
 class FonteRoboDetailView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsAdmin]
 
     def _get_obj(self, pk):
         try:
@@ -80,8 +73,6 @@ class FonteRoboDetailView(APIView):
             return None
 
     def patch(self, request, pk):
-        if not _eh_admin(request.user):
-            return Response(status=status.HTTP_403_FORBIDDEN)
         obj = self._get_obj(pk)
         if not obj:
             return Response(status=status.HTTP_404_NOT_FOUND)
@@ -91,8 +82,6 @@ class FonteRoboDetailView(APIView):
         return Response(s.data)
 
     def delete(self, request, pk):
-        if not _eh_admin(request.user):
-            return Response(status=status.HTTP_403_FORBIDDEN)
         obj = self._get_obj(pk)
         if not obj:
             return Response(status=status.HTTP_404_NOT_FOUND)
@@ -101,17 +90,13 @@ class FonteRoboDetailView(APIView):
 
 
 class ConfigRoboView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsAdmin]
 
     def get(self, request):
-        if not _eh_admin(request.user):
-            return Response(status=status.HTTP_403_FORBIDDEN)
         cfg, _ = ConfiguracaoRobo.objects.get_or_create(pk=1)
         return Response(ConfiguracaoRoboSerializer(cfg).data)
 
     def patch(self, request):
-        if not _eh_admin(request.user):
-            return Response(status=status.HTTP_403_FORBIDDEN)
         cfg, _ = ConfiguracaoRobo.objects.get_or_create(pk=1)
         s = ConfiguracaoRoboSerializer(cfg, data=request.data, partial=True)
         s.is_valid(raise_exception=True)
@@ -120,21 +105,17 @@ class ConfigRoboView(APIView):
 
 
 class ExecucoesRoboView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsAdmin]
 
     def get(self, request):
-        if not _eh_admin(request.user):
-            return Response(status=status.HTTP_403_FORBIDDEN)
         qs = RegistroExecucaoIngestao.objects.all().order_by("-executado_em")[:50]
         return Response(RegistroExecucaoIngestaoSerializer(qs, many=True).data)
 
 
 class ExecutarRoboView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsAdmin]
 
     def post(self, request):
-        if not _eh_admin(request.user):
-            return Response(status=status.HTTP_403_FORBIDDEN)
         import logging
         import threading
         import traceback

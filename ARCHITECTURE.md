@@ -139,11 +139,20 @@ de infraestrutura de produção**, que antes desta mudança não existia.
 
 ### 9.2 Topologia ativa (self-hosted, VPS única com PM2 + Nginx)
 
-A topologia de produção usa **PM2 + Nginx** na VPS. O Nginx é o reverse proxy
-ativo e, quando a ativação humana for concluída, termina TLS na origem com
-Certbot/Let's Encrypt; até lá, a configuração é preparada, mas a produção
-continua em HTTP. Docker/Caddy é uma variante alternativa/local, não o
-caminho de produção.
+> **Cutover Docker em preparação, não ativo na VPS.** Os workflows e o
+> `docker-compose.yml` já foram reescritos para build+push das imagens no
+> GHCR e `docker compose pull && up -d` na VPS, com `web`/`frontend`
+> publicando só em loopback e um Caddy único compartilhado
+> (`infra/docker-edge/`) substituindo o Nginx e o PM2 por completo — mas
+> sem execução real na VPS ainda (mesma nota em `CI-CD.md`, após o
+> diagrama do pipeline). A topologia descrita abaixo é a que roda de fato.
+
+A topologia de produção usa **PM2 + Nginx** na VPS para web e API, e
+**systemd** para o que não é um servidor HTTP (Celery worker/beat, coletor
+Alloy). O Nginx é o reverse proxy ativo e, quando a ativação humana for
+concluída, termina TLS na origem com Certbot/Let's Encrypt; até lá, a
+configuração é preparada, mas a produção continua em HTTP. Docker/Caddy é uma
+variante alternativa/local, não o caminho de produção.
 
 ```
 Internet → Cloudflare (opcional: CDN + WAF + DDoS + TLS na borda)
