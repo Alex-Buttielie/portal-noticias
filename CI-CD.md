@@ -225,7 +225,7 @@ else
   GUNICORN_TIMEOUT=60 DJANGO_SETTINGS_MODULE=config.settings \
     pm2 start .venv/bin/gunicorn --interpreter .venv/bin/python \
       --name portal-api-prod -- --config gunicorn.conf.py config.wsgi:application \
-      --bind 0.0.0.0:5103 --chdir /home/apps/portal-prod/backend
+      --bind 127.0.0.1:5103 --chdir /home/apps/portal-prod/backend
 fi
 pm2 save
 pm2 status
