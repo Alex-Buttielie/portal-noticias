@@ -3,12 +3,17 @@
 # arquitetura Docker+Caddy deste projeto, sem PM2/Nginx manual).
 #
 # Uso (na VPS ou local):
-#   docker compose --env-file .env.homolog -f docker-compose.yml \
+#   docker compose --env-file .env.production -f docker-compose.yml \
 #     -f docker-compose.homolog.yml up -d --build
 #
-# Copie `.env.production.example` para `.env.homolog` e troque os domínios
-# (ex.: homolog-api.seu-dominio.com) + credenciais. NUNCA commitar o
-# `.env.homolog` real (ver .gitignore).
+# Copie `.env.production.example` para `.env.production` (na pasta de
+# homolog da VPS) e troque os domínios (ex.: homolog-api.seu-dominio.com) +
+# credenciais. Use `.env.production` mesmo em homolog: o docker-compose.yml
+# base tem `env_file: - path: .env.production` hardcoded em cada serviço
+# (required: false), então um arquivo chamado `.env.homolog` não é
+# carregado pelos containers — fica tudo com env vazio e DEBUG=False
+# derruba o Django em ImproperlyConfigured. NUNCA commitar o
+# `.env.production` real (ver .gitignore).
 #
 # O que este override muda em relação à produção:
 # - publica 8080/8443 no host em vez de 80/443 (convive com a prod na
