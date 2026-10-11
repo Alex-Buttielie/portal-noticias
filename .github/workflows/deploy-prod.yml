@@ -44,9 +44,9 @@ jobs:
       web_port: "3103"
       api_port: "5103"
       host: portal-noticias.com
-      # Manter false até o certbot emitir, o nginx -t passar e o reload HTTPS
-      # ser verificado. Depois, altere para true e siga o runbook de TLS.
-      tls_enabled: false
+      # TLS ativado em 2026-10-11: certificado Let's Encrypt emitido e
+      # validado (infra/DEPLOY.md §3A) para portal-noticias.com + www.
+      tls_enabled: true
       allowed_hosts_extra: ",www.portal-noticias.com"
       db_name: brd_portal_prod
       db_user: portal_prod
