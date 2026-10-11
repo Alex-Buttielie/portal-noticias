@@ -1,0 +1,60 @@
+name: Drift check (VPS vs repo)
+
+# Roda diariamente (+ manual) e falha se o estado real de QUALQUER ambiente
+# divergir do que o repositório/plano dizem que deveria estar lá — ver o
+# cabeçalho de infra/observability/verificar-drift.sh para o porquê. Um run
+# vermelho aqui significa "alguém editou a VPS na mão e esqueceu de refletir
+# no repo" ou "um ambiente migrou de runtime e um script/.env ficou pra
+# trás" — nunca "o código tem um bug", então não bloqueia deploy nenhum.
+on:
+  schedule:
+    - cron: "17 7 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  verificar:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - env_label: DEV
+            app_dir: /home/apps/portal-dev
+            host: dev.portal-noticias.com
+            expected_runtime: docker
+            web_port: "3101"
+            api_port: "5101"
+          - env_label: HOMOLOG
+            app_dir: /home/apps/portal-homolog
+            host: homolog.portal-noticias.com
+            expected_runtime: docker
+            web_port: "3102"
+            api_port: "5102"
+          - env_label: PROD
+            app_dir: /home/apps/portal-prod
+            host: portal-noticias.com
+            expected_runtime: pm2
+            web_port: "3103"
+            api_port: "5103"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout do script
+        uses: actions/checkout@v4
+      - name: Verificar drift — ${{ matrix.env_label }}
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          ENV_LABEL: ${{ matrix.env_label }}
+          APP_DIR: ${{ matrix.app_dir }}
+          HOST: ${{ matrix.host }}
+          EXPECTED_RUNTIME: ${{ matrix.expected_runtime }}
+          WEB_PORT: ${{ matrix.web_port }}
+          API_PORT: ${{ matrix.api_port }}
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT }}
+          envs: ENV_LABEL,APP_DIR,HOST,EXPECTED_RUNTIME,WEB_PORT,API_PORT
+          script_path: infra/observability/verificar-drift.sh
