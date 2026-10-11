@@ -1,17 +1,18 @@
 #!/bin/sh
-# Deploy de UM ambiente (DEV/HOMOLOG/PROD) na VPS. Executado por
+# Deploy de UM ambiente (HOMOLOG/PROD) na VPS. Executado por
 # `appleboy/ssh-action@v1.2.0` via `script_path: infra/deploy/deploy.sh`
-# (o `deploy.yml` so aponta o caminho).
+# (`deploy-pm2.yml` so aponta o caminho).
 #
-# ATUALIZACAO (cutover Docker — CI-CD.md): o `deploy.yml` desta branch
-# (`cutover-docker-dev`) deixou de ter `script_path` apontando pra aqui — o
-# deploy agora e `docker compose`/GHCR embutido no proprio workflow. Este
-# arquivo so continua vivo porque `scripts/verificar-gate-usuarios-teste.sh`
-# ainda le ele do disco (`SCRIPT_ALVO`/`REL_DEPLOY`) pra exercer o gate
-# `usuarios_teste` antigo; o teste correspondente
-# (`backend/identidade/tests/test_gate_deploy_usuarios_teste.py`) esta em
-# `xfail` explicito ate esse gate ser portado pra Docker. Nao apagar antes
-# disso — e a referencia de que o porte vai partir.
+# ATUALIZACAO (cutover Docker, so em DEV — PR #39/CI-CD.md): o cutover
+# Docker+GHCR (PR #31/#32) reescreveu o `deploy.yml` reutilizavel inteiro
+# pra Docker, e os tres callers (deploy-dev/homolog/prod.yml) continuaram
+# apontando pra ele — HOMOLOG, que nunca passou pelo cutover de verdade (sem
+# inventario, sem backup, sem migracao de dados), ficou um `pull_request` de
+# distancia de tentar um `docker compose up` nao preparado. `deploy-pm2.yml`
+# restaura este caminho (PM2+Nginx, o mesmo deste arquivo) exclusivamente
+# pra HOMOLOG/PROD; DEV e o unico ambiente no cutover Docker. Em uso ativo
+# — nao e codigo morto nem espera de porte: ha deploy real verde de HOMOLOG
+# e tag de PROD por este caminho depois da restauracao.
 #
 # POR QUE O SHELL SAIU DO WORKFLOW
 # O script vivia dentro de um `script:` do `.github/workflows/deploy.yml`: 450
