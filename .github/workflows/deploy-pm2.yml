@@ -141,6 +141,21 @@ on:
       # vem de secret, entra no .env da VPS e não volta para o repositório.
       RESEND_API_KEY:
         required: false
+      # AdSense (P1-09): 5 secrets opcionais, embutidos no bundle do
+      # navegador no momento do BUILD (por isso NEXT_PUBLIC_), nunca em
+      # runtime. Ausentes/vazios -> AdsScript/AdsSlot ficam inertes
+      # (lib/anuncios.ts), comportamento de antes desta mudança. Valores
+      # reais só existem depois que o Alex cadastrar a conta AdSense.
+      NEXT_PUBLIC_ADSENSE_CLIENT_ID:
+        required: false
+      NEXT_PUBLIC_ADSENSE_SLOT_HORIZONTAL:
+        required: false
+      NEXT_PUBLIC_ADSENSE_SLOT_RETANGULO:
+        required: false
+      NEXT_PUBLIC_ADSENSE_SLOT_VERTICAL:
+        required: false
+      NEXT_PUBLIC_ADSENSE_SLOT_INFEED:
+        required: false
 
 # Impede que dois deploys do mesmo ambiente alterem o PM2 ao mesmo tempo. Um
 # run já em andamento nunca é cancelado; uma atualização mais nova espera sua
@@ -193,6 +208,11 @@ jobs:
           # passo decide o backend no script remoto — ver o fallback no
           # bloco do printf de backend/.env.
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          NEXT_PUBLIC_ADSENSE_CLIENT_ID: ${{ secrets.NEXT_PUBLIC_ADSENSE_CLIENT_ID }}
+          NEXT_PUBLIC_ADSENSE_SLOT_HORIZONTAL: ${{ secrets.NEXT_PUBLIC_ADSENSE_SLOT_HORIZONTAL }}
+          NEXT_PUBLIC_ADSENSE_SLOT_RETANGULO: ${{ secrets.NEXT_PUBLIC_ADSENSE_SLOT_RETANGULO }}
+          NEXT_PUBLIC_ADSENSE_SLOT_VERTICAL: ${{ secrets.NEXT_PUBLIC_ADSENSE_SLOT_VERTICAL }}
+          NEXT_PUBLIC_ADSENSE_SLOT_INFEED: ${{ secrets.NEXT_PUBLIC_ADSENSE_SLOT_INFEED }}
           # ---- inputs do workflow virados em variavel de ambiente ----
           # `${{ inputs.* }}` e resolvido pelo GitHub e nao existe fora dele;
           # dentro de um arquivo em disco o script so pode ler o valor de uma
@@ -235,7 +255,7 @@ jobs:
           # A lista acima precisa ter um nome para cada variavel do `env:`:
           # sem nome aqui, a variável morre no processo da action e o script
           # nao a ve.
-          envs: RESEND_API_KEY,APP_DIR,WEB_PORT,API_PORT,HOST,DB_NAME,DB_USER,ENV_LABEL,GIT_MODE,GIT_REF,VERIFY_REF,TLS_ENABLED,PR_NUMBER,ALLOWED_HOSTS_EXTRA,GATE_PM_SUFFIX,GATE_USUARIOS_TESTE
+          envs: RESEND_API_KEY,NEXT_PUBLIC_ADSENSE_CLIENT_ID,NEXT_PUBLIC_ADSENSE_SLOT_HORIZONTAL,NEXT_PUBLIC_ADSENSE_SLOT_RETANGULO,NEXT_PUBLIC_ADSENSE_SLOT_VERTICAL,NEXT_PUBLIC_ADSENSE_SLOT_INFEED,APP_DIR,WEB_PORT,API_PORT,HOST,DB_NAME,DB_USER,ENV_LABEL,GIT_MODE,GIT_REF,VERIFY_REF,TLS_ENABLED,PR_NUMBER,ALLOWED_HOSTS_EXTRA,GATE_PM_SUFFIX,GATE_USUARIOS_TESTE
           # O shell em si mora em infra/deploy/deploy.sh. Ver o cabecalho do
           # arquivo: alem de tirar 450 linhas de dentro do YAML, e o que
           # permite rodar e testar este script FORA do GitHub.
