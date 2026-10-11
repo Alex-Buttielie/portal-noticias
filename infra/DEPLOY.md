@@ -962,17 +962,25 @@ stack na mesma VPS com domínios e portas diferentes, usando o override
 `docker-compose.homolog.yml` na raiz do projeto.
 
 ```bash
-cp .env.production.example .env.homolog
-# edite .env.homolog: DOMAIN_API=homolog-api.seu-dominio.com,
+cp .env.production.example .env.production
+# edite .env.production: DOMAIN_API=homolog-api.seu-dominio.com,
 # DOMAIN_FRONTEND=homolog.seu-dominio.com, senha do Postgres DIFERENTE
 # da produção, SECRET_KEY diferente.
-chmod 600 .env.homolog
-docker compose --env-file .env.homolog -f docker-compose.yml \
+chmod 600 .env.production
+docker compose --env-file .env.production -f docker-compose.yml \
   -f docker-compose.homolog.yml up -d --build
 ```
 
 Notas:
 
+- Use `.env.production` mesmo em homolog (não `.env.homolog`): cada
+  serviço no `docker-compose.yml` base tem `env_file: - path:
+  .env.production` hardcoded, com `required: false`. Se o arquivo se
+  chamar `.env.homolog`, o Compose não reclama, mas nenhuma variável é
+  carregada no container — o Django sobe com `DJANGO_SECRET_KEY` vazio e,
+  com `DEBUG=False`, trava em `ImproperlyConfigured`. O isolamento entre
+  ambientes já vem do diretório próprio de cada um na VPS, então não há
+  risco de um `.env.production` de homolog colidir com o de produção.
 - O override publica 8080/8443 no host para conviver com a produção
   (80/443) na mesma VPS — aponte os DNS de homolog para o mesmo IP e, se
   houver Cloudflare na frente, crie os registros `homolog*` com proxy
