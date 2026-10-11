@@ -1,0 +1,42 @@
+name: GHCR retention
+
+# Poda versões antigas das imagens do GHCR (backend/frontend), mantendo as
+# últimas N por repositório de imagem. Sem isso, o rollback (git_mode:
+# rollback no deploy.yml Docker) pode falhar silenciosamente se a tag do SHA
+# alvo já tiver sido apagada por uma política de retenção genérica do GitHub
+# — aqui a política é NOSSA e explícita (ver C3 do plano de cutover).
+#
+# Roda semanal + manual. Usa GITHUB_TOKEN (packages:write no contexto do
+# Actions do próprio repo) — não depende de PAT nem do gh CLI local.
+on:
+  schedule:
+    - cron: "0 4 * * 1"
+  workflow_dispatch:
+    inputs:
+      keep_last:
+        description: "Quantas versões manter por imagem (as mais recentes)"
+        required: false
+        default: "20"
+        type: string
+
+permissions:
+  packages: write
+
+jobs:
+  prune:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        image: [portal-noticias-backend, portal-noticias-frontend]
+    steps:
+      - name: Podar versões antigas de ${{ matrix.image }}
+        uses: actions/delete-package-versions@v5
+        with:
+          package-name: ${{ matrix.image }}
+          package-type: container
+          min-versions-to-keep: ${{ inputs.keep_last || '20' }}
+          # Nunca apaga uma versão sem tag (nenhuma imagem nossa fica
+          # untagged de propósito) nem a que estiver em uso por um
+          # manifest multi-arch referenciado — comportamento padrão da
+          # action, mantido explícito aqui.
+          delete-only-untagged-versions: false
