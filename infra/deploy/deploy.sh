@@ -586,11 +586,17 @@ cd "$APP_DIR/backend"
 # O default atual é 60s: o POST /api/admin/robos/executar/ só
 # pode passar a 45s depois que o commit 202+background for
 # ancestral do ref implantado (Nginx também deve ir a 45s).
-# Só o bind varia por ambiente ($API_PORT).
+# Bind em 127.0.0.1, não 0.0.0.0: o Nginx é o único ponto de entrada
+# público (mesmo princípio do docker-compose.yml, que só publica em
+# 127.0.0.1:PORT). Até 2026-10-11 isto bindava 0.0.0.0 e o Gunicorn de
+# homolog/prod respondia direto na internet, pulando TLS, headers de
+# segurança, rate limit e a regra fail-closed de mídia do Nginx —
+# confirmado reproduzindo de fora da VPS. $API_PORT é o único valor que
+# varia por ambiente.
 GUNICORN_TIMEOUT=60 DJANGO_SETTINGS_MODULE=config.settings \
   restart_or_start "portal-api-$SUF" "$APP_DIR/backend/.venv/bin/gunicorn" \
   --interpreter "$APP_DIR/backend/.venv/bin/python" --name "portal-api-$SUF" -- \
   --config "$APP_DIR/backend/gunicorn.conf.py" config.wsgi:application \
-  --bind "0.0.0.0:$API_PORT" --chdir "$APP_DIR/backend"
+  --bind "127.0.0.1:$API_PORT" --chdir "$APP_DIR/backend"
 pm2 save
 echo "=== $LABEL deployed $WEB_PORT(web) $API_PORT(api) ==="

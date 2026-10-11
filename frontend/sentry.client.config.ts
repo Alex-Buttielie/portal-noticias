@@ -5,7 +5,6 @@ const dsn = process.env.NEXT_PUBLIC_SENTRY_DSN;
 if (dsn) {
   try {
     // require dinâmico para não falhar resolve em build sem pacote
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const Sentry = require("@sentry/nextjs");
     Sentry.init({
       dsn,
