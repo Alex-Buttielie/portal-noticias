@@ -57,6 +57,10 @@
 #   RESEND_API_KEY       -> secret (nao e input) chega por `envs:` da action; o
 #                                               bloco do backend/.env tem o
 #                                               fallback "console" para o vazio
+#   NEXT_PUBLIC_ADSENSE_* -> secrets (nao sao input), 5 variaveis opcionais
+#                                               (CLIENT_ID + 4 SLOT_*) chegam por
+#                                               `envs:` da action; vazias ate
+#                                               existir conta AdSense real
 #   environment_name     -> NAO usado por este script (o input so aparece nos
 #                           campos `environment:`/`concurrency:` do proprio YAML)
 #   strict_validate      -> NAO usado por este script (so o `validate.sh` le)
@@ -366,12 +370,30 @@ cd "$APP_DIR/frontend"
 export NPM_CONFIG_CACHE="$HOME/.npm"
 mkdir -p "$NPM_CONFIG_CACHE"
 npm ci --cache "$NPM_CONFIG_CACHE" --prefer-offline
+# Auditoria 2026-10-11: cache incremental do webpack (.next/cache) sobrevive
+# entre deploys (fora do que `npm ci` toca) e acumula referencias de builds
+# anteriores -- inclusive de ANTES de uma troca de dominio. Medido ao vivo:
+# build "Frankenstein" misturando chunks velhos com novos, Server Action ID
+# nao batendo entre client/server, derrubou HOMOLOG (502) sem nenhum erro
+# visivel no passo de deploy que causou. `rm -rf .next` forca build limpo
+# sempre; custa alguns segundos a mais, nao o outage que custou da vez.
+rm -rf .next
 # D-09 (solicitante, 2026-10-08): 1024 em vez de 1536. A VPS tem 3915 MB de RAM
 # com os 3 ambientes + 3 stacks disputando; o kernel ja matou `npm ci` por OOM
 # em 09/09, e um deploy derrubou o ambiente vizinho. Build mais lento, menos pico.
+# ADSENSE (P1-09): as 5 variaveis sao opcionais -- vazias ate o Alex cadastrar
+# a conta real (publisher ID + 4 slots). Sem elas, AdsScript/AdsSlot renderizam
+# null/placeholder inerte (lib/anuncios.ts); com elas, o build embute os IDs
+# reais no bundle do navegador (por isso NEXT_PUBLIC_, e so aqui, nunca em
+# runtime-only: o Next congela o valor no momento do build).
 NODE_OPTIONS="--max-old-space-size=1024" \
   NEXT_PUBLIC_API_BASE_URL="$API_ORIGIN" NEXT_PUBLIC_SITE_URL="$WEB_ORIGIN" \
   API_INTERNAL_URL="http://127.0.0.1:$API_PORT" \
+  NEXT_PUBLIC_ADSENSE_CLIENT_ID="${NEXT_PUBLIC_ADSENSE_CLIENT_ID:-}" \
+  NEXT_PUBLIC_ADSENSE_SLOT_HORIZONTAL="${NEXT_PUBLIC_ADSENSE_SLOT_HORIZONTAL:-}" \
+  NEXT_PUBLIC_ADSENSE_SLOT_RETANGULO="${NEXT_PUBLIC_ADSENSE_SLOT_RETANGULO:-}" \
+  NEXT_PUBLIC_ADSENSE_SLOT_VERTICAL="${NEXT_PUBLIC_ADSENSE_SLOT_VERTICAL:-}" \
+  NEXT_PUBLIC_ADSENSE_SLOT_INFEED="${NEXT_PUBLIC_ADSENSE_SLOT_INFEED:-}" \
   npm run build
 cd "$APP_DIR/backend"
 python3 -m venv .venv 2>/dev/null || true

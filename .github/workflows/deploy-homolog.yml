@@ -1,16 +1,28 @@
 name: Deploy HOMOLOG
 
-# Thin caller — toda a lógica vive em deploy-pm2.yml (reutilizável, PM2+Nginx).
-# PR para main implanta o código do PR em /home/apps/portal-homolog (3102/5102).
+# Thin caller — toda a lógica vive em deploy.yml (reutilizável, Docker/GHCR).
+# PR para main implanta o head do PR em /home/apps/portal-homolog (3102/5102).
 #
-# 2026-10-10: restaurado para PM2 depois de um incidente — o cutover Docker
-# do dev (PR #31/#32) reescreveu o `deploy.yml` reutilizável inteiro para
-# Docker/GHCR e os TRÊS callers continuaram apontando pra ele, então HOMOLOG
-# (que nunca passou pelo cutover de verdade — sem inventário, sem backup,
-# sem migração de dados) ficou um `pull_request` de distância de tentar um
-# `docker compose up` não preparado. `deploy-pm2.yml` é o `deploy.yml` de
-# antes do cutover (script_path: infra/deploy/deploy.sh, inalterado desde
-# então) — a Fase E do plano ainda não chegou em HOMOLOG.
+# 2026-10-11: repontado para Docker depois do cutover real de HOMOLOG (Fase E
+# do plano) — inventário, backup manual fresco, stack Docker em paralelo nas
+# portas de teste, migração de dados validada (797 linhas, host=container) e
+# corte de tráfego para as portas reais, cada etapa com confirmação explícita
+# do solicitante. Antes desta mudança, `deploy-pm2.yml` (o caminho antigo)
+# faria `pm2 start portal-web-homolog/portal-api-homolog` nas MESMAS portas
+# 3102/5102 que os containers Docker já ocupam — ou seja, o primeiro PR a
+# chegar depois do cutover desfaria o cutover silenciosamente, brigando pela
+# porta com os próprios containers. É o mesmo padrão do incidente restaurado
+# em 2026-10-10 (ver histórico acima), só que invertido: lá o ambiente não
+# estava pronto para Docker e o caller apontava pra Docker; aqui o ambiente
+# está pronto e o caller apontava pra PM2.
+#
+# Nota de paridade conhecida: `deploy.yml` não tem equivalente ao gate
+# `usuarios_teste` do `deploy-pm2.yml`/`infra/deploy/deploy.sh` (provisionava
+# uma conta de teste a cada PR para revisão manual em HOMOLOG). Esta troca
+# remove essa provisão automática — não é regressão de segurança (o gate
+# existia para conveniência do revisor, não para proteger produção), mas
+# quem for revisar um PR em homolog precisa criar a conta de teste manualmente
+# até que isso, se necessário, seja portado para o caminho Docker.
 on:
   pull_request:
     branches: [main]
@@ -18,7 +30,7 @@ on:
 
 jobs:
   deploy-homolog:
-    uses: ./.github/workflows/deploy-pm2.yml
+    uses: ./.github/workflows/deploy.yml
     with:
       env_label: HOMOLOG
       environment_name: homolog
@@ -27,25 +39,26 @@ jobs:
       pr_number: ${{ github.event.pull_request.number }}
       # O deploy busca o head do PR; o mesmo SHA é passado ao CI.
       verify_ref: ${{ github.event.pull_request.head.sha }}
-      pm_suffix: homolog
       web_port: "3102"
       api_port: "5102"
       host: homolog.portal-noticias.com
-      # TLS ativado em 2026-10-11: certificado Let's Encrypt emitido e
-      # validado (infra/DEPLOY.md §3A) para homolog.portal-noticias.com.
-      tls_enabled: true
+      # `tls_enabled` não existe em deploy.yml: TLS é sempre automático no
+      # caminho Docker (Caddy/Nginx compartilhado), sem esse input — o
+      # certificado Let's Encrypt emitido em 2026-10-11 (infra/DEPLOY.md
+      # §3A) continua servindo o domínio, só não é mais um flag do workflow.
       db_name: brd_portal_homolog
       db_user: portal_homolog
       strict_validate: true
-      # Gate de usuários de teste — idêntico ao de DEV, pelo mesmo motivo: em
-      # homologação a conta precisa existir para o teste do PR, e não pode
-      # nascer com senha conhecida (esta, ao contrário do localhost, não é
-      # ambiente de uma pessoa só).
-      usuarios_teste: true
     secrets:
       VPS_HOST: ${{ secrets.VPS_HOST }}
       VPS_USER: ${{ secrets.VPS_USER }}
       VPS_PORT: ${{ secrets.VPS_PORT }}
       VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+      VPS_HOST_FINGERPRINT: ${{ secrets.VPS_HOST_FINGERPRINT }}
+      # GHCR (cutover Docker): token de PULL para a VPS, escopo read:packages
+      # — distinto do GITHUB_TOKEN automático que o build-and-push usa pra
+      # PUSH. Obrigatório (sem ele a VPS não faz `docker compose pull`).
+      GHCR_PULL_TOKEN: ${{ secrets.GHCR_PULL_TOKEN }}
+      GHCR_PULL_USER: ${{ secrets.GHCR_PULL_USER }}
       # Resend (P1-04): opcional. Ausente mantém DJANGO_EMAIL_BACKEND=console.
       RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
