@@ -1,14 +1,15 @@
 #!/bin/sh
-# Smoke pos-deploy de UM ambiente (DEV/HOMOLOG/PROD): dois probes HTTP e a
+# Smoke pos-deploy de UM ambiente (HOMOLOG/PROD): dois probes HTTP e a
 # promocao do marker `.deployed-sha`. Executado por
-# `appleboy/ssh-action@v1.2.0` via `script_path: infra/deploy/validate.sh`.
+# `appleboy/ssh-action@v1.2.0` via `script_path: infra/deploy/validate.sh`
+# (`deploy-pm2.yml` so aponta o caminho).
 #
-# ATUALIZACAO (cutover Docker — CI-CD.md): mesma situacao do `deploy.sh`
-# vizinho — o `deploy.yml` desta branch (`cutover-docker-dev`) deixou de ter
-# `script_path` apontando pra aqui, e este arquivo so continua vivo porque
-# `scripts/verificar-gate-usuarios-teste.sh` ainda le ele do disco pra
-# exercer o gate `usuarios_teste` antigo (teste em `xfail` explicito ate o
-# porte pra Docker). Nao apagar antes disso.
+# ATUALIZACAO (cutover Docker, so em DEV — PR #39/CI-CD.md): mesma situacao
+# do `deploy.sh` vizinho — o cutover Docker (PR #31/#32) ficou restrito a
+# DEV, e `deploy-pm2.yml` restaura PM2+Nginx exclusivamente pra HOMOLOG/PROD
+# (incidente: HOMOLOG tinha ficado apontando pro `deploy.yml` Docker sem
+# nunca ter passado pelo cutover de verdade). Em uso ativo, com deploy real
+# verde de HOMOLOG e tag de PROD por este caminho.
 #
 # POR QUE O SHELL SAIU DO WORKFLOW
 # Mesma razao do `deploy.sh` vizinho: o `script:` inline estava no mesmo arquivo

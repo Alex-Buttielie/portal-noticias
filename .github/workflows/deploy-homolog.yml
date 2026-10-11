@@ -42,6 +42,10 @@ jobs:
       web_port: "3102"
       api_port: "5102"
       host: homolog.portal-noticias.com
+      # `tls_enabled` não existe em deploy.yml: TLS é sempre automático no
+      # caminho Docker (Caddy/Nginx compartilhado), sem esse input — o
+      # certificado Let's Encrypt emitido em 2026-10-11 (infra/DEPLOY.md
+      # §3A) continua servindo o domínio, só não é mais um flag do workflow.
       db_name: brd_portal_homolog
       db_user: portal_homolog
       strict_validate: true

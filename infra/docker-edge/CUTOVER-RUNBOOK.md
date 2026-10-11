@@ -1,124 +1,101 @@
-# Runbook: ativação do cutover Docker+GHCR em produção
+# Runbook: ativação do cutover Docker em DEV
 
-> Este runbook existe porque o código do cutover (`cutover-docker-dev`) está
-> pronto, mas a ativação na VPS tem passos manuais que nenhum workflow
-> automatiza hoje — em especial o restore do Postgres dentro do container.
-> Ver o banner no topo de `CI-CD.md` para o estado atual.
+> **Reescrito em 2026-10-11.** A versão anterior deste runbook assumia os 3
+> ambientes (DEV/HOMOLOG/PROD) migrando pra Docker. Isso não é mais o plano:
+> a PR #39 restaurou PM2+Nginx pra HOMOLOG/PROD de vez (`deploy-pm2.yml`,
+> incidente: HOMOLOG tinha ficado um `pull_request` de distância de um
+> `docker compose up` não preparado). **Só DEV vai pra Docker.** Este
+> runbook cobre um ambiente só.
 
-## Ordem obrigatória
+## O que muda nesta versão
 
-**DEV → HOMOLOG → PROD, nunca pular pra PROD primeiro.** Repita a seção
-"Por ambiente" três vezes, uma por ambiente, e só avance pro próximo depois
-de confirmar saúde do anterior por um tempo razoável.
+- **Sem "ordem obrigatória" entre ambientes** — é só DEV.
+- **`infra/docker-edge/` (Caddy compartilhado) não é necessário.** Como
+  HOMOLOG/PROD continuam com Nginx pra sempre, a opção mais simples é manter
+  o Nginx como único ponto de entrada — ele já tem o catch-all `444`
+  (`000-catchall-444`), os security headers e o rate-limit — e só trocar o
+  `proxy_pass`/`upstream` do vhost `portal-dev` de `127.0.0.1:3101`/`5101`
+  (PM2) pra `127.0.0.1:$WEB_PORT`/`$API_PORT` (o container, que o
+  `docker-compose.yml` já publica em loopback). Isso evita reimplementar
+  catch-all/headers num Caddy novo e evita a disputa de portas 80/443 entre
+  Caddy e o Nginx que HOMOLOG/PROD vão usar pra sempre. **Se preferir seguir
+  com o Caddy do `docker-edge/` mesmo assim, me avisa antes de instalar** —
+  a lógica deste runbook muda.
+- **Domínio correto: `portal-noticias.com.br`** (com `.br`). A versão
+  anterior deste runbook e o `infra/docker-edge/README.md` usam `.com` —
+  isso é um erro meu que ainda precisa ser corrigido no README do
+  `docker-edge` (não fiz isso ainda porque esse Caddy deixou de ser
+  necessário pra DEV; só corrigir se alguém for usá-lo de verdade).
+- **TLS: nenhum certificado existe hoje, em nenhum ambiente**
+  (`certbot certificates` → "No certificates found", confirmado na VPS).
+  Não é regressão do cutover — é um estado pré-existente. DEV precisa de
+  DNS correto antes do Certbot conseguir emitir.
 
-## Pré-requisitos (uma vez, antes do primeiro ambiente)
+## Pré-requisitos
 
-### Secrets do GitHub (Environments `dev`/`homolog`/`production`)
+- [x] Secrets `GHCR_PULL_TOKEN`/`GHCR_PULL_USER` + `VPS_HOST/USER/SSH_KEY/PORT`
+  — já existem no GitHub.
+- [x] Docker 29.7.1 + Compose v5.3.1 — já instalados na VPS.
+- [ ] DNS de `dev.portal-noticias.com.br` resolvendo pra VPS — pendente de
+  confirmação (pedi pra rodar a checagem e ainda não recebi o resultado).
+- [ ] Escolher `API_PORT`/`WEB_PORT` do container de DEV sem colidir com o
+  que já está em uso na VPS: HOMOLOG usa 3102/5102, PROD usa 3103/5103,
+  `coordenador` usa 8081-8083. Os defaults do compose (8000/3000) já
+  resolvem isso, mas confirme antes de subir.
+- [ ] Confirmar se DEV tem dado real que precisa ser preservado — os
+  processos `portal-api-dev`/`portal-web-dev` já estavam **parados** antes
+  de eu tocar em qualquer coisa (motivo ainda não confirmado); se DEV não
+  tem tráfego/dado que importa, o passo de restore do Postgres pode ser
+  pulado e o container sobe vazio.
 
-- [ ] `GHCR_PULL_TOKEN` — token com escopo `read:packages` no GHCR
-- [ ] `GHCR_PULL_USER`
-- [ ] Confirmar que `VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY`, `VPS_HOST_FINGERPRINT`,
-  `VPS_PORT` já existem (reaproveitados do pipeline PM2 atual — o
-  `deploy.yml` novo usa os mesmos nomes)
+## Passo a passo (DEV, ambiente único)
 
-### VPS
-
-- [ ] Docker + Docker Compose instalados
-- [ ] DNS dos 4 hosts (`dev.`, `homolog.`, `portal-noticias.com`,
-  `www.portal-noticias.com`) já resolvendo pra VPS (devem estar, já que
-  Nginx serve esses domínios hoje)
-- [ ] Portas 80/443: Nginx ocupa elas hoje. O Caddy único do
-  `infra/docker-edge/` também quer 80/443 — **ver "Caddy compartilhado"
-  abaixo antes de instalar**, porque o README dele assume os 3 ambientes
-  já containerizados, o que não é o caso num corte gradual.
-
-## Por ambiente (repita pra dev, depois homolog, depois prod)
-
-1. **Backup do Postgres atual (PM2).** Rode `infra/backup/pg_backup_pm2.sh`
-   pra esse ambiente (ou use o dump do cron das 03h, se recente o
-   suficiente). Confirme o arquivo `pm2-db-<timestamp>.dump` e valide com
-   `pg_restore --list` antes de seguir — não assuma que o dump prestou só
+1. **Se DEV tiver dado que precisa ser preservado:** backup com
+   `infra/backup/pg_backup_pm2.sh` (ambiente dev) antes de qualquer coisa.
+   Valide o `.dump` com `pg_restore --list`, não assuma que prestou só
    porque o script saiu com código 0.
 
-2. **Primeiro deploy Docker do ambiente.** Dispare o workflow correspondente
-   (`deploy-dev.yml`/`deploy-homolog.yml`/`deploy-prod.yml`). Isso builda a
-   imagem, publica no GHCR e faz `docker compose pull && up -d` na VPS — os
-   containers sobem com um Postgres **vazio** (volume novo). O `.env.production`
-   é criado com placeholders no primeiro run e o deploy avisa se
-   `DJANGO_DB_PASSWORD` não for preenchido (`deploy.yml`, bloco que cria
-   `.env.production`) — preencha antes de seguir.
-
-3. **Restaurar o dump do passo 1 dentro do container.** Siga
-   `infra/backup/RESTORE.md` ("Restaurar o banco de dados") usando o dump do
-   PM2 do passo 1 em vez do dump Docker — o formato (`pg_dump -Fc`) é o
-   mesmo, o restore não diferencia a origem:
+2. **Preencher `.env.production` de DEV** (as portas escolhidas,
+   `DJANGO_DB_PASSWORD`, etc. — o `deploy.yml`/workflow cria um com
+   placeholders no primeiro run, ou crie manualmente) e subir:
    ```bash
-   set -a; source .env.production; set +a
-   docker compose --env-file .env.production up -d db
-   cat pm2-db-<timestamp>.dump | docker compose --env-file .env.production \
-       exec -T db pg_restore -U "$DJANGO_DB_USER" -d "$DJANGO_DB_NAME" \
-       --clean --if-exists --no-owner
-   # confirme números reais, não só "sem erro" (RESTORE.md, passo 4)
    docker compose --env-file .env.production up -d
-   docker compose --env-file .env.production exec -T web python manage.py migrate
    ```
-   **Isto não está automatizado em nenhum script do repo hoje** — é manual,
-   comando por comando, e deve ser testado em DEV antes de confiar nele em
-   HOMOLOG/PROD.
 
-4. **Restaurar mídia** com o mesmo backup, via `RESTORE.md` ("Restaurar
-   mídia de usuário").
+3. **Se houver dump do passo 1:** restaurar dentro do container seguindo
+   `infra/backup/RESTORE.md` ("Restaurar o banco de dados") antes de abrir
+   o tráfego pro Docker — o formato (`pg_dump -Fc`) é o mesmo entre as duas
+   variantes, o restore não diferencia a origem.
 
-5. **Validar saúde** antes de tocar em Nginx/PM2: `/livez`, `/readyz`,
-   `/health-detail` (com e sem token), smoke de `/api/*` — os mesmos
-   critérios que `infra/deploy/validate.sh` já checava na topologia antiga.
+4. **Trocar o roteamento no Nginx** (`/etc/nginx/sites-available/portal-dev`):
+   - `upstream portal_api_dev { server 127.0.0.1:5101; ... }` → porta do
+     container (`$API_PORT`)
+   - `location / { proxy_pass http://127.0.0.1:3101; ... }` → porta do
+     container (`$WEB_PORT`)
+   - `sudo nginx -t && sudo systemctl reload nginx`
 
-6. **Só com saúde confirmada:** apontar o domínio desse ambiente pro Docker.
-   Ver "Caddy compartilhado" abaixo — a forma exata (editar Nginx pra
-   proxy-pass pro Caddy, ou trocar Nginx→Caddy direto nesse domínio) é uma
-   decisão sua, o repo não resolve isso automaticamente hoje.
+5. **Validar saúde**: `/livez`, `/readyz`, `/health-detail` (com e sem
+   token), smoke de `/api/*` — os mesmos critérios que
+   `infra/deploy/validate.sh` já checava na topologia PM2.
 
-7. **Desligar PM2 desse ambiente** (`pm2 delete portal-web-<env>
-   portal-api-<env>; pm2 save`) e remover o vhost Nginx correspondente — só
-   depois de um tempo observando estável, não no mesmo dia da migração.
+6. **PM2 de DEV**: já está parado (`portal-api-dev`/`portal-web-dev`,
+   status `stopped`). Depois de validado o Docker, só falta confirmar que
+   não precisa voltar — não há ação adicional aqui.
 
-## Caddy compartilhado (`infra/docker-edge/`)
+7. **TLS**: depois do DNS confirmado, emitir certificado pro domínio de DEV
+   pelo Certbot normal (mesmo fluxo que HOMOLOG/PROD já usam hoje — nenhuma
+   novidade de Caddy nesta abordagem).
 
-O `README.md` desse diretório documenta instalação **uma vez por VPS**, com
-pré-requisito de que os 3 ambientes já estejam containerizados (ele deriva
-os nomes de volume `static_data`/`media_data` dos 3). Isso não combina
-diretamente com um corte gradual ambiente-por-ambiente: se você instalar o
-Caddy único já apontando pros 3 domínios antes de homolog/prod estarem
-containerizados, as rotas desses dois vão falhar.
+## Rollback
 
-Duas formas de resolver, nenhuma automatizada hoje — escolha uma antes de
-instalar:
+Trocar o `proxy_pass`/`upstream` de volta pra `3101`/`5101` e
+`pm2 start`/`pm2 resurrect portal-api-dev portal-web-dev`, se precisar
+voltar pra PM2. Se o Postgres do container já tiver gravado dados novos
+desde o corte, decida qual lado é fonte de verdade antes de restaurar o
+dump antigo.
 
-- **Atrasar a instalação do Caddy** até os 3 ambientes estarem
-  containerizados (Nginx continua servindo todos os domínios até lá, você
-  só troca Nginx→Caddy pra todos de uma vez no final); ou
-- **Subir o Caddy já no primeiro ambiente** (dev) editando o `Caddyfile` pra
-  conter só o domínio pronto, e ir acrescentando `__DOMAIN_*__` + `docker
-  compose restart caddy` (ou reload) a cada ambiente migrado.
+## O que isso NÃO muda
 
-## Depois dos três ambientes migrados
-
-- [ ] Rotacionar/confirmar `OBSERVABILITY_METRICS_TOKEN` igual nos 4 lugares
-  (3 `backend/.env.production` + `infra/docker-edge/.env` — ver
-  `infra/docker-edge/README.md`, "Rotação do token de observabilidade")
-- [ ] Atualizar o banner de `CI-CD.md`/`infra/DEPLOY.md` (mesma convenção já
-  usada pra outras retiradas: nota no topo da seção, sem apagar o histórico
-  da topologia PM2)
-- [ ] Portar o gate `usuarios_teste`
-  (`backend/identidade/tests/test_gate_deploy_usuarios_teste.py`) pra Docker
-  e destravar o `xfail` — só depois disso remover
-  `infra/deploy/deploy.sh`/`validate.sh` (ver nota no cabeçalho deles)
-
-## Plano de rollback por ambiente
-
-Se o Docker falhar depois do corte desse ambiente: reinstale o vhost Nginx,
-religue o PM2 (`pm2 start`/`pm2 resurrect`, conforme o que foi salvo antes de
-desligar). **Se o Postgres do container já tiver gravado dados novos** desde
-o corte, decida qual lado é a fonte de verdade antes de restaurar o dump
-antigo no host — não é só apontar o domínio de volta, dados gravados só no
-container Docker seriam perdidos.
+`infra/deploy/deploy.sh`/`validate.sh` continuam ativos pra HOMOLOG/PROD
+**pra sempre** (PR #39, comentário corrigido na PR #42) — nada deste
+runbook os afeta, e eles não devem ser removidos.
