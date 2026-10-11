@@ -620,5 +620,31 @@ GUNICORN_TIMEOUT=60 DJANGO_SETTINGS_MODULE=config.settings \
   --interpreter "$APP_DIR/backend/.venv/bin/python" --name "portal-api-$SUF" -- \
   --config "$APP_DIR/backend/gunicorn.conf.py" config.wsgi:application \
   --bind "127.0.0.1:$API_PORT" --chdir "$APP_DIR/backend"
+# Celery worker + beat pelo PM2 (achado 2026-10-11: a VPS reiniciou em
+# 09/10 por atualizacao de kernel e o Celery de PROD -- que rodava sem
+# nenhum supervisor -- morreu e nunca voltou; a ingestao agendada parou
+# silenciosamente, so o disparo manual do admin continuava funcionando.
+# O caminho systemd documentado em CI-CD.md NUNCA rodou em ambiente real
+# (commit 48a4bd8: "nada disso jamais rodou... reconstroi sobre a base
+# que funcionava") -- PM2 e o supervisor ja provado nesta VPS (confirmado
+# sobrevivendo ao reboot de 09/10 via pm2-root.service). Mesmos comandos
+# do docker-compose.yml (servicos celery-worker/celery-beat), so o
+# interpretador vira caminho absoluto da venv -- o PM2 forka um processo
+# novo, nao herda o `. .venv/bin/activate` deste shell.
+# `--cwd` é flag do PM2 (diretório do processo), não de `celery worker` —
+# `celery worker --workdir` não existe nesta versão ("No such option"),
+# só derruba o processo em loop. O `config` precisa ser importável a
+# partir do cwd, por isso o `--cwd` é obrigatório aqui (ao contrário do
+# gunicorn acima, que resolve via `--chdir` do próprio comando).
+DJANGO_SETTINGS_MODULE=config.settings \
+  restart_or_start "portal-celery-worker-$SUF" "$APP_DIR/backend/.venv/bin/celery" \
+  --interpreter "$APP_DIR/backend/.venv/bin/python" --name "portal-celery-worker-$SUF" \
+  --cwd "$APP_DIR/backend" -- \
+  -A config worker --loglevel=info --concurrency=2 --max-tasks-per-child=100
+DJANGO_SETTINGS_MODULE=config.settings \
+  restart_or_start "portal-celery-beat-$SUF" "$APP_DIR/backend/.venv/bin/celery" \
+  --interpreter "$APP_DIR/backend/.venv/bin/python" --name "portal-celery-beat-$SUF" \
+  --cwd "$APP_DIR/backend" -- \
+  -A config beat --loglevel=info
 pm2 save
-echo "=== $LABEL deployed $WEB_PORT(web) $API_PORT(api) ==="
+echo "=== $LABEL deployed $WEB_PORT(web) $API_PORT(api) + celery worker/beat ==="
