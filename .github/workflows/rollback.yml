@@ -1,20 +1,10 @@
 name: Rollback manual do portal
 
-# Recuperação explícita. 2026-10-11: DEV e HOMOLOG são Docker (cutover PR
-# #31/#32 e f92cd6b); PROD continua PM2+Nginx até a Fase E do plano chegar
-# lá. Por isso este workflow bifurca depois do `prepare`: `rollback-docker`
-# roda para `development`/`homolog` (reusa a imagem já publicada no GHCR,
-# sem rebuild); `rollback-pm2` roda só para `production` (fetch do SHA +
-# reset + rebuild pelo caminho `infra/deploy/deploy.sh`, igual ao deploy
-# normal). Nunca os dois no mesmo dispatch — `if:` em cada job garante isso.
-#
-# Achado 2026-10-11: até este commit, `rollback-pm2` também cobria
-# `homolog` (copiado do caller de antes do cutover de homolog) — um
-# `workflow_dispatch` de rollback em homolog tentaria reverter pelo caminho
-# PM2 antigo, que não bate mais com o que `deploy-homolog.yml` implanta de
-# verdade (Docker) desde f92cd6b. Sem repro em produção (rollback é manual,
-# nunca disparou nesse intervalo); achado por inspeção ao preparar o cutover
-# de PROD.
+# Recuperação explícita. DEV, HOMOLOG e PROD são Docker (cutover PR #31/#32,
+# f92cd6b e a Fase E real de PROD — ver deploy-prod.yml). `rollback-pm2`
+# fica só como referência histórica (nenhuma condição `if:` ativa cai nele
+# mais); remover de vez exige confirmar que ninguém depende do caminho PM2
+# como plano B, então por ora o job continua definido, só inatingível.
 on:
   workflow_dispatch:
     inputs:
@@ -130,10 +120,10 @@ jobs:
             printf 'image_tag=%s-%s\n' "$ENVIRONMENT_NAME" "$TARGET_SHA"
           } >> "$GITHUB_OUTPUT"
 
-  # DEV e HOMOLOG — reusa a imagem já publicada no GHCR, sem rebuild.
+  # DEV, HOMOLOG e PROD — reusa a imagem já publicada no GHCR, sem rebuild.
   rollback-docker:
     needs: prepare
-    if: ${{ needs.prepare.result == 'success' && (needs.prepare.outputs.environment_name == 'development' || needs.prepare.outputs.environment_name == 'homolog') }}
+    if: ${{ needs.prepare.result == 'success' && needs.prepare.outputs.environment_name != '' }}
     uses: ./.github/workflows/deploy.yml
     with:
       env_label: ${{ needs.prepare.outputs.env_label }}
@@ -169,7 +159,10 @@ jobs:
   # gated do deploy normal (infra/deploy/deploy.sh).
   rollback-pm2:
     needs: prepare
-    if: ${{ needs.prepare.result == 'success' && needs.prepare.outputs.environment_name == 'production' }}
+    # Inatingível de propósito (ver comentário no topo do arquivo): nenhum
+    # ambiente usa mais este caminho. `if: false` em vez de apagar o job —
+    # mantém o histórico de como o rollback PM2 funcionava, sem rodar.
+    if: false
     uses: ./.github/workflows/deploy-pm2.yml
     with:
       env_label: ${{ needs.prepare.outputs.env_label }}
