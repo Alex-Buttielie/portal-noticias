@@ -353,3 +353,64 @@ script de consentimento de novo (ela não depende do conteúdo do ramo,
 só da existência dos dois padrões literais anteriores).
 
 ---
+
+## Iteração 7 — 2026-10-12 — executor (M-06)
+
+**O que foi feito:**
+Densidade de `<AdsSlot` reduzida em 6 arquivos:
+- `components/HomeClient.tsx`: 10 → 5 (removidos `home-pos-bombando`,
+  `home-pos-regiao`, `home-pos-colunistas`, `home-sidebar-2`,
+  `home-footer`; mantidos `home-topo`, `home-manchetes`, `home-ultimas`,
+  `home-infeed`, `home-sidebar`).
+- `app/noticia/LeituraPremium.tsx`: 3 → 2 (removido `noticia-infeed`;
+  mantidos `noticia-topo` e `noticia-pos` — leitor mais engajado, por
+  indicação do plano).
+- `app/planos/page.tsx`: 1 → 0 (`planos-horizontal` removido, com o
+  import de `AdsSlot` também removido — ficaria não usado).
+- `app/buscar/page.tsx`: 2 → 1 (`buscar-horizontal` removido, mantido
+  `buscar-infeed`).
+- `app/arquivo/page.tsx`: 2 → 1 (`arquivo-horizontal` removido, mantido
+  `arquivo-infeed`).
+- `app/categoria/[slug]/page.tsx`: in-feed passou de "a cada 6 itens"
+  para "a cada 9 itens" (`(i+1)%9===0`, divisor `i/9`, condição do
+  "final" ajustada para `%9!==0`); `categoria-pos` (horizontal)
+  removido; `categoria-topo` mantido.
+
+**Por quê:**
+Critérios de aceite 5/6 (business) e 6 (técnico) do
+implementation-contract.md; excesso de anúncio derruba tempo de leitura
+e RPM por visita (diagnóstico do plano de monetização, M-06).
+
+**Arquivos tocados:** os 6 listados acima.
+
+**Comandos executados / evidência:**
+```
+grep -c "<AdsSlot" components/HomeClient.tsx                    → 5
+grep -c "<AdsSlot" app/noticia/LeituraPremium.tsx                → 2
+grep -c "<AdsSlot" app/planos/page.tsx                           → 0
+grep -c "<AdsSlot" app/buscar/page.tsx                           → 1
+grep -c "<AdsSlot" app/arquivo/page.tsx                          → 1
+grep -c "<AdsSlot" "app/categoria/[slug]/page.tsx"               → 3
+  (categoria-topo + 2 linhas do MESMO grupo conceitual "1 in-feed a
+  cada 9 itens": a instância dentro do loop e a instância "final" fora
+  do loop, para cobrir o resto da divisão — estrutura que já existia
+  antes de M-06, só o divisor mudou de 6 para 9; não há uma 3ª posição
+  nova. O plano descreve essa página como "manter 1 topo e 1 in-feed a
+  cada 9 itens", sem meta numérica de grep — diferente de HomeClient/
+  LeituraPremium/planos, que têm meta exata no critério de aceite 6.)
+
+cd frontend && npm run typecheck → limpo
+npm test → 75 passed, 0 fail (sem teste novo — M-06 é redução de
+  densidade em JSX de página, cobertura automatizada é a contagem de
+  grep documentada acima + build sem erro, conforme o próprio critério
+  de aceite 6 do contrato: "Verificação: grep -c '<AdsSlot' <arquivo>
+  documentado no implementation-history.md; npm run build sem erro")
+node scripts/verificar-consentimento-anuncios.mjs → "P1-09 OK", exit 0
+npm run build → sucesso, todas as rotas, sem erro
+```
+
+**Resultado:**
+Sucesso. Commit `009f17c` —
+`monetizacao(M-06): reduz densidade de AdsSlot nas paginas`.
+
+---
