@@ -95,9 +95,10 @@ export const EmAlta = memo(function EmAlta({ feed, limite, categoriaBuscada }: E
                       <span
                         className="block h-full rounded-full bg-[var(--cor-primaria)]"
                         style={{ width: `${Math.max(6, Math.round((score / maxScore) * 100))}%` }}
+                        suppressHydrationWarning
                       />
                     </span>
-                    <span className="sr-only">relevância {Math.round((score / maxScore) * 100)} por cento</span>
+                    <span className="sr-only" suppressHydrationWarning>relevância {Math.round((score / maxScore) * 100)} por cento</span>
                   </span>
                 </span>
                 <span className="mt-0.5 block truncate text-[11px] text-[var(--cor-texto-suave)]" suppressHydrationWarning>
