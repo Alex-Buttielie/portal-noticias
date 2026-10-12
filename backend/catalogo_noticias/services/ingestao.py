@@ -48,6 +48,12 @@ from .deduplicacao import agrupar_itens_brutos
 
 logger = logging.getLogger(__name__)
 
+#: Teto GLOBAL de itens novos por rodada passados a `agrupar_itens_brutos`
+#: (O(n^2) — ver comentario no ponto de uso). Independente do numero de
+#: fontes configuradas: o teto por fonte (`_MAX_ENTRIES_POR_FETCH`) sozinho
+#: nao limita o TOTAL quando ha muitas fontes.
+_MAX_ITENS_BRUTOS_POR_RODADA = 300
+
 
 def construir_fontes_configuradas() -> list[NewsSourceProvider]:
     from ..models import FonteRobo
@@ -1184,6 +1190,29 @@ def executar_ingestao(
                 itens_novos.append(item)
             itens_por_fonte[nome_fonte] = len(itens_novos)
             todos_itens_brutos.extend(itens_novos)
+
+    # Achado em producao 2026-10-11: `_MAX_ENTRIES_POR_FETCH` (teto POR
+    # FONTE, news_source.py) nao basta sozinho — com ~90 fontes, o total
+    # ainda pode passar de milhares de itens NOVOS numa unica rodada
+    # (sobretudo apos um ciclo de recuperacao de backlog, quando nenhuma
+    # fonte ainda tem nada em `_urls_ja_ingeridas`). `agrupar_itens_brutos`
+    # e O(n^2) — medido localmente: n=850 leva ~8s, n=2000 leva ~45s, e
+    # titulos reais (mais sobreposicao lexical que o benchmark sintetico)
+    # sao mais lentos ainda. Travou os dois processos do worker Celery de
+    # prod por horas antes deste teto. Mantem os primeiros (mesma logica
+    # best-effort do teto por fonte): o resto chega no proximo ciclo, ja
+    # que a fonte ainda nao marcou esses itens como ingeridos.
+    if len(todos_itens_brutos) > _MAX_ITENS_BRUTOS_POR_RODADA:
+        logger.warning(
+            "Lote de itens novos (%d) acima do teto de agrupamento (%d) — "
+            "processando os primeiros %d nesta rodada; o restante sera "
+            "recapturado no proximo ciclo (as fontes ainda nao os marcaram "
+            "como ingeridos).",
+            len(todos_itens_brutos),
+            _MAX_ITENS_BRUTOS_POR_RODADA,
+            _MAX_ITENS_BRUTOS_POR_RODADA,
+        )
+        todos_itens_brutos = todos_itens_brutos[:_MAX_ITENS_BRUTOS_POR_RODADA]
 
     # Finding 3 (code-review-contract.md run 20260902-0727-ingestao-noticias,
     # major): alem dos itens NOVOS deste lote, tambem trazemos os `NewsItem`
