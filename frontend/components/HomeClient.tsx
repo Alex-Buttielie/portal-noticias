@@ -250,7 +250,10 @@ export function HomeClient({
                   <p className="mt-1 line-clamp-2 text-xs font-semibold leading-tight text-[var(--cor-texto)] group-hover:text-[var(--cor-primaria)] motion-safe:transition-colors">
                     {u.titulo}
                   </p>
-                  <p className="flex flex-wrap items-center gap-x-1 text-[11px] capitalize text-[var(--cor-texto-suave)]">
+                  <p
+                    className="flex flex-wrap items-center gap-x-1 text-[11px] capitalize text-[var(--cor-texto-suave)]"
+                    suppressHydrationWarning
+                  >
                     {u.categoria} • {timeAgo(u.timestamp)} <LocalidadeTag entrada={u} className="text-[11px] normal-case" />
                   </p>
                 </div>
