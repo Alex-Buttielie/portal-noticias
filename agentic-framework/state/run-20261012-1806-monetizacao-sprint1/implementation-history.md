@@ -148,3 +148,78 @@ Sucesso. Commit `818d2a6` —
 do incidente da Iteração 2).
 
 ---
+
+## Iteração 4 — 2026-10-12 — executor (M-02)
+
+**O que foi feito:**
+Novo endpoint leve `GET /api/feed/sitemap/`, paginado (`SitemapPagination`,
+500/página, `page_size` até 1000), listando só entradas publicáveis **e**
+indexáveis (resumo próprio não vazio — mesma regra de M-03). Reaproveita
+`services.itens_publicaveis`/`construir_feed_entries` (mesma janela e
+`.only()` do feed de lista — sem N+1 novo) via nova função
+`services.entradas_sitemap()`. `frontend/app/sitemap.ts` agora busca todas
+as páginas desse endpoint e gera `/noticia/<id>` com `lastModified` igual
+ao timestamp real; se a API falhar, o sitemap sai só com as rotas fixas
+(best-effort, não quebra o build nem o runtime). Allowlist de cache de
+borda do nginx (prod/homolog/dev) estendida para incluir `feed/sitemap/`
+na mesma zona/regra já existente (não criei location nova).
+
+**Por quê:**
+Critério de aceite 3 do implementation-contract.md; depende de M-03 já
+estar pronto (não indexar o que não tem resumo) para o sitemap nunca
+anunciar ao Google uma página marcada `noindex`. Restrição de infra
+(§0.1 do plano): host com 3,8 GB de RAM compartilhado — endpoint novo
+precisa ser cacheável e paginado, não N+1.
+
+**Arquivos tocados:**
+- `backend/feed/services.py` — `entradas_sitemap()` (novo).
+- `backend/feed/serializers.py` — `SitemapEntrySerializer` (novo, payload
+  mínimo: `tipo`, `id`, `categoria`, `timestamp`).
+- `backend/feed/views.py` — `SitemapPagination`, `SitemapView` (novo,
+  `AllowAny`, cache por querystring igual às demais listagens).
+- `backend/feed/urls.py` — rota `sitemap/` → `feed-sitemap`.
+- `backend/feed/tests/test_m02_sitemap.py` (novo) — 6 testes: filtra por
+  resumo, exclui não publicável, agrupa cluster em uma entrada, endpoint
+  paginado com só os campos esperados, endpoint exclui sem resumo,
+  `page_size` respeitado.
+- `frontend/lib/api.ts` — `SitemapEntrada`, `SitemapResposta`,
+  `obterSitemapEntradas(page, page_size)`.
+- `frontend/app/sitemap.ts` — pagina o endpoint até `next` ser nulo,
+  gera `/noticia/<id>` com `lastModified` real; try/catch best-effort.
+- `frontend/testes/sitemap.test.mjs` (novo) — 2 testes: pagina até o fim
+  e inclui as notícias com `lastModified` correto; API falhando não
+  quebra o sitemap (só fica sem notícias).
+- `infra/nginx/portal-prod.conf`, `portal-homolog.conf`, `portal-dev.conf`
+  — `sitemap` acrescentado à allowlist de cache de borda já existente
+  (regex `^/api/(feed/$|feed/(...|sitemap|...)/$|...)`) e ao comentário
+  que documenta as rotas cobertas.
+
+**Comandos executados / evidência:**
+```
+cd backend && DJANGO_DEBUG=true <venv do checkout principal>/bin/python -m pytest feed/ -q
+→ 62 passed (56 anteriores de M-01 + 6 novos de M-02)
+
+cd frontend && npm run typecheck → limpo
+npm test → 64 passed (62 de M-03 + 2 novos de M-02)
+npm run build → sucesso, /sitemap.xml gerado estaticamente, nenhuma rota quebrada
+```
+Nota de ambiente: o worktree não tem `.venv` próprio em
+`backend/`; usei o venv do checkout principal
+(`/home/alex-buttielie/repositorios/portal-noticias/backend/.venv`), já
+que o próprio `backend/` (código) é compartilhado via worktree do mesmo
+repositório — só o ambiente Python não é duplicado por worktree. `git -C
+<worktree>` continuou funcionando normalmente.
+
+**Resultado:**
+Sucesso. Commit `12e5d83` —
+`monetizacao(M-02): sitemap lista noticias publicaveis e indexaveis`.
+
+**Notas:**
+Não criei `generateSitemaps` (múltiplos sitemaps): o volume atual está
+bem abaixo do limite de 50 mil URLs por sitemap do Next, e o plano só
+pede isso "se passar de 50 mil URLs" — fora do escopo até isso acontecer.
+Não adicionei `/autor/*`/`/editorias/*` ao sitemap (o plano cita como
+"considerar", não como critério de aceite) — fica como nota para decisão
+futura, não expandi o escopo unilateralmente.
+
+---
