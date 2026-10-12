@@ -19,6 +19,7 @@ são sempre mockados/dublês.
 
 from __future__ import annotations
 
+import logging
 from datetime import timedelta
 from difflib import SequenceMatcher
 from unittest.mock import MagicMock, patch
@@ -139,6 +140,38 @@ class TestAC1ResilienciaDeFontes:
         with patch("catalogo_noticias.providers.news_source.SessaoEgress.get", return_value=resposta):
             with pytest.raises(FonteIndisponivelError):
                 provider.buscar_itens()
+
+    def test_feed_com_centenas_de_entries_e_cortado_no_teto(self):
+        """
+        Achado em produção 2026-10-11: `feed.entries` nunca era limitado —
+        uma fonte sem teto (ex.: agregador com centenas de itens no XML)
+        alimentava `agrupar_itens_brutos` (O(n²)) com um lote gigante e
+        travou os dois processos do worker Celery de prod por ~5h. Prova que
+        `buscar_itens()` corta em `_MAX_ENTRIES_POR_FETCH`, mantendo os
+        PRIMEIROS da ordem do feed (convenção: mais recentes primeiro).
+        """
+        from catalogo_noticias.providers.news_source import _MAX_ENTRIES_POR_FETCH
+
+        total_no_feed = _MAX_ENTRIES_POR_FETCH + 25
+        itens_xml = "".join(
+            f"<item><title>Item {i}</title><link>https://fonte/item-{i}</link>"
+            f"<description>Resumo {i}</description></item>"
+            for i in range(total_no_feed)
+        )
+        corpo = (
+            "<?xml version=\"1.0\"?><rss version=\"2.0\"><channel><title>Feed</title>"
+            f"{itens_xml}</channel></rss>"
+        ).encode("utf-8")
+        provider = RSSNewsSourceProvider(nome_fonte="Agregador", url_feed="https://agregador/feed")
+        resposta = MagicMock()
+        resposta.raise_for_status.side_effect = None
+        resposta.content = corpo
+        resposta.headers = {}
+        with patch("catalogo_noticias.providers.news_source.SessaoEgress.get", return_value=resposta):
+            itens = provider.buscar_itens()
+        assert len(itens) == _MAX_ENTRIES_POR_FETCH
+        assert itens[0].titulo == "Item 0"
+        assert itens[-1].titulo == f"Item {_MAX_ENTRIES_POR_FETCH - 1}"
 
     def test_pipeline_completo_com_4_fontes_uma_falhando_por_timeout_real(self):
         """
@@ -1952,3 +1985,37 @@ class TestFonteRegionalUF:
         assert s.validate_estado_padrao("") == ""
         with pytest.raises(Exception):
             s.validate_estado_padrao("GOIAS")
+
+
+class TestIncidenteLoteSemTetoTravaAgrupamento:
+    """
+    Achado em produção 2026-10-11: o teto por fonte (`_MAX_ENTRIES_POR_FETCH`,
+    `providers/news_source.py`) sozinho não basta — com muitas fontes, o
+    TOTAL de itens novos numa rodada ainda pode passar de milhares,
+    alimentando `agrupar_itens_brutos` (O(n²)) com um lote grande o
+    suficiente pra travar o worker por horas. Prova que `executar_ingestao`
+    corta o lote combinado em `_MAX_ITENS_BRUTOS_POR_RODADA`, independente
+    de quantas fontes contribuíram.
+    """
+
+    def test_lote_combinado_acima_do_teto_e_cortado_e_logado(self, caplog):
+        from catalogo_noticias.services.ingestao import _MAX_ITENS_BRUTOS_POR_RODADA
+
+        total_no_lote = _MAX_ITENS_BRUTOS_POR_RODADA + 50
+        itens = [
+            _item(f"Notícia número {i} sobre um acontecimento qualquer", "Fonte Única", f"https://fonte/item-{i}")
+            for i in range(total_no_lote)
+        ]
+        fontes = [FonteDeTeste("Fonte Única", itens=itens)]
+
+        with caplog.at_level(logging.WARNING, logger="catalogo_noticias.services.ingestao"):
+            registro = executar_ingestao(fontes=fontes, summarization_provider=ProviderResumoGenuino())
+
+        assert registro.itens_por_fonte["Fonte Única"] == total_no_lote
+        # O corte e no AGRUPAMENTO, nao na contagem "itens_por_fonte" (que
+        # reflete o que a fonte entregou) — o que importa pra esta prova e
+        # quantos de fato viraram NewsItem persistido nesta rodada.
+        assert NewsItem.objects.count() == _MAX_ITENS_BRUTOS_POR_RODADA
+        assert any(
+            "acima do teto de agrupamento" in registro_log.message for registro_log in caplog.records
+        )

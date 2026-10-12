@@ -137,15 +137,53 @@ falsos-positivos documentados, credenciamento, moderação, gating). O que
 estava genuinamente ausente — e que esta seção define — é a **arquitetura
 de infraestrutura de produção**, que antes desta mudança não existia.
 
-### 9.2 Topologia ativa (self-hosted, VPS única com PM2 + Nginx)
+### 9.2 Topologia ativa: Docker Compose + GHCR + Caddy
 
-> **Cutover Docker em preparação, não ativo na VPS.** Os workflows e o
-> `docker-compose.yml` já foram reescritos para build+push das imagens no
-> GHCR e `docker compose pull && up -d` na VPS, com `web`/`frontend`
-> publicando só em loopback e um Caddy único compartilhado
-> (`infra/docker-edge/`) substituindo o Nginx e o PM2 por completo — mas
-> sem execução real na VPS ainda (mesma nota em `CI-CD.md`, após o
-> diagrama do pipeline). A topologia descrita abaixo é a que roda de fato.
+> **Cutover concluído em 2026-10-11.** DEV, HOMOLOG e PROD rodam hoje em
+> Docker Compose, com imagens publicadas no GHCR a cada deploy e TLS
+> automático via Caddy. A topologia PM2 + Nginx descrita no restante desta
+> seção (preservada abaixo) rodou de verdade em produção até essa data e
+> agora é histórico — mantida como fallback (PM2 parado, não removido).
+
+A cada deploy, o GitHub Actions builda e publica as imagens em
+`ghcr.io/alex-buttielie/portal-noticias-{backend,frontend}:<ambiente>-<sha>`,
+e a VPS só executa `docker compose pull && up -d --remove-orphans` — sem SSH
+fazendo pip/npm/venv/migrate manual (tudo roda dentro do container `web`, via
+`backend/docker-entrypoint.sh`, a cada start). Cada ambiente sobe 6 serviços
+pelo `docker-compose.yml` da raiz: `db` (PostgreSQL, volume próprio),
+`redis`, `web` (Gunicorn/Django), `celery-worker`, `celery-beat` e `frontend`
+(Next.js). Um Caddy único, compartilhado pelos três ambientes
+(`infra/docker-edge/`), termina TLS automaticamente (emissão e renovação sem
+intervenção manual) e substitui Nginx + Certbot.
+
+```
+Internet → Caddy compartilhado (infra/docker-edge/; TLS automático, 3 ambientes)
+              → frontend (container Next.js)
+              → web (container Gunicorn/Django, /api/)
+                    → redis (container; cache + broker/result do Celery)
+                    → db (container PostgreSQL; dados transacionais, backup off-VPS)
+              → celery-worker + celery-beat (containers; ingestão, e-mails, vencimentos)
+```
+
+O estado do worker/beat **não** é deduzido de "processo no ar": o beat
+despacha a task `config.tasks.heartbeat_beat` (chave
+`portal-heartbeat-beat` do `CELERY_BEAT_SCHEDULE`) e um worker a executa
+gravando o instante em `PORTAL_FILAS_ESTADO_DIR`. `manage.py saude_filas`
+mede fila, worker, heartbeat e último ciclo e devolve `ok` (0), `degradado`
+(1) ou `desconhecido` (3) — nunca `ok` sem ter verificado tudo. Ver
+`README.md` (seção "Saúde das filas") e `infra/filas/PROVISIONAMENTO.md`
+(o que ainda depende de provisionamento humano, P0-07).
+
+O runbook completo da topologia ativa (provisionamento, backup, deploy de
+nova versão) está em `infra/DEPLOY.md`. Confirmado ao vivo em produção: 6
+containers saudáveis, `https://portal-noticias.com` respondendo 200 pelo
+domínio real, zero erro novo nos logs.
+
+#### [HISTÓRICO — substituído em 2026-10-11] Topologia anterior: PM2 + Nginx
+
+> Texto original preservado abaixo. Esta topologia rodou de verdade em
+> produção, homolog e dev até o cutover de 2026-10-11; permanece aqui para
+> quem precisar operar o fallback PM2 (parado, não removido).
 
 A topologia de produção usa **PM2 + Nginx** na VPS para web e API, e
 **systemd** para o que não é um servidor HTTP (Celery worker/beat, coletor
@@ -173,11 +211,11 @@ mede fila, worker, heartbeat e último ciclo e devolve `ok` (0), `degradado`
 `README.md` (seção "Saúde das filas") e `infra/filas/PROVISIONAMENTO.md`
 (o que ainda depende de provisionamento humano, P0-07).
 
-O deploy ativo é feito pelos workflows em `.github/workflows/` para as
+O deploy ativo era feito pelos workflows em `.github/workflows/` para as
 aplicações PM2 e pelos sites em `infra/nginx/`; `docker compose --env-file
-.env.production up -d --build` e o `Caddyfile` descrevem somente a variante
-alternativa Docker/Caddy. O runbook da topologia ativa e a ativação de TLS
-estão em `infra/DEPLOY.md`.
+.env.production up -d --build` e o `Caddyfile` descreviam somente a variante
+alternativa Docker/Caddy (hoje é o inverso: Docker é o caminho ativo, e o
+runbook PM2 em `infra/DEPLOY.md` está marcado como histórico).
 
 ### 9.3 Como cada requisito foi endereçado
 
@@ -185,9 +223,9 @@ estão em `infra/DEPLOY.md`.
 |---|---|
 | **Custo** | Self-hosted numa VPS já paga; Cloudflare (opcional; CDN/WAF/DDoS) e Sentry/UptimeRobot (opcionais, nos tiers gratuitos); mídia em disco local (não S3) até o volume justificar migração; chamadas ao LLM em lote com teto de tokens (já existente) + teto de gasto diário aplicado de fato: quando o gasto estimado do dia corrente ultrapassa `CATALOGO_NOTICIAS_LLM_TETO_GASTO_DIARIO_USD` (ver `config/settings.py`), a ingestão para de chamar o provedor de LLM pelo restante do dia e os itens novos caem na fila de revisão humana já existente — a ingestão em si nunca é interrompida (`catalogo_noticias/services/orcamento.py`). |
 | **Performance** | Cache Redis de aplicação (`CACHES` em `config/settings.py`, inexistente antes desta mudança); cache de borda opcional via Cloudflare para conteúdo público, quando essa camada for ativada; WhiteNoise comprimido para estático; `CONN_MAX_AGE` para reuso de conexão com o Postgres. Na ingestão RSS, validators HTTP persistidos (`ETag`/`Last-Modified`) permitem respostas 304 sem download nem parse; a reconciliação sem headers a cada 6 horas protege contra 304 falso ou perda local. |
-| **Segurança** | Settings de produção reais (HSTS, cookies seguros, `SECURE_PROXY_SSL_HEADER`, `X_FRAME_OPTIONS`); trava que impede rodar com SQLite ou `SECRET_KEY` fraca quando `DEBUG=False`; firewall (ufw) + fail2ban + atualizações automáticas na VPS (`infra/DEPLOY.md`); na topologia ativa, o Nginx é o reverse proxy público e Redis/PostgreSQL permanecem serviços internos; containers rodando com usuário não-root e rede Docker isolada são exigências da variante alternativa, não da esteira PM2 ativa. |
-| **Confiabilidade** | Healthcheck real (`/healthz`, checa conectividade com o banco) usado pelo Nginx (healthz HTTP somente em loopback e healthz HTTPS público) e por um monitor de uptime externo via HTTPS; o healthcheck Docker/Caddy pertence à variante alternativa; CI (`.github/workflows/ci.yml`) roda a suíte completa antes de qualquer deploy; Sentry opcional para captura de erro em produção (mitiga a lacuna de validação registrada durante a implementação inicial). |
-| **Persistência dos dados** | Backup diário automatizado (Postgres + mídia) enviado para storage externo compatível com S3; na topologia PM2, usar `infra/backup/pg_backup_pm2.sh` e o procedimento de restore correspondente; `pg_backup.sh`/`infra/backup/RESTORE.md` documentam a variante Docker/Caddy. Volume local sozinho não é backup. |
+| **Segurança** | Settings de produção reais (HSTS, cookies seguros, `SECURE_PROXY_SSL_HEADER`, `X_FRAME_OPTIONS`); trava que impede rodar com SQLite ou `SECRET_KEY` fraca quando `DEBUG=False`; firewall (ufw) + fail2ban + atualizações automáticas na VPS (`infra/DEPLOY.md`); na topologia ativa, o Caddy compartilhado é o reverse proxy público e Redis/PostgreSQL rodam em containers só na rede interna do Docker (`internal`), nunca publicados no host; os containers do `web`/`celery-*`/`frontend` rodam com usuário não-root. |
+| **Confiabilidade** | Healthcheck real (`/healthz`, checa conectividade com o banco) usado pelo Caddy e pelo próprio `healthcheck:` do `docker-compose.yml`, e por um monitor de uptime externo via HTTPS; CI (`.github/workflows/ci.yml`) roda a suíte completa antes de qualquer deploy; Sentry opcional para captura de erro em produção (mitiga a lacuna de validação registrada durante a implementação inicial). |
+| **Persistência dos dados** | Backup diário automatizado (Postgres + mídia) enviado para storage externo compatível com S3 via `infra/backup/pg_backup.sh` (variante Docker, ativa) e o procedimento de restore em `infra/backup/RESTORE.md`; `pg_backup_pm2.sh` é o script equivalente da topologia PM2 histórica, mantido para o fallback. Volume local sozinho não é backup. |
 
 ### 9.4 Limites conscientes (não overengineering)
 

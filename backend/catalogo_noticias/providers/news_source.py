@@ -128,6 +128,18 @@ _LIMITE_PAIS = 100
 _LIMITE_IMAGEM_URL = 1000
 _TETO_CONTEUDO_BRUTO = 20_000
 
+# Achado em produção 2026-10-11: `feed.entries` nunca era limitado — um
+# ciclo de 15 min que falha em persistir (por qualquer motivo) reprocessa o
+# MESMO backlog não reduzido na tentativa seguinte, e cada fonte sem teto
+# pode devolver dezenas/centenas de entries. Com ~90 fontes configuradas,
+# isso alimenta `agrupar_itens_brutos` (O(n²), ver
+# `services/deduplicacao.py`) com milhares de itens numa única rodada —
+# baixou os dois processos do worker Celery de prod por ~5h (CPU-bound,
+# sem I/O, por isso nenhum `timeout=` de rede pega). Um poll de 15 min não
+# tem motivo legítimo para processar mais que os itens mais recentes de
+# cada fonte; o resto chega nos ciclos seguintes de qualquer forma.
+_MAX_ENTRIES_POR_FETCH = 50
+
 
 def _limitar_url(url: str, nome_fonte: str) -> str:
     """URL acima do `max_length` e um item INUTILIZAVEL, nao um item para
@@ -510,7 +522,10 @@ class RSSNewsSourceProvider(NewsSourceProvider):
             )
 
         itens: list[ItemBruto] = []
-        for entrada in feed.entries:
+        # Feeds já vêm ordenados do mais novo pro mais antigo por convenção
+        # (a maioria dos geradores de RSS/Atom respeita isso); fatiar aqui
+        # mantém os itens mais recentes, não um corte arbitrário.
+        for entrada in feed.entries[:_MAX_ENTRIES_POR_FETCH]:
             url_item = getattr(entrada, "link", "") or ""
             titulo_item = getattr(entrada, "title", "") or ""
             if not url_item or not titulo_item:

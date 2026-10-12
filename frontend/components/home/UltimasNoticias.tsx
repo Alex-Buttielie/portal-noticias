@@ -165,7 +165,7 @@ export const UltimasNoticias = memo(function UltimasNoticias({ inicial, limite, 
                     <time dateTime={n.timestamp} className="text-sm font-bold tabular-nums text-[var(--cor-texto)]">
                       {formatarHora(n.timestamp)}
                     </time>
-                    <span className="mt-0.5 text-[10px] text-[var(--cor-texto-suave)]">{timeAgo(n.timestamp)}</span>
+                    <span className="mt-0.5 text-[10px] text-[var(--cor-texto-suave)]" suppressHydrationWarning>{timeAgo(n.timestamp)}</span>
                   </span>
                   <ImagemNoticia src={n.imagem_url} seed={`${n.categoria || "geral"}-${n.id}`} alt="" sizes="96px" className="h-12 w-16 shrink-0 rounded-md border border-[var(--cor-borda)] object-cover" />
                   <span className="min-w-0 flex-1">

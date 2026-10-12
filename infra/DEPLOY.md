@@ -1,5 +1,12 @@
 # Deploy na VPS — passo a passo
 
+> **[HISTÓRICO — substituído em 2026-10-11]** O bloco original abaixo
+> (preservado) descrevia o momento em que PM2 + Nginx ainda era o caminho
+> ativo na VPS e o cutover Docker estava pronto no código mas não aplicado.
+> Isso mudou: o cutover foi **concluído de verdade** em DEV, HOMOLOG e PROD
+> em 2026-10-11 (ver bloco "Caminho ativo hoje" logo abaixo, que é o estado
+> atual).
+>
 > **Caminho ativo na VPS hoje: PM2 + Nginx** (ver `CI-CD.md`) —
 > `/home/apps/portal-{dev,homolog,prod}`, portas 310x/510x, secrets
 > `VPS_HOST/USER/PASSWORD/PORT`. O deploy de produção sai da tag `v*` via
@@ -24,6 +31,24 @@
 > de infra (`docker-compose.yml` + `Caddyfile` na raiz do projeto). Faça uma
 > vez por VPS; deploys seguintes usam só a seção "Deploy de uma nova versão".
 
+> **Caminho ativo hoje (2026-10-11): Docker Compose + GHCR + Caddy.** O
+> cutover foi concluído em DEV, HOMOLOG e PROD. A cada deploy, o GitHub
+> Actions builda e publica as imagens em
+> `ghcr.io/alex-buttielie/portal-noticias-{backend,frontend}:<ambiente>-<sha>`
+> e a VPS só roda `docker compose pull && up -d --remove-orphans` — sem SSH
+> fazendo pip/npm/venv/migrate manual (tudo roda dentro do container `web`
+> via `backend/docker-entrypoint.sh`). Cada ambiente sobe 6 serviços pelo
+> `docker-compose.yml` da raiz: `db` (Postgres), `redis`, `web`,
+> `celery-worker`, `celery-beat` e `frontend`. TLS é automático via um Caddy
+> único compartilhado pelos três ambientes (`infra/docker-edge/`),
+> substituindo Nginx + Certbot — não há mais emissão/renovação manual de
+> certificado. Confirmado ao vivo em produção: 6 containers saudáveis,
+> `https://portal-noticias.com` respondendo 200 pelo domínio real, zero erro
+> novo nos logs; o PM2 de produção foi parado, não removido (fallback por um
+> período de observação). As seções abaixo marcadas **[HISTÓRICO]** (seção 0
+> e a seção 3A de TLS manual via Certbot) descrevem a topologia PM2 + Nginx
+> anterior; permanecem no documento para quem precisar operar o fallback.
+
 ## Atenção: limpeza manual de uma instância legada de ingestão
 
 A remoção do `ingestao-service/` (FastAPI/Mongo) do código versionado não
@@ -44,7 +69,16 @@ remove volumes de uma VPS. O operador deve tratar cada ambiente separadamente:
 Esta é uma etapa humana posterior ao deploy; a remoção do código no repositório
 não deve ser interpretada como prova de que a VPS foi limpa.
 
-## 0. Operação da topologia ATIVA — PostgreSQL do host + PM2 + Nginx
+## 0. Operação da topologia PM2 + Nginx [HISTÓRICO]
+
+> **[HISTÓRICO — substituído em 2026-10-11]** Esta seção descreve a
+> operação real (backup, paths, permissões) da topologia PM2 + Nginx com
+> PostgreSQL no host, que rodou de verdade em produção até o cutover de
+> 2026-10-11. Hoje o Postgres roda no serviço `db` do `docker-compose.yml`
+> (volume `postgres_data`), e o backup diário é feito por
+> `infra/backup/pg_backup.sh` (variante Docker), não mais por
+> `pg_backup_pm2.sh`. Texto original preservado abaixo para quem precisar
+> operar o fallback PM2.
 
 Esta seção prevalece sobre qualquer comando Docker/Caddy das seções seguintes.
 Os paths foram confirmados no deploy e no Django: o arquivo de ambiente é
@@ -357,7 +391,17 @@ Backup do estado anterior a esta instalação:
 `/root/nginx-backup-20260924-165515/` (`nginx.conf`, `sites-available`,
 `sites-enabled`).
 
-## 3A. Ativando TLS (PM2 + Nginx)
+## 3A. Ativando TLS (PM2 + Nginx) [HISTÓRICO]
+
+> **[HISTÓRICO — substituído em 2026-10-11]** Esta seção descreve a
+> ativação manual de TLS via Certbot/Let's Encrypt (`certonly --webroot`)
+> para a topologia PM2 + Nginx, que rodou de verdade em produção até o
+> cutover de 2026-10-11. Hoje o TLS é automático: um Caddy único
+> compartilhado pelos três ambientes (`infra/docker-edge/`) emite e renova
+> o certificado sozinho, sem `certbot`, sem timer de renovação manual e sem
+> os três domínios/placeholders abaixo precisarem ser preenchidos à mão —
+> ver `infra/docker-edge/README.md`. Texto original preservado abaixo para
+> quem precisar operar o fallback PM2.
 
 Esta seção é o caminho da topologia ativa. **A emissão e o reload são ações
 humanas na VPS**; o repositório apenas deixa a configuração preparada. A
@@ -962,17 +1006,25 @@ stack na mesma VPS com domínios e portas diferentes, usando o override
 `docker-compose.homolog.yml` na raiz do projeto.
 
 ```bash
-cp .env.production.example .env.homolog
-# edite .env.homolog: DOMAIN_API=homolog-api.seu-dominio.com,
+cp .env.production.example .env.production
+# edite .env.production: DOMAIN_API=homolog-api.seu-dominio.com,
 # DOMAIN_FRONTEND=homolog.seu-dominio.com, senha do Postgres DIFERENTE
 # da produção, SECRET_KEY diferente.
-chmod 600 .env.homolog
-docker compose --env-file .env.homolog -f docker-compose.yml \
+chmod 600 .env.production
+docker compose --env-file .env.production -f docker-compose.yml \
   -f docker-compose.homolog.yml up -d --build
 ```
 
 Notas:
 
+- Use `.env.production` mesmo em homolog (não `.env.homolog`): cada
+  serviço no `docker-compose.yml` base tem `env_file: - path:
+  .env.production` hardcoded, com `required: false`. Se o arquivo se
+  chamar `.env.homolog`, o Compose não reclama, mas nenhuma variável é
+  carregada no container — o Django sobe com `DJANGO_SECRET_KEY` vazio e,
+  com `DEBUG=False`, trava em `ImproperlyConfigured`. O isolamento entre
+  ambientes já vem do diretório próprio de cada um na VPS, então não há
+  risco de um `.env.production` de homolog colidir com o de produção.
 - O override publica 8080/8443 no host para conviver com a produção
   (80/443) na mesma VPS — aponte os DNS de homolog para o mesmo IP e, se
   houver Cloudflare na frente, crie os registros `homolog*` com proxy

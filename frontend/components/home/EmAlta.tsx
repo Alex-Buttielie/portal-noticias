@@ -68,6 +68,7 @@ export const EmAlta = memo(function EmAlta({ feed, limite, categoriaBuscada }: E
             <Link
               href={`/noticia/${entrada.id}`}
               title={`Score ${score} — ${explicarScoreEmAlta(entrada, sinais)}`}
+              suppressHydrationWarning
               className="group flex gap-3 py-2.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cor-foco)] rounded-md"
             >
               <span
@@ -85,7 +86,7 @@ export const EmAlta = memo(function EmAlta({ feed, limite, categoriaBuscada }: E
                 </span>
                 <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-[var(--cor-texto-suave)]">
                   <span className="capitalize">{entrada.categoria || "geral"}</span>
-                  <span>• {timeAgo(entrada.timestamp)}</span>
+                  <span suppressHydrationWarning>• {timeAgo(entrada.timestamp)}</span>
                   <span className="inline-flex items-center gap-1">
                     <span
                       aria-hidden
@@ -94,12 +95,13 @@ export const EmAlta = memo(function EmAlta({ feed, limite, categoriaBuscada }: E
                       <span
                         className="block h-full rounded-full bg-[var(--cor-primaria)]"
                         style={{ width: `${Math.max(6, Math.round((score / maxScore) * 100))}%` }}
+                        suppressHydrationWarning
                       />
                     </span>
-                    <span className="sr-only">relevância {Math.round((score / maxScore) * 100)} por cento</span>
+                    <span className="sr-only" suppressHydrationWarning>relevância {Math.round((score / maxScore) * 100)} por cento</span>
                   </span>
                 </span>
-                <span className="mt-0.5 block truncate text-[11px] text-[var(--cor-texto-suave)]">
+                <span className="mt-0.5 block truncate text-[11px] text-[var(--cor-texto-suave)]" suppressHydrationWarning>
                   {explicarScoreEmAlta(entrada, sinais)}
                 </span>
               </span>

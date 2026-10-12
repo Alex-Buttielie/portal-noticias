@@ -296,8 +296,19 @@ def _truncar_campo(instancia, campo: str) -> None:
 
 def _descartar_campo(instancia, campo: str) -> None:
     """Zera um campo acessorio cujo valor truncado seria pior que a ausencia
-    dele (URL de imagem cortada aponta para recurso inexistente)."""
-    if getattr(instancia, campo, "") or "":
+    dele (URL de imagem cortada aponta para recurso inexistente).
+
+    Achado em producao 2026-10-12: faltava o `len(...) > teto` — a versao
+    anterior zerava QUALQUER valor nao vazio, exceda ou nao o limite (sempre
+    zerava, na pratica). `imagem_url` e o unico campo em `CAMPOS_DESCARTAVEIS`
+    hoje; o resultado foi nenhuma materia ingerida ter imagem, silenciosamente
+    (sem excecao, sem log — o campo so ficava vazio). So fica visivel em
+    volume quando a ingestao volta a rodar de verdade; com execucoes
+    esporadicas/isoladas de teste o efeito passa despercebido.
+    """
+    teto = limite_de(type(instancia), campo)
+    valor = getattr(instancia, campo, "") or ""
+    if len(str(valor)) > teto:
         setattr(instancia, campo, "")
 
 

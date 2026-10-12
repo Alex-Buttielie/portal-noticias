@@ -54,8 +54,11 @@ export function HomeClient({
 }) {
   const { usuario } = useAuth();
   const isPremium = usuario?.papel === "premium" || usuario?.papel === "admin";
-  const { liberado } = usePremiumAtivo();
-  const premiumGeral = isPremium || liberado;
+  const { ativo } = usePremiumAtivo();
+  // Guarda externa dos slots (otimização): mesma regra do AdsSlot —
+  // `isPremium || ativo === null`. Não usa `liberado` para não esconder
+  // anúncios com a flag global OFF (feat/adsense-ativar-dev).
+  const premiumGeral = isPremium || ativo === null;
   const [filtro, setFiltro] = useState<string | null>(null);
   const [salvos, setSalvos] = useState<Set<string>>(new Set());
   const [leiturasTick, setLeiturasTick] = useState(0);
@@ -250,7 +253,10 @@ export function HomeClient({
                   <p className="mt-1 line-clamp-2 text-xs font-semibold leading-tight text-[var(--cor-texto)] group-hover:text-[var(--cor-primaria)] motion-safe:transition-colors">
                     {u.titulo}
                   </p>
-                  <p className="flex flex-wrap items-center gap-x-1 text-[11px] capitalize text-[var(--cor-texto-suave)]">
+                  <p
+                    className="flex flex-wrap items-center gap-x-1 text-[11px] capitalize text-[var(--cor-texto-suave)]"
+                    suppressHydrationWarning
+                  >
                     {u.categoria} • {timeAgo(u.timestamp)} <LocalidadeTag entrada={u} className="text-[11px] normal-case" />
                   </p>
                 </div>

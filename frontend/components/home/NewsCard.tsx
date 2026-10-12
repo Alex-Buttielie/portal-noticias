@@ -60,7 +60,11 @@ export function MetaLinha({ entrada, mostrarFontes = true }: { entrada: FeedEntr
         {entrada.categoria || "geral"}
       </Link>
       <LocalidadeTag entrada={entrada} />
-      <time dateTime={entrada.timestamp} title={formatarDataHora(entrada.timestamp)}>
+      <time
+        dateTime={entrada.timestamp}
+        title={formatarDataHora(entrada.timestamp)}
+        suppressHydrationWarning
+      >
         {formatarDataHora(entrada.timestamp)} ({timeAgo(entrada.timestamp)})
       </time>
       {mostrarFontes && <span aria-label={`${entrada.numero_fontes} fontes`}>• {entrada.numero_fontes} {entrada.numero_fontes === 1 ? "fonte" : "fontes"}</span>}

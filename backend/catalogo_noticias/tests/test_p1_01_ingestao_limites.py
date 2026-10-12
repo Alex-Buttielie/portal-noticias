@@ -868,6 +868,30 @@ def test_imagem_url_acima_do_limite_e_descartada_pelo_provider(caplog):
     )
 
 
+def test_regressao_imagem_url_dentro_do_limite_sobrevive_ate_a_persistencia():
+    """REGRESSAO (achada em producao 2026-10-12): `limites._descartar_campo`
+    zerava `imagem_url` sempre que tinha QUALQUER valor, nao so quando
+    excedia o teto — na pratica, toda materia ingerida entrava sem imagem,
+    silenciosamente (sem excecao, sem log). So ficou visivel em volume
+    quando a ingestao voltou a processar de verdade (nenhum teste cobria o
+    caminho "imagem valida, dentro do limite, sobrevive ate o banco" —
+    so havia cobertura do caminho "acima do limite e descartada", acima).
+    Roda o pipeline de ponta a ponta (nao so `limites.limitar_textos`
+    isolado) para provar que o dado chega intacto no `NewsItem` persistido.
+    """
+    fontes = [
+        _Fonte(
+            "Fonte Boa",
+            [_item(url="https://fonte.test/com-imagem", imagem_url="https://fonte.test/foto.jpg")],
+        )
+    ]
+
+    _rodar(fontes)
+
+    item = NewsItem.objects.get()
+    assert item.imagem_url == "https://fonte.test/foto.jpg"
+
+
 def test_html_e_entidades_do_rss_viram_texto_no_provider(caplog):
     """O provider ja entrega TEXTO: `<b>` some, `&mdash;`/`&nbsp;` viram
     caractere, e `<script>` nao sobrevive. E o que garante que o servico

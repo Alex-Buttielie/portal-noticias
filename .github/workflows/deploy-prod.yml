@@ -1,17 +1,25 @@
 name: Deploy PROD
 
-# Thin caller — toda a lógica vive em deploy-pm2.yml (reutilizável, PM2+Nginx).
+# Thin caller — toda a lógica vive em deploy.yml (reutilizável, Docker/GHCR).
 # Tag v* implanta /home/apps/portal-prod (3103/5103) + GitHub Release.
 #
-# 2026-10-10: restaurado para PM2 depois de um incidente — o cutover Docker
-# do dev (PR #31/#32) reescreveu o `deploy.yml` reutilizável inteiro para
-# Docker/GHCR e os TRÊS callers continuaram apontando pra ele, então PROD
-# (que nunca passou pelo cutover de verdade — sem inventário, sem backup,
-# sem migração de dados) ficou uma tag `v*` de distância de tentar um
+# 2026-10-11: repontado para Docker depois do cutover real de PROD (Fase E
+# do plano) — inventário, backup manual fresco, stack Docker validado em
+# paralelo nas portas de teste, migração de dados com gate de confirmação
+# explícita do solicitante antes de repontar o tráfego real. Antes desta
+# mudança, PROD rodava em `deploy-pm2.yml` (ver histórico abaixo) — restaurado
+# em 2026-10-10 (#39) justamente porque, àquela altura, PROD não tinha passado
+# pelo inventário/backup/migração que a Fase E exige; agora passou.
+#
+# Histórico: 2026-10-10 — `deploy-pm2.yml` (o `deploy.yml` de antes do
+# cutover Docker) foi restaurado depois de um incidente evitado a tempo — o
+# cutover Docker do dev (PR #31/#32) reescreveu o `deploy.yml` reutilizável
+# inteiro para Docker/GHCR e os TRÊS callers continuaram apontando pra ele,
+# então PROD (que ainda não tinha passado pelo inventário/backup/migração de
+# dados da Fase E) ficou uma tag `v*` de distância de tentar um
 # `docker compose up` não preparado contra o banco de produção de verdade.
-# `deploy-pm2.yml` é o `deploy.yml` de antes do cutover (script_path:
-# infra/deploy/deploy.sh, mantido/atualizado desde então — ver D-24 em
-# infra/deploy/deploy.sh) — a Fase E do plano ainda não chegou em PROD.
+# `infra/deploy/deploy.sh`/`deploy-pm2.yml` seguiram recebendo fixes nesse
+# meio tempo (D-24 em diante) — histórico, não mais o caminho ativo.
 on:
   push:
     tags:
@@ -31,7 +39,11 @@ jobs:
 
   deploy-prod:
     needs: pre
-    uses: ./.github/workflows/deploy-pm2.yml
+    # Trava prod-only Fase 1 (AdSense): resolve `secrets.*` no Environment
+    # `production`. É o ÚNICO ambiente com NEXT_PUBLIC_ADSENSE_CLIENT_ID
+    # preenchido (ca-pub-8444783404549240); slots seguem vazios até a Fase 2.
+    environment: production
+    uses: ./.github/workflows/deploy.yml
     with:
       env_label: PROD
       environment_name: production
@@ -40,30 +52,40 @@ jobs:
       git_ref: ${{ needs.pre.outputs.version }}
       # A tag pode ser movida depois do evento; o gate fixa o commit original.
       verify_ref: ${{ github.sha }}
-      pm_suffix: prod
       web_port: "3103"
       api_port: "5103"
       host: portal-noticias.com
-      # TLS ativado em 2026-10-11: certificado Let's Encrypt emitido e
-      # validado (infra/DEPLOY.md §3A) para portal-noticias.com + www.
-      tls_enabled: true
+      # TLS automático (Caddy compartilhado, infra/docker-edge/) — sem o
+      # antigo flag `tls_enabled` da topologia PM2/Nginx+Certbot.
       allowed_hosts_extra: ",www.portal-noticias.com"
       db_name: brd_portal_prod
       db_user: portal_prod
       strict_validate: true
-      # Usuários de teste: EXPLICITAMENTE desligado, e o valor explícito é o
-      # ponto. O default do `deploy-pm2.yml` já é `false` — mas o default é
-      # uma propriedade do arquivo, e esta linha é uma afirmação sobre PROD.
-      usuarios_teste: false
+      # D1: só PROD exige credencial do Sentry no verify (fail-closed).
+      sentry_exigido: true
     secrets:
       VPS_HOST: ${{ secrets.VPS_HOST }}
       VPS_USER: ${{ secrets.VPS_USER }}
       VPS_PORT: ${{ secrets.VPS_PORT }}
       VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+      VPS_HOST_FINGERPRINT: ${{ secrets.VPS_HOST_FINGERPRINT }}
+      # GHCR (cutover Docker): token de PULL para a VPS, escopo read:packages
+      # — distinto do GITHUB_TOKEN automático que o build-and-push usa pra
+      # PUSH. Obrigatório (sem ele a VPS não faz `docker compose pull`).
+      GHCR_PULL_TOKEN: ${{ secrets.GHCR_PULL_TOKEN }}
+      GHCR_PULL_USER: ${{ secrets.GHCR_PULL_USER }}
       # Resend (P1-04): opcional. Ausente mantém DJANGO_EMAIL_BACKEND=console.
       RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
-      # AdSense (P1-09): 5 secrets opcionais. Ausentes/vazios mantém
-      # AdsScript/AdsSlot inertes (comportamento de antes desta mudança).
+      # Sentry (C2.4): credencial exigida pelo verify porque sentry_exigido
+      # é true acima — sem estes secrets configurados, o deploy de PROD
+      # reprova no gate em vez de publicar sem source map.
+      SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+      SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+      SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
+      SENTRY_URL: ${{ secrets.SENTRY_URL }}
+      # AdSense Fase 1 (P1-09, prod-only): resolve no Environment
+      # `production` — ÚNICO com CLIENT_ID (ca-pub-8444783404549240).
+      # Slots seguem vazios até a Fase 2 (só verificação da propriedade).
       NEXT_PUBLIC_ADSENSE_CLIENT_ID: ${{ secrets.NEXT_PUBLIC_ADSENSE_CLIENT_ID }}
       NEXT_PUBLIC_ADSENSE_SLOT_HORIZONTAL: ${{ secrets.NEXT_PUBLIC_ADSENSE_SLOT_HORIZONTAL }}
       NEXT_PUBLIC_ADSENSE_SLOT_RETANGULO: ${{ secrets.NEXT_PUBLIC_ADSENSE_SLOT_RETANGULO }}
@@ -71,7 +93,7 @@ jobs:
       NEXT_PUBLIC_ADSENSE_SLOT_INFEED: ${{ secrets.NEXT_PUBLIC_ADSENSE_SLOT_INFEED }}
 
   # A release só é criada depois que o reusable deploy terminou. Se verify,
-  # SSH, migrate, PM2 ou validate falhar, este job fica skipped e nenhum
+  # SSH, migrate, Docker ou validate falhar, este job fica skipped e nenhum
   # release/tag é publicado.
   release:
     needs: [pre, deploy-prod]

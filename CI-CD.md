@@ -29,6 +29,13 @@ o `verify` chamado pelo deploy cobre a tag e verifica seu SHA.
 > concluída depois de observada no run correspondente e na própria VPS; validação
 > local de YAML, shell ou containers não é evidência de um deploy remoto.
 
+> **[HISTÓRICO — substituído em 2026-10-11]** O bloco abaixo (preservado na
+> íntegra) descrevia o momento em que o cutover para Docker Compose + GHCR
+> já estava pronto no código, mas ainda não tinha sido aplicado na VPS. Esse
+> momento passou: o cutover foi **concluído de verdade** em DEV, HOMOLOG e
+> PROD em 2026-10-11 (ver bloco "Cutover concluído" logo abaixo, que é o
+> estado atual).
+>
 > **Cutover para Docker Compose + GHCR — pronto no código, NÃO ativo na VPS.**
 > O restante deste documento descreve a topologia **PM2 + Nginx**, que é a
 > que roda de verdade hoje. Em paralelo, os cinco workflows
@@ -54,7 +61,37 @@ o `verify` chamado pelo deploy cobre a tag e verifica seu SHA.
 > sem senha em DEV/HOMOLOG — ver a seção dedicada mais abaixo). Decisão
 > registrada ali, não um gap pendente.
 
-### Ambientes na VPS (PM2 + Nginx — topologia ATIVA hoje)
+> **Cutover concluído (2026-10-11) — topologia ativa hoje.** Docker Compose +
+> GHCR é a infraestrutura real em DEV, HOMOLOG e PROD. A cada deploy, o job
+> `build-and-push` do `deploy.yml` builda e publica as imagens em
+> `ghcr.io/alex-buttielie/portal-noticias-{backend,frontend}:<ambiente>-<sha>`,
+> e a VPS só executa `docker compose pull && up -d --remove-orphans` — sem
+> mais SSH fazendo pip/npm/venv/migrate manual (tudo roda dentro do container
+> `web`, via `backend/docker-entrypoint.sh`, a cada start). Cada ambiente
+> sobe 6 serviços pelo `docker-compose.yml` da raiz: `db` (Postgres,
+> volume próprio), `redis`, `web` (Django/gunicorn), `celery-worker`,
+> `celery-beat` e `frontend` (Next.js). TLS é automático, emitido e
+> renovado por um Caddy único compartilhado pelos três ambientes
+> (`infra/docker-edge/`), que substitui Nginx + Certbot. Confirmado ao vivo
+> em produção: 6 containers saudáveis, `https://portal-noticias.com`
+> respondendo 200 pelo domínio real, zero erro novo nos logs. O PM2 de
+> produção foi **parado, não removido** — mantido como fallback por um
+> período de observação; o `rollback.yml` roteia rollback de todos os
+> ambientes por Docker (o job `rollback-pm2` continua no arquivo com
+> `if: false`, inatingível, só como referência histórica). As seções
+> abaixo marcadas **[HISTÓRICO]** descrevem a topologia PM2 + Nginx que
+> rodou de verdade até essa data; permanecem no documento para quem
+> precisar entender o deploy anterior ou operar o fallback. Ver
+> `infra/DEPLOY.md` para o runbook completo da topologia Docker.
+
+### Ambientes na VPS (PM2 + Nginx — topologia histórica)
+
+> **[HISTÓRICO — substituído em 2026-10-11]** Esta tabela e os parágrafos
+> abaixo descrevem a topologia PM2 + Nginx que rodou de verdade em DEV,
+> HOMOLOG e PROD até o cutover de 2026-10-11. Ela foi substituída por Docker
+> Compose + GHCR + Caddy (ver o bloco "Cutover concluído" no topo deste
+> documento). Texto original preservado abaixo para quem precisar operar o
+> fallback PM2 (parado, não removido) ou entender o deploy anterior.
 
 | Ambiente | Ref git | Dir VPS | PM2 web/api | Portas |
 |----------|---------|---------|-------------|--------|
@@ -90,7 +127,14 @@ e-mail de recuperação sai, que hoje **não** é uma caixa de entrada — está
 > 202+background deve ser ancestral do ref implantado antes de reduzir o
 > timeout de 60s para 45s.
 
-### O que mudou no software (única diferença)
+### O que mudou no software (única diferença) [HISTÓRICO]
+
+> **[HISTÓRICO — substituído em 2026-10-11]** Descreve a migração de
+> `apps/*` para `backend/`+`frontend/` sob PM2 + Nginx. Na topologia Docker
+> ativa, `migrate`/`collectstatic` rodam a cada start do container `web`
+> (via `backend/docker-entrypoint.sh`), não "a cada deploy" num checkout
+> fixo, e `backend/.env.production` é lido pelo `env_file:` do
+> `docker-compose.yml`, não gerado por SSH no primeiro deploy.
 
 - API: `apps/api` → `backend/` (venv em `backend/.venv`, `config.wsgi:application`,
   `manage.py migrate + collectstatic` a cada deploy, health em `/healthz`).
@@ -118,7 +162,16 @@ e-mail de recuperação sai, que hoje **não** é uma caixa de entrada — está
    deploy PROD; o `verify` Called Workflow valida o SHA da tag antes do
    provisionamento, mesmo sem um trigger de CI por tag.
 
-### Rollback, recuperação e limite de disponibilidade
+### Rollback, recuperação e limite de disponibilidade [HISTÓRICO]
+
+> **[HISTÓRICO — substituído em 2026-10-11]** Todo este bloco (marker de
+> SHA, workflow de rollback e o procedimento shell de emergência) descreve
+> o rollback PM2, que **rodou de verdade** em produção até o cutover de
+> 2026-10-11. O `rollback.yml` hoje repoonta todos os ambientes para Docker
+> (reaplica a tag de imagem já publicada no GHCR, sem rebuild); o job
+> `rollback-pm2` continua no arquivo, mas com `if: false` — inatingível,
+> mantido só como referência histórica deste procedimento. Texto original
+> preservado abaixo para quem precisar operar o fallback PM2.
 
 Esta arquitetura é **PM2 em uma VPS única, com restart no checkout atual**. Ela
 **não garante zero downtime** em um deploy: pode existir uma breve indisponibilidade
@@ -272,6 +325,12 @@ Até lá, retry/saúde PM2, marker e rollback manual são a mitigação conserva
 não há promessa de zero downtime.
 
 ### Workflows
+
+> **[HISTÓRICO — substituído em 2026-10-11]** A coluna "Trigger / gate"
+> abaixo descreve o SSH/PM2 por ambiente, que era o mecanismo real até o
+> cutover. Hoje os mesmos triggers (push/PR/tag/dispatch) continuam valendo,
+> mas o passo de provisionamento é `docker compose pull && up -d` por
+> ambiente, não SSH/PM2 em portas 31xx/51xx.
 
 | Workflow | Arquivo | Trigger / gate |
 |----------|--------|----------------|
@@ -469,7 +528,20 @@ substituem.
 
 > **Rotação:** se qualquer secret (`VPS_SSH_KEY`, `VPS_USER`, host/porta) for exposto em chat, log ou commit, rotacione imediatamente na VPS (`sudo passwd <usuario>` / troca de porta em `/etc/ssh/sshd_config` + `systemctl reload sshd`) e em Settings → Environments, antes do próximo deploy.
 
-### §P1-6 — release atômica, runtime standalone e Celery no systemd (C2)
+### §P1-6 — release atômica, runtime standalone e Celery no systemd (C2) [HISTÓRICO]
+
+> **[HISTÓRICO — substituído em 2026-10-11]** Esta seção inteira documenta
+> dois caminhos de natureza diferente, ambos superados pelo cutover para
+> Docker Compose + GHCR: (1) a release atômica/runtime standalone e o
+> rollback PM2 do frontend, que **rodaram de verdade** em produção até
+> 2026-10-11; e (2) as units systemd do Celery (`celery-worker@.service`,
+> `celery-beat@.service`) descritas na subseção "Celery no systemd" mais
+> abaixo, que **nunca chegaram a rodar em produção** — foram um merge
+> acidental de uma branch bloqueada, revertido antes de qualquer ativação
+> real. Não confundir as duas: a primeira é histórico de infraestrutura que
+> funcionou; a segunda é histórico de um caminho documentado mas nunca
+> ativo. Na topologia Docker ativa, o Celery roda nos serviços
+> `celery-worker`/`celery-beat` do `docker-compose.yml`.
 
 > Acrescimo seccionado: a §P1-5 acima **não foi reescrita** e continua
 > descrevendo as mitigações que valem. Esta seção registra o que foi
@@ -922,7 +994,16 @@ arquivo de token do Alloy). Detalhes e ordem de instalação em
   item 2, e a dependência humana **HD-E** da run de go-live. Enquanto isso, o
   log do deploy avisa que o link não chega e diz onde ele sai.
 
-### Banco de dados (Postgres na VPS — único pré-requisito novo)
+### Banco de dados (Postgres na VPS — histórico)
+
+> **[HISTÓRICO — substituído em 2026-10-11]** Descreve o Postgres instalado
+> nativamente na VPS (`apt install postgresql`), que era o único
+> pré-requisito novo na topologia PM2. No cutover de 2026-10-11, os dados
+> de cada ambiente foram migrados (backup-first) para o serviço `db`
+> (container `postgres:16-alpine`, volume `postgres_data`) do
+> `docker-compose.yml`; a senha agora vem de `DJANGO_DB_PASSWORD` em
+> `.env.production` e é lida pelo `env_file:` do serviço `web`, não mais
+> escrita por um workflow via SSH.
 
 O software recusa `sqlite3` com `DEBUG=False` (fail-fast em
 `config/settings.py`). Uma vez por VPS, como `root`:

@@ -390,6 +390,56 @@ def test_host_que_nao_resolve_e_barrado_com_mensagem(monkeypatch) -> None:
     assert "não resolvido" in str(info.value)
 
 
+def test_dns_que_trava_e_barrado_apos_o_timeout(monkeypatch) -> None:
+    """
+    Achado em produção 2026-10-11: `socket.getaddrinfo` é uma chamada
+    bloqueante do SO, fora do alcance do `timeout=` do `requests` — um host
+    com DNS inalcançável/dropado travou os dois processos do worker Celery
+    por horas, cada um preso aqui ANTES de qualquer request HTTP existir.
+    Simula o travamento (evento nunca sinalizado) e confirma que `_resolver`
+    desiste depois de `TIMEOUT_RESOLUCAO_DNS_SEGUNDOS`, em vez de travar.
+    """
+    nunca = threading.Event()
+
+    def _getaddrinfo(host, port, *args, **kwargs):
+        nunca.wait()  # nunca retorna dentro do timeout do teste
+        raise AssertionError("não deveria ser alcançado")
+
+    monkeypatch.setattr(egress.socket, "getaddrinfo", _getaddrinfo)
+    monkeypatch.setattr(egress, "TIMEOUT_RESOLUCAO_DNS_SEGUNDOS", 0.2)
+    with pytest.raises(EgressBloqueado) as info:
+        validar_url("http://dns-travado.exemplo/rss")
+    assert "excedeu" in str(info.value)
+
+
+def test_dns_travado_nao_bloqueia_a_proxima_resolucao(monkeypatch) -> None:
+    """
+    A thread travada na chamada anterior NUNCA retorna (não dá pra matar
+    uma thread do SO de dentro do Python) — se `_resolver` reusasse um pool
+    de tamanho fixo, a chamada seguinte ficaria esperando uma vaga livre que
+    nunca aparece: o mesmo travamento, só que uma chamada depois. Prova que
+    a segunda resolução (host saudável) não herda o travamento da primeira.
+    """
+    nunca = threading.Event()
+    chamadas: list[str] = []
+
+    def _getaddrinfo(host, port, *args, **kwargs):
+        chamadas.append(host)
+        if host == "trava.exemplo":
+            nunca.wait()
+            raise AssertionError("não deveria ser alcançado")
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", port))]
+
+    monkeypatch.setattr(egress.socket, "getaddrinfo", _getaddrinfo)
+    monkeypatch.setattr(egress, "TIMEOUT_RESOLUCAO_DNS_SEGUNDOS", 0.2)
+    with pytest.raises(EgressBloqueado):
+        validar_url("http://trava.exemplo/rss")
+    # A thread travada da chamada acima continua viva em segundo plano
+    # (daemon) — a chamada seguinte não pode esperar por ela.
+    validar_url("http://ok.exemplo/rss")
+    assert chamadas == ["trava.exemplo", "ok.exemplo"]
+
+
 # ---------------------------------------------------------------------------
 # ip_e_bloqueado (tabela)
 # ---------------------------------------------------------------------------
