@@ -68,6 +68,7 @@ export const EmAlta = memo(function EmAlta({ feed, limite, categoriaBuscada }: E
             <Link
               href={`/noticia/${entrada.id}`}
               title={`Score ${score} — ${explicarScoreEmAlta(entrada, sinais)}`}
+              suppressHydrationWarning
               className="group flex gap-3 py-2.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cor-foco)] rounded-md"
             >
               <span
@@ -99,7 +100,7 @@ export const EmAlta = memo(function EmAlta({ feed, limite, categoriaBuscada }: E
                     <span className="sr-only">relevância {Math.round((score / maxScore) * 100)} por cento</span>
                   </span>
                 </span>
-                <span className="mt-0.5 block truncate text-[11px] text-[var(--cor-texto-suave)]">
+                <span className="mt-0.5 block truncate text-[11px] text-[var(--cor-texto-suave)]" suppressHydrationWarning>
                   {explicarScoreEmAlta(entrada, sinais)}
                 </span>
               </span>
