@@ -140,6 +140,38 @@ class TestAC1ResilienciaDeFontes:
             with pytest.raises(FonteIndisponivelError):
                 provider.buscar_itens()
 
+    def test_feed_com_centenas_de_entries_e_cortado_no_teto(self):
+        """
+        Achado em produção 2026-10-11: `feed.entries` nunca era limitado —
+        uma fonte sem teto (ex.: agregador com centenas de itens no XML)
+        alimentava `agrupar_itens_brutos` (O(n²)) com um lote gigante e
+        travou os dois processos do worker Celery de prod por ~5h. Prova que
+        `buscar_itens()` corta em `_MAX_ENTRIES_POR_FETCH`, mantendo os
+        PRIMEIROS da ordem do feed (convenção: mais recentes primeiro).
+        """
+        from catalogo_noticias.providers.news_source import _MAX_ENTRIES_POR_FETCH
+
+        total_no_feed = _MAX_ENTRIES_POR_FETCH + 25
+        itens_xml = "".join(
+            f"<item><title>Item {i}</title><link>https://fonte/item-{i}</link>"
+            f"<description>Resumo {i}</description></item>"
+            for i in range(total_no_feed)
+        )
+        corpo = (
+            "<?xml version=\"1.0\"?><rss version=\"2.0\"><channel><title>Feed</title>"
+            f"{itens_xml}</channel></rss>"
+        ).encode("utf-8")
+        provider = RSSNewsSourceProvider(nome_fonte="Agregador", url_feed="https://agregador/feed")
+        resposta = MagicMock()
+        resposta.raise_for_status.side_effect = None
+        resposta.content = corpo
+        resposta.headers = {}
+        with patch("catalogo_noticias.providers.news_source.SessaoEgress.get", return_value=resposta):
+            itens = provider.buscar_itens()
+        assert len(itens) == _MAX_ENTRIES_POR_FETCH
+        assert itens[0].titulo == "Item 0"
+        assert itens[-1].titulo == f"Item {_MAX_ENTRIES_POR_FETCH - 1}"
+
     def test_pipeline_completo_com_4_fontes_uma_falhando_por_timeout_real(self):
         """
         Simula as 4 fontes-semente reais via `RSSNewsSourceProvider`

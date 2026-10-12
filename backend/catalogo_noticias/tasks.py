@@ -48,6 +48,19 @@ EXCECOES_RETRY = (OperationalError, RedisConnectionError, RedisTimeoutError)
 #: com backoff 1s/2s/4s (+jitter) — dentro da janela de 15 min do beat.
 MAX_TENTATIVAS = 3
 
+#: Achado em produção 2026-10-11: sem teto de tempo, um lote anormalmente
+#: grande (ver `_MAX_ENTRIES_POR_FETCH` em `providers/news_source.py`, fix
+#: do mesmo incidente) prendeu os dois processos do worker por ~5h dentro
+#: do agrupamento O(n²) — CPU-bound, sem I/O, então nenhum `timeout=` de
+#: rede protegia contra isso. `acks_late=True` (já configurado acima) torna
+#: seguro matar a task no meio: a mensagem volta pra fila pra outro worker,
+#: e a idempotência por `url_fonte_original` evita duplicar o que já foi
+#: persistido antes do corte. Soft < hard: o soft dá ao `except BaseException`
+#: abaixo a chance de registrar a falha em `filas_estado` antes do hard
+#: matar o processo de verdade (SIGKILL via billiard).
+TEMPO_LIMITE_SUAVE_SEGUNDOS = 600
+TEMPO_LIMITE_DURO_SEGUNDOS = 660
+
 TASK_INGESTAO = "catalogo_noticias.tasks.ingerir_noticias"
 
 
@@ -61,6 +74,8 @@ TASK_INGESTAO = "catalogo_noticias.tasks.ingerir_noticias"
     retry_backoff_max=60,
     retry_jitter=True,
     max_retries=MAX_TENTATIVAS,
+    soft_time_limit=TEMPO_LIMITE_SUAVE_SEGUNDOS,
+    time_limit=TEMPO_LIMITE_DURO_SEGUNDOS,
 )
 def ingerir_noticias(self):
     """
