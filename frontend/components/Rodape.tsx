@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { formatarAno } from "@/lib/datas";
+import { Logomark } from "./Logomark";
 export function Rodape() {
   return (
     <footer className="border-t border-[var(--cor-borda)] bg-[var(--cor-fundo-card)]">
@@ -8,8 +9,8 @@ export function Rodape() {
         <div className="grid gap-6 md:grid-cols-4">
           <div className="bento p-4">
             <div className="mb-2 flex items-center gap-2">
-              <span className="flex h-7 w-7 items-center justify-center rounded-md text-xs font-bold text-[var(--cor-texto-invertido)]" style={{ background: "var(--gradiente-marca)" }}>◈</span>
-              <span className="text-sm font-bold text-[var(--cor-texto)]">Portal de Notícias</span>
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[var(--raio-sm)] text-[var(--cor-texto-invertido)]" style={{ background: "var(--gradiente-marca)" }}><Logomark className="h-4 w-4" /></span>
+              <span className="font-serif text-sm font-bold text-[var(--cor-texto)]">Portal de Notícias</span>
             </div>
             <p className="text-sm leading-relaxed text-[var(--cor-texto-suave)]">Toda a informação que importa, organizada em um só lugar.</p>
           </div>

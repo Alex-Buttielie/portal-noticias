@@ -701,6 +701,35 @@ export function registrarInteracaoFeed(dados: {
   return request("/api/feed/interacoes/", { method: "POST", body: JSON.stringify(dados) });
 }
 
+export interface AfinidadeResposta {
+  categorias: Record<string, number>;
+  objetivo_assinatura: string;
+}
+
+/** Afinidade por categoria calculada no backend (histórico de leitura da
+ * conta, ponderado por recência) + objetivo da assinatura. Recurso
+ * Premium — 403 para usuário free (`gating.personalizacao_avancada`). */
+export function obterAfinidade(token: string): Promise<AfinidadeResposta> {
+  return request("/api/feed/afinidade/", { method: "GET" }, token);
+}
+
+export interface ObjetivoAssinaturaResposta {
+  objetivo: string;
+  atualizado_em: string | null;
+}
+
+export function obterObjetivoAssinatura(token: string): Promise<ObjetivoAssinaturaResposta> {
+  return request("/api/assinatura/objetivo/", { method: "GET" }, token);
+}
+
+export function atualizarObjetivoAssinatura(objetivo: string, token: string): Promise<ObjetivoAssinaturaResposta> {
+  return request(
+    "/api/assinatura/objetivo/",
+    { method: "PUT", body: JSON.stringify({ objetivo }) },
+    token
+  );
+}
+
 export function obterRadarParaVoce(params: {
   pais?: string;
   estado?: string;

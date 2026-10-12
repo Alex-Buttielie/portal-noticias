@@ -17,6 +17,7 @@ urlpatterns = [
     path("busca/historico/", views.BuscaHistoricoView.as_view(), name="feed-busca-historico"),
     path("cobertura/<str:tipo>/<int:entrada_id>/", views.CoberturaCompletaView.as_view(), name="feed-cobertura"),
     path("interacoes/", views.InteracaoView.as_view(), name="feed-interacoes"),
+    path("afinidade/", views.AfinidadeView.as_view(), name="feed-afinidade"),
     path("cluster/<int:cluster_id>/", views.ClusterDetailView.as_view(), name="feed-cluster-detail"),
     path("item/<int:item_id>/", views.ItemDetailView.as_view(), name="feed-item-detail"),
 ]

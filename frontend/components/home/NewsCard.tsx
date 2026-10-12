@@ -24,11 +24,13 @@ const SELO_ESTILO: Record<SeloEditorial, string> = {
   Entrevista: "bg-[var(--cor-fundo-elevado)] text-[var(--cor-primaria)] border border-dashed border-[var(--cor-primaria)]",
 };
 
+/** Etiqueta editorial (classificação), não um chip de filtro — por isso
+ * é um "flag" de canto reto (raio-sm) e não um pill (rounded-full). */
 export function SeloBadge({ selo }: { selo: SeloEditorial }) {
   return (
     <span
       className={cn(
-        "inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[11px] font-bold leading-4",
+        "kicker inline-flex shrink-0 items-center rounded-[var(--raio-sm)] px-1.5 py-0.5 leading-4",
         SELO_ESTILO[selo]
       )}
     >
@@ -55,8 +57,9 @@ export function MetaLinha({ entrada, mostrarFontes = true }: { entrada: FeedEntr
       <Link
         href={`/categoria/${encodeURIComponent(entrada.categoria)}`}
         onClick={(e) => e.stopPropagation()}
-        className="font-medium capitalize text-[var(--cor-primaria)] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cor-foco)] rounded-full"
+        className="kicker inline-flex items-center gap-1 text-[var(--cor-primaria)] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cor-foco)] rounded-sm"
       >
+        <span className="h-1.5 w-1.5 rounded-full bg-[var(--cor-primaria)]" aria-hidden />
         {entrada.categoria || "geral"}
       </Link>
       <LocalidadeTag entrada={entrada} />
@@ -93,7 +96,7 @@ export const NewsCard = memo(function NewsCard({ entrada, variante = "secundaria
   return (
     <article
       className={cn(
-        "group relative flex overflow-hidden rounded-[var(--raio-lg)] border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] motion-safe:transition-all hover:shadow-[var(--sombra-2)] hover:-translate-y-0.5",
+        "group relative flex overflow-hidden rounded-[var(--raio-lg)] border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] motion-safe:transition-colors hover:border-[var(--cor-primaria)]",
         variante === "destaque" ? "flex-col md:grid md:grid-cols-[1.5fr_1fr]" : "flex-col"
       )}
     >
@@ -139,8 +142,8 @@ export const NewsCard = memo(function NewsCard({ entrada, variante = "secundaria
         <Link
           href={href}
           className={cn(
-            "break-words text-balance font-bold leading-tight text-[var(--cor-texto)] hover:text-[var(--cor-primaria)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cor-foco)] motion-safe:transition-colors",
-            variante === "destaque" ? "text-xl sm:text-2xl md:text-3xl line-clamp-3" : "text-[15px] line-clamp-2"
+            "break-words text-balance font-bold leading-tight text-[var(--cor-texto)] decoration-[var(--cor-primaria)] underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cor-foco)] motion-safe:transition-colors",
+            variante === "destaque" ? "font-serif text-2xl tracking-tight sm:text-3xl md:text-4xl line-clamp-3" : "text-[15px] line-clamp-2"
           )}
         >
           {entrada.titulo}

@@ -1,11 +1,14 @@
+from datetime import timedelta
+
 from rest_framework import status
 from rest_framework.pagination import PageNumberPagination
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from django.conf import settings
 from django.core.cache import cache
+from django.utils import timezone
 
 from . import busca as busca_engine
 from . import recomendacao, services
@@ -374,3 +377,52 @@ class InteracaoView(APIView):
         except Exception:
             return Response({"detail": "ok"})
         return Response({"detail": "ok"}, status=status.HTTP_201_CREATED)
+
+
+class AfinidadeView(APIView):
+    """
+    GET /api/feed/afinidade/ — afinidade por categoria do usuário
+    autenticado, ponderada por recência (meia-vida de `MEIA_VIDA_DIAS`,
+    mesmo critério do fallback local em `frontend/lib/intent.ts`), a
+    partir de `InteracaoNoticia` tipo "read" — mais o objetivo da
+    assinatura (texto livre, ver `assinatura.ObjetivoAssinaturaView`).
+
+    Recurso Premium (`gating.personalizacao_avancada`, mesma feature usada
+    por `radar.EvolucaoView`): o frontend troca o sinal 100% local
+    (localStorage, perdido ao trocar de dispositivo ou limpar o navegador)
+    por este histórico persistido na conta quando o usuário é Premium.
+    O cruzamento texto→categoria do objetivo acontece no frontend, contra
+    o vocabulário de `lib/categorias.ts` — este endpoint só expõe os dados
+    brutos, nunca interpreta o texto.
+    """
+
+    permission_classes = [IsAuthenticated]
+    MEIA_VIDA_DIAS = 10
+    JANELA_DIAS = 180
+
+    def get(self, request):
+        from gating.services import exigir_feature
+
+        exigir_feature(request.user, "personalizacao_avancada")
+
+        desde = timezone.now() - timedelta(days=self.JANELA_DIAS)
+        interacoes = InteracaoNoticia.objects.filter(
+            user=request.user, tipo=InteracaoNoticia.TIPO_READ, criado_em__gte=desde
+        ).values("categoria", "criado_em")
+
+        agora = timezone.now()
+        pesos: dict[str, float] = {}
+        for row in interacoes:
+            categoria = (row["categoria"] or "").strip().lower()
+            if not categoria:
+                continue
+            dias = max(0.0, (agora - row["criado_em"]).total_seconds() / 86400)
+            pesos[categoria] = pesos.get(categoria, 0.0) + 0.5 ** (dias / self.MEIA_VIDA_DIAS)
+
+        return Response(
+            {
+                "categorias": {k: round(v, 3) for k, v in pesos.items()},
+                "objetivo_assinatura": request.user.objetivo_assinatura or "",
+            },
+            status=status.HTTP_200_OK,
+        )

@@ -71,6 +71,16 @@ class User(AbstractBaseUser, PermissionsMixin):
     )
     preferencias_cookies_atualizado_em = models.DateTimeField(null=True, blank=True)
 
+    # Objetivo da assinatura Premium — texto livre do próprio usuário (ex.:
+    # "acompanhar economia pra decidir sobre um investimento"). Persistido
+    # no User pelo mesmo motivo de `interesses`/`preferencias_cookies`
+    # (campo pequeno, 1:1). Consumido por `feed.AfinidadeView` para
+    # enviesar o ranqueamento do feed Premium — o texto é só casado contra
+    # o vocabulário de categorias que já existe no frontend
+    # (`lib/categorias.ts`), nunca interpretado por um modelo de linguagem.
+    objetivo_assinatura = models.CharField(max_length=500, blank=True, default="")
+    objetivo_assinatura_atualizado_em = models.DateTimeField(null=True, blank=True)
+
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
     date_joined = models.DateTimeField(default=timezone.now)
