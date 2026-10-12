@@ -308,16 +308,14 @@ export function HomeClient({
 
       <ConteudoBombando feed={filtrado} limite={config.bombandoLimite} salvos={salvos} onToggleSalvar={toggleSalvar} />
 
-      <AdsSlot id="home-pos-bombando" formato="horizontal" />
-
       <SecaoRegiao feed={filtrado.length ? filtrado : feedProp} />
-
-      {!premiumGeral && <AdsSlot id="home-pos-regiao" formato="in-feed" />}
 
       <SecaoColunistas colunistas={colunistas} />
 
-      {!premiumGeral && <AdsSlot id="home-pos-colunistas" formato="in-feed" />}
-
+      {/* M-06: densidade reduzida de 10 para 5 AdsSlot na home —
+          home-pos-bombando/home-pos-regiao/home-pos-colunistas removidos
+          (eram 3 in-feed/horizontal consecutivos entre seções de conteúdo
+          sem anúncio no meio); home-topo mantido abaixo. */}
       <AdsSlot id="home-topo" formato="horizontal" />
 
       {isPremium && (
@@ -504,12 +502,12 @@ export function HomeClient({
             </CardContent>
           </Card>
 
+          {/* M-06: home-sidebar-2 removido (2 slots retângulo consecutivos
+              na sidebar); mantido home-sidebar. */}
           <AdsSlot id="home-sidebar" formato="retangulo" />
-
-          <AdsSlot id="home-sidebar-2" formato="retangulo" />
         </aside>
       </section>
-      <AdsSlot id="home-footer" formato="horizontal" className="my-6" />
+      {/* M-06: home-footer removido — 5º slot da home já é home-sidebar. */}
     </div>
   );
 }

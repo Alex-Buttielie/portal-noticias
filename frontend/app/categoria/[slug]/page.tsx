@@ -62,7 +62,9 @@ export default async function Page({ params }: { params: Promise<{ slug: string 
               <ImagemNoticia src={n.imagem_url} seed={`${n.categoria || "geral"}-${n.id}`} alt={n.titulo} className="h-full w-full object-cover" />
             </div>
             <CardContent className="p-4"><div className="mb-2 flex gap-2"><Badge variant="outline" className="border-[var(--cor-borda)] capitalize">{n.categoria}</Badge>{n.urgente&&<Badge className="bg-[var(--cor-sinal)] text-[var(--cor-texto-invertido)]">urgente</Badge>}<span className="ml-auto text-xs text-[var(--cor-texto-suave)]" suppressHydrationWarning>{timeAgo(n.timestamp)}</span></div><Link href={`/noticia/${n.id}`} className="line-clamp-2 font-bold text-[var(--cor-texto)] hover:text-[var(--cor-primaria)]">{n.titulo}</Link><p className="mt-1 line-clamp-2 text-sm text-[var(--cor-texto-suave)]">{n.resumo}</p></CardContent></Card>
-          {(i+1)%6===0 && <AdsSlot id={`categoria-infeed-${Math.floor(i/6)}`} formato="in-feed" className="md:col-span-2" />}
+          {/* M-06: densidade reduzida — in-feed a cada 9 itens (era a cada
+              6), e categoria-pos removido (3ª/4ª posição na página). */}
+          {(i+1)%9===0 && <AdsSlot id={`categoria-infeed-${Math.floor(i/9)}`} formato="in-feed" className="md:col-span-2" />}
           </Fragment>
         )) : <EstadoVazio
           className="md:col-span-2"
@@ -72,8 +74,7 @@ export default async function Page({ params }: { params: Promise<{ slug: string 
           acao={{ rotulo: "Ver arquivo completo", href: "/arquivo" }}
         />}
       </div>
-      {itens.length>0 && itens.length%6!==0 && <AdsSlot id="categoria-infeed-final" formato="in-feed" />}
-      {itens.length < 18 && <AdsSlot id="categoria-pos" formato="horizontal" className="my-6" />}
+      {itens.length>0 && itens.length%9!==0 && <AdsSlot id="categoria-infeed-final" formato="in-feed" />}
     </div>
   );
 }

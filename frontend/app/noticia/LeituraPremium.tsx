@@ -159,8 +159,10 @@ export function LeituraPremium({
               ))}
             </div>
 
-            <AdsSlot id="noticia-infeed" formato="in-feed" className="my-5" />
-
+            {/* M-06: densidade reduzida de 3 para 2 AdsSlot na leitura —
+                noticia-infeed removido (meio do corpo do texto); mantidos
+                noticia-topo e noticia-pos, onde o leitor está mais
+                engajado (plano de monetização, M-06). */}
             <Separator className="my-5 bg-[var(--cor-borda)]" />
 
             <h2 id="fontes" className="scroll-mt-24 text-lg font-bold text-[var(--cor-texto)]">Fontes apuradas <span className="ml-1 rounded-full bg-[var(--cor-fundo-elevado)] px-2 py-0.5 align-middle text-xs font-medium text-[var(--cor-texto-suave)]">{d.fontes.length}</span></h2>

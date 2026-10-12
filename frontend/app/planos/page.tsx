@@ -16,7 +16,6 @@ import { queryKeys } from "@/lib/query-keys";
 import { usePremiumAtivo } from "@/lib/premium";
 import { useAuth } from "@/lib/auth-context";
 import { toast } from "sonner";
-import { AdsSlot } from "@/components/AdsSlot";
 
 // P0-08: nome, preço e duração dos planos vêm exclusivamente da API
 // (/api/assinatura/planos/). Não existe plano genérico em código: se a API
@@ -192,7 +191,9 @@ export default function Page() {
         </CardContent>
       </Card>
 
-      <AdsSlot id="planos-horizontal" formato="horizontal" className="my-6" />
+      {/* M-06: AdsSlot removido — /planos é a página de conversão para
+          assinatura; anúncio aqui compete com o próprio objetivo da
+          página (plano de monetização, M-06, critério de aceite 6). */}
 
       <Card className="bento border-[var(--cor-borda)] bg-[var(--cor-fundo-card)]">
         <CardHeader><CardTitle className="flex items-center gap-2 text-base"><HelpCircle className="h-4 w-4 text-[var(--cor-primaria)]" /> Perguntas rápidas</CardTitle></CardHeader>
