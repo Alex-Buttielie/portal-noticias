@@ -291,3 +291,65 @@ fazer lá). Nenhum ponto de montagem precisou de edição: a resolução por
 posição é automática a partir do `id` que cada `AdsSlot` já declarava.
 
 ---
+
+## Iteração 6 — 2026-10-12 — executor (M-05)
+
+**O que foi feito:**
+Em produção (`NODE_ENV === "production"`), quando `AdsSlot` não tem
+anúncio para mostrar (sem consentimento, ou sem publisher ID/slot), o
+componente agora devolve `null` — nenhum texto técnico
+("PUBLICIDADE"/"Anúncio — Google AdSense (slot …)") aparece para o
+leitor. Fora de produção, o placeholder de debug continua, para quem
+está codando ver o espaço reservado. Decisão extraída para
+`lib/anuncios.ts` (`mostrarPlaceholderDebug(nodeEnv)`), testável sem
+DOM/hooks/providers.
+
+**Por quê:**
+Critério de aceite 5 do implementation-contract.md; texto técnico de ad
+tech prejudica a experiência e a confiança do leitor (BRD, diagnóstico
+do plano de monetização, seção M-05).
+
+**Arquivos tocados:**
+- `frontend/lib/anuncios.ts` — `mostrarPlaceholderDebug(nodeEnv)` (novo).
+- `frontend/components/AdsSlot.tsx` — ramo final (sem anúncio) ganhou o
+  guard `if (!mostrarPlaceholderDebug(process.env.NODE_ENV)) return null;`
+  antes do placeholder de debug. Mantidos INTACTOS os padrões literais
+  que a regra estática R4 de `verificar-consentimento-anuncios.mjs`
+  verifica por regex — `if (premiumGeral) return null;` e
+  `if (podeExibir)` continuam exatamente como antes; só o ramo "sem
+  anúncio" (depois desses dois) ganhou o guard de ambiente. TODO
+  registrado no código para M-09 substituir o `null` de produção por
+  `<CartaoPremium formato={formato} />` quando aplicável.
+- `frontend/testes/anuncios-placeholder.test.mjs` (novo) — 4 testes:
+  produção não mostra, dev mostra, `NODE_ENV=test` mostra, `undefined`
+  mostra (nunca some por engano fora de produção).
+
+**Comandos executados / evidência:**
+```
+cd frontend && npm run typecheck → limpo
+npm test → 75 passed, 0 fail
+node scripts/verificar-consentimento-anuncios.mjs → "P1-09 OK", exit 0
+  (primeira tentativa, com a decisão embutida numa função
+  `decidirConteudoAdsSlot` que SUBSTITUÍA os padrões literais, reprovou a
+  regra estática R4 — "não devolve null para Premium" / "<ins> não está
+  atrás de `if (podeExibir)`" — porque R4 verifica REGEX sobre o texto-
+  fonte, não o comportamento. Corrigido preservando os padrões literais e
+  extraindo só a parte nova (ambiente) para uma função separada.)
+npm run build → sucesso, todas as rotas
+```
+
+**Resultado:**
+Sucesso. Commit `691f325` —
+`monetizacao(M-05): remove placeholder textual de anuncio em producao`.
+
+**Notas:**
+A troca por `CartaoPremium` (M-09) ainda não está feita — nesta ordem de
+execução (M-05 antes de M-07/M-09), o componente não existe ainda. O
+critério de aceite 5 permite explicitamente "aparece o cartão de M-09
+(ou nada, se M-09 ainda não aplicável ao caso)" — a Iteração de M-09
+vai trocar o `return null` marcado com TODO por `<CartaoPremium
+formato={formato} />`, sem precisar revisitar a regra estática do
+script de consentimento de novo (ela não depende do conteúdo do ramo,
+só da existência dos dois padrões literais anteriores).
+
+---
