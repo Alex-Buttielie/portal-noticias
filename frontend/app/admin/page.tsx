@@ -244,12 +244,12 @@ export default function Page() {
                   <LayoutDashboard className="h-3.5 w-3.5 text-[var(--cor-primaria)]" />
                   Painel central
                 </span>
-                <span className="hidden sm:inline-flex items-center gap-1.5 text-xs text-[var(--cor-texto-suave)]">
+                <span className="hidden sm:inline-flex items-center gap-1.5 text-xs text-[var(--cor-texto-suave)]" suppressHydrationWarning>
                   <Clock className="h-3.5 w-3.5" />
                   {dataExtenso}
                 </span>
               </div>
-              <h1 className="mt-3 text-2xl md:text-[28px] font-bold tracking-tight text-[var(--cor-texto)]">
+              <h1 className="mt-3 text-2xl md:text-[28px] font-bold tracking-tight text-[var(--cor-texto)]" suppressHydrationWarning>
                 {saudacao}, {nome}
               </h1>
               <p className="mt-1 text-sm text-[var(--cor-texto-suave)]">Tudo que precisa para operar a plataforma — em um só lugar.</p>
