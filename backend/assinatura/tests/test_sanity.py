@@ -236,6 +236,32 @@ def test_endpoint_cancelar_requer_autenticacao():
     assert resposta.status_code in (401, 403)
 
 
+def test_endpoint_cancelar_funciona_para_assinatura_inadimplente():
+    """
+    REGRESSAO (achada em producao 2026-10-12): o filtro de CancelarView só
+    cobria status ATIVA/TESTE. Um usuário cuja última cobrança foi recusada
+    entra em INADIMPLENTE (grace period) — e é exatamente nesse momento que
+    mais quer cancelar a renovação automática antes de ser cobrado de novo.
+    Sem este status no filtro, a API recusava com 400 "nenhuma assinatura
+    ativa" e o acordo recorrente continuava ATIVO no gateway de pagamento —
+    contrariando o critério de aceite 7 (cancelamento self-service, sem
+    barreiras) do docstring de `CancelarView`.
+    """
+    plano = _plano()
+    usuario = _usuario("premium")
+    assinatura = services.assinar_plano(usuario, plano, payment_gateway=ProviderSempreAprova())
+    assinatura.status = Subscription.STATUS_INADIMPLENTE
+    assinatura.save(update_fields=["status"])
+
+    client = APIClient()
+    client.force_authenticate(user=usuario)
+    resposta = client.post("/api/assinatura/cancelar/")
+
+    assert resposta.status_code == 200
+    assinatura.refresh_from_db()
+    assert assinatura.status == Subscription.STATUS_CANCELADA
+
+
 def test_endpoint_historico_pagamentos_isola_por_usuario():
     plano = _plano()
     usuario_a = _usuario("free", email="hist-a@example.com")

@@ -76,10 +76,22 @@ class CancelarView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
+        # Achado em producao 2026-10-12: faltava STATUS_INADIMPLENTE aqui.
+        # Um usuario cuja ultima cobranca falhou entra em grace period
+        # (inadimplente) — e e exatamente nesse momento que mais quer
+        # cancelar a renovacao automatica antes de ser cobrado de novo. Sem
+        # este status no filtro, a API recusava com 400 "nenhuma assinatura
+        # ativa" e o acordo recorrente continuava ATIVO no gateway de
+        # pagamento, contrariando o criterio de aceite 7 (cancelamento
+        # self-service, sem barreiras) logo acima nesta classe.
         subscription = (
             Subscription.objects.filter(
                 user=request.user,
-                status__in=[Subscription.STATUS_ATIVA, Subscription.STATUS_TESTE],
+                status__in=[
+                    Subscription.STATUS_ATIVA,
+                    Subscription.STATUS_TESTE,
+                    Subscription.STATUS_INADIMPLENTE,
+                ],
             )
             .order_by("-criado_em")
             .first()

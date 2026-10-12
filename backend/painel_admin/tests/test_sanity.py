@@ -144,6 +144,43 @@ def test_admin_aprova_item_da_fila_e_reflete_no_feed():
     assert "Noticia pendente" in titulos
 
 
+def test_admin_reverte_decisao_de_item_clusterizado_persiste_no_banco():
+    """
+    REGRESSAO (achada em producao 2026-10-12): `decidir_fila` só salvava o
+    item EM SI, quando ele pertence a um cluster, através do `qs.update()`
+    que exige `status_revisao=PENDENTE` — o update dos irmãos de cluster.
+    Reverter uma decisão anterior (aprovar, depois rejeitar o MESMO item já
+    aprovado) casa zero linhas nesse update (o item não está mais
+    `pendente`), e `item.status_revisao = novo` ficava só em memória: a view
+    respondia 200 com o novo status como se tivesse persistido, mas o banco
+    continuava com o status anterior.
+    """
+    admin = _admin()
+    cluster = NewsCluster.objects.create(
+        titulo_acontecimento="Acontecimento com cobertura", numero_fontes_distintas=2
+    )
+    item = NewsItem.objects.create(
+        titulo="Materia do cluster",
+        resumo_proprio="resumo proprio autoral",
+        url_fonte_original="https://exemplo.com/materia-cluster-1",
+        nome_fonte="Fonte Teste",
+        status_revisao=NewsItem.STATUS_PENDENTE,
+        cluster=cluster,
+    )
+    client = APIClient()
+    client.force_authenticate(user=admin)
+
+    resposta_aprova = client.post(f"/api/admin/fila/{item.id}/decisao/", {"acao": "aprovar"}, format="json")
+    assert resposta_aprova.status_code == 200
+    item.refresh_from_db()
+    assert item.status_revisao == NewsItem.STATUS_APROVADO
+
+    resposta_reverte = client.post(f"/api/admin/fila/{item.id}/decisao/", {"acao": "rejeitar"}, format="json")
+    assert resposta_reverte.status_code == 200
+    item.refresh_from_db()
+    assert item.status_revisao == NewsItem.STATUS_REJEITADO
+
+
 @override_settings(
     CACHES={
         "default": {
