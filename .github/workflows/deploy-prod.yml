@@ -39,10 +39,6 @@ jobs:
 
   deploy-prod:
     needs: pre
-    # Trava prod-only Fase 1 (AdSense): resolve `secrets.*` no Environment
-    # `production`. É o ÚNICO ambiente com NEXT_PUBLIC_ADSENSE_CLIENT_ID
-    # preenchido (ca-pub-8444783404549240); slots seguem vazios até a Fase 2.
-    environment: production
     uses: ./.github/workflows/deploy.yml
     with:
       env_label: PROD
@@ -83,9 +79,8 @@ jobs:
       SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
       SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
       SENTRY_URL: ${{ secrets.SENTRY_URL }}
-      # AdSense Fase 1 (P1-09, prod-only): resolve no Environment
-      # `production` — ÚNICO com CLIENT_ID (ca-pub-8444783404549240).
-      # Slots seguem vazios até a Fase 2 (só verificação da propriedade).
+      # AdSense (P1-09): 5 secrets opcionais. Ausentes/vazios mantém
+      # AdsScript/AdsSlot inertes (comportamento de antes desta mudança).
       NEXT_PUBLIC_ADSENSE_CLIENT_ID: ${{ secrets.NEXT_PUBLIC_ADSENSE_CLIENT_ID }}
       NEXT_PUBLIC_ADSENSE_SLOT_HORIZONTAL: ${{ secrets.NEXT_PUBLIC_ADSENSE_SLOT_HORIZONTAL }}
       NEXT_PUBLIC_ADSENSE_SLOT_RETANGULO: ${{ secrets.NEXT_PUBLIC_ADSENSE_SLOT_RETANGULO }}
