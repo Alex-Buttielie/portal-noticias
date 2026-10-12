@@ -18,12 +18,22 @@ def decidir_fila(item_id, acao, admin_user):
     anterior = item.status_revisao
     novo = NewsItem.STATUS_APROVADO if acao == "aprovar" else NewsItem.STATUS_REJEITADO
     if item.cluster_id:
-        qs = NewsItem.objects.filter(cluster_id=item.cluster_id, status_revisao=NewsItem.STATUS_PENDENTE)
+        # Achado em producao 2026-10-12: o item em si so era salvo via este
+        # qs.update(), que exige status_revisao=PENDENTE. Reverter uma
+        # decisao anterior (ex.: aprovar, depois rejeitar o mesmo item ja
+        # aprovado) casava zero linhas aqui — item.status_revisao = novo
+        # ficava so em memoria, nunca chegava ao banco, e a view respondia
+        # 200 com o novo status como se tivesse persistido. Os IRMAOS de
+        # cluster continuam so via qs.update() (ainda precisam estar
+        # PENDENTE pra herdar a decisao); o ITEM em si agora e SEMPRE salvo
+        # explicitamente logo abaixo, fora do if/else, para qualquer status
+        # anterior dele.
+        qs = NewsItem.objects.filter(
+            cluster_id=item.cluster_id, status_revisao=NewsItem.STATUS_PENDENTE
+        ).exclude(pk=item.pk)
         qs.update(status_revisao=novo)
-        item.status_revisao = novo
-    else:
-        item.status_revisao = novo
-        item.save(update_fields=["status_revisao"])
+    item.status_revisao = novo
+    item.save(update_fields=["status_revisao"])
 
     # A decisão muda o conjunto publicável e, portanto, o snapshot de
     # títulos/categorias usado pelo autocomplete. Este serviço não abre uma
