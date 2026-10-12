@@ -115,15 +115,19 @@ export function consentiuAnuncio(): boolean {
  * A decisão de negócio, em uma função pura e testável — o resto do módulo é
  * só o efeito colateral.
  *
- * Regra (acordo do programa, P1-09):
- *   - Premium (assinante OU status Premium desconhecido/erro) → NUNCA anúncio;
- *   - Free + consentimento de publicidade + publisher ID → anúncio;
+ * Regra (acordo do programa, P1-09 + desacoplamento feat/adsense-ativar-dev):
+ *   - Premium por assinatura (papel premium/admin) OU status desconhecido/erro
+ *     (`ativo === null`) → NUNCA anúncio;
+ *   - Free + consentimento de publicidade + publisher ID + status conhecido
+ *     (`ativo === true` ou `false`) → anúncio (flag OFF conhecida exibe);
  *   - Free sem consentimento → placeholder inerte, nada sai da máquina.
  *
  * `premium` deliberately chega como argumento em vez de a função ler o
- * Premium sozinha: `liberado` (fail-open para o Premium) é decidido por
- * `usePremiumAtivo`, que depende de rede, e a prova precisa poder passar
- * "Premium desconhecido" sem mock de hook.
+ * Premium sozinha: o chamador resolve `isPremium || ativo === null` via
+ * `usePremiumAtivo` (rede), e a prova precisa poder passar
+ * "Premium desconhecido" sem mock de hook. NÃO passar `liberado` aqui:
+ * `liberado` é fail-open para features e com a flag OFF esconderia anúncios
+ * de todo mundo.
  */
 export function podeExibirAnuncio(args: {
   consentiu: boolean;

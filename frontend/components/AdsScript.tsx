@@ -39,11 +39,12 @@ export { ADSENSE_CLIENT_ID };
 export function AdsScript() {
   const [consentiu, setConsentiu] = useState(false);
   const { usuario } = useAuth();
-  const { liberado } = usePremiumAtivo();
+  const { ativo } = usePremiumAtivo();
   const isPremium = usuario?.papel === "premium" || usuario?.papel === "admin";
-  // `liberado` (fail-open) conta como Premium de propósito: status
-  // desconhecido ou com erro => sem anúncio, nunca "anúncio no lugar".
-  const premiumGeral = isPremium || liberado;
+  // Desacoplamento ads x flag global (feat/adsense-ativar-dev): ver AdsSlot.
+  // `liberado` (fail-open para features) NÃO é usado aqui — flag OFF conhecida
+  // (`ativo === false`) libera o script para free; só `null`/erro bloqueia.
+  const premiumGeral = isPremium || ativo === null;
   const podeCarregar = consentiu && !premiumGeral && Boolean(ADSENSE_CLIENT_ID);
 
   useEffect(() => {
