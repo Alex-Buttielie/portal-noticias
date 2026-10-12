@@ -30,6 +30,9 @@ on:
 
 jobs:
   deploy-homolog:
+    # Trava prod-only Fase 1 (AdSense): resolve `secrets.*` no Environment
+    # `homolog`. Client ID existe SÓ em `production`; aqui vazio = placeholder.
+    environment: homolog
     uses: ./.github/workflows/deploy.yml
     with:
       env_label: HOMOLOG
@@ -62,3 +65,11 @@ jobs:
       GHCR_PULL_USER: ${{ secrets.GHCR_PULL_USER }}
       # Resend (P1-04): opcional. Ausente mantém DJANGO_EMAIL_BACKEND=console.
       RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+      # AdSense Fase 1 (prod-only): resolve no Environment `homolog` —
+      # intencionalmente VAZIO aqui. Só `production` tem CLIENT_ID; vazio é
+      # seguro (placeholder sem chamada externa, ver frontend/Dockerfile).
+      NEXT_PUBLIC_ADSENSE_CLIENT_ID: ${{ secrets.NEXT_PUBLIC_ADSENSE_CLIENT_ID }}
+      NEXT_PUBLIC_ADSENSE_SLOT_HORIZONTAL: ${{ secrets.NEXT_PUBLIC_ADSENSE_SLOT_HORIZONTAL }}
+      NEXT_PUBLIC_ADSENSE_SLOT_RETANGULO: ${{ secrets.NEXT_PUBLIC_ADSENSE_SLOT_RETANGULO }}
+      NEXT_PUBLIC_ADSENSE_SLOT_VERTICAL: ${{ secrets.NEXT_PUBLIC_ADSENSE_SLOT_VERTICAL }}
+      NEXT_PUBLIC_ADSENSE_SLOT_INFEED: ${{ secrets.NEXT_PUBLIC_ADSENSE_SLOT_INFEED }}
