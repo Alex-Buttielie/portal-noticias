@@ -1,5 +1,7 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,7 +12,13 @@ import { useQueryAdminAssinaturas } from "@/lib/queries";
 import { formatarDataCurta } from "@/lib/datas";
 
 export default function Page(){
-  const { usuario, token } = useAuth();
+  const { usuario, token, carregando } = useAuth();
+  const r = useRouter();
+
+  useEffect(() => {
+    if (!carregando && !token) r.replace("/login");
+  }, [carregando, token, r]);
+
   const [busca,setBusca]=useState("");
   const [buscaAplicada,setBuscaAplicada]=useState<string|null>(null);
   // A tela só carrega após o clique em "Buscar" (buscaAplicada sai de null).
@@ -21,6 +29,22 @@ export default function Page(){
     ? (consulta.error instanceof Error ? consulta.error.message : "Falha ao carregar — tente novamente")
     : null;
   const carregar=()=>{ setBuscaAplicada(busca || ""); void consulta.refetch(); };
+
+  if (usuario && usuario.papel !== "admin") {
+    return (
+      <div className="mx-auto max-w-xl py-8">
+        <Card className="border-[var(--cor-erro)] bg-[var(--cor-erro-suave)]">
+          <CardContent className="p-6 text-center">
+            <p className="text-sm text-[var(--cor-erro)]">Acesso restrito a admin.</p>
+            <Link href="/" className="text-sm text-[var(--cor-primaria)] underline">
+              Voltar
+            </Link>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   return (<div className="space-y-4"><Card className="bento border-[var(--cor-borda)] bg-[var(--cor-fundo-card)]"><CardHeader><CardTitle>Assinaturas</CardTitle></CardHeader><CardContent className="space-y-3">
     <div className="flex gap-2"><Input placeholder="Buscar por email..." value={busca} onChange={e=>setBusca(e.target.value)} className="bg-[var(--cor-fundo-card)]" /><Button onClick={carregar} disabled={loading} className="bg-[var(--cor-primaria)] text-[var(--cor-texto-invertido)] min-h-[44px]">{loading?"Buscando...":"Buscar"}</Button></div>
     {err&&<p className="rounded-md border border-[var(--cor-erro)] bg-[var(--cor-erro-suave)] px-3 py-2 text-sm text-[var(--cor-erro)]">{err}</p>}

@@ -6,6 +6,7 @@ import { API_BASE_URL } from "@/lib/api";
 import { Globe, Mail, FileText, Settings, ExternalLink, Info, Newspaper } from "lucide-react";
 import { FontesIsland } from "./FontesIsland";
 import { PremiumFlagIsland } from "./PremiumFlagIsland";
+import { GuardAdminIsland } from "./GuardAdminIsland";
 
 export const metadata = { title: "Configurações — Admin" };
 
@@ -33,6 +34,7 @@ const PAGINAS = [
 export default function Page() {
   return (
     <div className="space-y-4">
+      <GuardAdminIsland />
       <Card className="bento border-[var(--cor-borda)] bg-[var(--cor-fundo-card)]">
         <CardHeader>
           <CardTitle className="flex items-center gap-2"><Settings className="h-5 w-5 text-[var(--cor-primaria)]" /> Configurações gerais</CardTitle>

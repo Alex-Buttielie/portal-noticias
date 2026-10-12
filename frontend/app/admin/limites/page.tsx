@@ -1,6 +1,8 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -41,8 +43,13 @@ function isRecente(iso?: string | null) {
 }
 
 export default function Page() {
-  const { usuario, token } = useAuth();
+  const { usuario, token, carregando } = useAuth();
+  const r = useRouter();
   const cliente = useQueryClient();
+
+  useEffect(() => {
+    if (!carregando && !token) r.replace("/login");
+  }, [carregando, token, r]);
   const consulta = useQueryAdminLimites({ token, usuarioId: usuario?.id ?? 0 });
   const [log, setLog] = useState<string[]>([]);
   const [filtro, setFiltro] = useState("todas");
@@ -94,6 +101,21 @@ export default function Page() {
   }
 
   const preview = edit ? `Usuário ${edit.plano} verá: ${META[edit.chave]?.label ?? edit.chave} = ${valor.trim() || "—"}` : "";
+
+  if (usuario && usuario.papel !== "admin") {
+    return (
+      <div className="mx-auto max-w-xl py-8">
+        <Card className="border-[var(--cor-erro)] bg-[var(--cor-erro-suave)]">
+          <CardContent className="p-6 text-center">
+            <p className="text-sm text-[var(--cor-erro)]">Acesso restrito a admin.</p>
+            <Link href="/" className="text-sm text-[var(--cor-primaria)] underline">
+              Voltar
+            </Link>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
