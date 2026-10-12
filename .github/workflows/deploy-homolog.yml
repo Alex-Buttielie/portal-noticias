@@ -1,32 +1,28 @@
 name: Deploy HOMOLOG
 
 # Thin caller — toda a lógica vive em deploy.yml (reutilizável, Docker/GHCR).
-# PR para main implanta o head do PR em /home/apps/portal-homolog (3102/5102).
+# Push em develop implanta /home/apps/portal-homolog (3102/5102) — fluxo
+# acordado 2026-10-12: branch de implementação -> dev; develop -> homolog;
+# main+tag -> prod. Homolog deixou de ser "preview do PR contra main" e
+# passou a ser staging contínuo de `develop`: na prática o HEAD de develop e
+# o HEAD do PR develop->main coincidem na maior parte do tempo (o fluxo deste
+# repo não empurra commit direto na branch do PR, só em develop), então o
+# que já era visto em homolog antes de abrir o PR continua sendo visto, só
+# que um push mais cedo.
 #
-# 2026-10-11: repontado para Docker depois do cutover real de HOMOLOG (Fase E
-# do plano) — inventário, backup manual fresco, stack Docker em paralelo nas
-# portas de teste, migração de dados validada (797 linhas, host=container) e
-# corte de tráfego para as portas reais, cada etapa com confirmação explícita
-# do solicitante. Antes desta mudança, `deploy-pm2.yml` (o caminho antigo)
-# faria `pm2 start portal-web-homolog/portal-api-homolog` nas MESMAS portas
-# 3102/5102 que os containers Docker já ocupam — ou seja, o primeiro PR a
-# chegar depois do cutover desfaria o cutover silenciosamente, brigando pela
-# porta com os próprios containers. É o mesmo padrão do incidente restaurado
-# em 2026-10-10 (ver histórico acima), só que invertido: lá o ambiente não
-# estava pronto para Docker e o caller apontava pra Docker; aqui o ambiente
-# está pronto e o caller apontava pra PM2.
+# [HISTÓRICO] até 2026-10-12 este caller disparava em `pull_request` contra
+# `main` (`git_mode: pr`, deploy do HEAD do PR) — ver blame para o motivo
+# original (cutover Docker de 2026-10-11) e CI-CD.md para o fluxo documentado
+# antes da troca.
 #
 # Nota de paridade conhecida: `deploy.yml` não tem equivalente ao gate
-# `usuarios_teste` do `deploy-pm2.yml`/`infra/deploy/deploy.sh` (provisionava
-# uma conta de teste a cada PR para revisão manual em HOMOLOG). Esta troca
-# remove essa provisão automática — não é regressão de segurança (o gate
-# existia para conveniência do revisor, não para proteger produção), mas
-# quem for revisar um PR em homolog precisa criar a conta de teste manualmente
-# até que isso, se necessário, seja portado para o caminho Docker.
+# `usuarios_teste` do antigo `deploy-pm2.yml`/`infra/deploy/deploy.sh`
+# (provisionava uma conta de teste a cada deploy para revisão manual em
+# HOMOLOG). Quem for revisar em homolog precisa criar a conta de teste
+# manualmente até que isso, se necessário, seja portado para o caminho Docker.
 on:
-  pull_request:
-    branches: [main]
-    types: [opened, synchronize, reopened]
+  push:
+    branches: [develop]
 
 jobs:
   deploy-homolog:
@@ -35,10 +31,11 @@ jobs:
       env_label: HOMOLOG
       environment_name: homolog
       app_dir: /home/apps/portal-homolog
-      git_mode: pr
-      pr_number: ${{ github.event.pull_request.number }}
-      # O deploy busca o head do PR; o mesmo SHA é passado ao CI.
-      verify_ref: ${{ github.event.pull_request.head.sha }}
+      git_mode: branch
+      git_ref: develop
+      # SHA do push: o gate e o checkout da VPS não podem testar/implantar
+      # commits diferentes se outro push entrar enquanto o run está na fila.
+      verify_ref: ${{ github.sha }}
       web_port: "3102"
       api_port: "5102"
       host: homolog.portal-noticias.com

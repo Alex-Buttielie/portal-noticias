@@ -14,6 +14,7 @@ import { PularParaConteudo } from "@/components/PularParaConteudo";
 import { SITE_DESCRIPTION, SITE_NAME, SITE_URL } from "@/lib/site";
 import { organizationJsonLd } from "@/lib/schema";
 import { JsonLd } from "@/components/JsonLd";
+import { ADSENSE_CLIENT_ID } from "@/lib/anuncios";
 
 const inter = Inter({ subsets: ["latin"], variable: "--fonte-inter", display: "swap" });
 const serif = Source_Serif_4({ subsets: ["latin"], variable: "--fonte-serif", display: "swap" });
@@ -24,6 +25,16 @@ export const metadata: Metadata = {
   description: SITE_DESCRIPTION,
   openGraph: { type: "website", locale: "pt_BR", siteName: SITE_NAME, title: SITE_NAME, description: SITE_DESCRIPTION, url: SITE_URL },
   robots: { index: true, follow: true },
+  // Verificação de propriedade do AdSense via meta tag: AO CONTRÁRIO do
+  // `<script>` do adsbygoogle.js (que só existe depois do consentimento de
+  // cookies, ver AdsScript.tsx), esta tag é estática e sempre presente no
+  // `<head>` do SSR — nenhuma chamada de rede, nenhum consentimento
+  // necessário. É o método que o próprio Google recomenda para sites cujo
+  // script de anúncio é condicional; sem ela o rastreador do Google nunca
+  // vê nenhuma evidência de propriedade e a verificação falha sempre.
+  ...(ADSENSE_CLIENT_ID
+    ? { verification: { other: { "google-adsense-account": ADSENSE_CLIENT_ID } } }
+    : {}),
 };
 
 export const viewport: Viewport = {

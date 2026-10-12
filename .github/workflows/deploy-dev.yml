@@ -1,10 +1,26 @@
 name: Deploy DEV
 
 # Thin caller — toda a lógica vive em deploy.yml (reutilizável). Push em
-# develop implanta /home/apps/portal-dev (3101/5101).
+# develop OU em qualquer branch de implementação (feature/fix/hotfix/chore)
+# implanta /home/apps/portal-dev (3101/5101) — fluxo acordado 2026-10-12:
+# branch de implementação -> dev; develop -> homolog; main+tag -> prod.
+#
+# Concorrência: `deploy.yml` já serializa (nunca paraleliza) dois runs que
+# apontem para `environment_name: development` via
+# `concurrency: group: portal-deploy-development` — mas SEM cancelar o run
+# em andamento (`cancel-in-progress: false`). Decisão explícita (menor
+# risco): dois pushes de branches diferentes em sequência rápida enfileiram
+# e rodam um depois do outro (o último a TERMINAR é quem fica deployado em
+# dev, não necessariamente o último a ter sido empurrado) — nunca cancela um
+# `docker compose up` a meio caminho na VPS.
 on:
   push:
-    branches: [develop]
+    branches:
+      - develop
+      - 'feature/**'
+      - 'fix/**'
+      - 'hotfix/**'
+      - 'chore/**'
 
 jobs:
   deploy-dev:
@@ -14,7 +30,11 @@ jobs:
       environment_name: development
       app_dir: /home/apps/portal-dev
       git_mode: branch
-      git_ref: develop
+      # Branch que de fato foi empurrada (develop ou a de implementação) —
+      # só importa para um clone inicial do zero no app_dir; todo redeploy
+      # subsequente já usa `git fetch` + `reset --hard verify_ref` (ver
+      # deploy.yml, git_mode=branch).
+      git_ref: ${{ github.ref_name }}
       # SHA do push: o gate e o checkout da VPS não podem testar/implantar
       # commits diferentes se outro push entrar enquanto o run está na fila.
       verify_ref: ${{ github.sha }}

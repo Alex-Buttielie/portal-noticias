@@ -153,14 +153,27 @@ e-mail de recuperação sai, que hoje **não** é uma caixa de entrada — está
 
 ### Fluxo Git Flow
 
-1. **Feature**: `develop` → `feature/x` → commits → merge em `develop`
-2. **Push em develop**: CI independente para feedback + deploy DEV; o
-   `verify` do deploy executa o mesmo `ci.yml` e só libera o SSH se passar.
-3. **PR develop → main**: CI independente + deploy HOMOLOG; o `verify`
-   recebe `github.event.pull_request.head.sha`, o mesmo head que a VPS busca.
+> **[HISTÓRICO — substituído em 2026-10-12]** Até esta data, DEV só
+> implantava em push para `develop` (nenhuma branch de implementação
+> implantava sozinha) e HOMOLOG implantava o HEAD do PR develop→main, não um
+> push em `develop`. O fluxo abaixo é o atual.
+
+1. **Branch de implementação**: `develop` → `feature/x` (ou `fix/x`,
+   `hotfix/x`, `chore/x`) → commits → push dispara CI + **deploy DEV**
+   automático (o mesmo slot 3101/5101 é reusado por qualquer branch dessas;
+   dois pushes em sequência rápida enfileiram — `concurrency` sem cancelar
+   —, nunca rodam em paralelo).
+2. **Merge em develop**: PR da branch de implementação → `develop`. O push
+   resultante em `develop` dispara CI + **deploy HOMOLOG** automático
+   (3102/5102) — staging contínuo, não mais um preview do PR contra `main`.
+3. **PR develop → main**: CI independente para revisão (o mesmo `ci.yml`),
+   **sem deploy associado** — homolog já reflete o HEAD de `develop` desde o
+   passo anterior.
 4. **Merge + tag**: `git tag vX.Y.Z && git push origin vX.Y.Z` → Release +
-   deploy PROD; o `verify` Called Workflow valida o SHA da tag antes do
-   provisionamento, mesmo sem um trigger de CI por tag.
+   **deploy PROD** (3103/5103); o `verify` Called Workflow valida o SHA da
+   tag antes do provisionamento, mesmo sem um trigger de CI por tag. A tag
+   continua sendo o ÚNICO gatilho de produção — decisão explícita, não
+   automatizado como os dois passos anteriores.
 
 ### Rollback, recuperação e limite de disponibilidade [HISTÓRICO]
 
@@ -335,8 +348,8 @@ não há promessa de zero downtime.
 | Workflow | Arquivo | Trigger / gate |
 |----------|--------|----------------|
 | CI | `.github/workflows/ci.yml` | push/PR em develop e main, ou `workflow_call` pelo deploy; Python 3.12 com runtime+dev, `manage.py check`, pytest cov≥80; Node 20 com check de datas em UTC/Tokyo antes de `tsc`/`next build` |
-| Deploy DEV | `deploy-dev.yml` | push em develop; `verify` (`ci.yml`) → SSH/PM2 3101/5101; `usuarios_teste: true` (3 contas de teste) |
-| Deploy HOMOLOG | `deploy-homolog.yml` | PR para main; `verify` do head do PR → SSH/PM2 3102/5102; `usuarios_teste: true` (3 contas de teste) |
+| Deploy DEV | `deploy-dev.yml` | push em develop OU `feature\|fix\|hotfix\|chore/**` (2026-10-12); `verify` (`ci.yml`) → SSH/PM2 3101/5101; `usuarios_teste: true` (3 contas de teste) |
+| Deploy HOMOLOG | `deploy-homolog.yml` | push em develop (2026-10-12; antes era PR para main) → SSH/PM2 3102/5102; `usuarios_teste: true` (3 contas de teste) |
 | Deploy PROD | `deploy-prod.yml` | tag `v*` + Release; `verify` do SHA da tag → SSH/PM2 3103/5103; `usuarios_teste: false` explícito (nenhuma conta de teste) |
 | Rollback manual | `rollback.yml` | `workflow_dispatch`; `confirm` + SHA completo → mesmo `verify`/PM2/smoke, sem release; não declara `usuarios_teste`, então fica no `false` do `deploy.yml` |
 
