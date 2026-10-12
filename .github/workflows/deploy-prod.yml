@@ -79,8 +79,11 @@ jobs:
       SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
       SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
       SENTRY_URL: ${{ secrets.SENTRY_URL }}
-      # AdSense (P1-09): 5 secrets opcionais. Ausentes/vazios mantém
-      # AdsScript/AdsSlot inertes (comportamento de antes desta mudança).
+      # AdSense (P1-09 + PROD_DECISOES.md item 3): CLIENT_ID é secret de
+      # REPOSITÓRIO (não de Environment) — ver deploy-dev.yml/deploy-homolog.yml
+      # para o porquê (job com `uses:` não pode ter `environment:`, logo nunca
+      # enxerga secret de Environment). Slots opcionais; vazios mantém
+      # AdsScript/AdsSlot inertes.
       NEXT_PUBLIC_ADSENSE_CLIENT_ID: ${{ secrets.NEXT_PUBLIC_ADSENSE_CLIENT_ID }}
       NEXT_PUBLIC_ADSENSE_SLOT_HORIZONTAL: ${{ secrets.NEXT_PUBLIC_ADSENSE_SLOT_HORIZONTAL }}
       NEXT_PUBLIC_ADSENSE_SLOT_RETANGULO: ${{ secrets.NEXT_PUBLIC_ADSENSE_SLOT_RETANGULO }}

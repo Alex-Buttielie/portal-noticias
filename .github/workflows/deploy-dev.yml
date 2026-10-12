@@ -8,10 +8,6 @@ on:
 
 jobs:
   deploy-dev:
-    # Trava prod-only Fase 1 (AdSense): este caller resolve `secrets.*` no
-    # Environment `development`. Client ID existe SÓ em `production`; aqui
-    # vazio = bundle dev sem ca-pub, zero chamada ao Google.
-    environment: development
     uses: ./.github/workflows/deploy.yml
     with:
       env_label: DEV
@@ -59,9 +55,12 @@ jobs:
       SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
       SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
       SENTRY_URL: ${{ secrets.SENTRY_URL }}
-      # AdSense Fase 1 (prod-only, PROD_DECISOES.md item 3): resolve no
-      # Environment `development` — intencionalmente VAZIO aqui. Só
-      # `production` tem CLIENT_ID; vazio é seguro (frontend/Dockerfile).
+      # AdSense (PROD_DECISOES.md item 3): CLIENT_ID é secret de
+      # REPOSITÓRIO (não de Environment) de propósito — um job que chama
+      # workflow reutilizável via `uses:` não pode ter `environment:` nele
+      # mesmo (GitHub Actions recusa com "workflow file issue"), e sem
+      # `environment:` o job nunca enxerga secret de Environment. Slots
+      # vazios até a Fase 2; vazio é seguro (frontend/Dockerfile).
       NEXT_PUBLIC_ADSENSE_CLIENT_ID: ${{ secrets.NEXT_PUBLIC_ADSENSE_CLIENT_ID }}
       NEXT_PUBLIC_ADSENSE_SLOT_HORIZONTAL: ${{ secrets.NEXT_PUBLIC_ADSENSE_SLOT_HORIZONTAL }}
       NEXT_PUBLIC_ADSENSE_SLOT_RETANGULO: ${{ secrets.NEXT_PUBLIC_ADSENSE_SLOT_RETANGULO }}
