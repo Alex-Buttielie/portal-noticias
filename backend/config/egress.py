@@ -76,8 +76,10 @@ from __future__ import annotations
 
 import ipaddress
 import logging
+import queue
 import re
 import socket
+import threading
 from typing import Any, Iterable
 from urllib.parse import urlsplit, urlunsplit
 
@@ -93,6 +95,24 @@ logger = logging.getLogger(__name__)
 
 #: Esquemas aceitos. `file:`, `gopher:`, `dict:`, `ftp:` e `data:` fora.
 ESQUEMAS_PERMITIDOS: frozenset[str] = frozenset({"http", "https"})
+
+#: `socket.getaddrinfo` não aceita timeout — é uma chamada bloqueante do SO,
+#: fora do controle do `timeout=` do `requests` (achado 2026-10-11: um host
+#: com DNS inalcançável/dropado travou os dois processos do worker Celery de
+#: produção por horas, cada um preso aqui ANTES de qualquer request HTTP
+#: existir). `_resolver` roda a chamada numa thread auxiliar só pra poder
+#: abandoná-la depois deste prazo; a thread do SO pode continuar presa em
+#: segundo plano (não dá pra matar uma thread de dentro do Python), mas o
+#: worker nunca mais ESPERA por ela.
+#:
+#: Por que uma thread NOVA a cada chamada, não um `ThreadPoolExecutor`
+#: compartilhado de tamanho fixo: um pool com N threads despejadas em hosts
+#: que travam esgota as N threads depois de N chamadas travadas, e a chamada
+#: N+1 trava de novo — o mesmo bug, só que uma camada acima. Uma thread
+#: `daemon=True` por chamada nunca bloqueia a próxima; o custo é uma thread
+#: do SO potencialmente vazando por host travado, aceitável porque é raro
+#: (feed com DNS bom na prática) e o worker recicla (`max-tasks-per-child`).
+TIMEOUT_RESOLUCAO_DNS_SEGUNDOS: float = 10.0
 
 #: Redes que nunca podem ser alvo de saída. Inclui as exigidas pelo item e
 #: as lacunas costumeiras:
@@ -306,14 +326,33 @@ def ip_e_bloqueado(endereco: str | ipaddress._BaseAddress) -> str | None:
 
 def _resolver(host: str, porta: int) -> list[str]:
     """Todos os IPs de um host, via `getaddrinfo`. Levanta `EgressBloqueado`."""
+    resultado: queue.Queue = queue.Queue(maxsize=1)
+
+    def _chamada() -> None:
+        try:
+            resultado.put(("ok", socket.getaddrinfo(host, porta, proto=socket.IPPROTO_TCP)))
+        except BaseException as exc:  # repassa qualquer exceção pra thread principal
+            resultado.put(("erro", exc))
+
+    threading.Thread(target=_chamada, daemon=True, name="egress-dns").start()
     try:
-        infos = socket.getaddrinfo(host, porta, proto=socket.IPPROTO_TCP)
-    except socket.gaierror as exc:
+        tipo, valor = resultado.get(timeout=TIMEOUT_RESOLUCAO_DNS_SEGUNDOS)
+    except queue.Empty as exc:
         raise EgressBloqueado(
-            f"host não resolvido: {host!r} ({exc.strerror or exc})", host=host
+            f"resolução de DNS excedeu {TIMEOUT_RESOLUCAO_DNS_SEGUNDOS:.0f}s: {host!r}",
+            host=host,
         ) from exc
-    except UnicodeError as exc:
-        raise EgressBloqueado(f"host inválido: {host!r} ({exc})", host=host) from exc
+
+    if tipo == "erro":
+        exc = valor
+        if isinstance(exc, socket.gaierror):
+            raise EgressBloqueado(
+                f"host não resolvido: {host!r} ({exc.strerror or exc})", host=host
+            ) from exc
+        if isinstance(exc, UnicodeError):
+            raise EgressBloqueado(f"host inválido: {host!r} ({exc})", host=host) from exc
+        raise exc
+    infos = valor
 
     ips: list[str] = []
     for info in infos:
