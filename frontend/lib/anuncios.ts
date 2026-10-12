@@ -138,6 +138,95 @@ export function podeExibirAnuncio(args: {
 }
 
 /**
+ * M-04 — um slot do AdSense por POSIÇÃO, não só por formato.
+ *
+ * Antes, todo `AdsSlot` do mesmo formato (ex. todos os "horizontal":
+ * `home-topo`, `noticia-topo`, `categoria-topo`, `planos-horizontal`...)
+ * compartilhava o mesmo `data-ad-slot` (`SLOT_POR_FORMATO`) — o relatório do
+ * AdSense não conseguia dizer qual POSIÇÃO estava rendendo, só o formato.
+ *
+ * `SLOT_POR_POSICAO` mapeia o `id` de cada `AdsSlot` (ver grep completo em
+ * `implementation-history.md`, M-04) para sua própria
+ * `NEXT_PUBLIC_ADSENSE_SLOT_<POSICAO>`. Cada valor abaixo tem que ser um
+ * acesso ESTÁTICO a `process.env.NEXT_PUBLIC_*` (não um acesso dinâmico por
+ * nome de variável) — é assim que o compilador do Next consegue substituir
+ * pelo valor literal no build; `process.env[nomeDinamico]` NÃO funciona no
+ * bundle do navegador (só os acessos estáticos são inlined).
+ */
+export type FormatoAnuncio = "horizontal" | "retangulo" | "vertical" | "in-feed";
+
+const SLOT_POR_FORMATO: Record<FormatoAnuncio, string> = {
+  horizontal: process.env.NEXT_PUBLIC_ADSENSE_SLOT_HORIZONTAL || "",
+  retangulo: process.env.NEXT_PUBLIC_ADSENSE_SLOT_RETANGULO || "",
+  vertical: process.env.NEXT_PUBLIC_ADSENSE_SLOT_VERTICAL || "",
+  "in-feed": process.env.NEXT_PUBLIC_ADSENSE_SLOT_INFEED || "",
+};
+
+const SLOT_POR_POSICAO: Record<string, string> = {
+  "home-topo": process.env.NEXT_PUBLIC_ADSENSE_SLOT_HOME_TOPO || "",
+  "home-manchetes": process.env.NEXT_PUBLIC_ADSENSE_SLOT_HOME_MANCHETES || "",
+  "home-ultimas": process.env.NEXT_PUBLIC_ADSENSE_SLOT_HOME_ULTIMAS || "",
+  "home-pos-bombando": process.env.NEXT_PUBLIC_ADSENSE_SLOT_HOME_POS_BOMBANDO || "",
+  "home-pos-regiao": process.env.NEXT_PUBLIC_ADSENSE_SLOT_HOME_POS_REGIAO || "",
+  "home-pos-colunistas": process.env.NEXT_PUBLIC_ADSENSE_SLOT_HOME_POS_COLUNISTAS || "",
+  "home-infeed": process.env.NEXT_PUBLIC_ADSENSE_SLOT_HOME_INFEED || "",
+  "home-sidebar": process.env.NEXT_PUBLIC_ADSENSE_SLOT_HOME_SIDEBAR || "",
+  "home-sidebar-2": process.env.NEXT_PUBLIC_ADSENSE_SLOT_HOME_SIDEBAR_2 || "",
+  "home-footer": process.env.NEXT_PUBLIC_ADSENSE_SLOT_HOME_FOOTER || "",
+  "noticia-topo": process.env.NEXT_PUBLIC_ADSENSE_SLOT_NOTICIA_TOPO || "",
+  "noticia-infeed": process.env.NEXT_PUBLIC_ADSENSE_SLOT_NOTICIA_INFEED || "",
+  "noticia-pos": process.env.NEXT_PUBLIC_ADSENSE_SLOT_NOTICIA_POS || "",
+  "categoria-topo": process.env.NEXT_PUBLIC_ADSENSE_SLOT_CATEGORIA_TOPO || "",
+  // Grupo dinâmico: `categoria-infeed-${indice}` (loop) e `categoria-infeed-final`
+  // (última posição, fora do loop) compartilham a mesma variável — ver
+  // `grupoDaPosicao` abaixo, que remove o último segmento de ids em loop.
+  "categoria-infeed": process.env.NEXT_PUBLIC_ADSENSE_SLOT_CATEGORIA_INFEED || "",
+  "categoria-infeed-final": process.env.NEXT_PUBLIC_ADSENSE_SLOT_CATEGORIA_INFEED || "",
+  "categoria-pos": process.env.NEXT_PUBLIC_ADSENSE_SLOT_CATEGORIA_POS || "",
+  "buscar-infeed": process.env.NEXT_PUBLIC_ADSENSE_SLOT_BUSCAR_INFEED || "",
+  "buscar-horizontal": process.env.NEXT_PUBLIC_ADSENSE_SLOT_BUSCAR_HORIZONTAL || "",
+  "arquivo-infeed": process.env.NEXT_PUBLIC_ADSENSE_SLOT_ARQUIVO_INFEED || "",
+  "arquivo-horizontal": process.env.NEXT_PUBLIC_ADSENSE_SLOT_ARQUIVO_HORIZONTAL || "",
+  "planos-horizontal": process.env.NEXT_PUBLIC_ADSENSE_SLOT_PLANOS_HORIZONTAL || "",
+  "radar-retangulo": process.env.NEXT_PUBLIC_ADSENSE_SLOT_RADAR_RETANGULO || "",
+  // Grupo dinâmico: `comunidade-detalhe-${safeId}`.
+  "comunidade-detalhe": process.env.NEXT_PUBLIC_ADSENSE_SLOT_COMUNIDADE_DETALHE || "",
+  // Grupo dinâmico: `comunidade-feed-${idx}`.
+  "comunidade-feed": process.env.NEXT_PUBLIC_ADSENSE_SLOT_COMUNIDADE_FEED || "",
+};
+
+/**
+ * Agrupa um id gerado em loop ("categoria-infeed-3", "comunidade-feed-12")
+ * na posição-base do loop ("categoria-infeed", "comunidade-feed"), removendo
+ * o último segmento (índice/id variável). Ids fixos que também terminam em
+ * número (ex. "home-sidebar-2") não dependem disto: são chaves EXATAS de
+ * `SLOT_POR_POSICAO`, resolvidas antes de qualquer agrupamento.
+ */
+function grupoDaPosicao(id: string): string {
+  return id.replace(/-[^-]+$/, "");
+}
+
+/**
+ * Slot do AdSense para a posição `id`. Tenta o id exato primeiro; se não
+ * houver entrada (ids gerados em loop), tenta o grupo. Sem variável
+ * definida para a posição (nos dois casos), devolve "" — o chamador cai no
+ * padrão do formato.
+ */
+export function slotPorPosicao(id: string): string {
+  return SLOT_POR_POSICAO[id] || SLOT_POR_POSICAO[grupoDaPosicao(id)] || "";
+}
+
+/**
+ * Resolução final do `data-ad-slot` de um `AdsSlot`: prop `slot` explícita
+ * (override manual) > variável de ambiente da posição (M-04) > padrão do
+ * formato (comportamento anterior, preservado quando nada mais está
+ * configurado — critério de aceite 4 do implementation-contract.md).
+ */
+export function resolverSlotAnuncio(id: string, formato: FormatoAnuncio, slotExplicito?: string): string {
+  return slotExplicito || slotPorPosicao(id) || SLOT_POR_FORMATO[formato];
+}
+
+/**
  * Revogação: derruba a saída de anúncio JÁ INJETADA na página.
  *
  * Por que é preciso e não éOOK: `next/script` com `strategy="lazyOnload"`

@@ -5,24 +5,21 @@ import { cn } from "@/lib/utils";
 import { EVENTO_CONSENTIMENTO_ALTERADO } from "@/lib/cookie-consent";
 import { useAuth } from "@/lib/auth-context";
 import { usePremiumAtivo } from "@/lib/premium";
-import { ADSENSE_CLIENT_ID, consentiuAnuncio, podeExibirAnuncio } from "@/lib/anuncios";
+import {
+  ADSENSE_CLIENT_ID,
+  consentiuAnuncio,
+  podeExibirAnuncio,
+  resolverSlotAnuncio,
+  type FormatoAnuncio,
+} from "@/lib/anuncios";
 
-type Formato = "horizontal" | "retangulo" | "vertical" | "in-feed";
+type Formato = FormatoAnuncio;
 
 const ALTURA: Record<Formato, string> = {
   horizontal: "90px",
   retangulo: "250px",
   vertical: "600px",
   "in-feed": "200px",
-};
-
-/** Slot numérico por formato (criado na conta AdSense). Sem slot, o bloco
- *  segue como placeholder mesmo com publisher ID configurado. */
-const SLOT_POR_FORMATO: Record<Formato, string> = {
-  horizontal: process.env.NEXT_PUBLIC_ADSENSE_SLOT_HORIZONTAL || "",
-  retangulo: process.env.NEXT_PUBLIC_ADSENSE_SLOT_RETANGULO || "",
-  vertical: process.env.NEXT_PUBLIC_ADSENSE_SLOT_VERTICAL || "",
-  "in-feed": process.env.NEXT_PUBLIC_ADSENSE_SLOT_INFEED || "",
 };
 
 declare global {
@@ -61,11 +58,16 @@ export function AdsSlot({
   formato,
   className,
   rotulo,
+  slot: slotExplicito,
 }: {
   id: string;
   formato: Formato;
   className?: string;
   rotulo?: string;
+  /** M-04: override manual do slot do AdSense para esta instância. Sem
+   *  isto, a posição (`id`) resolve sozinha via `NEXT_PUBLIC_ADSENSE_SLOT_*`
+   *  — ver `lib/anuncios.ts` (`resolverSlotAnuncio`). */
+  slot?: string;
 }) {
   const ref = useRef<HTMLModElement>(null);
   const [consentiu, setConsentiu] = useState(false);
@@ -77,7 +79,7 @@ export function AdsSlot({
   // OFF conhecida (`ativo === false`), free vê anúncio; só o desconhecido
   // esconde — é o fallback seguro sem matar a monetização em dev.
   const premiumGeral = isPremium || ativo === null;
-  const slot = SLOT_POR_FORMATO[formato];
+  const slot = resolverSlotAnuncio(id, formato, slotExplicito);
 
   useEffect(() => {
     const atualizar = () => setConsentiu(consentiuAnuncio());
