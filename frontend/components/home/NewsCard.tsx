@@ -1,7 +1,9 @@
 "use client";
-import { memo } from "react";
+import { memo, useEffect, useState } from "react";
 import Link from "next/link";
-import { Bookmark, BookmarkCheck, MapPin } from "lucide-react";
+import { Bookmark, BookmarkCheck, MapPin, Plus, Check } from "lucide-react";
+import { useAuth } from "@/lib/auth-context";
+import { segueFonte, alternarFonte } from "@/lib/minhas-fontes";
 import { Badge } from "@/components/ui/badge";
 import { ImagemNoticia } from "@/components/ImagemNoticia";
 import { cn } from "@/lib/utils";
@@ -36,6 +38,39 @@ export function SeloBadge({ selo }: { selo: SeloEditorial }) {
     >
       {selo}
     </span>
+  );
+}
+
+/** "Seguir fonte" — inspirado no Google Notícias. Local (localStorage) +
+ * sincronizado com a conta quando logado (ver lib/minhas-fontes.ts). Só
+ * aparece quando há um crédito real (autor/fonte, nunca a categoria). */
+function BotaoSeguirFonte({ nomeFonte }: { nomeFonte: string }) {
+  const { token } = useAuth();
+  const [segue, setSegue] = useState(false);
+  const [hidratado, setHidratado] = useState(false);
+
+  useEffect(() => {
+    setSegue(segueFonte(nomeFonte));
+    setHidratado(true);
+  }, [nomeFonte]);
+
+  if (!hidratado) return null;
+
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        alternarFonte(nomeFonte, token);
+        setSegue((v) => !v);
+      }}
+      aria-pressed={segue}
+      className="inline-flex shrink-0 items-center gap-0.5 rounded-full border border-[var(--cor-borda)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--cor-texto-suave)] hover:border-[var(--cor-primaria)] hover:text-[var(--cor-primaria)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cor-foco)]"
+    >
+      {segue ? <Check className="h-2.5 w-2.5" aria-hidden /> : <Plus className="h-2.5 w-2.5" aria-hidden />}
+      {segue ? "Seguindo" : "Seguir"}
+    </button>
   );
 }
 
@@ -114,10 +149,14 @@ export const NewsCard = memo(function NewsCard({ entrada, variante = "secundaria
   // de fallback, já que o portal funde várias fontes por manchete em vez
   // de atribuir a uma só editora.
   const credito = formatarCredito(entrada);
+  const nomeParaSeguir = (entrada.autor || entrada.nome_fonte || "").trim();
   const linhaFonte = (
     <p className="flex min-w-0 items-center gap-1.5 text-xs text-[var(--cor-texto-suave)]">
       {credito ? (
-        <span className="truncate font-semibold text-[var(--cor-texto)]">{credito}</span>
+        <>
+          <span className="truncate font-semibold text-[var(--cor-texto)]">{credito}</span>
+          {nomeParaSeguir && <BotaoSeguirFonte nomeFonte={nomeParaSeguir} />}
+        </>
       ) : (
         <Link
           href={`/categoria/${encodeURIComponent(entrada.categoria)}`}

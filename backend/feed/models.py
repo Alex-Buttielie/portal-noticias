@@ -150,3 +150,23 @@ class DestaqueEditorial(models.Model):
         if self.fim and agora > self.fim:
             return False
         return True
+
+
+class FonteSeguida(models.Model):
+    """Usuário segue uma fonte (crédito/editora real, nunca inventado) —
+    inspirado no "Seguir" do Google Notícias. `nome_fonte` é texto livre,
+    mesmo padrão de `InteracaoNoticia.categoria`/`NewsItem.nome_fonte`:
+    não há catálogo fechado, o pipeline não garante um enum estável."""
+
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="fontes_seguidas")
+    nome_fonte = models.CharField(max_length=150)
+    criado_em = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "fonte seguida"
+        verbose_name_plural = "fontes seguidas"
+        unique_together = [("user", "nome_fonte")]
+        ordering = ["nome_fonte"]
+
+    def __str__(self):
+        return f"{self.user_id}: {self.nome_fonte}"
