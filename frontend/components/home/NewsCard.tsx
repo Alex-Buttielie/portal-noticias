@@ -57,9 +57,8 @@ export function MetaLinha({ entrada, mostrarFontes = true }: { entrada: FeedEntr
       <Link
         href={`/categoria/${encodeURIComponent(entrada.categoria)}`}
         onClick={(e) => e.stopPropagation()}
-        className="kicker inline-flex items-center gap-1 text-[var(--cor-primaria)] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cor-foco)] rounded-sm"
+        className="font-semibold capitalize text-[var(--cor-primaria)] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cor-foco)] rounded-sm"
       >
-        <span className="h-1.5 w-1.5 rounded-full bg-[var(--cor-primaria)]" aria-hidden />
         {entrada.categoria || "geral"}
       </Link>
       <LocalidadeTag entrada={entrada} />
@@ -93,11 +92,106 @@ export const NewsCard = memo(function NewsCard({ entrada, variante = "secundaria
   const href = `/noticia/${entrada.id}`;
   const resumoCurto = (entrada.resumo || "").trim().slice(0, variante === "destaque" ? 220 : 140);
 
+  const salvarBotao = onToggleSalvar && (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        onToggleSalvar(entrada);
+      }}
+      aria-pressed={!!salvo}
+      aria-label={salvo ? "Remover dos salvos" : "Salvar para ler depois"}
+      title={salvo ? "Remover dos salvos" : "Salvar para ler depois"}
+      className="ml-auto inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[var(--cor-texto-suave)] hover:bg-[var(--cor-fundo-elevado)] hover:text-[var(--cor-texto)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cor-foco)]"
+    >
+      {salvo ? <BookmarkCheck className="h-3.5 w-3.5" /> : <Bookmark className="h-3.5 w-3.5" />}
+    </button>
+  );
+
+  // Linha "fonte": no Google Notícias cada story abre com a fonte + tempo,
+  // antes do título. Aqui lidera o crédito real (autor/fonte, quando o
+  // pipeline tiver) — nunca inventado — com a categoria como identificador
+  // de fallback, já que o portal funde várias fontes por manchete em vez
+  // de atribuir a uma só editora.
+  const credito = formatarCredito(entrada);
+  const linhaFonte = (
+    <p className="flex min-w-0 items-center gap-1.5 text-xs text-[var(--cor-texto-suave)]">
+      {credito ? (
+        <span className="truncate font-semibold text-[var(--cor-texto)]">{credito}</span>
+      ) : (
+        <Link
+          href={`/categoria/${encodeURIComponent(entrada.categoria)}`}
+          onClick={(e) => e.stopPropagation()}
+          className="truncate font-semibold capitalize text-[var(--cor-texto)] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cor-foco)] rounded-sm"
+        >
+          {entrada.categoria || "geral"}
+        </Link>
+      )}
+      <span aria-hidden>·</span>
+      {credito && (
+        <>
+          <Link
+            href={`/categoria/${encodeURIComponent(entrada.categoria)}`}
+            onClick={(e) => e.stopPropagation()}
+            className="shrink-0 truncate capitalize hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cor-foco)] rounded-sm"
+          >
+            {entrada.categoria || "geral"}
+          </Link>
+          <span aria-hidden>·</span>
+        </>
+      )}
+      <time dateTime={entrada.timestamp} title={formatarDataHora(entrada.timestamp)} suppressHydrationWarning className="shrink-0">
+        {timeAgo(entrada.timestamp)}
+      </time>
+      {entrada.urgente && (
+        <span className="ml-1 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--cor-sinal)] motion-safe:animate-pulse" aria-label="Urgente" />
+      )}
+    </p>
+  );
+
+  if (variante !== "destaque") {
+    // Linha densa, texto-primeiro (miniatura pequena, sem imagem
+    // dominante) — padrão de lista do Google Notícias, em vez do cartão
+    // com imagem no topo.
+    return (
+      <article className="group relative flex gap-3 border-b border-[var(--cor-borda)] py-3 first:pt-0 last:border-b-0 last:pb-0">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            {linhaFonte}
+            {selo && <SeloBadge selo={selo} />}
+          </div>
+          <Link
+            href={href}
+            className="mt-0.5 block break-words text-balance text-[15px] font-bold leading-snug text-[var(--cor-texto)] after:absolute after:inset-0 after:content-[''] hover:text-[var(--cor-primaria)] focus-visible:outline-none motion-safe:transition-colors line-clamp-3"
+          >
+            {entrada.titulo}
+          </Link>
+          {resumoCurto && (
+            <p className="mt-0.5 line-clamp-1 text-xs leading-snug text-[var(--cor-texto-suave)]">{resumoCurto}</p>
+          )}
+          <div className="relative z-10 mt-1 flex items-center gap-3">
+            <LocalidadeTag entrada={entrada} />
+            {mostrarFontesBreve(entrada)}
+            {salvarBotao}
+          </div>
+        </div>
+        <ImagemNoticia
+          src={entrada.imagem_url}
+          seed={`${entrada.categoria || "geral"}-${entrada.id}`}
+          alt=""
+          eager={eager}
+          sizes="112px"
+          className="h-20 w-28 shrink-0 rounded-[var(--raio-md)] object-cover"
+        />
+      </article>
+    );
+  }
+
   return (
     <article
       className={cn(
         "group relative flex overflow-hidden rounded-[var(--raio-lg)] border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] motion-safe:transition-colors hover:border-[var(--cor-primaria)]",
-        variante === "destaque" ? "flex-col md:grid md:grid-cols-[1.5fr_1fr]" : "flex-col"
+        "flex-col md:grid md:grid-cols-[1.5fr_1fr]"
       )}
     >
       <Link
@@ -110,60 +204,43 @@ export const NewsCard = memo(function NewsCard({ entrada, variante = "secundaria
           seed={`${entrada.categoria || "geral"}-${entrada.id}`}
           alt={entrada.titulo}
           eager={eager}
-          sizes={variante === "destaque" ? "(max-width: 768px) 100vw, 60vw" : "(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"}
-          className={cn(
-            "w-full object-cover motion-safe:transition motion-safe:duration-300 group-hover:motion-safe:scale-[1.02]",
-            variante === "destaque" ? "aspect-[16/9] md:h-full md:min-h-[320px]" : "aspect-[16/9]"
-          )}
+          sizes="(max-width: 768px) 100vw, 60vw"
+          className="aspect-[16/9] w-full object-cover motion-safe:transition motion-safe:duration-300 group-hover:motion-safe:scale-[1.02] md:h-full md:min-h-[320px]"
         />
       </Link>
-      <div className={cn("flex w-full min-w-0 flex-1 flex-col gap-2", variante === "destaque" ? "p-5 md:p-6" : "p-4")}>
+      <div className="flex w-full min-w-0 flex-1 flex-col gap-2 p-5 md:p-6">
         <div className="flex flex-wrap items-center gap-2">
+          {linhaFonte}
           {selo && <SeloBadge selo={selo} />}
-          {entrada.urgente && selo !== "Urgente" && (
-            <span className="h-1.5 w-1.5 rounded-full bg-[var(--cor-sinal)] motion-safe:animate-pulse" aria-label="Urgente" />
-          )}
-          {onToggleSalvar && (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onToggleSalvar(entrada);
-              }}
-              aria-pressed={!!salvo}
-              aria-label={salvo ? "Remover dos salvos" : "Salvar para ler depois"}
-              title={salvo ? "Remover dos salvos" : "Salvar para ler depois"}
-              className="ml-auto inline-flex h-7 w-7 items-center justify-center rounded-full border border-[var(--cor-borda)] text-[var(--cor-texto-suave)] hover:bg-[var(--cor-fundo-elevado)] hover:text-[var(--cor-texto)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cor-foco)]"
-            >
-              {salvo ? <BookmarkCheck className="h-3.5 w-3.5" /> : <Bookmark className="h-3.5 w-3.5" />}
-            </button>
-          )}
+          {salvarBotao}
         </div>
         <Link
           href={href}
-          className={cn(
-            "break-words text-balance font-bold leading-tight text-[var(--cor-texto)] decoration-[var(--cor-primaria)] underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cor-foco)] motion-safe:transition-colors",
-            variante === "destaque" ? "font-serif text-2xl tracking-tight sm:text-3xl md:text-4xl line-clamp-3" : "text-[15px] line-clamp-2"
-          )}
+          className="break-words text-balance text-2xl font-bold leading-tight tracking-tight text-[var(--cor-texto)] hover:text-[var(--cor-primaria)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cor-foco)] motion-safe:transition-colors sm:text-3xl md:text-4xl line-clamp-3"
         >
           {entrada.titulo}
         </Link>
         {resumoCurto && (
           <Link
             href={href}
-            className={cn(
-              "break-words leading-snug text-[var(--cor-texto-suave)] hover:text-[var(--cor-texto)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cor-foco)] motion-safe:transition-colors",
-              variante === "destaque" ? "text-sm line-clamp-3" : "text-sm line-clamp-2"
-            )}
+            className="break-words text-sm leading-snug text-[var(--cor-texto-suave)] hover:text-[var(--cor-texto)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cor-foco)] motion-safe:transition-colors line-clamp-3"
           >
             {resumoCurto}
           </Link>
         )}
         <div className="mt-auto pt-1">
-          <MetaLinha entrada={entrada} />
+          <MetaLinha entrada={entrada} mostrarFontes={false} />
         </div>
       </div>
-      {variante === "destaque" && <Badge className="sr-only">Manchete principal</Badge>}
+      <Badge className="sr-only">Manchete principal</Badge>
     </article>
   );
 });
+
+function mostrarFontesBreve(entrada: FeedEntrada) {
+  return (
+    <span className="text-xs text-[var(--cor-texto-suave)]">
+      {entrada.numero_fontes} {entrada.numero_fontes === 1 ? "fonte" : "fontes"}
+    </span>
+  );
+}

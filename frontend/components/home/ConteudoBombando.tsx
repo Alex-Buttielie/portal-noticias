@@ -49,7 +49,7 @@ export const ConteudoBombando = memo(function ConteudoBombando({ feed, limite, s
           O lado leve do dia — sem misturar com o noticiário principal.
         </p>
       </div>
-      <div className="grid gap-4 p-4 sm:grid-cols-2 md:px-5 lg:grid-cols-4">
+      <div className="grid gap-x-6 px-4 sm:grid-cols-2 md:px-5">
         {visiveis.map((entrada) => (
           <NewsCard
             key={`bomb-${entrada.tipo}-${entrada.id}`}
