@@ -24,9 +24,13 @@ function rotaAtiva(pathname: string, href: string) {
 function useItensNavegacao() {
   const { usuario } = useAuth();
   const isAdmin = usuario?.papel === "admin";
+  // Planos (NAV_ITENS[3]) ficava fora da barra inferior por construção —
+  // só entrava no header desktop/hambúrguer. Achado no mapeamento de
+  // navegação: no mobile (onde mora a maior parte do tráfego) assinar
+  // exigia abrir o menu ou rolar até o rodapé.
   return isAdmin
-    ? [NAV_ITENS[0], NAV_ITENS[1], NAV_ITENS[2], NAV_ITEM_ADMIN, NAV_ITEM_CONTA]
-    : [NAV_ITENS[0], NAV_ITENS[1], NAV_ITENS[2], NAV_ITEM_CONTA];
+    ? [NAV_ITENS[0], NAV_ITENS[1], NAV_ITENS[2], NAV_ITENS[3], NAV_ITEM_ADMIN, NAV_ITEM_CONTA]
+    : [NAV_ITENS[0], NAV_ITENS[1], NAV_ITENS[2], NAV_ITENS[3], NAV_ITEM_CONTA];
 }
 
 function BarraInferiorNativa() {

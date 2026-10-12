@@ -24,11 +24,14 @@ function statusEnv(v: string, padrao: string) {
   return isPadrao ? { label: "alerta", cls: "border-[var(--cor-alerta)] text-[var(--cor-alerta)]" } : { label: "ok", cls: "border-[var(--cor-sucesso)] text-[var(--cor-sucesso)]" };
 }
 
+// Únicos slugs que existem de verdade em `PaginaEditorial`
+// (backend/moderacao/migrations/0002_seed_paginas_legais.py) — Privacidade,
+// Cookies e Sobre são páginas Next.js estáticas separadas (/privacidade/*,
+// /sobre), não `PaginaEditorial`; linká-las aqui como se fossem editáveis
+// por este CRUD levava a 4 dos 4 links quebrando (slugs inexistentes).
 const PAGINAS = [
-  { slug: "termos", titulo: "Termos de uso", href: "/paginas/termos" },
-  { slug: "privacidade", titulo: "Política de privacidade", href: "/paginas/privacidade" },
-  { slug: "sobre", titulo: "Sobre", href: "/paginas/sobre" },
-  { slug: "cookies", titulo: "Política de cookies", href: "/paginas/cookies" },
+  { slug: "termos-de-uso", titulo: "Termos de uso", href: "/paginas/termos-de-uso" },
+  { slug: "politica-editorial", titulo: "Política editorial", href: "/paginas/politica-editorial" },
 ];
 
 export default function Page() {
