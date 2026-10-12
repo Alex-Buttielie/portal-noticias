@@ -9,6 +9,7 @@ from .models import HistoricoPagamento, Plan, Subscription
 from .serializers import (
     AssinarPlanoSerializer,
     HistoricoPagamentoSerializer,
+    ObjetivoAssinaturaSerializer,
     PlanSerializer,
     SubscriptionSerializer,
 )
@@ -276,3 +277,37 @@ class WebhookMercadoPagoView(APIView):
 
         logger.info("Webhook MP: preapproval %s -> %s.", referencia, acao)
         return Response({"detail": "ok"}, status=http_status.HTTP_200_OK)
+
+
+class ObjetivoAssinaturaView(APIView):
+    """
+    GET/PUT `objetivo_assinatura` — por que o usuário assinou o Premium,
+    em texto livre do próprio usuário. Usado por `feed.AfinidadeView` para
+    enviesar o ranqueamento do feed Premium (casado contra o vocabulário de
+    categorias do frontend, nunca interpretado por um modelo de linguagem).
+
+    Recurso Premium: `gating.services.exigir_feature` levanta
+    `RecursoGatedException` (403) para usuário sem a feature
+    `personalizacao_avancada` — mesma feature já usada por
+    `radar.EvolucaoView` para personalização avançada.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from gating.services import exigir_feature
+
+        exigir_feature(request.user, "personalizacao_avancada")
+        return Response(ObjetivoAssinaturaSerializer(request.user).data, status=http_status.HTTP_200_OK)
+
+    def put(self, request):
+        from gating.services import exigir_feature
+        from identidade.services import atualizar_objetivo_assinatura
+
+        exigir_feature(request.user, "personalizacao_avancada")
+        serializer = ObjetivoAssinaturaSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = atualizar_objetivo_assinatura(
+            request.user, serializer.validated_data["objetivo_assinatura"]
+        )
+        return Response(ObjetivoAssinaturaSerializer(user).data, status=http_status.HTTP_200_OK)

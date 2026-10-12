@@ -15,8 +15,10 @@
  * (categoria/colunista/ordem/selos, aplicada no feed geral).
  */
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -209,9 +211,14 @@ const TIPO_INSIGHT_ROTULO: Record<string, string> = {
 };
 
 export default function Page() {
-  const { token, usuario } = useAuth();
+  const { token, usuario, carregando } = useAuth();
   const usuarioId = usuario?.id ?? 0;
+  const r = useRouter();
   const queryClient = useQueryClient();
+
+  useEffect(() => {
+    if (!carregando && !token) r.replace("/login");
+  }, [carregando, token, r]);
   const [periodo, setPeriodo] = useState<PeriodoInteligencia>("30d");
   const [inicio, setInicio] = useState("");
   const [fim, setFim] = useState("");
@@ -330,6 +337,21 @@ export default function Page() {
     } catch (e: unknown) {
       setMsgOverride(e instanceof Error ? e.message : "Falha ao excluir.");
     }
+  }
+
+  if (usuario && usuario.papel !== "admin") {
+    return (
+      <div className="mx-auto max-w-xl py-8">
+        <Card className="border-[var(--cor-erro)] bg-[var(--cor-erro-suave)]">
+          <CardContent className="p-6 text-center">
+            <p className="text-sm text-[var(--cor-erro)]">Acesso restrito a admin.</p>
+            <Link href="/" className="text-sm text-[var(--cor-primaria)] underline">
+              Voltar
+            </Link>
+          </CardContent>
+        </Card>
+      </div>
+    );
   }
 
   return (

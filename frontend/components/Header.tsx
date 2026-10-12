@@ -8,6 +8,7 @@ import { NAV_ITENS, NAV_ITEM_CONTA, NAV_ITEM_LOGIN, NAV_ITEM_ADMIN } from "@/lib
 import { CATEGORIAS, SLUGS_CATEGORIAS, hrefSubcategoria } from "@/lib/categorias";
 import { useAuth } from "@/lib/auth-context";
 import { ThemeToggle } from "./ThemeToggle";
+import { Logomark } from "./Logomark";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 const CATS=SLUGS_CATEGORIAS;
@@ -51,10 +52,10 @@ export function Header() {
       <div className="hud-line" />
       <div className="mx-auto flex h-14 max-w-[1280px] items-center gap-3 px-4 md:h-16 md:px-6">
         <Link href="/" className="flex items-center gap-2 shrink-0">
-          <span className="flex h-8 w-8 items-center justify-center rounded-md text-sm font-bold text-[var(--cor-texto-invertido)]" style={{ background: "var(--gradiente-marca)", boxShadow: "0 0 12px var(--cor-neon-ciano)" }} aria-hidden>
-            ◈
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--raio-sm)] text-[var(--cor-texto-invertido)]" style={{ background: "var(--gradiente-marca)" }} aria-hidden>
+            <Logomark className="h-[18px] w-[18px]" />
           </span>
-          <span className="hidden text-sm font-bold tracking-tight text-[var(--cor-texto)] sm:block">Portal</span>
+          <span className="hidden font-serif text-base font-bold tracking-tight text-[var(--cor-texto)] sm:block">Portal</span>
         </Link>
         <nav className="hidden items-center gap-1 md:flex" aria-label="Principal">
           {[...NAV_ITENS, ...(isAdmin ? [NAV_ITEM_ADMIN] : [])].map((item) => {

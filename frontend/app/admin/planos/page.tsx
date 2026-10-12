@@ -1,6 +1,8 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -22,8 +24,13 @@ type Plano = api.Plano;
 function precoValido(v: string) { return /^\d+(\.\d{1,2})?$/.test(v.trim()); }
 
 export default function Page() {
-  const { usuario, token } = useAuth();
+  const { usuario, token, carregando } = useAuth();
+  const r = useRouter();
   const cliente = useQueryClient();
+
+  useEffect(() => {
+    if (!carregando && !token) r.replace("/login");
+  }, [carregando, token, r]);
   const consulta = useQueryAdminPlanos({ token, usuarioId: usuario?.id ?? 0 });
   const [log, setLog] = useState<string[]>([]);
 
@@ -115,6 +122,21 @@ export default function Page() {
       const msg = erro?.status === 409 ? "Exclusão protegida: existem assinaturas vinculadas a este plano (409)." : (erro?.message || "Falha ao excluir.");
       toast.error(msg); setEErr(msg);
     } finally { setExcluindo(false); }
+  }
+
+  if (usuario && usuario.papel !== "admin") {
+    return (
+      <div className="mx-auto max-w-xl py-8">
+        <Card className="border-[var(--cor-erro)] bg-[var(--cor-erro-suave)]">
+          <CardContent className="p-6 text-center">
+            <p className="text-sm text-[var(--cor-erro)]">Acesso restrito a admin.</p>
+            <Link href="/" className="text-sm text-[var(--cor-primaria)] underline">
+              Voltar
+            </Link>
+          </CardContent>
+        </Card>
+      </div>
+    );
   }
 
   return (

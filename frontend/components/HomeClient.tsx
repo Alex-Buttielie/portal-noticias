@@ -16,15 +16,15 @@ import { EmAlta } from "@/components/home/EmAlta";
 import { ConteudoBombando } from "@/components/home/ConteudoBombando";
 import { PortfolioCategorias } from "@/components/home/PortfolioCategorias";
 import { ImagemNoticia } from "@/components/ImagemNoticia";
-import { categoriasPorAfinidade, ordenarPorGosto } from "@/lib/personalizar";
+import { categoriasPorAfinidade, obterPesosPremium, ordenarPorGosto } from "@/lib/personalizar";
 import { obterTodasLeituras } from "@/lib/intent";
-import { alternarSalvo, estaSalvo } from "@/lib/bookmarks";
+import { alternarSalvo, estaSalvo, obterSalvos } from "@/lib/bookmarks";
 import { useAuth } from "@/lib/auth-context";
 import { usePremiumAtivo } from "@/lib/premium";
 import { HOME_CONFIG_PADRAO, obterHomeConfig, type HomeConfig } from "@/lib/editorial";
 import { hrefSubcategoria, subcategoriasCompletas } from "@/lib/categorias";
 import type { FeedEntrada } from "@/lib/api";
-import { Flame, Mail, Info, Crown } from "lucide-react";
+import { Flame, Mail, Info, Crown, Bookmark } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const EDITORIAS = ["política", "economia", "tecnologia", "esportes", "cultura", "saúde", "mundo", "cidades"];
@@ -52,7 +52,7 @@ export function HomeClient({
   maisLidas?: FeedEntrada[];
   colunistas?: Colunista[];
 }) {
-  const { usuario } = useAuth();
+  const { usuario, token } = useAuth();
   const isPremium = usuario?.papel === "premium" || usuario?.papel === "admin";
   const { ativo } = usePremiumAtivo();
   // Guarda externa dos slots (otimização): mesma regra do AdsSlot —
@@ -61,22 +61,42 @@ export function HomeClient({
   const premiumGeral = isPremium || ativo === null;
   const [filtro, setFiltro] = useState<string | null>(null);
   const [salvos, setSalvos] = useState<Set<string>>(new Set());
+  const [salvosRecentes, setSalvosRecentes] = useState<FeedEntrada[]>([]);
   const [leiturasTick, setLeiturasTick] = useState(0);
   const [config, setConfig] = useState<HomeConfig>(HOME_CONFIG_PADRAO);
   // Sinais do navegador (localStorage) só após a hidratação: a primeira
   // renderização do cliente precisa ser idêntica à do servidor, senão o
   // React acusa hydration mismatch (ex.: `src` da imagem do destaque).
   const [hidratado, setHidratado] = useState(false);
+  // Afinidade vinda da conta (histórico persistido no backend + objetivo
+  // da assinatura) — só Premium logado; `{}` para todo o resto, e o
+  // ranqueamento segue só com o sinal local (ver lib/personalizar.ts).
+  const [pesosPremium, setPesosPremium] = useState<Record<string, number>>({});
 
   useEffect(() => {
     setConfig(obterHomeConfig());
   }, []);
 
   useEffect(() => {
+    if (!isPremium || !token) {
+      setPesosPremium({});
+      return;
+    }
+    let ativo = true;
+    obterPesosPremium(token).then((pesos) => {
+      if (ativo) setPesosPremium(pesos);
+    });
+    return () => {
+      ativo = false;
+    };
+  }, [isPremium, token]);
+
+  useEffect(() => {
     try {
       const s = new Set<string>();
       for (const f of [...feedProp, ...urgProp, ...maisLidasProp]) if (estaSalvo(f)) s.add(`${f.tipo}-${f.id}`);
       setSalvos(s);
+      setSalvosRecentes(obterSalvos().slice(0, 2));
     } catch {}
   }, [feedProp, urgProp, maisLidasProp, leiturasTick]);
 
@@ -100,15 +120,18 @@ export function HomeClient({
     setLeiturasTick((n) => n + 1);
   }, []);
 
-  const hasSignal = perfil.interesses.length > 0 || Object.values(leituras).some((v) => v >= 2);
+  const hasSignal =
+    perfil.interesses.length > 0 ||
+    Object.values(leituras).some((v) => v >= 2) ||
+    Object.keys(pesosPremium).length > 0;
   const ordenado = useMemo(() => {
-    if (!hasSignal) return feedProp;
+    if (!hasSignal && Object.keys(pesosPremium).length === 0) return feedProp;
     try {
-      return ordenarPorGosto(feedProp, perfil);
+      return ordenarPorGosto(feedProp, perfil, pesosPremium);
     } catch {
       return feedProp;
     }
-  }, [feedProp, perfil, hasSignal]);
+  }, [feedProp, perfil, hasSignal, pesosPremium]);
 
   const filtrado = useMemo(() => {
     if (!filtro) return ordenado;
@@ -117,11 +140,11 @@ export function HomeClient({
 
   const afinidade = useMemo(() => {
     try {
-      return categoriasPorAfinidade(perfil);
+      return categoriasPorAfinidade(perfil, pesosPremium);
     } catch {
       return [];
     }
-  }, [perfil]);
+  }, [perfil, pesosPremium]);
 
   const totalEditorias = useMemo(
     () => new Set(feedProp.map((f) => (f.categoria || "").toLowerCase()).filter(Boolean)).size,
@@ -339,6 +362,38 @@ export function HomeClient({
         </div>
 
         <aside className="space-y-4 lg:col-span-4" aria-label="Exploração e assinatura">
+          {hidratado && salvosRecentes.length > 0 && (
+            <Card className="border-[var(--cor-borda)] bg-[var(--cor-fundo-card)]">
+              <CardContent className="p-4">
+                <h3 className="mb-3 flex items-center gap-2 text-sm font-bold text-[var(--cor-texto)]">
+                  <Bookmark className="h-4 w-4 text-[var(--cor-primaria)]" aria-hidden /> Continuar lendo
+                </h3>
+                <div className="space-y-2">
+                  {salvosRecentes.map((item) => (
+                    <Link
+                      key={`${item.tipo}-${item.id}`}
+                      href={`/noticia/${item.id}`}
+                      className="group flex gap-3 rounded-[var(--raio-md)] p-1 -m-1 hover:bg-[var(--cor-fundo-elevado)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cor-foco)]"
+                    >
+                      <ImagemNoticia
+                        src={item.imagem_url}
+                        seed={`${item.categoria || "geral"}-${item.id}`}
+                        alt=""
+                        sizes="64px"
+                        className="h-12 w-16 shrink-0 rounded-[var(--raio-sm)] object-cover"
+                      />
+                      <p className="line-clamp-2 min-w-0 text-sm leading-snug text-[var(--cor-texto)] group-hover:text-[var(--cor-primaria)]">
+                        {item.titulo}
+                      </p>
+                    </Link>
+                  ))}
+                </div>
+                <Link href="/favoritos" className="mt-3 inline-flex text-xs font-medium text-[var(--cor-primaria)] hover:underline">
+                  Ver todos salvos →
+                </Link>
+              </CardContent>
+            </Card>
+          )}
           <Card className="border-[var(--cor-borda)] bg-[var(--cor-fundo-card)]">
             <CardContent className="p-4">
               <h3 className="mb-3 text-sm font-bold text-[var(--cor-texto)]">Explorar editorias</h3>

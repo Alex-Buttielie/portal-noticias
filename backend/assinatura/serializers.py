@@ -35,3 +35,11 @@ class HistoricoPagamentoSerializer(serializers.ModelSerializer):
 
 class AssinarPlanoSerializer(serializers.Serializer):
     plan_id = serializers.IntegerField()
+
+
+class ObjetivoAssinaturaSerializer(serializers.Serializer):
+    """GET/PUT de `objetivo_assinatura` (texto livre do usuário Premium,
+    usado por `feed.AfinidadeView` para enviesar o ranqueamento do feed)."""
+
+    objetivo = serializers.CharField(source="objetivo_assinatura", allow_blank=True, max_length=500)
+    atualizado_em = serializers.DateTimeField(source="objetivo_assinatura_atualizado_em", read_only=True)

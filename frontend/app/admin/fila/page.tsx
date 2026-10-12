@@ -1,6 +1,8 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -31,9 +33,14 @@ function timeAgo(iso:string){
 }
 
 export default function Page(){
-  const { usuario, token } = useAuth();
+  const { usuario, token, carregando } = useAuth();
   const tk = token||"";
   const cliente = useQueryClient();
+  const r = useRouter();
+
+  useEffect(() => {
+    if (!carregando && !token) r.replace("/login");
+  }, [carregando, token, r]);
   const [status,setStatus]=useState<string>("pendente");
   const [busca,setBusca]=useState(""); const [q,setQ]=useState("");
   const [cat,setCat]=useState<string>("todas");
@@ -158,6 +165,21 @@ export default function Page(){
   };
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+
+  if (usuario && usuario.papel !== "admin") {
+    return (
+      <div className="mx-auto max-w-xl py-8">
+        <Card className="border-[var(--cor-erro)] bg-[var(--cor-erro-suave)]">
+          <CardContent className="p-6 text-center">
+            <p className="text-sm text-[var(--cor-erro)]">Acesso restrito a admin.</p>
+            <Link href="/" className="text-sm text-[var(--cor-primaria)] underline">
+              Voltar
+            </Link>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">

@@ -27,3 +27,16 @@ def atualizar_preferencias_cookies(user, categorias: dict) -> "identidade.models
     user.preferencias_cookies_atualizado_em = timezone.now()
     user.save(update_fields=["preferencias_cookies", "preferencias_cookies_atualizado_em"])
     return user
+
+
+def atualizar_objetivo_assinatura(user, texto: str) -> "identidade.models.User":  # noqa: F821
+    """
+    Persiste o objetivo da assinatura Premium (por que o usuário assinou,
+    em texto livre do próprio usuário). Chamada por
+    `assinatura.views.ObjetivoAssinaturaView`, que já garante via
+    `gating.services.exigir_feature` que só usuário Premium chega aqui.
+    """
+    user.objetivo_assinatura = (texto or "").strip()[:500]
+    user.objetivo_assinatura_atualizado_em = timezone.now()
+    user.save(update_fields=["objetivo_assinatura", "objetivo_assinatura_atualizado_em"])
+    return user
