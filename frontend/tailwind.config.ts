@@ -9,6 +9,10 @@ const config: Config = {
   darkMode: ["class", '[data-theme="dark"]'],
   theme: {
     extend: {
+      fontFamily: {
+        sans: ["var(--fonte-inter)", "ui-sans-serif", "system-ui", "sans-serif"],
+        serif: ["var(--fonte-serif)", "ui-serif", "Georgia", "serif"],
+      },
       colors: {
         border: "var(--cor-borda)",
         input: "var(--cor-borda)",

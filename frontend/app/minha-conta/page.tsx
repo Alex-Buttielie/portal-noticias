@@ -6,14 +6,17 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { MinhasFontes } from "@/components/MinhasFontes";
+import { ObjetivoAssinatura } from "./ObjetivoAssinatura";
 import Link from "next/link";
 export default function Page(){
   const { usuario, token, carregando, fazerLogout } = useAuth();
   const r = useRouter();
   const [out,setOut]=useState(false);
+  const isPremium = usuario?.papel === "premium" || usuario?.papel === "admin";
+  const isAdmin = usuario?.papel === "admin";
   useEffect(()=>{ if(!carregando && !token) r.replace("/login"); },[carregando,token,r]);
   if(carregando) return <div className="mx-auto max-w-xl py-10"><div className="h-32 animate-pulse rounded-[var(--raio-lg)] bg-[var(--cor-skeleton-base)]" /></div>;
-  if(!usuario) return null;
+  if(!usuario || !token) return null;
   return (<div className="mx-auto max-w-2xl space-y-4 py-6"><div className="hud-line" aria-hidden />
     <Card className="bento border-[var(--cor-borda)] bg-[var(--cor-fundo-card)]"><CardHeader><CardTitle>Minha conta</CardTitle><CardDescription className="text-[var(--cor-texto-suave)]">Gerencie seus dados e preferências</CardDescription></CardHeader><CardContent className="space-y-3">
       <div className="grid gap-3 md:grid-cols-2">
@@ -21,7 +24,16 @@ export default function Page(){
         <div className="rounded-[var(--raio-md)] border border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] p-3"><p className="text-xs tracking-widest text-[var(--cor-texto-suave)]">STATUS</p><p className="text-sm text-[var(--cor-texto)]">Email {usuario.email_verificado?"verificado":"nao verificado"}</p><p className="text-xs text-[var(--cor-texto-suave)]">Onboarding {usuario.onboarding_concluido?"concluido":"pendente"}</p></div>
       </div>
       <Card className="border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)]"><CardContent className="p-4"><MinhasFontes compact /></CardContent></Card>
-      <div className="flex flex-wrap gap-2"><Button asChild variant="outline" className="min-h-[44px]"><Link href="/onboarding">Onboarding</Link></Button><Button asChild variant="outline" className="min-h-[44px]"><Link href="/personalizar">Personalizar</Link></Button><Button asChild variant="outline" className="min-h-[44px]"><Link href="/favoritos">Favoritos</Link></Button></div>
+      {isPremium && <ObjetivoAssinatura token={token} />}
+      <div className="flex flex-wrap gap-2">
+        <Button asChild variant="outline" className="min-h-[44px]"><Link href="/onboarding">Onboarding</Link></Button>
+        <Button asChild variant="outline" className="min-h-[44px]"><Link href="/personalizar">Personalizar</Link></Button>
+        <Button asChild variant="outline" className="min-h-[44px]"><Link href="/favoritos">Favoritos</Link></Button>
+        <Button asChild variant="outline" className="min-h-[44px]"><Link href="/planos">{isPremium ? "Minha assinatura" : "Assinar Premium"}</Link></Button>
+        <Button asChild variant="outline" className="min-h-[44px]"><Link href="/trocar-senha">Trocar senha</Link></Button>
+        <Button asChild variant="outline" className="min-h-[44px]"><Link href="/jornalista/status">Credenciamento de jornalista</Link></Button>
+        {isAdmin && <Button asChild variant="outline" className="min-h-[44px]"><Link href="/admin">Central (admin)</Link></Button>}
+      </div>
       <Button variant="destructive" disabled={out} onClick={async()=>{ setOut(true); await fazerLogout(); r.push("/"); }} className="min-h-[44px]">{out?"Saindo...":"Sair"}</Button>
     </CardContent></Card></div>);
 }

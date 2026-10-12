@@ -1,6 +1,8 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,8 +15,13 @@ import { useQueryAdminDenuncias } from "@/lib/queries";
 import { queryKeys } from "@/lib/query-keys";
 
 export default function Page(){
-  const { usuario, token } = useAuth();
+  const { usuario, token, carregando } = useAuth();
+  const r = useRouter();
   const cliente = useQueryClient();
+
+  useEffect(() => {
+    if (!carregando && !token) r.replace("/login");
+  }, [carregando, token, r]);
   const [motivo,setMotivo]=useState("");
   const [consultou,setConsultou]=useState(false);
   const [erroMutacao,setErroMutacao]=useState<string|null>(null);
@@ -27,6 +34,22 @@ export default function Page(){
     : erroMutacao;
   const carregar=()=>{ setErroMutacao(null); setConsultou(true); void consulta.refetch(); };
   const agir=async(id:number,tipo:string)=>{ try{ await api.adminAplicarAcaoDenuncia(token||"",id,{tipo,motivo: motivo||"acao administrativa"}); await cliente.invalidateQueries({ queryKey: queryKeys.admin.denunciasRaiz() }); setMotivo("");}catch(e:any){ setErroMutacao(e?.message||"Falha na acao."); } };
+
+  if (usuario && usuario.papel !== "admin") {
+    return (
+      <div className="mx-auto max-w-xl py-8">
+        <Card className="border-[var(--cor-erro)] bg-[var(--cor-erro-suave)]">
+          <CardContent className="p-6 text-center">
+            <p className="text-sm text-[var(--cor-erro)]">Acesso restrito a admin.</p>
+            <Link href="/" className="text-sm text-[var(--cor-primaria)] underline">
+              Voltar
+            </Link>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   return (<div className="space-y-4"><Card className="bento border-[var(--cor-borda)] bg-[var(--cor-fundo-card)]"><CardHeader><CardTitle>Moderacao - Denuncias</CardTitle></CardHeader><CardContent className="space-y-3">
     <Button onClick={carregar} disabled={loading} className="bg-[var(--cor-primaria)] text-[var(--cor-texto-invertido)] min-h-[44px]">{loading?"Carregando...":"Carregar denuncias"}</Button>
     {err&&<p className="rounded-md border border-[var(--cor-erro)] bg-[var(--cor-erro-suave)] px-3 py-2 text-sm text-[var(--cor-erro)]">{err}</p>}

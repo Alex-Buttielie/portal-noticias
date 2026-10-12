@@ -4,43 +4,45 @@
 
 @layer base {
   :root {
-    --cor-primaria: #0A84FF;
-    --cor-primaria-hover: #0066CC;
-    --cor-primaria-suave: #E6F0FF;
-    --cor-secundaria: #1A1A2E;
-    --cor-secundaria-hover: #252545;
-    --cor-secundaria-suave: #E8E8F0;
-    --cor-fundo: #FDFBF7;
-    --cor-fundo-elevado: rgba(255, 255, 255, 0.72);
+    /* Identidade "Voz": grafite + esmeralda fria, acento único,
+       dourado reservado para Premium, vermelho só para urgente/ao vivo. */
+    --cor-primaria: #0F766E;
+    --cor-primaria-hover: #0B5C56;
+    --cor-primaria-suave: #E4F2F0;
+    --cor-secundaria: #111827;
+    --cor-secundaria-hover: #27303F;
+    --cor-secundaria-suave: #ECEDEF;
+    --cor-fundo: #F7F8F7;
+    --cor-fundo-elevado: rgba(255, 255, 255, 0.9);
     --cor-fundo-card: #FFFFFF;
-    --cor-borda: #E7E7E0;
-    --cor-texto: #0B0B1A;
-    --cor-texto-suave: #6B7280;
-    --cor-texto-invertido: #FDFBF7;
-    --cor-sucesso: #0A84FF;
-    --cor-sucesso-hover: #0066CC;
-    --cor-sucesso-suave: #E6F0FF;
-    --cor-alerta: #FF9F0A;
-    --cor-alerta-hover: #E68A00;
-    --cor-alerta-suave: #FFF4E0;
-    --cor-erro: #FF3B30;
-    --cor-erro-hover: #D92E24;
-    --cor-erro-suave: #FFE9E7;
-    --cor-destaque: #06B6D4;
-    --cor-destaque-hover: #0891B2;
-    --cor-destaque-suave: #E0F7FB;
-    --cor-premium: #7C3AED;
-    --cor-premium-hover: #6D28D9;
-    --cor-premium-suave: #EDE9FE;
-    --cor-sinal: #FF2E2E;
-    --cor-neon-ciano: #06B6D4;
-    --cor-neon-violeta: #7C3AED;
-    --cor-foco: #0A84FF;
-    --cor-skeleton-base: #E7E7E0;
-    --cor-skeleton-brilho: #FDFBF7;
-    --vidro: rgba(255, 255, 255, 0.72);
-    --gradiente-marca: linear-gradient(135deg, #0A84FF 0%, #06B6D4 50%, #7C3AED 100%);
-    --cor-sombra: 11 11 26;
+    --cor-borda: #E2E5E2;
+    --cor-texto: #111827;
+    --cor-texto-suave: #5B6472;
+    --cor-texto-invertido: #F7F8F7;
+    --cor-sucesso: #15803D;
+    --cor-sucesso-hover: #116530;
+    --cor-sucesso-suave: #E3F3E7;
+    --cor-alerta: #B45309;
+    --cor-alerta-hover: #8F4007;
+    --cor-alerta-suave: #FBEBDD;
+    --cor-erro: #B3261E;
+    --cor-erro-hover: #8C1D17;
+    --cor-erro-suave: #FAE4E1;
+    --cor-destaque: #155E75;
+    --cor-destaque-hover: #0F4A5C;
+    --cor-destaque-suave: #E1EEF1;
+    --cor-premium: #CA8A04;
+    --cor-premium-hover: #A16207;
+    --cor-premium-suave: #FAF0D7;
+    --cor-sinal: #D81E2C;
+    --cor-neon-ciano: #0F766E;
+    --cor-neon-violeta: #CA8A04;
+    --cor-foco: #0F766E;
+    --cor-skeleton-base: #E7E9E7;
+    --cor-skeleton-brilho: #F7F8F7;
+    --vidro: rgba(255, 255, 255, 0.9);
+    --gradiente-marca: linear-gradient(135deg, #0F766E 0%, #111827 100%);
+    --cor-sombra: 17 24 23;
     --espaco-0: 0px;
     --espaco-1: 0.25rem;
     --espaco-1-5: 0.375rem;
@@ -52,13 +54,13 @@
     --espaco-6: 1.5rem;
     --espaco-7: 2rem;
     --espaco-8: 2.5rem;
-    --raio-sm: 0.375rem;
-    --raio-md: 0.5rem;
-    --raio-lg: 0.75rem;
+    --raio-sm: 0.25rem;
+    --raio-md: 0.375rem;
+    --raio-lg: 0.5rem;
     --raio-completo: 9999px;
-    --sombra-1: 0 1px 2px rgba(var(--cor-sombra), 0.06), 0 1px 3px rgba(var(--cor-sombra), 0.08);
-    --sombra-2: 0 4px 12px rgba(var(--cor-sombra), 0.08), 0 2px 6px rgba(var(--cor-sombra), 0.06);
-    --sombra-3: 0 12px 32px rgba(var(--cor-sombra), 0.12), 0 4px 12px rgba(var(--cor-sombra), 0.08);
+    --sombra-1: 0 1px 2px rgba(var(--cor-sombra), 0.05);
+    --sombra-2: 0 2px 8px rgba(var(--cor-sombra), 0.07);
+    --sombra-3: 0 10px 24px rgba(var(--cor-sombra), 0.12);
     --z-conteudo-elevado: 10;
     --z-cabecalho: 40;
     --z-painel-flutuante: 45;
@@ -86,42 +88,42 @@
   }
 
   [data-theme="dark"] {
-    --cor-primaria: #0A84FF;
-    --cor-primaria-hover: #339DFF;
-    --cor-primaria-suave: #0F2A44;
-    --cor-secundaria: #E8E8F0;
+    --cor-primaria: #2DD4BF;
+    --cor-primaria-hover: #5EEAD4;
+    --cor-primaria-suave: #103430;
+    --cor-secundaria: #EDEFEE;
     --cor-secundaria-hover: #FFFFFF;
-    --cor-secundaria-suave: #252545;
-    --cor-fundo: #0B0B1A;
-    --cor-fundo-elevado: rgba(11, 11, 26, 0.72);
-    --cor-fundo-card: #141428;
-    --cor-borda: #2A2A3A;
-    --cor-texto: #FDFBF7;
-    --cor-texto-suave: #9CA3AF;
-    --cor-texto-invertido: #0B0B1A;
-    --cor-sucesso: #0A84FF;
-    --cor-sucesso-hover: #339DFF;
-    --cor-sucesso-suave: #0F2A44;
-    --cor-alerta: #FF9F0A;
-    --cor-alerta-hover: #FFB340;
-    --cor-alerta-suave: #3A2500;
-    --cor-erro: #FF3B30;
-    --cor-erro-hover: #FF6B63;
-    --cor-erro-suave: #3A1513;
-    --cor-destaque: #06B6D4;
-    --cor-destaque-hover: #22D3EE;
-    --cor-destaque-suave: #0A2E36;
-    --cor-premium: #7C3AED;
-    --cor-premium-hover: #9B6AF0;
-    --cor-premium-suave: #1E1433;
-    --cor-sinal: #FF2E2E;
-    --cor-neon-ciano: #06B6D4;
-    --cor-neon-violeta: #7C3AED;
-    --cor-foco: #0A84FF;
-    --cor-skeleton-base: #1E1E32;
-    --cor-skeleton-brilho: #2A2A3A;
-    --vidro: rgba(11, 11, 26, 0.72);
-    --gradiente-marca: linear-gradient(135deg, #0A84FF 0%, #06B6D4 50%, #7C3AED 100%);
+    --cor-secundaria-suave: #1C2220;
+    --cor-fundo: #0B0F0E;
+    --cor-fundo-elevado: rgba(11, 15, 14, 0.9);
+    --cor-fundo-card: #121716;
+    --cor-borda: #232B29;
+    --cor-texto: #EDEFEE;
+    --cor-texto-suave: #9BA3A1;
+    --cor-texto-invertido: #0B0F0E;
+    --cor-sucesso: #4ADE80;
+    --cor-sucesso-hover: #86EFAC;
+    --cor-sucesso-suave: #122A1C;
+    --cor-alerta: #DD9C4A;
+    --cor-alerta-hover: #EAB97A;
+    --cor-alerta-suave: #2E2013;
+    --cor-erro: #E2645C;
+    --cor-erro-hover: #EC8B85;
+    --cor-erro-suave: #2E1715;
+    --cor-destaque: #5EC2D6;
+    --cor-destaque-hover: #8AD4E3;
+    --cor-destaque-suave: #102A30;
+    --cor-premium: #E8B64A;
+    --cor-premium-hover: #F0C978;
+    --cor-premium-suave: #2E2412;
+    --cor-sinal: #FF5A5A;
+    --cor-neon-ciano: #2DD4BF;
+    --cor-neon-violeta: #E8B64A;
+    --cor-foco: #2DD4BF;
+    --cor-skeleton-base: #1A201E;
+    --cor-skeleton-brilho: #232B29;
+    --vidro: rgba(11, 15, 14, 0.9);
+    --gradiente-marca: linear-gradient(135deg, #2DD4BF 0%, #0B0F0E 100%);
     --cor-sombra: 0 0 0;
     --sombra-1: 0 1px 2px rgba(var(--cor-sombra), 0.3), 0 1px 3px rgba(var(--cor-sombra), 0.4);
     --sombra-2: 0 4px 12px rgba(var(--cor-sombra), 0.35), 0 2px 6px rgba(var(--cor-sombra), 0.3);
@@ -192,13 +194,18 @@
 }
 
 @layer utilities {
+  /* Cabeçalho fixo: leve desfoque para legibilidade ao rolar, sem o
+     vocabulário "glassmorphism" (sem brilho, sem borda translúcida extra). */
   .glass {
     background: var(--vidro);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
     border: 1px solid var(--cor-borda);
   }
 
+  /* Painel editorial: régua fina, sem sombra pesada — "tinta no papel",
+     não cartão de dashboard. Era `.bento` (cartão branco + sombra +
+     bordas arredondadas); mantém o nome para não tocar ~65 call sites. */
   .bento {
     background: var(--cor-fundo-card);
     border: 1px solid var(--cor-borda);
@@ -207,39 +214,42 @@
   }
 
   .bento-hover {
-    transition: box-shadow var(--duracao-normal) var(--curva-padrao), transform var(--duracao-normal) var(--curva-padrao);
+    transition: border-color var(--duracao-normal) var(--curva-padrao), box-shadow var(--duracao-normal) var(--curva-padrao);
   }
 
   .bento-hover:hover {
+    border-color: var(--cor-primaria);
     box-shadow: var(--sombra-2);
-    transform: translateY(-1px);
   }
 
+  /* Textura de fundo quase neutra (era grade "HUD" de painel técnico). */
   .hud-grid {
     background-image:
       linear-gradient(var(--cor-borda) 1px, transparent 1px),
       linear-gradient(90deg, var(--cor-borda) 1px, transparent 1px);
-    background-size: 24px 24px;
+    background-size: 32px 32px;
     background-position: -1px -1px;
-    opacity: 0.35;
+    opacity: 0.2;
   }
 
+  /* Ênfase sutil (era glow neon). Um anel discreto, não um brilho. */
   .neon-glow {
-    box-shadow: 0 0 12px var(--cor-neon-ciano), 0 0 24px rgba(var(--cor-sombra), 0.08);
+    box-shadow: 0 0 0 3px var(--cor-primaria-suave);
   }
 
   .neon-glow-violeta {
-    box-shadow: 0 0 12px var(--cor-neon-violeta), 0 0 24px rgba(var(--cor-sombra), 0.08);
+    box-shadow: 0 0 0 3px var(--cor-premium-suave);
   }
 
   .neon-text {
-    text-shadow: 0 0 8px var(--cor-neon-ciano);
+    text-shadow: none;
   }
 
+  /* Régua editorial: traço fino e sólido, como uma linha de corte de
+     jornal — era um "scan-line" em degradê com glow neon. */
   .hud-line {
     height: 1px;
-    background: linear-gradient(90deg, transparent, var(--cor-neon-ciano), transparent);
-    opacity: 0.5;
+    background: var(--cor-borda);
   }
 
   .text-balance {
@@ -248,6 +258,15 @@
 
   .text-pretty {
     text-wrap: pretty;
+  }
+
+  /* Kicker editorial: rótulo pequeno, versalete, tracking — reservado
+     para classificação de seção (categoria, "ao vivo"), nunca em heading. */
+  .kicker {
+    font-size: 0.6875rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
   }
 }
 
