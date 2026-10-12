@@ -54,8 +54,11 @@ export function HomeClient({
 }) {
   const { usuario } = useAuth();
   const isPremium = usuario?.papel === "premium" || usuario?.papel === "admin";
-  const { liberado } = usePremiumAtivo();
-  const premiumGeral = isPremium || liberado;
+  const { ativo } = usePremiumAtivo();
+  // Guarda externa dos slots (otimização): mesma regra do AdsSlot —
+  // `isPremium || ativo === null`. Não usa `liberado` para não esconder
+  // anúncios com a flag global OFF (feat/adsense-ativar-dev).
+  const premiumGeral = isPremium || ativo === null;
   const [filtro, setFiltro] = useState<string | null>(null);
   const [salvos, setSalvos] = useState<Set<string>>(new Set());
   const [leiturasTick, setLeiturasTick] = useState(0);

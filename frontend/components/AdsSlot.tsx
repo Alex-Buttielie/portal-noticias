@@ -70,9 +70,13 @@ export function AdsSlot({
   const ref = useRef<HTMLModElement>(null);
   const [consentiu, setConsentiu] = useState(false);
   const { usuario } = useAuth();
-  const { liberado } = usePremiumAtivo();
+  const { ativo } = usePremiumAtivo();
   const isPremium = usuario?.papel === "premium" || usuario?.papel === "admin";
-  const premiumGeral = isPremium || liberado;
+  // Desacoplamento ads x flag global (feat/adsense-ativar-dev): a decisão usa
+  // `ativo === null` (status desconhecido/erro) e NÃO `liberado`. Com a flag
+  // OFF conhecida (`ativo === false`), free vê anúncio; só o desconhecido
+  // esconde — é o fallback seguro sem matar a monetização em dev.
+  const premiumGeral = isPremium || ativo === null;
   const slot = SLOT_POR_FORMATO[formato];
 
   useEffect(() => {
