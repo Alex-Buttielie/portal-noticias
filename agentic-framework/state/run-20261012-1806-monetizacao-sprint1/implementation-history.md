@@ -106,3 +106,45 @@ desta iteração, o orchestrator vai serializar o trabalho entre
 outro), em vez de alternar.
 
 ---
+
+## Iteração 3 — 2026-10-12 — executor (M-03)
+
+**O que foi feito:**
+`generateMetadata` em `frontend/app/noticia/[id]/page.tsx` passa a devolver
+`robots: { index: false, follow: true }` quando `d.fontes[0].resumo` está
+vazio (notícia sem resumo próprio — página fina). A página continua
+acessível pelo link (`follow: true`), só não é indexada. Lógica extraída
+para uma função pura nova, `frontend/lib/seo.ts`
+(`robotsNoticiaSemResumo`), seguindo o padrão já usado em
+`lib/paginas-editoriais.ts`/`classificarErroPaginaEditorial` — permite
+testar a regra sem precisar de rede/servidor Next.
+
+**Por quê:**
+Critério de aceite 2 do implementation-contract.md; páginas finas
+prejudicam a qualidade do site para SEO e para o AdSense, e M-02
+(sitemap) depende deste item estar pronto primeiro.
+
+**Arquivos tocados:**
+- `frontend/app/noticia/[id]/page.tsx` — `generateMetadata` usa
+  `robotsNoticiaSemResumo(resumo)` e só inclui `robots` no objeto de
+  retorno quando a função devolve algo (resumo vazio).
+- `frontend/lib/seo.ts` (novo) — `robotsNoticiaSemResumo(resumo)`: resumo
+  vazio/ausente/só espaços → `{ index: false, follow: true }`; resumo com
+  conteúdo → `undefined` (sem alterar o metadata).
+- `frontend/testes/seo.test.mjs` (novo) — 4 casos: vazio, `undefined`,
+  `null`, só espaços (todos geram noindex,follow) e resumo com conteúdo
+  (não altera o robots).
+
+**Comandos executados / evidência:**
+```
+cd frontend && npm run typecheck → limpo
+npm test → 62 passed (58 anteriores + 4 novos), 0 fail
+```
+
+**Resultado:**
+Sucesso. Commit `818d2a6` —
+`monetizacao(M-03): noindex em noticia sem resumo proprio`.
+`git -C <worktree>` funcionou normalmente nesta iteração (sem repetição
+do incidente da Iteração 2).
+
+---
