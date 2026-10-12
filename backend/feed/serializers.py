@@ -30,6 +30,16 @@ class FeedEntrySerializer(serializers.Serializer):
     selo_editorial = serializers.CharField(allow_blank=True, required=False, default="")
 
 
+class SitemapEntrySerializer(serializers.Serializer):
+    """M-02: payload mínimo para o `/sitemap.xml` do Next — sem título,
+    resumo ou imagem (não são usados pelo gerador de sitemap)."""
+
+    tipo = serializers.ChoiceField(choices=["cluster", "item"])
+    id = serializers.IntegerField()
+    categoria = serializers.CharField(allow_blank=True)
+    timestamp = serializers.DateTimeField()
+
+
 class FonteDetalheSerializer(serializers.Serializer):
     nome_fonte = serializers.CharField()
     url_fonte_original = serializers.URLField()

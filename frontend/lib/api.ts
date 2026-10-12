@@ -515,6 +515,26 @@ export function obterUrgentes(limite = 6): Promise<FeedEntrada[]> {
 export function obterMaisLidas(limite = 5): Promise<FeedEntrada[]> {
   return request(`/api/feed/mais-lidas/?limite=${limite}`, { method: "GET" });
 }
+
+// M-02 (run 20261012-1806-monetizacao-sprint1): entradas publicáveis E
+// indexáveis (com resumo próprio — ver M-03) para `app/sitemap.ts`.
+export interface SitemapEntrada {
+  tipo: "cluster" | "item";
+  id: number;
+  categoria: string;
+  timestamp: string;
+}
+
+export interface SitemapResposta {
+  count: number;
+  next: string | null;
+  previous: string | null;
+  results: SitemapEntrada[];
+}
+
+export function obterSitemapEntradas(page = 1, page_size = 500): Promise<SitemapResposta> {
+  return request(`/api/feed/sitemap/?page=${page}&page_size=${page_size}`, { method: "GET" });
+}
 // Inscrição PÚBLICA de newsletter (visitante sem token). ATENÇÃO: o endpoint
 // `/api/newsletter/inscrever/` exige `IsAuthenticated`
 // (backend/newsletter/views.py:9-10), e o caminho público é

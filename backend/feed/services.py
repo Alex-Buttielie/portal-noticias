@@ -278,6 +278,23 @@ def detalhe_item(item_id: int) -> dict | None:
     }
 
 
+def entradas_sitemap() -> list[dict]:
+    """
+    M-02 (run 20261012-1806-monetizacao-sprint1): lista de entradas
+    publicáveis E indexáveis (com resumo próprio — ver M-03/`lib/seo.ts` no
+    frontend, que marca `noindex` quando `resumo` está vazio) para o
+    `/sitemap.xml` do Next.
+
+    Reaproveita `itens_publicaveis`/`construir_feed_entries` (mesma janela e
+    `.only()` do feed de lista — sem N+1 novo) e filtra por `resumo` não
+    vazio, para o sitemap nunca anunciar ao Google uma página que a própria
+    página marca como `noindex`.
+    """
+    itens = list(itens_publicaveis())
+    entradas = construir_feed_entries(itens)
+    return [e for e in entradas if (e.get("resumo") or "").strip()]
+
+
 def urgentes(limite: int = 8) -> list[dict]:
     itens = list(itens_publicaveis().filter(urgente=True).order_by("-timestamp_ingestao")[: limite * 3])
     entries = construir_feed_entries(itens)
