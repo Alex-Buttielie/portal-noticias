@@ -223,3 +223,71 @@ Não adicionei `/autor/*`/`/editorias/*` ao sitemap (o plano cita como
 futura, não expandi o escopo unilateralmente.
 
 ---
+
+## Iteração 5 — 2026-10-12 — executor (M-04)
+
+**O que foi feito:**
+Levantamento real com `grep -rn "<AdsSlot" frontend/` (25 ocorrências em
+13 arquivos — lista completa documentada no commit, não só a do plano:
+inclui `app/comunidade/page.tsx` e `app/comunidade/[id]/DetalhePublicacao.tsx`,
+que o plano não citava, e não inclui `SecaoRegiao.tsx`, que o plano citava
+mas não tem `AdsSlot` hoje). `AdsSlot` ganhou prop `slot` opcional
+(override manual) e passou a resolver `data-ad-slot` por POSIÇÃO
+(`id`) via `NEXT_PUBLIC_ADSENSE_SLOT_<POSICAO>`, com fallback para o
+padrão por formato quando a env da posição não existe (comportamento
+anterior preservado — nenhum ponto de montagem precisou de mudança de
+código, só a env nova é opcional).
+
+**Por quê:**
+Critério de aceite 4; sem slot por posição o AdSense não diz qual
+posição da página rende, impedindo qualquer otimização futura de
+densidade/posição (base para M-06 e M-13).
+
+**Arquivos tocados:**
+- `frontend/lib/anuncios.ts` — `FormatoAnuncio` (tipo exportado),
+  `SLOT_POR_FORMATO` (movido de `AdsSlot.tsx`), `SLOT_POR_POSICAO` (novo,
+  25 posições/grupos), `grupoDaPosicao()`, `slotPorPosicao()`,
+  `resolverSlotAnuncio(id, formato, slotExplicito?)`. Cada entrada do mapa
+  é um acesso ESTÁTICO a `process.env.NEXT_PUBLIC_*` (não dinâmico por
+  nome de variável) — documentado no comentário, porque só assim o Next
+  consegue inlinar o valor no bundle do navegador.
+- `frontend/components/AdsSlot.tsx` — usa `resolverSlotAnuncio`; nova
+  prop `slot?: string`; `SLOT_POR_FORMATO` local removido (está em
+  `lib/anuncios.ts` agora).
+- `frontend/.env.local.example` — lista completa das 25
+  `NEXT_PUBLIC_ADSENSE_SLOT_<POSICAO>`, com nota sobre fallback e sobre
+  ids dinâmicos compartilharem a env do grupo.
+- `frontend/testes/anuncios-slot-posicao.test.mjs` (novo) — 7 testes:
+  env da posição tem precedência sobre a do formato; env ausente cai no
+  formato; sem env nenhuma devolve `""`; prop `slot` explícita tem
+  precedência sobre tudo; id dinâmico em loop (`categoria-infeed-N`)
+  compartilha a env do grupo; id fixo terminado em número
+  (`home-sidebar-2`) NÃO é confundido com o grupo (`home-sidebar`); ids
+  dinâmicos de comunidade resolvem pelo grupo.
+
+**Comandos executados / evidência:**
+```
+grep -rn "<AdsSlot" --include="*.tsx" frontend/  → 25 ocorrências, 13 arquivos
+  (HomeClient.tsx×10, LeituraPremium.tsx×3, categoria/[slug]/page.tsx×4,
+  buscar/page.tsx×2, arquivo/page.tsx×2, planos/page.tsx×1,
+  radar/RadarClient.tsx×1, comunidade/page.tsx×1,
+  comunidade/[id]/DetalhePublicacao.tsx×1)
+
+cd frontend && npm run typecheck → limpo
+npm test → 71 passed (64 de M-02 + 7 novos de M-04)
+node scripts/verificar-consentimento-anuncios.mjs → OK, exit 0
+  (202 fontes varridos, 22 autotestes, 0 violações)
+npm run build → sucesso, todas as rotas, sem erro
+```
+
+**Resultado:**
+Sucesso. Commit `98889d6` —
+`monetizacao(M-04): slot do AdSense por posicao, nao so por formato`.
+
+**Notas:**
+`SecaoRegiao.tsx` estava na lista do plano mas não tem `<AdsSlot` no
+código atual — divergência do diagnóstico original, sem impacto (nada a
+fazer lá). Nenhum ponto de montagem precisou de edição: a resolução por
+posição é automática a partir do `id` que cada `AdsSlot` já declarava.
+
+---
