@@ -227,6 +227,22 @@ export function resolverSlotAnuncio(id: string, formato: FormatoAnuncio, slotExp
 }
 
 /**
+ * M-05 — quando não há anúncio para mostrar (sem consentimento, ou sem
+ * publisher ID/slot configurado), o placeholder de DEBUG (texto técnico:
+ * "PUBLICIDADE" / "Anúncio — Google AdSense (slot …)") só pode aparecer
+ * FORA de produção — é o que ajuda quem está codando a ver o espaço
+ * reservado. Em produção, o leitor nunca vê esse texto: o componente
+ * devolve `null` nesse ramo (M-09 substitui por `CartaoPremium` quando
+ * aplicável — ver `AdsSlot.tsx`).
+ *
+ * Função pura e testável sem precisar de DOM/hooks/providers (ver
+ * `testes/anuncios-placeholder.test.mjs`).
+ */
+export function mostrarPlaceholderDebug(nodeEnv: string | undefined): boolean {
+  return nodeEnv !== "production";
+}
+
+/**
  * Revogação: derruba a saída de anúncio JÁ INJETADA na página.
  *
  * Por que é preciso e não éOOK: `next/script` com `strategy="lazyOnload"`

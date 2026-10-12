@@ -8,6 +8,7 @@ import { usePremiumAtivo } from "@/lib/premium";
 import {
   ADSENSE_CLIENT_ID,
   consentiuAnuncio,
+  mostrarPlaceholderDebug,
   podeExibirAnuncio,
   resolverSlotAnuncio,
   type FormatoAnuncio,
@@ -129,6 +130,19 @@ export function AdsSlot({
     );
   }
 
+  // M-05: sem anúncio disponível (sem consentimento, ou sem publisher
+  // ID/slot) — em produção, o leitor NUNCA vê texto técnico
+  // ("Google AdSense"/"slot {id}"). Nenhum nó, nenhum buraco visual com
+  // jargão de ad tech.
+  if (!mostrarPlaceholderDebug(process.env.NODE_ENV)) {
+    // TODO (M-09): substituir por `<CartaoPremium formato={formato} />`
+    // quando aplicável (Free sem consentimento/sem publisher ID) — ver
+    // critério de aceite 5 do implementation-contract.md.
+    return null;
+  }
+
+  // Só fora de produção (NODE_ENV !== "production") — ajuda quem está
+  // codando a ver o espaço reservado sem publisher ID configurado.
   return (
     <div
       role="complementary"
