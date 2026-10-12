@@ -85,7 +85,7 @@ export const EmAlta = memo(function EmAlta({ feed, limite, categoriaBuscada }: E
                 </span>
                 <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-[var(--cor-texto-suave)]">
                   <span className="capitalize">{entrada.categoria || "geral"}</span>
-                  <span>• {timeAgo(entrada.timestamp)}</span>
+                  <span suppressHydrationWarning>• {timeAgo(entrada.timestamp)}</span>
                   <span className="inline-flex items-center gap-1">
                     <span
                       aria-hidden

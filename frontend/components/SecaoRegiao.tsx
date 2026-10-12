@@ -160,7 +160,7 @@ export function SecaoRegiao({ feed }: { feed: FeedEntrada[] }) {
                 <CardContent className="flex flex-col justify-center p-4">
                   <div className="flex flex-wrap items-center gap-2">
                     <Badge className="bg-[var(--cor-primaria)] text-[var(--cor-texto-invertido)] gap-1"><MapPin className="h-3 w-3" /> {regiao.cidade}</Badge>
-                    <span className="text-xs capitalize text-[var(--cor-texto-suave)]">{heroLocal.categoria} • {timeAgo(heroLocal.timestamp)} • {heroLocal.numero_fontes} fontes</span>
+                    <span className="text-xs capitalize text-[var(--cor-texto-suave)]" suppressHydrationWarning>{heroLocal.categoria} • {timeAgo(heroLocal.timestamp)} • {heroLocal.numero_fontes} fontes</span>
                   </div>
                   <Link href={`/noticia/${heroLocal.id}`} className="mt-2 line-clamp-2 text-balance text-lg font-bold leading-tight text-[var(--cor-texto)] hover:text-[var(--cor-primaria)]">{heroLocal.titulo}</Link>
                   <Link href={`/noticia/${heroLocal.id}`} className="mt-1 line-clamp-2 text-sm text-[var(--cor-texto-suave)] hover:text-[var(--cor-texto)]">{heroLocal.resumo}</Link>
@@ -181,7 +181,7 @@ export function SecaoRegiao({ feed }: { feed: FeedEntrada[] }) {
                 <CardContent className="p-3">
                   <div className="flex items-center gap-2">
                     <span className="text-xs font-medium capitalize text-[var(--cor-primaria)]">{n.categoria}</span>
-                    <span className="text-xs text-[var(--cor-texto-suave)]">• {timeAgo(n.timestamp)}</span>
+                    <span className="text-xs text-[var(--cor-texto-suave)]" suppressHydrationWarning>• {timeAgo(n.timestamp)}</span>
                     {n.urgente && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-[var(--cor-sinal)]" aria-hidden />}
                   </div>
                   <Link href={`/noticia/${n.id}`} className="mt-1 line-clamp-2 block text-sm font-bold leading-tight text-[var(--cor-texto)] hover:text-[var(--cor-primaria)]">{n.titulo}</Link>
