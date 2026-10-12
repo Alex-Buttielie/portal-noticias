@@ -286,3 +286,23 @@ def mais_lidas(limite: int = 5) -> list[dict]:
     entries = construir_feed_entries(itens)
     entries.sort(key=lambda e: (e["numero_fontes"], e["timestamp"]), reverse=True)
     return entries[:limite]
+
+
+def seguir_fonte(user, nome_fonte: str) -> "FonteSeguida":  # noqa: F821
+    from .models import FonteSeguida
+
+    nome = (nome_fonte or "").strip()[:150]
+    obj, _ = FonteSeguida.objects.get_or_create(user=user, nome_fonte=nome)
+    return obj
+
+
+def deixar_de_seguir_fonte(user, nome_fonte: str) -> None:
+    from .models import FonteSeguida
+
+    FonteSeguida.objects.filter(user=user, nome_fonte=(nome_fonte or "").strip()[:150]).delete()
+
+
+def fontes_seguidas(user) -> "QuerySet[FonteSeguida]":  # noqa: F821
+    from .models import FonteSeguida
+
+    return FonteSeguida.objects.filter(user=user)

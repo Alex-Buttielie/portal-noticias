@@ -170,6 +170,16 @@ on:
       # gate, sem novo erro. Nunca comitar o valor.
       RESEND_API_KEY:
         required: false
+      # Chave da API da Brapi (brapi.dev — plano grátis, 15k req/mês, sem
+      # cartão), usada por `mercado/services.py` pra cotar índices
+      # (Ibovespa) no widget de mercado. Ao contrário do resto de
+      # `.env.production` (escrito só na criação), esta linha é
+      # atualizada a CADA deploy — ver o bloco "BRAPI_API_KEY" no script
+      # abaixo — porque não há risco de sobrescrever um valor em uso:
+      # antes de existir, a chave simplesmente não tinha sido configurada.
+      # Ausente/vazia mantém o widget desligado (204), nunca quebra nada.
+      BRAPI_API_KEY:
+        required: false
 
 # Impede que dois deploys do mesmo ambiente rodem ao mesmo tempo. Um run já
 # em andamento nunca é cancelado; uma atualização mais nova espera sua vez.
@@ -279,6 +289,7 @@ jobs:
           GHCR_PULL_TOKEN: ${{ secrets.GHCR_PULL_TOKEN }}
           GHCR_PULL_USER: ${{ secrets.GHCR_PULL_USER }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          BRAPI_API_KEY: ${{ secrets.BRAPI_API_KEY }}
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
@@ -292,7 +303,7 @@ jobs:
           # sessão SSH — é assim, e não com `${{ }}` dentro do script, que o
           # token do GHCR chega ao `docker login` sem passar em texto puro
           # pelo `script:` renderizado no log do run.
-          envs: IMAGE_TAG,GHCR_PULL_TOKEN,GHCR_PULL_USER,RESEND_API_KEY
+          envs: IMAGE_TAG,GHCR_PULL_TOKEN,GHCR_PULL_USER,RESEND_API_KEY,BRAPI_API_KEY
           script: |
             set -e
             APP_DIR="${{ inputs.app_dir }}"; API_PORT=${{ inputs.api_port }}; WEB_PORT=${{ inputs.web_port }}
@@ -425,6 +436,20 @@ jobs:
                 exit 1
               fi
               echo "AVISO: .env.production criado com placeholders (DJANGO_DB_PASSWORD, OBSERVABILITY_*_TOKEN) — preencha antes do primeiro \`up\` funcionar de verdade (ver CI-CD.md)."
+            fi
+
+            # BRAPI_API_KEY: ao contrário do bloco acima (só na criação),
+            # esta linha é atualizada em TODO deploy — seguro porque não há
+            # valor em uso pra sobrescrever por engano (a chave só passou a
+            # existir quando o secret foi configurado). grep -v + append
+            # evita problemas de caractere especial do sed com o valor do
+            # secret.
+            if [ -n "${BRAPI_API_KEY:-}" ]; then
+              ENV_TMP2=".env.production.tmp2.$$"
+              grep -v '^BRAPI_API_KEY=' .env.production > "$ENV_TMP2" || true
+              printf 'BRAPI_API_KEY=%s\n' "$BRAPI_API_KEY" >> "$ENV_TMP2"
+              chmod 600 "$ENV_TMP2"
+              mv -f -- "$ENV_TMP2" .env.production
             fi
             if grep -qE '^DJANGO_DB_PASSWORD=troque-aqui$' .env.production; then
               echo "ERRO: preencha DJANGO_DB_PASSWORD em $APP_DIR/.env.production (ver CI-CD.md)"; exit 1

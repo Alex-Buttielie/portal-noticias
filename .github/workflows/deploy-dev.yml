@@ -68,6 +68,7 @@ jobs:
       GHCR_PULL_USER: ${{ secrets.GHCR_PULL_USER }}
       # Resend (P1-04): opcional. Ausente mantém DJANGO_EMAIL_BACKEND=console.
       RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+      BRAPI_API_KEY: ${{ secrets.BRAPI_API_KEY }}
       # Sentry (C2.4): opcionais, usados só para o upload de source map do
       # `verify`. Sem eles, o passo é pulado (fail-open) e o CI segue verde —
       # comportamento CORRETO em dev (D1: só PROD exige credencial).

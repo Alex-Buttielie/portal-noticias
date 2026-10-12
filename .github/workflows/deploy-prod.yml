@@ -72,6 +72,7 @@ jobs:
       GHCR_PULL_USER: ${{ secrets.GHCR_PULL_USER }}
       # Resend (P1-04): opcional. Ausente mantém DJANGO_EMAIL_BACKEND=console.
       RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+      BRAPI_API_KEY: ${{ secrets.BRAPI_API_KEY }}
       # Sentry (C2.4): credencial exigida pelo verify porque sentry_exigido
       # é true acima — sem estes secrets configurados, o deploy de PROD
       # reprova no gate em vez de publicar sem source map.

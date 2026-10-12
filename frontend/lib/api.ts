@@ -713,6 +713,24 @@ export function obterAfinidade(token: string): Promise<AfinidadeResposta> {
   return request("/api/feed/afinidade/", { method: "GET" }, token);
 }
 
+export interface IndiceMercado {
+  simbolo: string;
+  nome: string;
+  preco: number;
+  variacao_percentual: number;
+}
+
+/** Cotações de índices (proxy Brapi, backend/mercado). `[]` quando o
+ * recurso está desligado (sem BRAPI_API_KEY no servidor) — nunca lança. */
+export async function obterIndicesMercado(): Promise<IndiceMercado[]> {
+  try {
+    const resposta = await request<{ indices: IndiceMercado[] } | null>("/api/mercado/indices/", { method: "GET" });
+    return resposta?.indices ?? [];
+  } catch {
+    return [];
+  }
+}
+
 export interface ObjetivoAssinaturaResposta {
   objetivo: string;
   atualizado_em: string | null;
@@ -720,6 +738,20 @@ export interface ObjetivoAssinaturaResposta {
 
 export function obterObjetivoAssinatura(token: string): Promise<ObjetivoAssinaturaResposta> {
   return request("/api/assinatura/objetivo/", { method: "GET" }, token);
+}
+
+/** "Seguir fonte" (grátis, não exige Premium) — GET/POST/DELETE
+ * `/api/feed/fontes-seguidas/`. */
+export function obterFontesSeguidas(token: string): Promise<string[]> {
+  return request("/api/feed/fontes-seguidas/", { method: "GET" }, token);
+}
+
+export function seguirFonte(nomeFonte: string, token: string): Promise<void> {
+  return request("/api/feed/fontes-seguidas/", { method: "POST", body: JSON.stringify({ nome_fonte: nomeFonte }) }, token);
+}
+
+export function deixarDeSeguirFonte(nomeFonte: string, token: string): Promise<void> {
+  return request("/api/feed/fontes-seguidas/", { method: "DELETE", body: JSON.stringify({ nome_fonte: nomeFonte }) }, token);
 }
 
 export function atualizarObjetivoAssinatura(objetivo: string, token: string): Promise<ObjetivoAssinaturaResposta> {

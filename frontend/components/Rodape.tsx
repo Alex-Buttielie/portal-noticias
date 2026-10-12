@@ -20,6 +20,7 @@ export function Rodape() {
               <li><Link href="/empresa" className="hover:text-[var(--cor-texto)] hover:underline">Empresa</Link></li>
               <li><Link href="/sobre" className="hover:text-[var(--cor-texto)] hover:underline">Sobre</Link></li>
               <li><Link href="/planos" className="hover:text-[var(--cor-texto)] hover:underline">Planos</Link></li>
+              <li><Link href="/contato" className="hover:text-[var(--cor-texto)] hover:underline">Contato</Link></li>
             </ul>
           </nav>
           <nav aria-label="Categorias" className="space-y-2">
