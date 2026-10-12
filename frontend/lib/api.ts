@@ -547,7 +547,8 @@ export interface FonteDetalhe {
   url_fonte_original: string;
   resumo: string;
   imagem_url?: string;
-  conteudo?: string;
+  // M-01 (run 20261012-1806-monetizacao-sprint1): `conteudo` (texto raspado)
+  // não existe mais no JSON público — ver backend/feed/services.py.
 }
 
 export interface FeedDetalhe {

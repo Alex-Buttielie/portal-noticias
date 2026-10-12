@@ -235,7 +235,11 @@ def detalhe_cluster(cluster_id: int) -> dict | None:
                 "url_fonte_original": item.url_fonte_original,
                 "resumo": item.resumo_proprio,
                 "imagem_url": getattr(item, "imagem_url", "") or "",
-                "conteudo": (getattr(item, "conteudo_completo", "") or "")[:6000],
+                # M-01 (run 20261012-1806-monetizacao-sprint1): `conteudo`
+                # (texto raspado, até 6.000 caracteres) NÃO é mais exposto no
+                # JSON público — risco de direito autoral/BRD §18. O texto
+                # completo continua no banco (`conteudo_completo`), acessível
+                # só por rota autenticada de admin, se algum dia necessário.
             }
             for item in itens
         ],
@@ -268,7 +272,7 @@ def detalhe_item(item_id: int) -> dict | None:
                 "url_fonte_original": item.url_fonte_original,
                 "resumo": item.resumo_proprio,
                 "imagem_url": getattr(item, "imagem_url", "") or "",
-                "conteudo": (getattr(item, "conteudo_completo", "") or "")[:6000],
+                # M-01: ver nota equivalente em `detalhe_cluster` acima.
             }
         ],
     }
