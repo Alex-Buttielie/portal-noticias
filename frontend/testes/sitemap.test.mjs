@@ -62,6 +62,15 @@ test("sitemap inclui as rotas fixas e as notícias indexáveis da API, paginando
   );
 });
 
+test("sitemap declara `revalidate` — sem isso o Next.js gera o arquivo uma vez no build (CI, sem API viva) e nunca mais busca a API em produção", async () => {
+  global.fetch = async () => respostaJson({ count: 0, next: null, previous: null, results: [] });
+
+  const mod = await import(`../app/sitemap.ts?t=${Math.random()}`);
+
+  assert.equal(typeof mod.revalidate, "number", "precisa exportar `revalidate` numérico (mesmo padrão de app/rss/route.ts)");
+  assert.ok(mod.revalidate > 0, "revalidate tem que ser positivo para o Next.js re-buscar a API periodicamente");
+});
+
 test("sitemap não quebra quando a API falha — mantém só as rotas fixas", async () => {
   global.fetch = async () => {
     throw new Error("rede indisponível");
