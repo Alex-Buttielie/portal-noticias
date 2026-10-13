@@ -198,27 +198,27 @@ export function CompartilharLocalizacao({
   }
 
   return (
-    <div className={cn("flex gap-3", compacto ? "flex-row items-center" : "flex-col items-center py-4 text-center md:py-6", className)}>
-      <RadarVisual ativo={fase === "localizando"} className={compacto ? "h-11 w-11" : undefined} />
-      <div className={cn("min-w-0", compacto ? "flex-1 text-left" : "flex flex-col items-center gap-3")}>
+    <div className={cn("flex items-center gap-3", compacto ? "flex-row" : "flex-row py-1 text-left", className)}>
+      <RadarVisual ativo={fase === "localizando"} className={compacto ? "h-11 w-11" : "h-11 w-11 md:h-12 md:w-12"} />
+      <div className={cn("min-w-0 flex-1 text-left", !compacto && "flex flex-col gap-1")}>
         {!compacto && (
           <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-[var(--cor-primaria)]">
             Perto de você
           </p>
         )}
-        <h2 className={cn("font-bold tracking-tight text-[var(--cor-texto)]", compacto ? "text-sm" : "text-xl")}>
+        <h2 className={cn("font-bold tracking-tight text-[var(--cor-texto)]", compacto ? "text-sm" : "text-base")}>
           Onde você está?
         </h2>
-        <p className={cn("leading-relaxed text-[var(--cor-texto-suave)]", compacto ? "text-xs" : "max-w-[42ch] text-sm")}>
+        <p className={cn("leading-relaxed text-[var(--cor-texto-suave)]", compacto ? "text-xs" : "max-w-[52ch] text-sm")}>
           Compartilhe para ver {beneficio}. Só cidade e estado — nada é rastreado e você apaga quando quiser.
         </p>
-        <div className={cn("flex gap-2", compacto ? "mt-2 flex-row" : "mt-1 flex-col sm:flex-row sm:items-center")}>
+        <div className={cn("flex gap-2", compacto ? "mt-2 flex-row" : "mt-1.5 flex-col sm:flex-row sm:items-center")}>
           <Button
             type="button"
             onClick={compartilhar}
             disabled={fase === "localizando"}
-            size={compacto ? "sm" : "lg"}
-            className="min-h-[44px] gap-2 bg-[var(--cor-primaria)] text-[var(--cor-texto-invertido)] shadow-[var(--sombra-1)] hover:bg-[var(--cor-primaria-hover)]"
+            size={compacto ? "sm" : "default"}
+            className="min-h-[40px] gap-2 bg-[var(--cor-primaria)] text-[var(--cor-texto-invertido)] shadow-[var(--sombra-1)] hover:bg-[var(--cor-primaria-hover)]"
           >
             {fase === "localizando" ? (
               <>
