@@ -12,10 +12,12 @@ import { Voltar } from "./[id]/voltar";
 import { ImagemNoticia } from "@/components/ImagemNoticia";
 import { temImagemReal } from "@/lib/imagens";
 import type { FeedDetalhe } from "@/lib/api";
-import { Clock3, MapPin, ListChecks, MessageSquare, Printer, ALargeSmall, ChevronRight } from "lucide-react";
+import { Clock3, MapPin, ListChecks, MessageSquare, Printer, ALargeSmall, ChevronRight, Crown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatarDataHoraPorExtenso } from "@/lib/datas";
 import { LinkFonte, HostnameFonte } from "@/components/LinkFonte";
+import { useAuth } from "@/lib/auth-context";
+import { usePremiumAtivo, premiumOuStatusDesconhecido } from "@/lib/premium";
 
 type Relacionado = { id: number; titulo: string; categoria: string; imagem_url?: string; timestamp?: string };
 
@@ -46,6 +48,15 @@ export function LeituraPremium({
 }) {
   const [progresso, setProgresso] = useState(0);
   const [fonteGrande, setFonteGrande] = useState(false);
+  const { usuario } = useAuth();
+  const { ativo } = usePremiumAtivo();
+  // M-08: CTA de assinatura só para Free confirmado — mesma regra de
+  // "é Premium ou status ainda desconhecido?" que `AdsSlot.tsx` usa para
+  // anúncio (fail-open: status desconhecido nunca é tratado como Free).
+  const esconderCtaPremium = premiumOuStatusDesconhecido(
+    usuario?.papel === "premium" || usuario?.papel === "admin",
+    ativo
+  );
 
   useEffect(() => {
     const onScroll = () => {
@@ -144,6 +155,25 @@ export function LeituraPremium({
             </div>
           </CardContent>
         </Card>
+
+        {/* M-08: CTA discreto de assinatura, só para Free confirmado (nunca
+            para Premium, nem com o status Premium ainda desconhecido —
+            `esconderCtaPremium`). Aparece uma única vez, logo após o
+            resumo em 30 segundos. */}
+        {!esconderCtaPremium && (
+          <Card className="border-[var(--cor-premium)] bg-[var(--cor-premium-suave)]">
+            <CardContent className="flex flex-wrap items-center gap-3 p-4">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--cor-premium)] text-[var(--cor-texto-invertido)]"><Crown className="h-4 w-4" /></span>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold text-[var(--cor-texto)]">Leia sem anúncios e com alertas personalizados</p>
+                <p className="text-xs text-[var(--cor-texto-suave)]">O Premium tira os anúncios da sua leitura e libera alertas e arquivo completo.</p>
+              </div>
+              <Button asChild size="sm" className="min-h-[44px] bg-[var(--cor-premium)] text-[var(--cor-texto-invertido)] hover:bg-[var(--cor-premium-hover)]">
+                <Link href="/planos" aria-label="Assinar o Premium e ler sem anúncios">Assinar Premium</Link>
+              </Button>
+            </CardContent>
+          </Card>
+        )}
 
         <Card className="border-[var(--cor-borda)] bg-[var(--cor-fundo-card)]">
           <CardContent id="resumo-completo" className={cn("scroll-mt-24 p-5 md:p-6", fonteGrande ? "text-lg" : "text-base")}>
