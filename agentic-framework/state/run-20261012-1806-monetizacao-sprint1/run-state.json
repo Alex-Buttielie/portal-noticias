@@ -3,7 +3,7 @@
   "task_title": "Sprint 1 do Plano de Monetização (M-01 a M-10, sem depender de conta AdSense)",
   "status": "in_progress",
   "current_phase": "testing",
-  "iteration_count": 0,
+  "iteration_count": 1,
   "max_iterations": 3,
   "requested_by": "humano (sessão de chat, validação feita nesta mesma sessão)",
   "source_spec": "docs/monetizacao/PLANO_MONETIZACAO.md",
@@ -18,15 +18,17 @@
     },
     "implementation": { "status": "done", "agent": "executor", "execution_mode": "delegated", "started_at": "2026-10-12T18:10:00-03:00", "finished_at": "2026-10-12T20:55:00-03:00", "notes": "M-01 a M-10 implementados e comitados (M-01 9fd8e3b, M-03 818d2a6, M-02 12e5d83, M-04 98889d6, M-05 691f325, M-06 009f17c, M-07 7be9f72, M-08 cb3b683, M-09 5cdd6a3, M-10 0a9e82d — hashes de codigo; cada um com commit extra de implementation-history.md). Dois incidentes de infraestrutura no caminho, nenhum de codigo: (1) apos o orchestrator abrir um segundo worktree em paralelo, git via Bash foi recusado neste worktree por um turno — contornado via mcp__terminal__run_in_terminal; (2) um executor foi interrompido por rate-limit da API no meio de M-07 com trabalho nao comitado — retomado por uma nova instancia, que avaliou o trabalho pendente, confirmou que estava correto e completou em vez de descartar. Suite final: backend pytest completo 1731 passed / 13 failed (pre-existentes, sem relacao com assinatura/metricas/patrocinio, settings de producao+SQLite e flakiness de ordem ja presentes antes desta run) / 2 skipped; frontend npm test 96 passed, typecheck limpo, build ok em todas as rotas, guardas verificar-consentimento-anuncios.mjs e verificar-eventos-analytics.mjs OK. M-10 implementado so como mecanismo (sem preco/tabela comercial real, conforme o contrato pede)." },
     "testing": { "status": "done", "agent": "tester", "execution_mode": "delegated", "started_at": "2026-10-12T20:56:00-03:00", "finished_at": "2026-10-12T22:10:00-03:00", "notes": "Veredito: passed. Rodou tudo de forma independente, nao aceitou o autorrelato do executor: backend pytest -q = 13 failed/1731 passed/2 skipped (depois do teste novo do tester: 1733 passed), frontend npm test = 96 passed, typecheck/build limpos, verificar-consentimento-anuncios.mjs e verificar-eventos-analytics.mjs OK. Investigou as 13 falhas a fundo e corrigiu 2 imprecisoes do relato do executor: 9 delas sao causadas por backend/.env deste worktree sendo relido dentro do subprocesso de test_settings_producao.py (confirmado removendo o .env); as outras 4 sao pre-existentes de verdade, confirmado comparando com um worktree descartavel no commit-base 587e249 (antes de M-01) - mesmas 4 falham la, identicas, zero arquivo alterado por este sprint nesses diretorios. Os 10 criterios de aceite passaram, com ressalva documentada: M-05/M-08/M-09/M-10(frontend) confirmados por leitura de codigo (wiring correto, sem fabricacao), nao por teste de renderizacao real - limitacao pre-existente do projeto (sem runner de componente), nao introduzida por este sprint. Tester escreveu e commitou um teste de integracao novo para M-07 (fee3256) e fez a verificacao manual de contraste AA do criterio 9 (CartaoPremium passa AA com margem; selo decorativo marginal ~2.7:1, nao bloqueante, sinalizado como ajuste futuro de baixo custo)." },
-    "review": { "status": "in_progress", "agent": "reviewer", "execution_mode": "delegated", "started_at": "2026-10-12T22:12:00-03:00", "finished_at": null, "notes": "Obrigatória por múltiplos gatilhos de review-triggers.md: mudança em cobrança/assinatura (M-07), em API pública (M-01, M-02, M-10), em direitos autorais/compliance seção 18 do BRD (M-01), e volume (>300 linhas esperadas no total dos 10 itens)." },
-    "remediation": { "status": "pending", "agent": "remediator", "execution_mode": "delegated", "started_at": null, "finished_at": null, "notes": "" },
+    "review": { "status": "done", "agent": "reviewer", "execution_mode": "delegated", "started_at": "2026-10-12T22:12:00-03:00", "finished_at": "2026-10-12T22:25:00-03:00", "notes": "Veredito: changes_requested. 0 blocker / 1 major / 1 minor / 1 nit. MAJOR (Finding 1, backend/feed/services.py entradas_sitemap): M-02 reaproveita itens_publicaveis(), que filtra por janela de FEED_JANELA_HORAS (72h em producao) — nenhuma noticia com mais de 3 dias aparece no sitemap, mesmo publicavel/indexavel, contradizendo silenciosamente o objetivo de negocio do item (ampliar alcance organico) sem decisao documentada nem teste cobrindo o limite. MINOR (Finding 2): migration de seed do plano semestral so e idempotente por nome exato (Plan.nome sem unique=True) — risco baixo, sem evidencia de colisao hoje. NIT (Finding 3): TTL de cache do endpoint de patrocinio (60s) diferente do TTL de borda do nginx (45s usado por feed/views.py), so inconsistencia de documentacao. Reviewer verificou pessoalmente (typecheck/lint/build/pytest rodados de novo, 230 passed nos apps tocados) e confirmou ausencia de fabricacao de conteudo/numero/preco em todos os 10 itens, e ausencia de consumidor orfao do campo removido em M-01." },
+    "remediation": { "status": "in_progress", "agent": "remediator", "execution_mode": "delegated", "started_at": "2026-10-12T22:26:00-03:00", "finished_at": null, "notes": "" },
     "documentation": { "status": "pending", "agent": "documenter", "execution_mode": "delegated", "started_at": null, "finished_at": null, "notes": "" },
     "closing": { "status": "pending", "agent": "historian", "execution_mode": "delegated", "started_at": null, "finished_at": null, "notes": "" }
   },
-  "findings": { "blocker": 0, "major": 0, "minor": 0, "nit": 0, "resolved": 0 },
+  "findings": { "blocker": 0, "major": 1, "minor": 1, "nit": 1, "resolved": 0 },
   "artifacts": {
     "task_plan": "task-plan.md",
-    "implementation_contract": "implementation-contract.md"
+    "implementation_contract": "implementation-contract.md",
+    "implementation_history": "implementation-history.md",
+    "code_review_contract": "code-review-contract.md"
   },
   "blocked_reason": null,
   "follow_ups": [],
