@@ -6,7 +6,7 @@ export function Rodape() {
     <footer className="border-t border-[var(--cor-borda)] bg-[var(--cor-fundo-card)]">
       <div className="hud-line" />
       <div className="mx-auto max-w-[1280px] px-4 py-8 md:px-6">
-        <div className="grid gap-6 md:grid-cols-4">
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-4">
           <div className="bento p-4">
             <div className="mb-2 flex items-center gap-2">
               <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[var(--raio-sm)] text-[var(--cor-texto-invertido)]" style={{ background: "var(--gradiente-marca)" }}><Logomark className="h-4 w-4" /></span>

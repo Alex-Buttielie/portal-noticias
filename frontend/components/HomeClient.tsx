@@ -177,7 +177,7 @@ export function HomeClient({
       <div className="space-y-6" role="status" aria-label="Carregando página inicial">
         <div className="h-72 animate-pulse rounded-[var(--raio-lg)] border border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)]" />
         <div className="h-10 w-64 animate-pulse rounded-full bg-[var(--cor-fundo-elevado)]" />
-        <div className="grid gap-4 md:grid-cols-4">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
           {Array.from({ length: 4 }).map((_, i) => (
             <div key={i} className="h-48 animate-pulse rounded-[var(--raio-lg)] border border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)]" />
           ))}
@@ -290,8 +290,13 @@ export function HomeClient({
         </section>
       )}
 
-      {/* Últimas + Em alta lado a lado (empilham no mobile) */}
-      <div className="grid items-start gap-6 lg:grid-cols-12">
+      {/* Últimas + Em alta lado a lado (empilham no mobile). `grid-cols-1`
+          explícito no base é obrigatório: sem ele, `display:grid` sem
+          `grid-template-columns` usa auto-sizing (encolhe ao conteúdo em
+          vez de esticar 100%), e qualquer conteúdo que não quebre de linha
+          lá dentro estoura a tela inteira no mobile — bug real reportado
+          pelo usuário, não hipotético. */}
+      <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-12">
         <div className="lg:col-span-7">
           <UltimasNoticias
             inicial={feedProp}
@@ -333,8 +338,8 @@ export function HomeClient({
         </p>
       )}
 
-      {/* Portfólio + sidebar */}
-      <section className="grid items-start gap-6 lg:grid-cols-12">
+      {/* Portfólio + sidebar — ver nota de `grid-cols-1` acima. */}
+      <section className="grid grid-cols-1 items-start gap-6 lg:grid-cols-12">
         <div className="lg:col-span-8">
           <PortfolioCategorias
             feed={filtrado}

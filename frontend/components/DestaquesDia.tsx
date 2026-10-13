@@ -29,7 +29,7 @@ export function DestaquesDia({ destaques }: { destaques: EntradaRanqueda[] }) {
           </h2>
           <span className="text-xs text-[var(--cor-texto-suave)]">atualizado ao longo do dia</span>
         </div>
-        <ol className="grid gap-3 md:grid-cols-5">
+        <ol className="grid grid-cols-1 gap-3 md:grid-cols-5">
           {destaques.map((d, i) => (
             <li key={`${d.tipo}-${d.id}`}>
               <Link
