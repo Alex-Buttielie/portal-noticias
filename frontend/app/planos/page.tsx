@@ -16,6 +16,8 @@ import { queryKeys } from "@/lib/query-keys";
 import { usePremiumAtivo } from "@/lib/premium";
 import { useAuth } from "@/lib/auth-context";
 import { toast } from "sonner";
+import { calcularDestaquePlanos } from "@/lib/planos";
+import { cn } from "@/lib/utils";
 
 // P0-08: nome, preço e duração dos planos vêm exclusivamente da API
 // (/api/assinatura/planos/). Não existe plano genérico em código: se a API
@@ -73,8 +75,15 @@ export default function Page() {
 
   const planos = planosQuery.data?.filter((p) => p.ativo !== false) ?? [];
   const semPlanos = !planosQuery.isPending && !planos.length;
-  const premium = planos.find((p) => p.nome.toLowerCase().includes("premium"));
   const free = planos.find((p) => p.nome.toLowerCase().includes("free"));
+  // M-07: TODOS os planos pagos ativos (não só "o primeiro cujo nome
+  // contém 'premium'") — com o semestral cadastrado (BRD §6), isto pode
+  // ser 2 cartões pagos (semestral + anual), não 1. Ordenado por duração
+  // crescente para o semestral aparecer antes do anual na tela.
+  const planosPagos = [...planos]
+    .filter((p) => !p.nome.toLowerCase().includes("free"))
+    .sort((a, b) => a.duracao_dias - b.duracao_dias);
+  const planosPagosComDestaque = calcularDestaquePlanos(planosPagos);
 
   function escolher(p: Plano) { setSel(p); setErro(null); setOk(false); setOpen(true); }
 
@@ -141,7 +150,7 @@ export default function Page() {
         </div>
       )}
 
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className={cn("grid gap-4 md:grid-cols-2", planosPagosComDestaque.length > 1 && "lg:grid-cols-3")}>
         {free && (
         <Card className="bento border-[var(--cor-borda)] bg-[var(--cor-fundo-card)]">
           <CardHeader>
@@ -156,21 +165,43 @@ export default function Page() {
         </Card>
         )}
 
-        {premium && (
-        <Card className="bento relative overflow-hidden border-[var(--cor-neon-violeta)] bg-[var(--cor-fundo-card)] shadow-[0_0_0_1px_var(--cor-neon-violeta),0_8px_24px_rgba(124,58,237,0.15)]">
-          <div className="absolute inset-x-0 top-0 h-1 bg-[var(--gradiente-marca)]" aria-hidden />
-          <Badge className="absolute right-4 top-4 bg-[var(--cor-premium)] text-[var(--cor-texto-invertido)]">Mais popular</Badge>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2"><Crown className="h-5 w-5 text-[var(--cor-premium)]" /> {premium.nome}</CardTitle>
-            <CardDescription className="text-[var(--cor-texto-suave)]"><span className="text-2xl font-bold text-[var(--cor-texto)]">R$ {premium.preco}</span> <span className="text-xs">/ {premium.duracao_dias || 30} dias</span></CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <ul className="space-y-2.5 text-sm text-[var(--cor-texto)]">{PREMIUM_BENEFICIOS.map(({ icon: Icon, text, sub }) => <li key={text} className="flex gap-2.5"><span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--cor-premium-suave)] text-[var(--cor-premium)]"><Check className="h-3.5 w-3.5" /></span><span><span className="font-medium">{text}</span> <span className="text-[var(--cor-texto-suave)]">— {sub}</span></span></li>)}</ul>
-            {isPremium ? <><Badge className="mx-auto flex w-fit bg-[var(--cor-premium)] text-[var(--cor-texto-invertido)]"><ShieldCheck className="mr-1 h-3 w-3" /> Seu plano</Badge><Button asChild className="w-full min-h-[44px] bg-[var(--cor-premium)] text-[var(--cor-texto-invertido)]"><Link href="/minha-conta">Gerenciar assinatura</Link></Button></> : <Button onClick={() => escolher(premium)} disabled={liberado} className="w-full min-h-[44px] bg-[var(--cor-premium)] text-[var(--cor-texto-invertido)] hover:bg-[var(--cor-premium-hover)]"><Crown className="mr-2 h-4 w-4" /> {liberado ? "Pausado" : "Assinar premium"}</Button>}
-            <p className="text-center text-xs text-[var(--cor-texto-suave)]">Cobrança recorrente · cancele quando quiser</p>
-          </CardContent>
-        </Card>
-        )}
+        {/* M-07: um cartão por plano PAGO ativo (não só "premium" fixo) —
+            com o semestral cadastrado (BRD §6), aparecem semestral + anual.
+            O destaque ("Economize X%") é calculado a partir do custo por
+            dia real de cada plano (`lib/planos.ts`), nunca um número fixo.
+            Com só 1 plano pago ativo, nenhuma comparação é possível — o
+            rótulo genérico "Mais popular" é mantido nesse caso. */}
+        {planosPagosComDestaque.map((p) => {
+          const rotulo = p.destaque && p.economiaPercent
+            ? `Economize ${p.economiaPercent}%`
+            : planosPagosComDestaque.length === 1
+              ? "Mais popular"
+              : null;
+          return (
+            <Card
+              key={p.id}
+              className={cn(
+                "bento relative overflow-hidden border-[var(--cor-borda)] bg-[var(--cor-fundo-card)]",
+                (p.destaque || planosPagosComDestaque.length === 1) &&
+                  "border-[var(--cor-neon-violeta)] shadow-[0_0_0_1px_var(--cor-neon-violeta),0_8px_24px_rgba(124,58,237,0.15)]"
+              )}
+            >
+              {(p.destaque || planosPagosComDestaque.length === 1) && (
+                <div className="absolute inset-x-0 top-0 h-1 bg-[var(--gradiente-marca)]" aria-hidden />
+              )}
+              {rotulo && <Badge className="absolute right-4 top-4 bg-[var(--cor-premium)] text-[var(--cor-texto-invertido)]">{rotulo}</Badge>}
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2"><Crown className="h-5 w-5 text-[var(--cor-premium)]" /> {p.nome}</CardTitle>
+                <CardDescription className="text-[var(--cor-texto-suave)]"><span className="text-2xl font-bold text-[var(--cor-texto)]">R$ {p.preco}</span> <span className="text-xs">/ {p.duracao_dias || 30} dias</span></CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <ul className="space-y-2.5 text-sm text-[var(--cor-texto)]">{PREMIUM_BENEFICIOS.map(({ icon: Icon, text, sub }) => <li key={text} className="flex gap-2.5"><span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--cor-premium-suave)] text-[var(--cor-premium)]"><Check className="h-3.5 w-3.5" /></span><span><span className="font-medium">{text}</span> <span className="text-[var(--cor-texto-suave)]">— {sub}</span></span></li>)}</ul>
+                {isPremium ? <><Badge className="mx-auto flex w-fit bg-[var(--cor-premium)] text-[var(--cor-texto-invertido)]"><ShieldCheck className="mr-1 h-3 w-3" /> Seu plano</Badge><Button asChild className="w-full min-h-[44px] bg-[var(--cor-premium)] text-[var(--cor-texto-invertido)]"><Link href="/minha-conta">Gerenciar assinatura</Link></Button></> : <Button onClick={() => escolher(p)} disabled={liberado} className="w-full min-h-[44px] bg-[var(--cor-premium)] text-[var(--cor-texto-invertido)] hover:bg-[var(--cor-premium-hover)]"><Crown className="mr-2 h-4 w-4" /> {liberado ? "Pausado" : "Assinar premium"}</Button>}
+                <p className="text-center text-xs text-[var(--cor-texto-suave)]">Cobrança recorrente · cancele quando quiser</p>
+              </CardContent>
+            </Card>
+          );
+        })}
       </div>
 
       <Card className="bento border-[var(--cor-borda)] bg-[var(--cor-fundo-card)]">
