@@ -76,7 +76,13 @@ export const PortfolioCategorias = memo(function PortfolioCategorias({
         </Link>
       </div>
 
-      <div className="grid min-w-0 grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+      {/* `items-start`: sem isso, o CSS Grid estica cada card (align-items:
+          stretch é o padrão) até a altura do vizinho mais alto da mesma
+          linha — um bloco com só 1 notícia (ex. "Igor Gadelha") ficava
+          esticado pra combinar com um vizinho de 3, sobrando um vão vazio
+          feio dentro do card, abaixo do conteúdo real. Com `items-start`
+          cada card só cresce até a altura do próprio conteúdo. */}
+      <div className="grid min-w-0 grid-cols-1 items-start gap-4 md:grid-cols-2 xl:grid-cols-3">
         {blocos.map((bloco) => {
           const visiveis = expandidos[bloco.categoria] ?? porCategoria;
           const lista = bloco.itens.slice(0, visiveis);
