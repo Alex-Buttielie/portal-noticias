@@ -5,8 +5,10 @@ import { cn } from "@/lib/utils";
 import { EVENTO_CONSENTIMENTO_ALTERADO } from "@/lib/cookie-consent";
 import { useAuth } from "@/lib/auth-context";
 import { usePremiumAtivo } from "@/lib/premium";
+import { CartaoPremium } from "@/components/CartaoPremium";
 import {
   ADSENSE_CLIENT_ID,
+  ALTURA_FORMATO,
   consentiuAnuncio,
   mostrarPlaceholderDebug,
   podeExibirAnuncio,
@@ -16,12 +18,7 @@ import {
 
 type Formato = FormatoAnuncio;
 
-const ALTURA: Record<Formato, string> = {
-  horizontal: "90px",
-  retangulo: "250px",
-  vertical: "600px",
-  "in-feed": "200px",
-};
+const ALTURA = ALTURA_FORMATO;
 
 declare global {
   interface Window {
@@ -135,10 +132,10 @@ export function AdsSlot({
   // ("Google AdSense"/"slot {id}"). Nenhum nó, nenhum buraco visual com
   // jargão de ad tech.
   if (!mostrarPlaceholderDebug(process.env.NODE_ENV)) {
-    // TODO (M-09): substituir por `<CartaoPremium formato={formato} />`
-    // quando aplicável (Free sem consentimento/sem publisher ID) — ver
-    // critério de aceite 5 do implementation-contract.md.
-    return null;
+    // M-09: o espaço que ficaria vazio (Free sem consentimento, ou sem
+    // publisher ID) vira oportunidade de conversão em vez de buraco —
+    // nunca "publicidade"/"AdSense" no texto (ver CartaoPremium.tsx).
+    return <CartaoPremium formato={formato} className={className} />;
   }
 
   // Só fora de produção (NODE_ENV !== "production") — ajuda quem está

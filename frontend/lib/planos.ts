@@ -48,3 +48,22 @@ export function calcularDestaquePlanos(planosPagos: Plano[]): PlanoComDestaque[]
     return { ...p, economiaPercent, destaque: p.custoPorDia === melhorCustoPorDia };
   });
 }
+
+/**
+ * M-09 (run 20261012-1806-monetizacao-sprint1) — plano PAGO ativo de menor
+ * preço (preço total, não por dia — é o número que `CartaoPremium` mostra
+ * como "a partir de R$ X"). Recebe TODOS os planos ativos (inclui o
+ * `free`), e filtra o `free` por nome, igual a `app/planos/page.tsx` já
+ * faz — assim o chamador não precisa filtrar antes. `null` sem nenhum
+ * plano pago com preço numérico (nunca inventa um valor).
+ */
+export function planoPagoMaisBarato(planosAtivos: Plano[]): Plano | null {
+  const pagos = planosAtivos.filter((p) => !p.nome.toLowerCase().includes("free"));
+  let maisBarato: Plano | null = null;
+  for (const p of pagos) {
+    const preco = Number(p.preco);
+    if (!Number.isFinite(preco)) continue;
+    if (!maisBarato || preco < Number(maisBarato.preco)) maisBarato = p;
+  }
+  return maisBarato;
+}

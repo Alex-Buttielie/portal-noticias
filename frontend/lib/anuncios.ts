@@ -155,6 +155,19 @@ export function podeExibirAnuncio(args: {
  */
 export type FormatoAnuncio = "horizontal" | "retangulo" | "vertical" | "in-feed";
 
+/**
+ * Altura mínima reservada por formato — usada por `AdsSlot` (anúncio) e por
+ * `CartaoPremium` (M-09, substituto quando não há anúncio para mostrar),
+ * para o espaço reservado na página não mudar de tamanho dependendo de qual
+ * dos dois é renderizado (evita CLS).
+ */
+export const ALTURA_FORMATO: Record<FormatoAnuncio, string> = {
+  horizontal: "90px",
+  retangulo: "250px",
+  vertical: "600px",
+  "in-feed": "200px",
+};
+
 const SLOT_POR_FORMATO: Record<FormatoAnuncio, string> = {
   horizontal: process.env.NEXT_PUBLIC_ADSENSE_SLOT_HORIZONTAL || "",
   retangulo: process.env.NEXT_PUBLIC_ADSENSE_SLOT_RETANGULO || "",

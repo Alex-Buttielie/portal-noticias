@@ -6,7 +6,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import "./hooks.mjs";
-import { calcularDestaquePlanos } from "../lib/planos.ts";
+import { calcularDestaquePlanos, planoPagoMaisBarato } from "../lib/planos.ts";
 
 function plano(overrides) {
   return { id: 1, nome: "Premium", preco: "0", duracao_dias: 30, ativo: true, ...overrides };
@@ -67,4 +67,32 @@ test("0 planos pagos: não quebra, devolve lista vazia", () => {
 test("preço não numérico não quebra o cálculo (custoPorDia null, sem exceção)", () => {
   const [p] = calcularDestaquePlanos([plano({ preco: "não é número", duracao_dias: 30 })]);
   assert.equal(p.custoPorDia, null);
+});
+
+// M-09: planoPagoMaisBarato — usado por CartaoPremium para mostrar o preço
+// real do plano mais barato, sem o chamador precisar filtrar o free antes.
+
+test("planoPagoMaisBarato: ignora o free (preço 0) e devolve o pago mais barato", () => {
+  const free = plano({ id: 0, nome: "Free", preco: "0.00", duracao_dias: 0 });
+  const semestral = plano({ id: 1, nome: "Premium Semestral", preco: "20.00", duracao_dias: 180 });
+  const anual = plano({ id: 2, nome: "Premium Anual", preco: "30.00", duracao_dias: 365 });
+
+  const resultado = planoPagoMaisBarato([free, anual, semestral]);
+  assert.equal(resultado?.nome, "Premium Semestral");
+});
+
+test("planoPagoMaisBarato: só o free ativo → null (nenhum plano pago para anunciar)", () => {
+  const free = plano({ id: 0, nome: "Free", preco: "0.00", duracao_dias: 0 });
+  assert.equal(planoPagoMaisBarato([free]), null);
+});
+
+test("planoPagoMaisBarato: lista vazia → null", () => {
+  assert.equal(planoPagoMaisBarato([]), null);
+});
+
+test("planoPagoMaisBarato: preço não numérico é ignorado, não quebra nem vira o mais barato por engano", () => {
+  const invalido = plano({ id: 1, nome: "Premium Quebrado", preco: "não é número", duracao_dias: 30 });
+  const valido = plano({ id: 2, nome: "Premium Anual", preco: "30.00", duracao_dias: 365 });
+  const resultado = planoPagoMaisBarato([invalido, valido]);
+  assert.equal(resultado?.nome, "Premium Anual");
 });
