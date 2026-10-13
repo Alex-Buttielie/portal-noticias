@@ -61,6 +61,11 @@ export const TIPOS_EVENTO = [
   "home_section_click",
   "community_view",
   "community_interaction",
+  // M-10 (run 20261012-1806-monetizacao-sprint1) — impressão/clique de
+  // `PatrocinioSlot`. Mesma regra de consentimento de analytics das demais
+  // entradas: `track()` já é fail-closed sem `permiteCategoria("analytics")`.
+  "patrocinio_view",
+  "patrocinio_click",
 ] as const;
 
 export type TipoEvento = (typeof TIPOS_EVENTO)[number];
@@ -396,6 +401,14 @@ export function trackSave(entry_tipo: "item" | "cluster", entry_id: number, cate
 
 export function trackRadarView(extra?: Record<string, unknown>): boolean {
   return track({ tipo: "radar_view", extra });
+}
+
+export function trackPatrocinioView(posicao: string, patrocinioId: number): boolean {
+  return track({ tipo: "patrocinio_view", categoria: posicao, extra: { posicao, patrocinio_id: patrocinioId } });
+}
+
+export function trackPatrocinioClick(posicao: string, patrocinioId: number): boolean {
+  return track({ tipo: "patrocinio_click", categoria: posicao, extra: { posicao, patrocinio_id: patrocinioId } });
 }
 
 export function trackLocationPermission(concedida: boolean): boolean {

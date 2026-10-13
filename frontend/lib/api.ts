@@ -839,6 +839,38 @@ export function obterHistoricoPagamentos(token: string): Promise<Pagamento[]> {
 }
 
 // ---------------------------------------------------------------------------
+// patrocinio/ (M-10, run 20261012-1806-monetizacao-sprint1)
+// ---------------------------------------------------------------------------
+
+export interface PatrocinioAtivo {
+  id: number;
+  anunciante: string;
+  criativo_url: string;
+  texto_alt: string;
+  url: string;
+  posicao: string;
+}
+
+/**
+ * `GET /api/patrocinio/ativo/?posicao=...` — best-effort: 404 (sem
+ * patrocínio vigente para a posição) e falha de rede/servidor devolvem
+ * `null` em vez de propagar erro. `PatrocinioSlot` nunca pode quebrar a
+ * página por causa deste endpoint opcional.
+ */
+export async function obterPatrocinioAtivo(posicao: string): Promise<PatrocinioAtivo | null> {
+  try {
+    return await request<PatrocinioAtivo>(
+      `/api/patrocinio/ativo/?posicao=${encodeURIComponent(posicao)}`,
+      { method: "GET" }
+    );
+  } catch (erro) {
+    if (erro instanceof ApiError && erro.status === 404) return null;
+    console.error("[api] obterPatrocinioAtivo falhou", erro);
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // credenciamento/ — campos conferidos em credenciamento/serializers.py e
 // views.py (run 20260902-1503-credenciamento-jornalistas).
 // ---------------------------------------------------------------------------
