@@ -365,7 +365,15 @@ export function HomeClient({
           </div>
         </div>
 
-        <aside className="space-y-4 lg:col-span-4" aria-label="Exploração e assinatura">
+        {/* `lg:sticky lg:top-20`: "Por editoria" (coluna principal) costuma
+            ficar bem mais alta que esta barra lateral — sem isso, a barra
+            termina cedo e deixa um vão vazio enorme ao lado do portfólio
+            enquanto o usuário rola a página. Sticky mantém o conteúdo útil
+            (explorar editorias, personalizar, newsletter) visível em vez de
+            espaço em branco; `top-20` dá respiro abaixo do header fixo
+            (~67px). Só a partir de lg — no mobile a barra já empilha abaixo
+            do portfólio, sem esse problema. */}
+        <aside className="space-y-4 lg:sticky lg:top-20 lg:col-span-4 lg:self-start" aria-label="Exploração e assinatura">
           {hidratado && salvosRecentes.length > 0 && (
             <Card className="border-[var(--cor-borda)] bg-[var(--cor-fundo-card)]">
               <CardContent className="p-4">
