@@ -712,7 +712,7 @@ Sucesso. Commit `0a9e82d` —
 `monetizacao(M-10): patrocinio identificado (mecanismo), sem AdSense`.
 Último item do Sprint 1 (M-01 a M-10, todos implementados e comitados).
 
-**Notas:**
+**Notas (Iteração 11):**
 - Nenhum preço, tabela comercial ou "o que é um espaço comercial" foi
   definido ou inventado — exatamente o bloqueio de negócio já registrado
   no próprio plano para este item ("Dependência: definir com o
@@ -733,5 +733,242 @@ Sucesso. Commit `0a9e82d` —
   nenhuma nova. 1731 = 1721 (Iteração 8) + 10 testes novos de
   `patrocinio/tests/test_patrocinio_ativo.py` (M-08/M-09 não adicionaram
   teste de backend).
+
+---
+
+## Iteração 12 — 2026-10-13 — tester (verificação independente de M-01 a M-10)
+
+**O que foi feito:**
+Verificação verificável e independente do autorrelato do executor (Iterações
+1-11): rodei a suíte completa eu mesmo (não só os testes novos), inspecionei
+o código-fonte real de cada critério de aceite (não só o relato), escrevi um
+teste de integração que faltava (M-07) e fiz a verificação manual de
+contraste AA que o critério 9 exige e que não tinha sido feita nem
+documentada em nenhuma iteração anterior. Não corrigi nenhum código de
+produção.
+
+**Comandos executados / evidência (reais, rodados por mim):**
+```
+cd backend && DJANGO_DEBUG=true <venv>/bin/python -m pytest -q
+→ 13 failed, 1731 passed, 2 skipped (ANTES do teste novo) — confere
+  EXATAMENTE com o número relatado pelo executor na Iteração 11.
+→ 13 failed, 1733 passed, 2 skipped (DEPOIS de adicionar
+  assinatura/tests/test_m07_tres_planos_ativos.py, 2 testes novos) — nenhuma
+  falha nova, nenhuma regressão.
+
+cd frontend && npm run typecheck → limpo
+npm test → 96 passed, 0 fail — confere com o relato.
+npm run build → sucesso, todas as rotas, /sitemap.xml e /radar presentes.
+node scripts/verificar-consentimento-anuncios.mjs → "P1-09 OK", exit 0,
+  205 fontes, 22 autotestes, 0 violações.
+node scripts/verificar-eventos-analytics.mjs → "P1-10 OK", exit 0,
+  205 fontes, 24 autotestes, 0 violações.
+```
+
+**Investigação das 13 falhas pré-existentes do backend (não aceitei o
+autorrelato — refiz a prova do zero):**
+Descobri que as 13 falhas são DUAS causas distintas, não uma só como o
+executor descreveu:
+1. **9 falhas em `config/tests/test_settings_producao.py`** não são
+   "ambientais" no sentido de "falta Postgres" como o executor registrou —
+   são causadas especificamente pelo `backend/.env` local deste worktree
+   (`DJANGO_DB_ENGINE=sqlite3`, criado na Iteração 1 para a suíte rodar sem
+   Postgres). Esses testes rodam `config.settings` em SUBPROCESSO e já
+   removem `DJANGO_DB_ENGINE` do ambiente do filho antes de simular
+   produção (`_env_producao`, `config/tests/test_settings_producao.py:129-131`)
+   — mas `config/settings.py` chama `load_dotenv(BASE_DIR / ".env",
+   override=False)` **dentro do próprio subprocesso**, que relê o arquivo do
+   disco e reintroduz `DJANGO_DB_ENGINE=sqlite3`, disparando a trava
+   "`DJANGO_DB_ENGINE=sqlite3 não é suportado com DEBUG=False`". Prova:
+   renomeei `backend/.env` temporariamente (`mv .env .env.bak-tester`) com o
+   HEAD desta run (sprint já aplicado) e os 29 testes de
+   `test_settings_producao.py` passam limpos; restaurei o arquivo depois.
+   Suíte completa sem o `.env`: **4 failed, 1742 passed, 0 skipped**
+   (mesmos 1746 testes, só muda o ambiente). Conclusão: não é regressão do
+   sprint nem "falta Postgres" genérico — é o arquivo de convenção local
+   reagindo a um comportamento de subprocesso que o próprio teste já tenta
+   neutralizar e não consegue, porque a reintrodução acontece depois,
+   dentro do processo filho. Registrado aqui para quem for limpar este
+   worktree (apagar `.env` antes de rodar `test_settings_producao.py`
+   isoladamente, ou rodar com Postgres de verdade).
+2. **4 falhas reais, independentes do `.env`:** `b2b/tests/test_sanity.py::
+   test_criterio_casa_com_itens_publicaveis`,
+   `catalogo_noticias/tests/test_fallback_local.py::TestMetrica::
+   test_painel_expoe_a_metrica_duravel_de_fallback_derivada_do_banco`,
+   `::test_painel_conta_a_taxa_sobre_o_acervo_inteiro_e_agrupa_por_motivo`,
+   `catalogo_noticias/tests/test_fallback_local_limites.py::
+   test_sem_os_limites_o_item_do_fallback_local_estouraria_o_varchar`.
+   O executor registrou (Iteração 8) que estas "passam quando rodadas
+   isoladas" — **isso está errado**: roda-as eu mesmo isoladas
+   (`pytest catalogo_noticias/tests/test_fallback_local.py` sozinho, sem
+   nada mais) e 2 delas falham do mesmo jeito (não é poluição de ordem
+   entre arquivos). Só `b2b/tests/test_sanity.py` de fato passa isolado e só
+   falha dentro da suíte completa (esse sim é efeito de ordem/estado
+   global). **Mas são pré-existentes, não regressão desta run**: criei um
+   `git worktree` descartável no commit-base `587e249` (o commit
+   imediatamente anterior ao início desta run, antes de M-01) e roda as
+   MESMAS 4 falhas lá, com a mesma suíte completa
+   (`DJANGO_DB_ENGINE=sqlite3` explícito no shell, sem `.env` no worktree
+   descartável): **4 failed, 1723 passed** — exatamente as mesmas 4,
+   confirmado por nome. `git diff 587e249..HEAD --stat` nos diretórios
+   `backend/catalogo_noticias/` e `backend/b2b/` mostra ZERO arquivo
+   alterado por este sprint — essas 4 falhas não têm como ser regressão do
+   Sprint 1 porque o código que falha não foi tocado. Worktree descartável
+   removido ao final (`git worktree remove --force`).
+
+**Teste novo escrito por mim (gap de cobertura real, não trivial):**
+`backend/assinatura/tests/test_m07_tres_planos_ativos.py` — 2 testes. O
+critério de aceite 7 pede "dado 3 planos ativos no banco (free, semestral,
+anual), `/planos` mostra 3 cartões". A cobertura existente (Iteração 8) só
+testava a FUNÇÃO DE CÁLCULO (`calcularDestaquePlanos`/`planoPagoMaisBarato`
+em `frontend/testes/planos.test.mjs`) com dados MOCKADOS de 3 planos — nunca
+provava que a API real devolve esses 3 planos juntos. Meu teste cria os 3
+planos de verdade no banco (via `Plan.objects.create`, respeitando a
+migration de seed do semestral com `get_or_create` para não duplicar) e bate
+no endpoint público `GET /api/assinatura/planos/`, confirmando que os 3
+nomes aparecem e um 4º plano inativo não aparece. Isso fecha a ponta que
+faltava entre "a conta bate" (testado) e "o banco realmente devolve os 3"
+(não testado antes). A página em si (`planos/page.tsx`) só itera o array
+devolvido — não escrevi teste de renderização porque o projeto não tem
+runner de componente (confirmado lendo `patrocinio.test.mjs`/
+`anuncios-placeholder.test.mjs`, que documentam a mesma limitação).
+
+**Verificação manual de contraste AA (M-09) — não feita em nenhuma
+iteração anterior, apesar do critério de aceite 9 e das restrições técnicas
+do contrato exigirem isso "documentado manualmente, não pular":**
+Calculei a razão de contraste WCAG (fórmula de luminância relativa) para
+`CartaoPremium.tsx` a partir dos tokens reais de `app/globals.css`:
+- Tema claro: texto principal `--cor-texto` (#111827) sobre
+  `--cor-premium-suave` (#FAF0D7) → **15,6:1** (muito acima do mínimo AA de
+  4,5:1). Texto do preço `--cor-texto-suave` (#5B6472) sobre o mesmo fundo →
+  **5,3:1** (passa AA para texto pequeno, mínimo 4,5:1).
+- Tema escuro: `--cor-texto` (#EDEFEE) sobre `--cor-premium-suave` escuro
+  (#2E2412) → **13,2:1**.
+- Selo/ícone (Crown) `--cor-texto-invertido` sobre fundo `--cor-premium`
+  (#CA8A04) → **~2,7:1**, abaixo de 3:1. É um ícone decorativo acompanhado
+  do texto ao lado (não é a única forma de transmitir a informação), então
+  não é uma violação clara de WCAG 1.4.11 (que exige 3:1 só para
+  componentes de UI/objetos gráficos ESSENCIAIS à compreensão) — mas é
+  marginal e vale um ajuste visual de baixo custo (escurecer o dourado ou
+  clarear o ícone) numa iteração futura de polimento, não bloqueante para
+  este sprint.
+Conclusão: o texto do cartão passa AA com boa margem nos dois temas; o selo
+com ícone é a única área sub-3:1 e é decorativa, não textual.
+
+**Guardas de regressão específicas (M-04/M-05/M-06/M-09/M-10):**
+`verificar-consentimento-anuncios.mjs` e `verificar-eventos-analytics.mjs`
+rodados por mim, ambos "OK", exit 0, 0 violações — confirma que nenhuma das
+mudanças de anúncio/consentimento/analytics deste sprint quebrou as duas
+guardas que o projeto já tinha antes do sprint.
+
+**Cobertura critério por critério (meu veredito, não o do executor):**
+1. **M-01 — PASS.** Teste real (`GET` HTTP de verdade via `APIClient`),
+   confere ausência de `conteudo` em `fontes` de item e de cluster, e no
+   dict bruto do service. Tipo TS `FonteDetalhe` sem o campo. Forte (não
+   trivial).
+2. **M-02 — PASS.** Testes de backend batem no endpoint real
+   (`/api/feed/sitemap/`), confirmam filtro por resumo, exclusão de não
+   publicável, paginação e agrupamento de cluster. Teste de frontend
+   (`sitemap.test.mjs`) confirma paginação até o fim e `lastModified` real,
+   e fallback sem quebrar com API fora do ar. Forte.
+3. **M-03 — PASS.** `robotsNoticiaSemResumo` está de fato ligada a
+   `generateMetadata` (confirmei lendo `app/noticia/[id]/page.tsx:18-23`).
+   4 casos de borda testados (vazio/undefined/null/espaços vs. com
+   conteúdo). Forte.
+4. **M-04 — PASS.** `resolverSlotAnuncio` com precedência
+   prop > env-posição > env-formato, 7 testes reais incluindo
+   agrupamento de ids em loop e não confusão de id fixo terminado em
+   número. Guarda de consentimento confirma 0 violações. Forte.
+5. **M-05 — PASS, com lacuna conhecida e já existente no projeto.**
+   `mostrarPlaceholderDebug` está de fato no branch certo de `AdsSlot.tsx`
+   (confirmei lendo o componente: linha 134, antes do placeholder de
+   debug). 4 testes da função pura. **Não existe teste que renderize o
+   componente e confirme que o texto "Google AdSense" não aparece de
+   verdade em produção** — o projeto não tem runner de render de
+   componente (confirmado em múltiplos arquivos de teste que documentam a
+   mesma limitação). Classifico como PASS porque a lógica foi lida e
+   confere linha a linha com o critério, mas é cobertura de unidade da
+   decisão, não do componente renderizado — mesma limitação pré-existente
+   do projeto, não uma lacuna introduzida por este sprint.
+6. **M-06 — PASS, verificado por mim de forma independente** (não só
+   aceitei o grep do executor): `grep -c "<AdsSlot" components/HomeClient.tsx`
+   → 5 (≤5 ✓), `app/noticia/LeituraPremium.tsx` → 2 (≤2 ✓),
+   `app/planos/page.tsx` → 0 (=0 ✓). `npm run build` sem erro. Forte
+   (critério é literalmente "contar", e eu contei de novo).
+7. **M-07 — PASS**, com gap de cobertura que eu fechei: migration
+   `0003_seed_plano_semestral.py` cadastra o semestral de forma idempotente
+   (`get_or_create`, R$20/180 dias). `calcularDestaquePlanos` calcula
+   `preco/duracao_dias` de verdade (sem número fixo), testado com 1/2/3
+   planos incluindo o caso do `free` misturado por engano. **Escrevi o
+   teste que faltava** (`test_m07_tres_planos_ativos.py`) confirmando que a
+   API pública devolve os 3 planos esperados e exclui o inativo — fechando
+   a lacuna entre "o cálculo está certo" (já testado) e "o banco de dados
+   real alimenta isso com os 3 planos certos" (não estava testado antes).
+   `planos/page.tsx` renderiza 1 cartão por plano do array (confirmei
+   lendo o código) — sem teste de render do componente (mesma limitação de
+   projeto do item 5).
+8. **M-08 — PASS.** `premiumOuStatusDesconhecido` wired corretamente
+   (confirmei lendo `LeituraPremium.tsx:159-176`): CTA aparece uma vez,
+   `aria-label="Assinar o Premium e ler sem anúncios"` no link, botão
+   `min-h-[44px]`. 4 testes da função pura (Premium nunca vê, mesmo com
+   status desconhecido; Free só vê com status CONHECIDO — fail-open
+   coerente com `AdsSlot`). Sem teste de render (mesma limitação).
+9. **M-09 — PASS.** `CartaoPremium.tsx` não usa "publicidade"/"AdSense"
+   (confirmei lendo o fonte completo), mostra `maisBarato.preco` real vindo
+   de `planoPagoMaisBarato` (nunca fabricado), plugado no branch certo de
+   `AdsSlot.tsx` (linha 138). 4 testes da função de preço mais barato.
+   **Fiz eu mesmo a verificação manual de contraste AA** que o contrato
+   exige e que nenhuma iteração anterior tinha feito nem documentado (ver
+   acima) — texto passa AA com boa margem nos dois temas; selo/ícone é
+   marginal (~2,7:1) mas decorativo, não bloqueante.
+10. **M-10 — PASS.** `Patrocinio.vigente_para_posicao` com datas
+    inclusivas e desempate por `data_inicio` mais recente, 10 testes de
+    backend rodados por mim diretamente (incluí verificação de fronteira
+    no primeiro/último dia do período, 404 para posição ausente/sem
+    `posicao`, cache do 200 e do 404). `PatrocinioSlot.tsx`: rótulo
+    "Patrocinado" sempre visível (não condicional a consentimento — correto,
+    é conteúdo de primeira parte), `rel="sponsored nofollow noopener"`,
+    `alt={patrocinio.texto_alt}` real, dimensões fixas. Confirmei lendo
+    `lib/analytics.ts:334-348` que `trackPatrocinioView`/
+    `trackPatrocinioClick` passam por `track()`, que é fail-closed em
+    `!consentido()` **antes** de qualquer `fetch`/`sendBeacon` — exatamente
+    o que o critério exige. Os "testes" de frontend de M-10
+    (`patrocinio.test.mjs`) são checagem ESTÁTICA por regex sobre o fonte
+    (mesmo padrão das guardas do projeto), não um teste de comportamento
+    renderizado — classifico como cobertura fraca mas aceitável dado a
+    limitação de runner já conhecida do projeto; a parte de backend
+    (datas/fronteira/cache) é forte e comportamental de verdade.
+
+**Lacunas sinalizadas (observação, não bloqueio):**
+- M-05/M-08/M-09/M-10 (frontend) não têm teste de RENDERIZAÇÃO real —
+  limitação pré-existente do projeto (sem runner de componente), não
+  introduzida por este sprint. Se o projeto algum dia adotar
+  Testing Library/jsdom, estes são os primeiros candidatos a upgrade de
+  cobertura.
+- Selo com ícone em `CartaoPremium` está marginalmente abaixo de 3:1 de
+  contraste (decorativo, não bloqueante).
+- O autorrelato do executor (Iteração 8) sobre as falhas pré-existentes
+  tinha duas imprecisões que eu corrigi aqui: (a) a contagem por arquivo
+  ("11 em settings_producao") estava errada, são 9; (b) a causa raiz não é
+  "falta Postgres" genérica, é o `.env` local relido dentro do subprocesso;
+  e (c) na verdade só 1 das 4 falhas "pré-existentes" (b2b) é efeito de
+  ordem/poluição entre testes — as outras 2 (`fallback_local`) falham mesmo
+  isoladas. Nenhuma dessas imprecisões muda o veredito (todas as 13
+  continuam não sendo regressão deste sprint), mas registro aqui porque o
+  pedido era verificar, não repetir o autorrelato.
+
+**Resultado:** Sucesso. Commit `test(monetizacao): adiciona teste de
+integracao M-07 (3 planos ativos via API)` com o teste novo.
+
+**Veredito final: PASSED.** Os 10 critérios de aceite do
+implementation-contract.md estão implementados e cobertos por teste
+automatizado (com as ressalvas de cobertura fraca/ausente em render de
+componente, documentadas acima, que são limitação pré-existente do
+projeto). Nenhuma regressão de código introduzida pelo Sprint 1 — as 13
+falhas do backend são 100% explicadas por causas não relacionadas (9 por
+artefato de ambiente local do worktree, 4 pré-existentes confirmadas no
+commit-base antes do sprint). Frontend: 96 testes passando, `typecheck` e
+`build` limpos. Guardas de regressão de consentimento/analytics em 0
+violações.
 
 ---
