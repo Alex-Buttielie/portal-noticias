@@ -20,7 +20,7 @@ AVISO_METODOLOGIA = (
 )
 
 
-def _itens_publicaveis_no_recorte(pais=None, estado=None, cidade=None, janela_dias=7):
+def _itens_publicaveis_no_recorte(pais=None, estado=None, janela_dias=7):
     corte = timezone.now() - timedelta(days=janela_dias)
     qs = NewsItem.objects.filter(
         status_revisao__in=[NewsItem.STATUS_NAO_APLICAVEL, NewsItem.STATUS_APROVADO],
@@ -30,16 +30,55 @@ def _itens_publicaveis_no_recorte(pais=None, estado=None, cidade=None, janela_di
         qs = qs.filter(pais__iexact=pais)
     if estado:
         qs = qs.filter(estado__iexact=estado)
-    if cidade:
-        qs = qs.filter(cidade__iexact=cidade)
     return qs
 
 
-def tendencias(pais=None, estado=None, cidade=None, janela_dias=7) -> dict:
-    """Critérios de aceite 1, 2, 4 — funciona sem nenhum filtro (recorte nacional/global)."""
+def _resolver_estado(estado):
+    """R-02 — resolve texto livre (sigla UF, nome do estado ou de uma
+    cidade) para a sigla da UF, via `enderecos.services.resolver_uf`.
+    `cidade` nunca é usada como filtro aqui: a ingestão real nunca a
+    popula (0% de cobertura medida), então filtrar por ela sempre
+    devolveria vazio silenciosamente — a UF (que tem ~58% de cobertura) é
+    o recorte regional real disponível.
+
+    Retorna `(uf, erro)`: quando não resolve, `uf` é `None` e `erro` é uma
+    mensagem pronta para a UI — nunca inventa estado, nunca estoura 500.
+    """
+    texto = (estado or "").strip()
+    if not texto:
+        return None, None
+    from enderecos.services import resolver_uf
+
+    uf = resolver_uf(texto)
+    if uf:
+        return uf, None
+    return None, (
+        f'Não foi possível identificar o estado para "{texto}". '
+        "Tente a sigla da UF (ex.: GO) ou o nome da cidade/estado."
+    )
+
+
+def tendencias(pais=None, estado=None, lat=None, lon=None, janela_dias=7) -> dict:
+    """Critérios de aceite 1, 2, 4 — funciona sem nenhum filtro (recorte nacional/global).
+
+    R-02: `estado` aceita texto livre (resolvido para UF via `enderecos`);
+    quando `lat`/`lon` do usuário vêm, os assuntos são ordenados por
+    distância Haversine crescente até a UF do item mais recente de cada
+    categoria; sem coordenada, mantém a ordenação por score (comportamento
+    atual).
+    """
     from feed import recomendacao as rec
 
-    qs = _itens_publicaveis_no_recorte(pais, estado, cidade, janela_dias)
+    uf, erro = _resolver_estado(estado)
+    if erro:
+        return {
+            "aviso_metodologia": AVISO_METODOLOGIA,
+            "localidade": {"pais": pais, "estado": estado},
+            "assuntos_em_alta": [],
+            "erro_localidade": erro,
+        }
+
+    qs = _itens_publicaveis_no_recorte(pais, uf, janela_dias)
     agregado = (
         qs.exclude(categoria="")
         .values("categoria")
@@ -82,7 +121,7 @@ def tendencias(pais=None, estado=None, cidade=None, janela_dias=7) -> dict:
         representante = (
             qs.filter(categoria=entrada["categoria"])
             .order_by("-timestamp_ingestao")
-            .values("id", "cluster_id")
+            .values("id", "cluster_id", "estado")
             .first()
         )
         cat_norm = (entrada["categoria"] or "").lower()
@@ -101,23 +140,48 @@ def tendencias(pais=None, estado=None, cidade=None, janela_dias=7) -> dict:
                 **entrada,
                 "cluster_id": representante["cluster_id"] if representante else None,
                 "item_id": representante["id"] if representante else None,
+                "estado": representante["estado"] if representante else None,
                 "crescimento_24h": crescimento_24h,
                 "buscas_relacionadas": buscas,
                 "score": score,
             }
         )
+    # Comportamento atual preservado: sem coordenada do usuário, ordena por
+    # score/volume. Com lat/lon, a distância Haversine até a UF do
+    # representante manda (R-02) — score permanece como critério de
+    # desempate para UFs desconhecidas/ausentes.
     assuntos_em_alta.sort(key=lambda a: (a["score"], a["numero_noticias"]), reverse=True)
+    if lat is not None and lon is not None:
+        from .geografia import distancia_km_uf
+
+        for assunto in assuntos_em_alta:
+            assunto["distancia_km"] = distancia_km_uf(assunto.get("estado"), lat, lon)
+        assuntos_em_alta.sort(key=lambda a: (a["distancia_km"] is None, a["distancia_km"] or 0.0))
 
     return {
         "aviso_metodologia": AVISO_METODOLOGIA,
-        "localidade": {"pais": pais, "estado": estado, "cidade": cidade},
+        "localidade": {"pais": pais, "estado": uf},
         "assuntos_em_alta": assuntos_em_alta,
     }
 
 
-def evolucao_interesse(categoria=None, pais=None, estado=None, cidade=None, dias=14) -> dict:
-    """Critério de aceite 3 — gating checado na view (services não decide plano)."""
-    qs = _itens_publicaveis_no_recorte(pais, estado, cidade, janela_dias=dias)
+def evolucao_interesse(categoria=None, pais=None, estado=None, dias=14) -> dict:
+    """Critério de aceite 3 — gating checado na view (services não decide plano).
+
+    R-02: `estado` aceita texto livre, resolvido para UF via `enderecos`
+    (mesma regra de `tendencias`). Sem resolução, devolve série vazia com
+    `erro_localidade` — nunca 500, nunca estado inventado.
+    """
+    uf, erro = _resolver_estado(estado)
+    if erro:
+        return {
+            "aviso_metodologia": AVISO_METODOLOGIA,
+            "categoria": categoria,
+            "serie": [],
+            "erro_localidade": erro,
+        }
+
+    qs = _itens_publicaveis_no_recorte(pais, uf, janela_dias=dias)
     if categoria:
         qs = qs.filter(categoria__iexact=categoria)
 
@@ -128,6 +192,79 @@ def evolucao_interesse(categoria=None, pais=None, estado=None, cidade=None, dias
         .order_by("dia")
     )
     return {"aviso_metodologia": AVISO_METODOLOGIA, "categoria": categoria, "serie": list(serie)}
+
+
+def noticias_regionais(
+    pais=None,
+    estado=None,
+    categoria=None,
+    busca=None,
+    periodo_dias=30,
+    lat=None,
+    lon=None,
+    limite=30,
+) -> dict:
+    """R-03 — lista de notícias para o grid estilo marketplace do Radar
+    (foto + título + UF + tempo + categoria), com filtros de categoria/UF/
+    período + busca textual.
+
+    R-02: ordena por distância Haversine crescente até a UF de cada item
+    quando `lat`/`lon` do usuário vêm; sem coordenada, mantém a ordenação
+    por recência (comportamento já existente no restante do Radar).
+    """
+    uf, erro = _resolver_estado(estado)
+    if erro:
+        return {
+            "aviso_metodologia": AVISO_METODOLOGIA,
+            "localidade": {"pais": pais, "estado": estado},
+            "itens": [],
+            "erro_localidade": erro,
+        }
+
+    dias = max(1, min(90, int(periodo_dias or 30)))
+    limite = max(1, min(60, int(limite or 30)))
+
+    qs = _itens_publicaveis_no_recorte(pais, uf, janela_dias=dias)
+    if categoria:
+        qs = qs.filter(categoria__iexact=categoria)
+    texto_busca = (busca or "").strip()
+    if texto_busca:
+        qs = qs.filter(titulo__icontains=texto_busca)
+
+    usa_distancia = lat is not None and lon is not None
+    # Com distância, buscamos uma janela maior antes de reordenar em Python
+    # (a ordenação por distância não é expressável no `ORDER BY` do banco
+    # sem persistir coordenada por item, que é não-objetivo do contrato).
+    janela_busca = limite * 3 if usa_distancia else limite
+    campos = list(
+        qs.order_by("-timestamp_ingestao")
+        .values("id", "cluster_id", "titulo", "categoria", "estado", "pais", "timestamp_ingestao", "imagem_url", "nome_fonte")[:janela_busca]
+    )
+
+    itens = []
+    for campo in campos:
+        item = dict(campo)
+        item["tipo"] = "cluster" if item.get("cluster_id") else "item"
+        item["timestamp"] = item.pop("timestamp_ingestao")
+        itens.append(item)
+
+    if usa_distancia:
+        from .geografia import distancia_km_uf
+
+        for item in itens:
+            item["distancia_km"] = distancia_km_uf(item.get("estado"), lat, lon)
+        itens.sort(key=lambda i: (i["distancia_km"] is None, i["distancia_km"] or 0.0))
+        itens = itens[:limite]
+    else:
+        for item in itens:
+            item["distancia_km"] = None
+
+    return {
+        "aviso_metodologia": AVISO_METODOLOGIA,
+        "localidade": {"pais": pais, "estado": uf},
+        "itens": itens,
+        "ordenado_por": "distancia" if usa_distancia else "recencia",
+    }
 
 
 def salvar_localidade(user, pais="", estado="", cidade="") -> LocalidadeSalva:

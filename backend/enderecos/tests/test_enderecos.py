@@ -201,6 +201,99 @@ def test_view_por_ip_ok(client, monkeypatch):
     r = client.get("/api/enderecos/por-ip/", HTTP_X_REAL_IP="189.1.2.3")
     assert r.status_code == 200 and r.json()["cidade"] == "Goiânia"
 
+def test_resolver_uf_sigla_direta():
+    assert services.resolver_uf("SP") == "SP"
+    assert services.resolver_uf("sp") == "SP"
+
+
+def test_resolver_uf_sigla_invalida_nao_e_aceita_sem_confirmacao(monkeypatch):
+    # "XX" não é UF — cai para geocodificação, que aqui é mockada sem
+    # resultado: nunca inventa.
+    monkeypatch.setattr(services.SessaoEgress, "get", lambda *a, **k: _Resp([]))
+    assert services.resolver_uf("XX") is None
+
+
+def test_resolver_uf_nome_do_estado_com_e_sem_acento():
+    assert services.resolver_uf("Goiás") == "GO"
+    assert services.resolver_uf("Goias") == "GO"
+    assert services.resolver_uf("são paulo") == "SP"
+
+
+def test_resolver_uf_cidade_virgula_uf():
+    assert services.resolver_uf("Trindade, GO") == "GO"
+
+
+def test_resolver_uf_nome_de_cidade_via_geocoding(monkeypatch):
+    chamadas = []
+
+    def _fake(_self, url, timeout, headers=None):
+        chamadas.append(url)
+        return _Resp([{"address": {"state_code": "GO", "state": "Goiás"}}])
+
+    monkeypatch.setattr(services.SessaoEgress, "get", _fake)
+    assert services.resolver_uf("Trindade") == "GO"
+    assert len(chamadas) == 1
+    # Resultado cacheado — segunda chamada não bate na rede de novo.
+    assert services.resolver_uf("Trindade") == "GO"
+    assert len(chamadas) == 1
+
+
+def test_resolver_uf_nao_resolvivel_devolve_none_nunca_inventa(monkeypatch):
+    monkeypatch.setattr(services.SessaoEgress, "get", lambda *a, **k: _Resp([]))
+    assert services.resolver_uf("Localidade Que Não Existe De Verdade Nenhuma") is None
+
+
+def test_resolver_uf_texto_vazio():
+    assert services.resolver_uf("") is None
+    assert services.resolver_uf(None) is None
+
+
+def test_resolver_uf_geocoding_falha_vira_none_nao_erro(monkeypatch):
+    def _boom(*a, **k):
+        raise requests.Timeout("x")
+
+    monkeypatch.setattr(services.SessaoEgress, "get", _boom)
+    assert services.resolver_uf("Cidade Qualquer Sem Sigla") is None
+
+
+def test_resolver_uf_geocoding_bloqueado_por_egress_vira_none(monkeypatch):
+    def _boom(*a, **k):
+        raise services.EgressBloqueado("destino não permitido")
+
+    monkeypatch.setattr(services.SessaoEgress, "get", _boom)
+    assert services.resolver_uf("Cidade Qualquer Bloqueada") is None
+
+
+def test_resolver_uf_geocoding_http_erro_vira_none(monkeypatch):
+    monkeypatch.setattr(services.SessaoEgress, "get", lambda *a, **k: _Resp({}, status=502))
+    assert services.resolver_uf("Cidade Qualquer Com Erro Http") is None
+
+
+def test_resolver_uf_geocoding_json_invalido_vira_none(monkeypatch):
+    class _RespQuebrado(_Resp):
+        def json(self):
+            raise ValueError("corpo não é JSON")
+
+    monkeypatch.setattr(services.SessaoEgress, "get", lambda *a, **k: _RespQuebrado({}))
+    assert services.resolver_uf("Cidade Qualquer Com Json Quebrado") is None
+
+
+def test_resolver_uf_geocoding_sem_state_code_cai_para_nome_do_estado(monkeypatch):
+    monkeypatch.setattr(
+        services.SessaoEgress, "get",
+        lambda *a, **k: _Resp([{"address": {"state": "Goiás"}}]),
+    )
+    assert services.resolver_uf("Cidade Sem Sigla De Estado") == "GO"
+
+
+def test_resolver_uf_geocoding_sem_estado_nenhum_vira_none(monkeypatch):
+    monkeypatch.setattr(
+        services.SessaoEgress, "get",
+        lambda *a, **k: _Resp([{"address": {"city": "Lugar Nenhum"}}]),
+    )
+    assert services.resolver_uf("Cidade Sem Estado Nenhum") is None
+
+
 def test_views_mapeiam_status(client, monkeypatch):
     # 400 — validação
     r = client.get("/api/enderecos/cep/123/")

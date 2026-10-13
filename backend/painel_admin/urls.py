@@ -3,6 +3,7 @@ from django.urls import path
 from . import views
 
 urlpatterns = [
+    path("usuarios/ativos-agora/", views.UsuariosAtivosAgoraView.as_view(), name="admin-usuarios-ativos-agora"),
     path("usuarios/", views.UsuarioListView.as_view(), name="admin-usuarios-list"),
     path("usuarios/<int:user_id>/", views.UsuarioDetailView.as_view(), name="admin-usuarios-detail"),
     path("fila/", views.FilaListView.as_view(), name="admin-fila-list"),
@@ -11,6 +12,9 @@ urlpatterns = [
     path("planos/<int:plan_id>/", views.PlanDetailView.as_view(), name="admin-planos-detail"),
     path("limites/", views.LimiteListView.as_view(), name="admin-limites-list"),
     path("limites/<int:limite_id>/", views.LimiteDetailView.as_view(), name="admin-limites-detail"),
+    path("limites/historico/", views.FeatureLimitAlteracaoLogListView.as_view(), name="admin-limites-historico"),
+    path("auditoria/", views.AuditoriaAdminListView.as_view(), name="admin-auditoria-list"),
+    path("atividade-recente/", views.AtividadeRecenteView.as_view(), name="admin-atividade-recente"),
     path("assinaturas/", views.AssinaturaListView.as_view(), name="admin-assinaturas-list"),
     path("assinaturas/<int:assinatura_id>/", views.AssinaturaDetailView.as_view(), name="admin-assinaturas-detail"),
     path("moderacao/denuncias/", views.DenunciaListView.as_view(), name="admin-denuncias-list"),

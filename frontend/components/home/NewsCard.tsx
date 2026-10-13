@@ -16,6 +16,7 @@ import {
   type SeloEditorial,
 } from "@/lib/editorial";
 import { formatarDataHora } from "@/lib/datas";
+import { truncarPreservandoPalavra } from "@/lib/texto";
 
 const SELO_ESTILO: Record<SeloEditorial, string> = {
   Urgente: "bg-[var(--cor-sinal)] text-[var(--cor-texto-invertido)]",
@@ -112,7 +113,9 @@ export function MetaLinha({ entrada, mostrarFontes = true }: { entrada: FeedEntr
 
 interface NewsCardProps {
   entrada: FeedEntrada;
-  variante?: "destaque" | "secundaria" | "lista";
+  /** H-03: "grade" é a variante compacta usada no grid de 2 colunas mobile
+   * de "Por editoria" (imagem menor no topo + título mais curto). */
+  variante?: "destaque" | "secundaria" | "lista" | "grade";
   salvo?: boolean;
   onToggleSalvar?: (entrada: FeedEntrada) => void;
   eager?: boolean;
@@ -125,7 +128,10 @@ interface NewsCardProps {
 export const NewsCard = memo(function NewsCard({ entrada, variante = "secundaria", salvo, onToggleSalvar, eager }: NewsCardProps) {
   const selo = derivarSelo(entrada);
   const href = `/noticia/${entrada.id}`;
-  const resumoCurto = (entrada.resumo || "").trim().slice(0, variante === "destaque" ? 220 : 140);
+  // H-02: truncamento por CARACTERES puro (`.slice`) cortava o resumo no
+  // meio de uma palavra, sem nenhum indicador — `truncarPreservandoPalavra`
+  // para no último espaço e acrescenta "…" (ver lib/texto.ts).
+  const resumoCurto = truncarPreservandoPalavra(entrada.resumo || "", variante === "destaque" ? 220 : 140);
 
   const salvarBotao = onToggleSalvar && (
     <button
@@ -150,18 +156,22 @@ export const NewsCard = memo(function NewsCard({ entrada, variante = "secundaria
   // de atribuir a uma só editora.
   const credito = formatarCredito(entrada);
   const nomeParaSeguir = (entrada.autor || entrada.nome_fonte || "").trim();
+  // H-02/H-06: `flex-wrap` + `gap-x`/`gap-y` (em vez de só `gap`) — em cards
+  // estreitos (grid 2 colunas, sidebar) esta linha tinha vários filhos
+  // `shrink-0` numa única linha sem quebra, o que forçava overflow
+  // horizontal em vez de quebrar para a linha seguinte.
   const linhaFonte = (
-    <p className="flex min-w-0 items-center gap-1.5 text-xs text-[var(--cor-texto-suave)]">
+    <p className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-[var(--cor-texto-suave)]">
       {credito ? (
         <>
-          <span className="truncate font-semibold text-[var(--cor-texto)]">{credito}</span>
+          <span className="min-w-0 truncate font-semibold text-[var(--cor-texto)]">{credito}</span>
           {nomeParaSeguir && <BotaoSeguirFonte nomeFonte={nomeParaSeguir} />}
         </>
       ) : (
         <Link
           href={`/categoria/${encodeURIComponent(entrada.categoria)}`}
           onClick={(e) => e.stopPropagation()}
-          className="truncate font-semibold capitalize text-[var(--cor-texto)] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cor-foco)] rounded-sm"
+          className="min-w-0 truncate font-semibold capitalize text-[var(--cor-texto)] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cor-foco)] rounded-sm"
         >
           {entrada.categoria || "geral"}
         </Link>
@@ -188,14 +198,59 @@ export const NewsCard = memo(function NewsCard({ entrada, variante = "secundaria
     </p>
   );
 
+  if (variante === "grade") {
+    // H-03: variante compacta para o grid de 2 colunas mobile de "Por
+    // editoria" — imagem proporcional pequena no topo (em vez do
+    // thumbnail fixo 112px da lista densa, que não cabe em meia-tela) e
+    // título mais curto (line-clamp-2 em vez de 3).
+    return (
+      <article className="group relative flex min-w-0 flex-col overflow-hidden rounded-[var(--raio-md)] border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] motion-safe:transition-colors hover:border-[var(--cor-primaria)]">
+        <Link
+          href={href}
+          aria-label={entrada.titulo}
+          className="block overflow-hidden bg-[var(--cor-fundo-elevado)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--cor-foco)]"
+        >
+          <ImagemNoticia
+            src={entrada.imagem_url}
+            seed={`${entrada.categoria || "geral"}-${entrada.id}`}
+            alt=""
+            eager={eager}
+            sizes="50vw"
+            className="aspect-[4/3] w-full object-cover motion-safe:transition motion-safe:duration-300 group-hover:motion-safe:scale-[1.02]"
+          />
+        </Link>
+        <div className="flex min-w-0 flex-1 flex-col gap-1 p-2.5">
+          <div className="flex min-w-0 flex-wrap items-center gap-1">
+            <span className="min-w-0 truncate text-[11px] font-semibold capitalize text-[var(--cor-texto-suave)]">
+              {entrada.categoria || "geral"}
+            </span>
+            {selo && <SeloBadge selo={selo} />}
+          </div>
+          <Link
+            href={href}
+            className="block break-words text-balance text-[13px] font-bold leading-snug text-[var(--cor-texto)] after:absolute after:inset-0 after:content-[''] hover:text-[var(--cor-primaria)] focus-visible:outline-none motion-safe:transition-colors line-clamp-2"
+          >
+            {entrada.titulo}
+          </Link>
+          <div className="relative z-10 mt-auto flex min-w-0 items-center justify-between gap-1.5 text-[10px] text-[var(--cor-texto-suave)]">
+            <time dateTime={entrada.timestamp} title={formatarDataHora(entrada.timestamp)} suppressHydrationWarning className="truncate">
+              {timeAgo(entrada.timestamp)}
+            </time>
+            {salvarBotao}
+          </div>
+        </div>
+      </article>
+    );
+  }
+
   if (variante !== "destaque") {
     // Linha densa, texto-primeiro (miniatura pequena, sem imagem
     // dominante) — padrão de lista do Google Notícias, em vez do cartão
     // com imagem no topo.
     return (
-      <article className="group relative flex gap-3 border-b border-[var(--cor-borda)] py-3 first:pt-0 last:border-b-0 last:pb-0">
+      <article className="group relative flex min-w-0 gap-3 border-b border-[var(--cor-borda)] py-3 first:pt-0 last:border-b-0 last:pb-0">
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
             {linhaFonte}
             {selo && <SeloBadge selo={selo} />}
           </div>

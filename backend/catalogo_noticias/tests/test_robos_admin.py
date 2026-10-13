@@ -2,7 +2,7 @@ import pytest
 from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
 
-from catalogo_noticias.models import ConfiguracaoRobo, FonteRobo
+from catalogo_noticias.models import ConfiguracaoRobo, FonteRobo, RegistroExecucaoIngestao
 
 pytestmark = pytest.mark.django_db
 User = get_user_model()
@@ -112,3 +112,14 @@ class TestRobosExecucoes:
         resposta = client.get("/api/admin/robos/execucoes/")
         assert resposta.status_code == 200
         assert isinstance(resposta.data, list)
+
+    def test_execucoes_lista_expoe_falhou_e_erro_falha(self):
+        """C-05 — a execução que falhou aparece na listagem, não só no log."""
+        RegistroExecucaoIngestao.objects.create(falhou=True, erro_falha="erro de infra simulado")
+        admin = _admin()
+        client = APIClient()
+        client.force_authenticate(user=admin)
+        resposta = client.get("/api/admin/robos/execucoes/")
+        assert resposta.status_code == 200
+        falha = next(e for e in resposta.data if e["falhou"])
+        assert falha["erro_falha"] == "erro de infra simulado"

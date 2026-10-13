@@ -310,10 +310,22 @@ class RegistroExecucaoIngestao(models.Model):
     tokens_utilizados_summarization = models.PositiveIntegerField(null=True, blank=True)
     custo_estimado_summarization_usd = models.FloatField(null=True, blank=True)
 
+    # C-05 (implementation-contract.md run 20261013-1048-home-radar-central-
+    # ux, Bloco C): antes desta run, uma execução que lançava excecao em
+    # `executar_ingestao()` (fora do isolamento por item/grupo — ex.: erro
+    # de infra) só ia para o log, nunca para este modelo — ficava
+    # silenciosa para quem olhasse só a Central. `falhou`/`erro_falha`
+    # permitem `_executar_ingestao_em_background` registrar esse caso
+    # também, sem quebrar nenhuma leitura existente (default False/"").
+    falhou = models.BooleanField(default=False, help_text="True quando a execução lançou uma exceção não isolada (ver catalogo_noticias/robos_views.py).")
+    erro_falha = models.TextField(blank=True, default="", help_text="Mensagem de erro quando falhou=True.")
+
     class Meta:
         verbose_name = "registro de execucao de ingestao"
         verbose_name_plural = "registros de execucao de ingestao"
         ordering = ["-executado_em"]
 
     def __str__(self):
+        if self.falhou:
+            return f"Ingestao {self.executado_em:%Y-%m-%d %H:%M} — FALHOU"
         return f"Ingestao {self.executado_em:%Y-%m-%d %H:%M} — {self.total_itens_ingeridos} itens"

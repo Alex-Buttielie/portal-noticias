@@ -18,6 +18,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Slider } from "@/components/ui/slider";
 import { useAuth } from "@/lib/auth-context";
 import {
+  useQueryAdminAuditoria,
   useQueryAdminFontes,
   useQueryAdminRoboConfig,
   useQueryAdminRoboExecucoes,
@@ -27,7 +28,7 @@ import * as api from "@/lib/api";
 import { LinkFonte } from "@/components/LinkFonte";
 import { urlSeguraParaLink } from "@/lib/url-segura";
 import { formatarDataHoraCompleta, formatarHoraComSegundos } from "@/lib/datas";
-import { Bot, Play, Settings, History, AlertTriangle, CheckCircle2, XCircle, Activity, Clock, DollarSign, Database, Search, Trash2, Pencil, Plus, RefreshCw, ExternalLink, Power, Timer, Layers, Cpu, SlidersHorizontal, Shield } from "lucide-react";
+import { Bot, Play, Settings, History, AlertTriangle, CheckCircle2, XCircle, Activity, Clock, DollarSign, Database, Search, Trash2, Pencil, Plus, RefreshCw, ExternalLink, Power, Timer, Layers, Cpu, SlidersHorizontal, Shield, ClipboardList, ChevronDown, ChevronRight } from "lucide-react";
 
 type Fonte = api.FonteRobo;
 type Cfg = api.ConfigRobo;
@@ -59,6 +60,17 @@ export default function Page() {
     if (!carregando && !token) r.replace("/login");
   }, [carregando, token, r]);
   const [tab, setTab] = useState("visao");
+  // C-06 — `/admin/configuracoes` (FontesIsland) linka direto para a aba
+  // Fontes em vez de duplicar o CRUD — `?aba=fontes` pré-seleciona a aba.
+  // `useEffect` + `window.location.search` (e não `useSearchParams`) de
+  // propósito, pelo mesmo motivo documentado em
+  // `app/newsletter/NewsletterForm.tsx`: evita exigir boundary de Suspense
+  // no build estático desta página client-only.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const aba = new URLSearchParams(window.location.search).get("aba");
+    if (aba === "fontes" || aba === "config" || aba === "historico") setTab(aba);
+  }, []);
   const [err, setErr] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
 
@@ -87,6 +99,26 @@ export default function Page() {
   const [execPage, setExecPage] = useState(1);
   const [expandErr, setExpandErr] = useState<number | null>(null);
   const perPage = 10;
+
+  // C-05 — histórico de ações administrativas (AuditoriaAdmin), dentro da
+  // mesma aba "Histórico & Execução" para não poluir a tela com uma aba
+  // nova inteira.
+  const [auditoriaAcao, setAuditoriaAcao] = useState("todas");
+  const [auditoriaPage, setAuditoriaPage] = useState(1);
+  const [auditoriaExpand, setAuditoriaExpand] = useState<number | null>(null);
+  const auditoriaQuery = useQueryAdminAuditoria({
+    token: tk || null,
+    usuarioId,
+    filtros: { acao: auditoriaAcao === "todas" ? null : auditoriaAcao, page: auditoriaPage },
+    habilitada: tab === "historico",
+  });
+  const auditoriaItens = useMemo(() => auditoriaQuery.data?.results ?? [], [auditoriaQuery.data]);
+  const auditoriaTotal = auditoriaQuery.data?.count ?? 0;
+  const auditoriaTotalPag = Math.max(1, Math.ceil(auditoriaTotal / 20));
+  const acoesConhecidas = useMemo(
+    () => Array.from(new Set(auditoriaItens.map((a) => a.acao))).sort(),
+    [auditoriaItens]
+  );
 
   // --- Migração TanStack Query: fontes, config e execuções do robô
 // (staleTime 0 — telas de decisão). O estado local permite updates otimistas
@@ -291,30 +323,30 @@ const erroCarregamento = fontesQuery.isError
           {ok && <div className="flex items-center gap-2 rounded-md border border-[var(--cor-sucesso)] bg-[var(--cor-sucesso-suave)] px-3 py-2 text-sm text-[var(--cor-sucesso)]"><CheckCircle2 className="h-4 w-4" />{ok}</div>}
         </CardHeader>
         <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <div className="rounded-md border border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] p-3">
+          <div className="min-w-0 rounded-md border border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] p-3">
             <p className="flex items-center gap-1 text-xs tracking-widest text-[var(--cor-texto-suave)]"><Power className="h-3 w-3" />STATUS</p>
             <p className="mt-1 flex items-center gap-2 text-sm font-medium text-[var(--cor-texto)]">{cfg ? (cfg.ativo ? <><CheckCircle2 className="h-4 w-4 text-[var(--cor-sucesso)]" />Ativos</> : <><XCircle className="h-4 w-4 text-[var(--cor-erro)]" />Pausados</>) : "—"}<span className="text-xs font-normal text-[var(--cor-texto-suave)]">· a cada {cfg?.intervalo_minutos ?? "—"} min</span></p>
             <p className="text-xs text-[var(--cor-texto-suave)]">{fontes.filter((f) => f.ativo).length} ativas / {fontes.length} total</p>
           </div>
-          <div className="rounded-md border border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] p-3">
+          <div className="min-w-0 rounded-md border border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] p-3">
             <p className="flex items-center gap-1 text-xs tracking-widest text-[var(--cor-texto-suave)]"><Clock className="h-3 w-3" />ÚLTIMA EXECUÇÃO</p>
             <p className="mt-1 text-sm font-medium text-[var(--cor-texto)]">{execs[0] ? formatarDataHoraCompleta(execs[0].executado_em) : "Nenhuma ainda"}</p>
-            <p className="text-xs text-[var(--cor-texto-suave)]">{execs[0] ? rel(execs[0].executado_em) : "—"} · {execs[0] ? `${execs[0].total_itens_ingeridos} itens` : ""}</p>
+            <p className="truncate text-xs text-[var(--cor-texto-suave)]">{execs[0] ? rel(execs[0].executado_em) : "—"} · {execs[0] ? `${execs[0].total_itens_ingeridos} itens` : ""}</p>
           </div>
-          <div className="rounded-md border border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] p-3">
+          <div className="min-w-0 rounded-md border border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] p-3">
             <p className="flex items-center gap-1 text-xs tracking-widest text-[var(--cor-texto-suave)]"><DollarSign className="h-3 w-3" />CUSTO HOJE</p>
             <p className="mt-1 text-sm font-medium text-[var(--cor-texto)]">{fmtUSD(custoHoje)} <span className="text-xs font-normal text-[var(--cor-texto-suave)]">/ acumulado {fmtUSD(custoAcumulado)}</span></p>
-            <p className="text-xs text-[var(--cor-texto-suave)]">{totalItensHoje} itens hoje · {execs[0]?.chamadas_summarization_provider ?? "—"} chamadas LLM última</p>
+            <p className="truncate text-xs text-[var(--cor-texto-suave)]">{totalItensHoje} itens hoje · {execs[0]?.chamadas_summarization_provider ?? "—"} chamadas LLM última</p>
           </div>
-          <div className="rounded-md border border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] p-3">
+          <div className="min-w-0 rounded-md border border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] p-3">
             <p className="flex items-center gap-1 text-xs tracking-widest text-[var(--cor-texto-suave)]"><Activity className="h-3 w-3" />HEALTH POR FONTE</p>
-            {Object.keys(healthPorFonte).length === 0 ? <p className="mt-1 flex items-center gap-1 text-xs text-[var(--cor-sucesso)]"><CheckCircle2 className="h-3 w-3" />Todas OK na última execução</p> : <div className="mt-1 space-y-1">{Object.entries(healthPorFonte).slice(0, 3).map(([k, v]) => <p key={k} className="flex items-center gap-1 truncate text-xs text-[var(--cor-erro)]"><AlertTriangle className="h-3 w-3 shrink-0" />{k}: {String(v).slice(0, 60)}</p>)} {Object.keys(healthPorFonte).length > 3 && <p className="text-xs text-[var(--cor-texto-suave)]">+{Object.keys(healthPorFonte).length - 3} erros</p>}</div>}
+            {Object.keys(healthPorFonte).length === 0 ? <p className="mt-1 flex items-center gap-1 text-xs text-[var(--cor-sucesso)]"><CheckCircle2 className="h-3 w-3" />Todas OK na última execução</p> : <div className="mt-1 space-y-1">{Object.entries(healthPorFonte).slice(0, 3).map(([k, v]) => <p key={k} className="flex min-w-0 items-center gap-1 truncate text-xs text-[var(--cor-erro)]"><AlertTriangle className="h-3 w-3 shrink-0" />{k}: {String(v).slice(0, 60)}</p>)} {Object.keys(healthPorFonte).length > 3 && <p className="text-xs text-[var(--cor-texto-suave)]">+{Object.keys(healthPorFonte).length - 3} erros</p>}</div>}
           </div>
         </CardContent>
       </Card>
 
       <Tabs value={tab} onValueChange={setTab} className="w-full">
-        <TabsList className="flex w-full flex-wrap justify-start gap-1 bg-[var(--cor-fundo-elevado)] p-1">
+        <TabsList className="h-auto min-h-10 flex w-full flex-wrap justify-start gap-1 bg-[var(--cor-fundo-elevado)] p-1">
           <TabsTrigger value="visao" className="gap-1"><Layers className="h-3.5 w-3.5" />Visão geral</TabsTrigger>
           <TabsTrigger value="fontes" className="gap-1"><Database className="h-3.5 w-3.5" />Fontes ({fontes.length})</TabsTrigger>
           <TabsTrigger value="config" className="gap-1"><Settings className="h-3.5 w-3.5" />Configuração</TabsTrigger>
@@ -337,7 +369,7 @@ const erroCarregamento = fontesQuery.isError
                 if (!entries.length) return <p className="text-sm text-[var(--cor-texto-suave)]">Nenhum item por fonte na última execução.</p>;
                 return entries.map(([k, v]) => {
                   const n = Number(v) || 0; const pct = (n / max) * 100; const hasErr = !!healthPorFonte[k];
-                  return <div key={k} className="space-y-1"><div className="flex items-center justify-between gap-2 text-xs"><span className="truncate font-medium text-[var(--cor-texto)] flex items-center gap-1">{hasErr ? <AlertTriangle className="h-3 w-3 text-[var(--cor-erro)]" /> : <CheckCircle2 className="h-3 w-3 text-[var(--cor-sucesso)]" />}{k} {hasErr && <span className="text-[var(--cor-erro)]">· erro</span>}</span><span className="text-[var(--cor-texto-suave)]">{n} itens</span></div><Progress value={pct} className={hasErr ? "[&>div]:bg-[var(--cor-erro)]" : ""} />{hasErr && <p className="truncate text-xs text-[var(--cor-erro)]">{healthPorFonte[k]}</p>}</div>;
+                  return <div key={k} className="space-y-1"><div className="flex items-center justify-between gap-2 text-xs"><span className="min-w-0 flex-1 truncate font-medium text-[var(--cor-texto)] flex items-center gap-1">{hasErr ? <AlertTriangle className="h-3 w-3 shrink-0 text-[var(--cor-erro)]" /> : <CheckCircle2 className="h-3 w-3 shrink-0 text-[var(--cor-sucesso)]" />}{k} {hasErr && <span className="text-[var(--cor-erro)]">· erro</span>}</span><span className="shrink-0 text-[var(--cor-texto-suave)]">{n} itens</span></div><Progress value={pct} className={hasErr ? "[&>div]:bg-[var(--cor-erro)]" : ""} />{hasErr && <p className="truncate text-xs text-[var(--cor-erro)]">{healthPorFonte[k]}</p>}</div>;
                 });
               })()}
             </CardContent>
@@ -382,7 +414,7 @@ const erroCarregamento = fontesQuery.isError
                           {/* `f.url` é o endpoint RSS cadastrado por um admin — mas o valor pode ter
     vindo de uma fonte RSS comprometida ou de um cadastro malicioso. Sem
     allowlist de esquema, `javascript:…` aqui executava no clique. */}
-                          <LinkFonte url={f.url} className="inline-flex items-center gap-1 truncate text-xs text-[var(--cor-texto-suave)] hover:text-[var(--cor-primaria)]">
+                          <LinkFonte url={f.url} className="flex min-w-0 items-center gap-1 truncate text-xs text-[var(--cor-texto-suave)] hover:text-[var(--cor-primaria)]">
                             {f.url}<ExternalLink className="h-3 w-3 shrink-0" />
                           </LinkFonte>
                           <p className="text-xs text-[var(--cor-texto-suave)]">Atualizado: {formatarDataHoraCompleta(f.atualizado_em)}</p>
@@ -498,28 +530,96 @@ const erroCarregamento = fontesQuery.isError
                       const max = Math.max(1, ...entries.map(([, v]) => Number(v) || 0));
                       const hasErr = Object.keys(ex.erros_por_fonte || {}).length > 0;
                       const expanded = expandErr === ex.id;
-                      return <div key={ex.id} className={`rounded-md border p-3 ${hasErr ? "border-[var(--cor-aviso)] bg-[var(--cor-fundo-elevado)]" : "border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)]"}`}>
+                      // C-05 — execução que lançou exceção não isolada (erro de infra, não
+                      // um item/grupo individual): antes desta run era silenciosa, só no
+                      // log do servidor. `ex.falhou` é diferente de `hasErr` (erro por
+                      // fonte) — pode acontecer sem nenhuma fonte ter sido tentada ainda.
+                      return <div key={ex.id} className={`rounded-md border p-3 ${ex.falhou ? "border-[var(--cor-erro)] bg-[var(--cor-erro-suave)]" : hasErr ? "border-[var(--cor-aviso)] bg-[var(--cor-fundo-elevado)]" : "border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)]"}`}>
                         <div className="flex flex-wrap items-center gap-2">
                           <Badge variant="outline" className="border-[var(--cor-borda)]">#{ex.id}</Badge>
                           <span className="text-xs text-[var(--cor-texto-suave)] flex items-center gap-1"><Clock className="h-3 w-3" />{formatarDataHoraCompleta(ex.executado_em)} · {rel(ex.executado_em)}</span>
-                          <Badge className="bg-[var(--cor-primaria)] text-[var(--cor-texto-invertido)]">{ex.total_itens_ingeridos} itens</Badge>
-                          <Badge variant="outline" className="border-[var(--cor-borda)]">{ex.total_grupos_formados} grupos</Badge>
-                          <Badge variant="outline" className="border-[var(--cor-borda)]">{ex.total_duplicatas_agrupadas} dup</Badge>
-                          {hasErr ? <Badge variant="outline" className="border-[var(--cor-erro)] text-[var(--cor-erro)]"><AlertTriangle className="mr-1 h-3 w-3" />erro</Badge> : <Badge variant="outline" className="border-[var(--cor-sucesso)] text-[var(--cor-sucesso)]"><CheckCircle2 className="mr-1 h-3 w-3" />ok</Badge>}
+                          {ex.falhou ? (
+                            <Badge className="bg-[var(--cor-erro)] text-[var(--cor-texto-invertido)]"><XCircle className="mr-1 h-3 w-3" />execução falhou</Badge>
+                          ) : (
+                            <>
+                              <Badge className="bg-[var(--cor-primaria)] text-[var(--cor-texto-invertido)]">{ex.total_itens_ingeridos} itens</Badge>
+                              <Badge variant="outline" className="border-[var(--cor-borda)]">{ex.total_grupos_formados} grupos</Badge>
+                              <Badge variant="outline" className="border-[var(--cor-borda)]">{ex.total_duplicatas_agrupadas} dup</Badge>
+                              {hasErr ? <Badge variant="outline" className="border-[var(--cor-erro)] text-[var(--cor-erro)]"><AlertTriangle className="mr-1 h-3 w-3" />erro</Badge> : <Badge variant="outline" className="border-[var(--cor-sucesso)] text-[var(--cor-sucesso)]"><CheckCircle2 className="mr-1 h-3 w-3" />ok</Badge>}
+                            </>
+                          )}
                         </div>
-                        <p className="mt-1 text-xs text-[var(--cor-texto-suave)]">LLM: {ex.chamadas_summarization_provider} chamadas · {ex.tokens_utilizados_summarization ?? "—"} trechos · {fmtUSD(ex.custo_estimado_summarization_usd)}</p>
-                        <div className="mt-2 space-y-1">
-                          {entries.length === 0 ? <p className="text-xs text-[var(--cor-texto-suave)]">Sem itens por fonte</p> : entries.map(([k, v]) => {
-                            const n = Number(v) || 0; const pct = (n / max) * 100;
-                            return <div key={k} className="flex items-center gap-2 text-xs"><span className="w-28 truncate text-[var(--cor-texto)]">{k}</span><Progress value={pct} className="flex-1" /><span className="w-10 text-right text-[var(--cor-texto-suave)]">{n}</span></div>;
-                          })}
-                        </div>
-                        {hasErr && <div className="mt-2"><Button size="sm" variant="ghost" onClick={() => setExpandErr(expanded ? null : ex.id)} className="h-7 text-xs">{expanded ? "Ocultar erros" : `Ver ${Object.keys(ex.erros_por_fonte).length} erro(s)`}</Button>{expanded && <pre className="mt-1 max-h-32 overflow-auto whitespace-pre-wrap break-all rounded bg-[var(--cor-fundo)] p-2 text-xs text-[var(--cor-erro)]">{JSON.stringify(ex.erros_por_fonte, null, 2)}</pre>}</div>}
+                        {ex.falhou ? (
+                          <pre className="mt-2 max-h-32 overflow-auto whitespace-pre-wrap break-all rounded bg-[var(--cor-fundo)] p-2 text-xs text-[var(--cor-erro)]">{ex.erro_falha || "Sem detalhe — ver log do servidor."}</pre>
+                        ) : (
+                          <>
+                            <p className="mt-1 text-xs text-[var(--cor-texto-suave)]">LLM: {ex.chamadas_summarization_provider} chamadas · {ex.tokens_utilizados_summarization ?? "—"} trechos · {fmtUSD(ex.custo_estimado_summarization_usd)}</p>
+                            <div className="mt-2 space-y-1">
+                              {entries.length === 0 ? <p className="text-xs text-[var(--cor-texto-suave)]">Sem itens por fonte</p> : entries.map(([k, v]) => {
+                                const n = Number(v) || 0; const pct = (n / max) * 100;
+                                return <div key={k} className="flex items-center gap-2 text-xs"><span className="w-28 truncate text-[var(--cor-texto)]">{k}</span><Progress value={pct} className="flex-1" /><span className="w-10 text-right text-[var(--cor-texto-suave)]">{n}</span></div>;
+                              })}
+                            </div>
+                            {hasErr && <div className="mt-2"><Button size="sm" variant="ghost" onClick={() => setExpandErr(expanded ? null : ex.id)} className="h-7 text-xs">{expanded ? "Ocultar erros" : `Ver ${Object.keys(ex.erros_por_fonte).length} erro(s)`}</Button>{expanded && <pre className="mt-1 max-h-32 overflow-auto whitespace-pre-wrap break-all rounded bg-[var(--cor-fundo)] p-2 text-xs text-[var(--cor-erro)]">{JSON.stringify(ex.erros_por_fonte, null, 2)}</pre>}</div>}
+                          </>
+                        )}
                       </div>;
                     })}
                   </div>
                   {totalPag > 1 && <div className="flex items-center justify-between gap-2 pt-2"><Button size="sm" variant="outline" disabled={execPage <= 1} onClick={() => setExecPage((p) => p - 1)} className="border-[var(--cor-borda)]">Anterior</Button><span className="text-xs text-[var(--cor-texto-suave)]">Página {execPage} / {totalPag}</span><Button size="sm" variant="outline" disabled={execPage >= totalPag} onClick={() => setExecPage((p) => p + 1)} className="border-[var(--cor-borda)]">Próxima</Button></div>}
                 </>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card className="bento">
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2"><ClipboardList className="h-4 w-4" />Auditoria administrativa</CardTitle>
+              <CardDescription className="text-[var(--cor-texto-suave)]">Ações feitas por admins na Central (usuários, limites, planos, moderação, destaques) — cronológico, filtrável por tipo de ação.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <Select value={auditoriaAcao} onValueChange={(v) => { setAuditoriaAcao(v); setAuditoriaPage(1); }}>
+                  <SelectTrigger className="w-[220px] bg-[var(--cor-fundo-card)]"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="todas">Todas as ações</SelectItem>
+                    {acoesConhecidas.map((a) => <SelectItem key={a} value={a}>{a}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                <Button size="sm" variant="outline" onClick={() => auditoriaQuery.refetch()} disabled={auditoriaQuery.isFetching} className="border-[var(--cor-borda)]"><RefreshCw className="mr-1 h-3 w-3" />{auditoriaQuery.isFetching ? "Carregando..." : "Atualizar"}</Button>
+                <Badge variant="outline" className="border-[var(--cor-borda)]">{auditoriaTotal} registros</Badge>
+              </div>
+              {auditoriaQuery.isError && <p className="rounded-md border border-[var(--cor-erro)] bg-[var(--cor-erro-suave)] px-3 py-2 text-sm text-[var(--cor-erro)]">{auditoriaQuery.error instanceof Error ? auditoriaQuery.error.message : "Falha ao carregar auditoria."}</p>}
+              {auditoriaQuery.isLoading ? <div className="space-y-2"><Skeleton className="h-12 w-full" /><Skeleton className="h-12 w-full" /></div> : !auditoriaItens.length ? (
+                <p className="text-sm text-[var(--cor-texto-suave)]">Nenhum registro de auditoria {auditoriaAcao !== "todas" ? `para "${auditoriaAcao}"` : "ainda"}.</p>
+              ) : (
+                <div className="divide-y divide-[var(--cor-borda)] rounded-md border border-[var(--cor-borda)]">
+                  {auditoriaItens.map((a) => {
+                    const aberto = auditoriaExpand === a.id;
+                    return (
+                      <div key={a.id} className="p-2.5">
+                        <button type="button" onClick={() => setAuditoriaExpand(aberto ? null : a.id)} className="flex w-full min-w-0 items-center gap-2 text-left">
+                          {aberto ? <ChevronDown className="h-3.5 w-3.5 shrink-0 text-[var(--cor-texto-suave)]" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0 text-[var(--cor-texto-suave)]" />}
+                          <Badge variant="outline" className="shrink-0 border-[var(--cor-borda)] font-mono text-[10px]">{a.acao}</Badge>
+                          <span className="min-w-0 flex-1 truncate text-xs text-[var(--cor-texto)]">{a.alvo_tipo}#{a.alvo_id}</span>
+                          <span className="shrink-0 text-xs text-[var(--cor-texto-suave)]">{a.alterado_por_email || "sistema"}</span>
+                          <span className="shrink-0 text-xs text-[var(--cor-texto-suave)]">{rel(a.criado_em)}</span>
+                        </button>
+                        {aberto && (
+                          <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-all rounded bg-[var(--cor-fundo)] p-2 text-xs text-[var(--cor-texto-suave)]">{formatarDataHoraCompleta(a.criado_em)}
+{JSON.stringify(a.detalhe, null, 2)}</pre>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              {auditoriaTotalPag > 1 && (
+                <div className="flex items-center justify-between gap-2 pt-1">
+                  <Button size="sm" variant="outline" disabled={auditoriaPage <= 1} onClick={() => setAuditoriaPage((p) => p - 1)} className="border-[var(--cor-borda)]">Anterior</Button>
+                  <span className="text-xs text-[var(--cor-texto-suave)]">Página {auditoriaPage} / {auditoriaTotalPag}</span>
+                  <Button size="sm" variant="outline" disabled={auditoriaPage >= auditoriaTotalPag} onClick={() => setAuditoriaPage((p) => p + 1)} className="border-[var(--cor-borda)]">Próxima</Button>
+                </div>
               )}
             </CardContent>
           </Card>

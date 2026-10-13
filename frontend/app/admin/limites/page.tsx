@@ -11,13 +11,14 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth-context";
 import * as api from "@/lib/api";
-import { useQueryAdminLimites } from "@/lib/queries";
+import { useQueryAdminHistoricoLimites, useQueryAdminLimites } from "@/lib/queries";
 import { queryKeys } from "@/lib/query-keys";
 import { formatarDataHoraCompleta } from "@/lib/datas";
-import { Clock3, Layers, Pencil, RefreshCw, Settings2, ShieldCheck, Sparkles, Zap } from "lucide-react";
+import { Clock3, History, Layers, Pencil, RefreshCw, Settings2, ShieldCheck, Sparkles, Zap } from "lucide-react";
 
 type Lim = { id: number; chave: string; plano: string; valor: string; descricao: string; atualizado_em?: string | null };
 
@@ -59,6 +60,18 @@ export default function Page() {
   const [saving, setSaving] = useState(false);
   const [erroVal, setErroVal] = useState<string | null>(null);
 
+  // C-06 — histórico PERSISTIDO de alterações (`FeatureLimitAlteracaoLog`),
+  // além do log de sessão (`log`/`setLog` acima, que se perde ao recarregar
+  // a página).
+  const [historicoChave, setHistoricoChave] = useState("todas");
+  const historicoQuery = useQueryAdminHistoricoLimites({
+    token,
+    usuarioId: usuario?.id ?? 0,
+    filtros: { chave: historicoChave === "todas" ? null : historicoChave },
+    habilitada: true,
+  });
+  const historico = historicoQuery.data?.results ?? [];
+
   const brutas = ((consulta.data?.results as unknown as Lim[]) || []);
   const vazia = consulta.isSuccess && !brutas.length;
   const itens = brutas;
@@ -93,6 +106,7 @@ export default function Page() {
       setLog((p) => [`${formatarDataHoraCompleta(new Date())} — ${edit.chave}/${edit.plano} → ${valor.trim()} — ${desc.trim() || "sem descrição"}`].concat(p).slice(0, 20));
       setEdit(null);
       await cliente.invalidateQueries({ queryKey: queryKeys.admin.limites() });
+      await cliente.invalidateQueries({ queryKey: queryKeys.admin.historicoLimitesRaiz() });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Falha ao salvar";
       setErroVal(msg);
@@ -219,6 +233,45 @@ export default function Page() {
               <ul className="mt-2 space-y-1 text-xs font-mono text-[var(--cor-texto-suave)]">{log.map((l, i) => <li key={i}>• {l}</li>)}</ul>
             </div>
           )}
+
+          <Separator className="bg-[var(--cor-borda)]" />
+
+          <div>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="flex items-center gap-2 text-sm font-semibold text-[var(--cor-texto)]"><History className="h-4 w-4 text-[var(--cor-primaria)]" /> Histórico de alterações (C-06)</p>
+              <div className="flex flex-wrap items-center gap-2">
+                <Select value={historicoChave} onValueChange={setHistoricoChave}>
+                  <SelectTrigger className="h-8 w-[200px] bg-[var(--cor-fundo-card)]"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="todas">Todas as chaves</SelectItem>
+                    {chaves.map((c) => <SelectItem key={c} value={c} className="font-mono text-xs">{c}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                <Button size="sm" variant="outline" onClick={() => historicoQuery.refetch()} disabled={historicoQuery.isFetching} className="h-8 border-[var(--cor-borda)]"><RefreshCw className="mr-1 h-3.5 w-3.5" />Atualizar</Button>
+              </div>
+            </div>
+            <p className="mt-1 text-xs text-[var(--cor-texto-suave)]">Registro permanente (não se perde ao recarregar) de quem alterou cada limite — persistido em <code className="font-mono">FeatureLimitAlteracaoLog</code>.</p>
+            {historicoQuery.isError && <p role="alert" className="mt-2 rounded-md border border-[var(--cor-erro)] bg-[var(--cor-erro-suave)] px-3 py-2 text-sm text-[var(--cor-erro)]">{historicoQuery.error instanceof Error ? historicoQuery.error.message : "Falha ao carregar histórico."}</p>}
+            {!historico.length && !historicoQuery.isFetching && <p className="mt-2 text-sm text-[var(--cor-texto-suave)]">Nenhuma alteração registrada ainda.</p>}
+            {historico.length > 0 && (
+              <div className="mt-2 overflow-x-auto rounded-[var(--raio-md)] border border-[var(--cor-borda)]">
+                <table className="w-full min-w-[520px] text-sm">
+                  <thead><tr className="border-b border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] text-left text-xs text-[var(--cor-texto-suave)]"><th className="px-3 py-2 font-medium">Chave</th><th className="px-3 py-2 font-medium">Plano</th><th className="px-3 py-2 font-medium">De → Para</th><th className="px-3 py-2 font-medium">Por</th><th className="px-3 py-2 font-medium">Quando</th></tr></thead>
+                  <tbody>
+                    {historico.map((h) => (
+                      <tr key={h.id} className="border-b border-[var(--cor-borda)] last:border-0">
+                        <td className="px-3 py-2 font-mono text-xs">{h.feature_limit_chave}</td>
+                        <td className="px-3 py-2"><Badge className={h.plano === "premium" ? "bg-[var(--cor-premium)] text-[var(--cor-texto-invertido)]" : "bg-[var(--cor-secundaria)] text-[var(--cor-texto-invertido)]"}>{h.plano}</Badge></td>
+                        <td className="px-3 py-2 font-mono text-xs">{h.valor_anterior || "—"} → <span className="font-semibold text-[var(--cor-texto)]">{h.valor_novo}</span></td>
+                        <td className="max-w-[160px] truncate px-3 py-2 text-xs text-[var(--cor-texto-suave)]">{h.alterado_por_email || "sistema"}</td>
+                        <td className="px-3 py-2 text-xs text-[var(--cor-texto-suave)]">{formatarDataHoraCompleta(h.alterado_em)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         </CardContent>
       </Card>
 
