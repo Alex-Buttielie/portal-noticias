@@ -10,7 +10,7 @@ from .services.ingestao import executar_ingestao
 
 
 def _executar_ingestao_em_background(rid: str) -> None:
-    """Roda `executar_ingestao()` fora do ciclo da requisição.
+    """Roda `executar_ingestao()` e registra o resultado.
 
     O endpoint responde 202 antes; o SUCESSO fica registrado em
     `RegistroExecucaoIngestao` (visível em GET /execucoes/). C-05
@@ -21,20 +21,17 @@ def _executar_ingestao_em_background(rid: str) -> None:
     antes desta run, só ia para o log (com traceback e `request_id`, que
     continuam sendo o caminho de investigação profunda; aqui só garante que
     a FALHA aparece em algum lugar da Central, não só no log do servidor).
-    Conexões de banco por thread: o Django abre/fecha automaticamente por
-    thread; `close_old_connections()` no início evita reutilizar conexão
-    stale do pool do worker.
 
-    Risco aceito e documentado: thread `daemon` morre se o PM2 reiniciar o
-    processo no meio da ingestão. Migrar para Celery é o destino correto.
+    Função pura em termos de conexão: não fecha/abre conexão de banco —
+    isso é responsabilidade de quem a chama (ver `_executar_ingestao_thread`
+    para o caso real de thread em background). Chamá-la diretamente (sem
+    thread), como fazem os testes de C-05, é seguro porque ela nunca
+    descarta a conexão de quem a invoca.
     """
     import logging
     import traceback
 
-    from django.db import close_old_connections
-
     _log = logging.getLogger(__name__)
-    close_old_connections()
     try:
         registro = executar_ingestao()
     except Exception as exc:
@@ -60,6 +57,28 @@ def _executar_ingestao_em_background(rid: str) -> None:
             registro.total_itens_ingeridos,
             registro.total_grupos_formados,
         )
+
+
+def _executar_ingestao_thread(rid: str) -> None:
+    """Entry point real da thread `daemon` iniciada por `ExecutarRoboView`.
+
+    Conexões de banco por thread: o Django abre uma nova por thread sob
+    demanda, mas uma thread do SO pode ser reaproveitada por runtime
+    (ex. thread pool); `close_old_connections()` ao entrar evita herdar uma
+    conexão stale, e ao saír evita prender uma conexão aberta na thread que
+    termina. Isolado em cima de `_executar_ingestao_em_background` (que não
+    toca conexão) para não derrubar a conexão de quem chama essa função
+    fora de uma thread de verdade (ex. os testes de C-05, que chamam
+    `_executar_ingestao_em_background` direto, sem thread, de propósito).
+
+    Risco aceito e documentado: thread `daemon` morre se o PM2 reiniciar o
+    processo no meio da ingestão. Migrar para Celery é o destino correto.
+    """
+    from django.db import close_old_connections
+
+    close_old_connections()
+    try:
+        _executar_ingestao_em_background(rid)
     finally:
         close_old_connections()
 
@@ -145,7 +164,7 @@ class ExecutarRoboView(APIView):
         # (ANALISE_CUSTO_PERFORMANCE.md): timeout curto + gthread.
         _log.info("[%s] POST /api/admin/robos/executar aceito (ingestão em background)", rid)
         thread = threading.Thread(
-            target=_executar_ingestao_em_background,
+            target=_executar_ingestao_thread,
             args=(rid,),
             daemon=True,
             name=f"ingestao-manual-{rid}",
