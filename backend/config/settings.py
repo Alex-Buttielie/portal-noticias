@@ -269,6 +269,7 @@ INSTALLED_APPS = [
     "b2b",
     "metricas",
     "painel_admin",
+    "patrocinio",
     "mercado",
 ]
 

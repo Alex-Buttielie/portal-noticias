@@ -67,7 +67,13 @@ def test_plano_ativo_aparece_na_listagem_publica():
     resposta = client.get("/api/assinatura/planos/")
 
     nomes = {plano["nome"] for plano in resposta.data}
-    assert nomes == {"Ativo"}
+    # M-07: a migration `0003_seed_plano_semestral` cadastra o plano
+    # "Premium Semestral" (ativo) em toda base, incluindo a de teste — este
+    # teste não assume mais um banco vazio de planos (que nunca é o caso em
+    # dev/homolog/prod reais), só que o plano ATIVO criado aqui aparece e o
+    # INATIVO criado aqui não aparece.
+    assert "Ativo" in nomes
+    assert "Inativo" not in nomes
 
 
 def test_assinar_com_gateway_aprovando_ativa_na_hora_e_promove_usuario():

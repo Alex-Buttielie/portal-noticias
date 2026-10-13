@@ -12,10 +12,12 @@ import { Voltar } from "./[id]/voltar";
 import { ImagemNoticia } from "@/components/ImagemNoticia";
 import { temImagemReal } from "@/lib/imagens";
 import type { FeedDetalhe } from "@/lib/api";
-import { Clock3, MapPin, ListChecks, MessageSquare, Printer, ALargeSmall, ChevronRight } from "lucide-react";
+import { Clock3, MapPin, ListChecks, MessageSquare, Printer, ALargeSmall, ChevronRight, Crown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatarDataHoraPorExtenso } from "@/lib/datas";
 import { LinkFonte, HostnameFonte } from "@/components/LinkFonte";
+import { useAuth } from "@/lib/auth-context";
+import { usePremiumAtivo, premiumOuStatusDesconhecido } from "@/lib/premium";
 
 type Relacionado = { id: number; titulo: string; categoria: string; imagem_url?: string; timestamp?: string };
 
@@ -46,6 +48,15 @@ export function LeituraPremium({
 }) {
   const [progresso, setProgresso] = useState(0);
   const [fonteGrande, setFonteGrande] = useState(false);
+  const { usuario } = useAuth();
+  const { ativo } = usePremiumAtivo();
+  // M-08: CTA de assinatura só para Free confirmado — mesma regra de
+  // "é Premium ou status ainda desconhecido?" que `AdsSlot.tsx` usa para
+  // anúncio (fail-open: status desconhecido nunca é tratado como Free).
+  const esconderCtaPremium = premiumOuStatusDesconhecido(
+    usuario?.papel === "premium" || usuario?.papel === "admin",
+    ativo
+  );
 
   useEffect(() => {
     const onScroll = () => {
@@ -64,18 +75,11 @@ export function LeituraPremium({
     [d]
   );
   const temReal = temImagemReal({ imagem_url: imagemReal });
-  const materiaFonte = useMemo(() => {
-    const comTexto = d.fontes.filter((f) => (f.conteudo || "").trim().length > 120);
-    if (!comTexto.length) return null;
-    return [...comTexto].sort((a, b) => (b.conteudo || "").length - (a.conteudo || "").length)[0];
-  }, [d]);
-  const materiaParagrafos = useMemo(() => {
-    if (!materiaFonte?.conteudo) return [];
-    const texto = materiaFonte.conteudo.slice(0, 1800);
-    const partes = texto.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
-    const lista = partes.length ? partes : [texto.trim()];
-    return lista.slice(0, 4);
-  }, [materiaFonte]);
+  // M-01 (run 20261012-1806-monetizacao-sprint1): a seção "Matéria" que
+  // exibia até 1800 caracteres do texto raspado (`f.conteudo`) foi removida
+  // junto com o campo no JSON público — ver implementation-history.md desta
+  // run, nota fora do escopo original de M-01 (o diagnóstico do plano dizia
+  // "a página não usa o campo", o que não era mais verdade neste código).
   const prevId = Math.max(1, d.id - 1);
   const nextId = d.id + 1;
 
@@ -152,6 +156,25 @@ export function LeituraPremium({
           </CardContent>
         </Card>
 
+        {/* M-08: CTA discreto de assinatura, só para Free confirmado (nunca
+            para Premium, nem com o status Premium ainda desconhecido —
+            `esconderCtaPremium`). Aparece uma única vez, logo após o
+            resumo em 30 segundos. */}
+        {!esconderCtaPremium && (
+          <Card className="border-[var(--cor-premium)] bg-[var(--cor-premium-suave)]">
+            <CardContent className="flex flex-wrap items-center gap-3 p-4">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--cor-premium)] text-[var(--cor-texto-invertido)]"><Crown className="h-4 w-4" /></span>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold text-[var(--cor-texto)]">Leia sem anúncios e com alertas personalizados</p>
+                <p className="text-xs text-[var(--cor-texto-suave)]">O Premium tira os anúncios da sua leitura e libera alertas e arquivo completo.</p>
+              </div>
+              <Button asChild size="sm" className="min-h-[44px] bg-[var(--cor-premium)] text-[var(--cor-texto-invertido)] hover:bg-[var(--cor-premium-hover)]">
+                <Link href="/planos" aria-label="Assinar o Premium e ler sem anúncios">Assinar Premium</Link>
+              </Button>
+            </CardContent>
+          </Card>
+        )}
+
         <Card className="border-[var(--cor-borda)] bg-[var(--cor-fundo-card)]">
           <CardContent id="resumo-completo" className={cn("scroll-mt-24 p-5 md:p-6", fonteGrande ? "text-lg" : "text-base")}>
             <div className={cn("space-y-4 leading-relaxed text-[var(--cor-texto)]", fonteGrande ? "leading-loose" : "leading-relaxed")}>
@@ -166,26 +189,10 @@ export function LeituraPremium({
               ))}
             </div>
 
-            <AdsSlot id="noticia-infeed" formato="in-feed" className="my-5" />
-
-            {materiaFonte && (
-              <section aria-label="Matéria" className="overflow-hidden rounded-[var(--raio-md)] border border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)]">
-                <div className="flex flex-wrap items-center gap-2 border-b border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] px-4 py-3">
-                  <Badge className="bg-[var(--cor-primaria)] text-[var(--cor-texto-invertido)]">Matéria</Badge>
-                  <span className="text-xs text-[var(--cor-texto-suave)]">Texto da cobertura original • por <span className="font-semibold text-[var(--cor-texto)]">{materiaFonte.nome_fonte}</span></span>
-                </div>
-                <div className={cn("space-y-4 px-4 py-4 leading-relaxed text-[var(--cor-texto)]", fonteGrande ? "text-lg leading-loose" : "text-[15px]")}>
-                  {materiaParagrafos.map((p, i) => (
-                    <p key={i} className="text-pretty whitespace-pre-line">{p}</p>
-                  ))}
-                </div>
-                <div className="flex flex-wrap items-center gap-2 border-t border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] px-4 py-3">
-                  <p className="text-xs text-[var(--cor-texto-suave)]">Trecho exibido com crédito à fonte original.</p>
-                  <LinkFonte url={materiaFonte.url_fonte_original} prefixo="↗" className="ml-auto inline-flex min-h-[44px] items-center rounded-md bg-[var(--cor-primaria)] px-4 text-sm font-semibold text-[var(--cor-texto-invertido)] hover:bg-[var(--cor-primaria-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cor-foco)]">Continuar lendo em {materiaFonte.nome_fonte}</LinkFonte>
-                </div>
-              </section>
-            )}
-
+            {/* M-06: densidade reduzida de 3 para 2 AdsSlot na leitura —
+                noticia-infeed removido (meio do corpo do texto); mantidos
+                noticia-topo e noticia-pos, onde o leitor está mais
+                engajado (plano de monetização, M-06). */}
             <Separator className="my-5 bg-[var(--cor-borda)]" />
 
             <h2 id="fontes" className="scroll-mt-24 text-lg font-bold text-[var(--cor-texto)]">Fontes apuradas <span className="ml-1 rounded-full bg-[var(--cor-fundo-elevado)] px-2 py-0.5 align-middle text-xs font-medium text-[var(--cor-texto-suave)]">{d.fontes.length}</span></h2>

@@ -30,13 +30,23 @@ class FeedEntrySerializer(serializers.Serializer):
     selo_editorial = serializers.CharField(allow_blank=True, required=False, default="")
 
 
+class SitemapEntrySerializer(serializers.Serializer):
+    """M-02: payload mínimo para o `/sitemap.xml` do Next — sem título,
+    resumo ou imagem (não são usados pelo gerador de sitemap)."""
+
+    tipo = serializers.ChoiceField(choices=["cluster", "item"])
+    id = serializers.IntegerField()
+    categoria = serializers.CharField(allow_blank=True)
+    timestamp = serializers.DateTimeField()
+
+
 class FonteDetalheSerializer(serializers.Serializer):
     nome_fonte = serializers.CharField()
     url_fonte_original = serializers.URLField()
     resumo = serializers.CharField(allow_blank=True)
-    # Texto integral extraído do RSS (limitado no service). O frontend exibe
-    # SEMPRE truncado + crédito + link para a original (BRD secao 18).
-    conteudo = serializers.CharField(allow_blank=True, required=False, default="")
+    # M-01 (run 20261012-1806-monetizacao-sprint1): `conteudo` (texto
+    # raspado) removido do JSON público — risco de direito autoral/BRD §18.
+    # Não reintroduzir aqui sem rota autenticada dedicada.
     imagem_url = serializers.URLField(allow_blank=True, required=False, default="")
 
 

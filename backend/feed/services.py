@@ -65,7 +65,11 @@ def _timestamp_ordenacao(item: NewsItem):
     return item.timestamp_publicacao_fonte or item.timestamp_ingestao
 
 
-def itens_publicaveis(categoria: str | None = None, busca: str | None = None) -> QuerySet[NewsItem]:
+def itens_publicaveis(
+    categoria: str | None = None,
+    busca: str | None = None,
+    aplicar_janela: bool = True,
+) -> QuerySet[NewsItem]:
     """
     Critério de aceite 2 (implementation-contract.md): itens com
     `status_revisao` `pendente` ou `rejeitado` NUNCA são incluídos aqui —
@@ -79,14 +83,24 @@ def itens_publicaveis(categoria: str | None = None, busca: str | None = None) ->
     - `.only(*CAMPOS_LISTA_FEED)` + `select_related("cluster")`: as colunas
       pesadas (`conteudo_bruto`/`conteudo_completo`) nunca são selecionadas
       nas listagens — detalhe tem fetch próprio completo.
+
+    Run 20261012-1806-monetizacao-sprint1 (remediação do Finding 1 do
+    code-review-contract.md, M-02): `aplicar_janela=False` desliga o corte
+    de `timestamp_ingestao__gte`. Usado por `entradas_sitemap()`, que
+    precisa cobrir TODO o acervo publicável/indexável (não só os últimos
+    `FEED_JANELA_HORAS`, 72h em produção) — o sitemap existe justamente
+    para dar alcance orgânico a notícias que já saíram do ciclo recente do
+    feed de lista. `.only()`/`select_related("cluster")` continuam
+    aplicados nos dois casos, para não reintroduzir N+1.
     """
-    janela_horas = float(getattr(settings, "FEED_JANELA_HORAS", 72))
-    corte = timezone.now() - timedelta(hours=janela_horas)
+    filtros: dict = {"status_revisao__in": STATUS_PUBLICAVEIS}
+    if aplicar_janela:
+        janela_horas = float(getattr(settings, "FEED_JANELA_HORAS", 72))
+        corte = timezone.now() - timedelta(hours=janela_horas)
+        filtros["timestamp_ingestao__gte"] = corte
+
     qs = (
-        NewsItem.objects.filter(
-            status_revisao__in=STATUS_PUBLICAVEIS,
-            timestamp_ingestao__gte=corte,
-        )
+        NewsItem.objects.filter(**filtros)
         .select_related("cluster")
         .only(*CAMPOS_LISTA_FEED)
     )
@@ -235,7 +249,11 @@ def detalhe_cluster(cluster_id: int) -> dict | None:
                 "url_fonte_original": item.url_fonte_original,
                 "resumo": item.resumo_proprio,
                 "imagem_url": getattr(item, "imagem_url", "") or "",
-                "conteudo": (getattr(item, "conteudo_completo", "") or "")[:6000],
+                # M-01 (run 20261012-1806-monetizacao-sprint1): `conteudo`
+                # (texto raspado, até 6.000 caracteres) NÃO é mais exposto no
+                # JSON público — risco de direito autoral/BRD §18. O texto
+                # completo continua no banco (`conteudo_completo`), acessível
+                # só por rota autenticada de admin, se algum dia necessário.
             }
             for item in itens
         ],
@@ -268,10 +286,36 @@ def detalhe_item(item_id: int) -> dict | None:
                 "url_fonte_original": item.url_fonte_original,
                 "resumo": item.resumo_proprio,
                 "imagem_url": getattr(item, "imagem_url", "") or "",
-                "conteudo": (getattr(item, "conteudo_completo", "") or "")[:6000],
+                # M-01: ver nota equivalente em `detalhe_cluster` acima.
             }
         ],
     }
+
+
+def entradas_sitemap() -> list[dict]:
+    """
+    M-02 (run 20261012-1806-monetizacao-sprint1): lista de entradas
+    publicáveis E indexáveis (com resumo próprio — ver M-03/`lib/seo.ts` no
+    frontend, que marca `noindex` quando `resumo` está vazio) para o
+    `/sitemap.xml` do Next.
+
+    Reaproveita `itens_publicaveis`/`construir_feed_entries` (`.only()` +
+    `select_related("cluster")`, sem N+1 novo) e filtra por `resumo` não
+    vazio, para o sitemap nunca anunciar ao Google uma página que a própria
+    página marca como `noindex`.
+
+    Remediação do Finding 1 do code-review-contract.md desta run: chama
+    `itens_publicaveis(aplicar_janela=False)` DE PROPÓSITO — sem isso, uma
+    notícia com mais de `FEED_JANELA_HORAS` (72h em produção) nunca
+    apareceria aqui, mesmo publicável e indexável, contradizendo o próprio
+    objetivo de negócio do M-02 (dar alcance orgânico ao acervo que hoje não
+    está em nenhum sitemap). A paginação (`SitemapView`/`SitemapPagination`,
+    500/página) continua responsável por não devolver o acervo inteiro de
+    uma vez — aqui só deixamos de FILTRAR por tempo, não de paginar.
+    """
+    itens = list(itens_publicaveis(aplicar_janela=False))
+    entradas = construir_feed_entries(itens)
+    return [e for e in entradas if (e.get("resumo") or "").strip()]
 
 
 def urgentes(limite: int = 8) -> list[dict]:

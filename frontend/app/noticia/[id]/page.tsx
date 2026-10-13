@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { SITE_NAME, SITE_URL } from "@/lib/site";
 import { newsArticleJsonLd } from "@/lib/schema";
+import { robotsNoticiaSemResumo } from "@/lib/seo";
 import { obterDetalheCluster, obterDetalheItem, obterFeed, type FeedDetalhe } from "@/lib/api";
 import { imagemNoticia } from "@/lib/imagens";
 import { LeituraPremium } from "../LeituraPremium";
@@ -13,7 +14,14 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
   const { id } = await params;
   const d = await getDetalhe(id);
   const t = d ? d.titulo : `Notícia #${id} — ${SITE_NAME}`;
-  return { title: t, description: d?.fontes?.[0]?.resumo || `Leia em ${SITE_NAME}`, openGraph: { title: t, url: `${SITE_URL}/noticia/${id}` } };
+  const resumo = d?.fontes?.[0]?.resumo || "";
+  const robots = robotsNoticiaSemResumo(resumo);
+  return {
+    title: t,
+    description: resumo || `Leia em ${SITE_NAME}`,
+    openGraph: { title: t, url: `${SITE_URL}/noticia/${id}` },
+    ...(robots ? { robots } : {}),
+  };
 }
 export function generateStaticParams() { return [{ id: "1" }]; }
 export const revalidate = 60;
