@@ -14,6 +14,7 @@ import {
 import { queryKeys } from "@/lib/query-keys";
 import { usePremiumAtivo } from "@/lib/premium";
 import { AdsSlot } from "@/components/AdsSlot";
+import { PatrocinioSlot } from "@/components/PatrocinioSlot";
 import { EstadoVazio } from "@/components/EstadoVazio";
 import RadarLocalSimples from "@/components/RadarLocalSimples";
 import { ImagemNoticia } from "@/components/ImagemNoticia";
@@ -458,6 +459,10 @@ export default function RadarClient() {
         </TabsContent>
       </Tabs>
       <AdsSlot id="radar-retangulo" formato="retangulo" />
+      {/* M-10: patrocínio identificado, mecanismo independente de AdSense/
+          consentimento de anúncio — não renderiza nada sem patrocínio
+          vigente cadastrado para a posição "radar". */}
+      <PatrocinioSlot posicao="radar" />
       <Dialog open={upsellOpen} onOpenChange={setUpsellOpen}>
         <DialogContent className="border-[var(--cor-borda)] bg-[var(--cor-fundo-card)]">
           <DialogHeader>

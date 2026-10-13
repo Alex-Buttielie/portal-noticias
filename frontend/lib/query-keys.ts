@@ -112,6 +112,10 @@ export const queryKeys = {
     publicos: () => ["publico", AMBIENTE_QUERY, "planos"] as const,
   },
 
+  patrocinio: {
+    ativo: (posicao: string) => ["publico", AMBIENTE_QUERY, "patrocinio", "ativo", posicao] as const,
+  },
+
   feed: {
     noticiasRelacionadasRaiz: () =>
       ["publico", AMBIENTE_QUERY, "feed", "noticias-relacionadas"] as const,

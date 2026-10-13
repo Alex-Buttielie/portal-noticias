@@ -14,6 +14,20 @@ export function invalidarCachePremium(): void {
   // Não há cache global nem storage para invalidar neste módulo.
 }
 
+/**
+ * M-08 (run 20261012-1806-monetizacao-sprint1) — mesma regra de "é Premium
+ * ou o status ainda não é conhecido?" que `AdsSlot.tsx` usa para decidir se
+ * mostra anúncio (`premiumGeral`), extraída aqui como função pura para ser
+ * testável sem DOM/hooks: usuário com papel Premium/admin, OU o status
+ * global do Premium ainda não carregou (`ativo === null`) — fail-open, nunca
+ * trata "desconhecido" como Free. Usada pelo CTA de assinatura dentro da
+ * leitura (`LeituraPremium.tsx`): o CTA só aparece quando isto é `false`
+ * (Free confirmado).
+ */
+export function premiumOuStatusDesconhecido(isPremium: boolean, ativo: boolean | null): boolean {
+  return isPremium || ativo === null;
+}
+
 /** Flag global Premium. `null` é o estado inicial; erro mantém fail-open. */
 export function usePremiumAtivo(): {
   ativo: boolean | null;

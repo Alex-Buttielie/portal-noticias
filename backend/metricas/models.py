@@ -34,6 +34,11 @@ class EventoSite(models.Model):
     TIPO_HOME_SECTION_CLICK = "home_section_click"
     TIPO_COMMUNITY_VIEW = "community_view"
     TIPO_COMMUNITY_INTERACTION = "community_interaction"
+    # M-10 (run 20261012-1806-monetizacao-sprint1) — impressão/clique de
+    # `PatrocinioSlot` (frontend). Mesma regra de consentimento das demais
+    # entradas desta tabela: só registrado com `analytics` concedido.
+    TIPO_PATROCINIO_VIEW = "patrocinio_view"
+    TIPO_PATROCINIO_CLICK = "patrocinio_click"
 
     TIPO_CHOICES = [
         (TIPO_PAGE_VIEW, "Visualização de página"),
@@ -48,6 +53,8 @@ class EventoSite(models.Model):
         (TIPO_HOME_SECTION_CLICK, "Clique em seção da Home"),
         (TIPO_COMMUNITY_VIEW, "Visualização da comunidade"),
         (TIPO_COMMUNITY_INTERACTION, "Interação na comunidade"),
+        (TIPO_PATROCINIO_VIEW, "Visualização de patrocínio"),
+        (TIPO_PATROCINIO_CLICK, "Clique em patrocínio"),
     ]
     TIPOS_VALIDOS = {c[0] for c in TIPO_CHOICES}
 

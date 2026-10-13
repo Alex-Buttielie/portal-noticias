@@ -517,6 +517,26 @@ export function obterUrgentes(limite = 6): Promise<FeedEntrada[]> {
 export function obterMaisLidas(limite = 5): Promise<FeedEntrada[]> {
   return request(`/api/feed/mais-lidas/?limite=${limite}`, { method: "GET" });
 }
+
+// M-02 (run 20261012-1806-monetizacao-sprint1): entradas publicáveis E
+// indexáveis (com resumo próprio — ver M-03) para `app/sitemap.ts`.
+export interface SitemapEntrada {
+  tipo: "cluster" | "item";
+  id: number;
+  categoria: string;
+  timestamp: string;
+}
+
+export interface SitemapResposta {
+  count: number;
+  next: string | null;
+  previous: string | null;
+  results: SitemapEntrada[];
+}
+
+export function obterSitemapEntradas(page = 1, page_size = 500): Promise<SitemapResposta> {
+  return request(`/api/feed/sitemap/?page=${page}&page_size=${page_size}`, { method: "GET" });
+}
 // Inscrição PÚBLICA de newsletter (visitante sem token). ATENÇÃO: o endpoint
 // `/api/newsletter/inscrever/` exige `IsAuthenticated`
 // (backend/newsletter/views.py:9-10), e o caminho público é
@@ -549,10 +569,12 @@ export interface FonteDetalhe {
   url_fonte_original: string;
   resumo: string;
   imagem_url?: string;
-  conteudo?: string;
-  // H-07 — true quando `resumo` é o texto fixo do fallback local (sem
-  // resumo editorial). O frontend usa isto para mostrar o aviso no máximo
-  // uma vez por página, em vez de repeti-lo a cada ocorrência do resumo.
+  // M-01 (run 20261012-1806-monetizacao-sprint1): `conteudo` (texto raspado)
+  // não existe mais no JSON público — ver backend/feed/services.py.
+  // H-07 (run 20261013-1048-home-radar-central-ux) — true quando `resumo` é
+  // o texto fixo do fallback local (sem resumo editorial). O frontend usa
+  // isto para mostrar o aviso no máximo uma vez por página, em vez de
+  // repeti-lo a cada ocorrência do resumo.
   resumo_e_fallback?: boolean;
 }
 
@@ -853,6 +875,38 @@ export async function obterMinhaAssinatura(token: string): Promise<Assinatura | 
 
 export function obterHistoricoPagamentos(token: string): Promise<Pagamento[]> {
   return request("/api/assinatura/historico-pagamentos/", { method: "GET" }, token);
+}
+
+// ---------------------------------------------------------------------------
+// patrocinio/ (M-10, run 20261012-1806-monetizacao-sprint1)
+// ---------------------------------------------------------------------------
+
+export interface PatrocinioAtivo {
+  id: number;
+  anunciante: string;
+  criativo_url: string;
+  texto_alt: string;
+  url: string;
+  posicao: string;
+}
+
+/**
+ * `GET /api/patrocinio/ativo/?posicao=...` — best-effort: 404 (sem
+ * patrocínio vigente para a posição) e falha de rede/servidor devolvem
+ * `null` em vez de propagar erro. `PatrocinioSlot` nunca pode quebrar a
+ * página por causa deste endpoint opcional.
+ */
+export async function obterPatrocinioAtivo(posicao: string): Promise<PatrocinioAtivo | null> {
+  try {
+    return await request<PatrocinioAtivo>(
+      `/api/patrocinio/ativo/?posicao=${encodeURIComponent(posicao)}`,
+      { method: "GET" }
+    );
+  } catch (erro) {
+    if (erro instanceof ApiError && erro.status === 404) return null;
+    console.error("[api] obterPatrocinioAtivo falhou", erro);
+    return null;
+  }
 }
 
 // ---------------------------------------------------------------------------

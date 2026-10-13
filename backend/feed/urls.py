@@ -8,6 +8,7 @@ urlpatterns = [
     path("", views.FeedListView.as_view(), name="feed-list"),
     path("urgentes/", views.UrgentesView.as_view(), name="feed-urgentes"),
     path("mais-lidas/", views.MaisLidasView.as_view(), name="feed-mais-lidas"),
+    path("sitemap/", views.SitemapView.as_view(), name="feed-sitemap"),
     # FRENTE 3 — recomendação / destaques / busca / cobertura / interações.
     path("home/", views.HomeSecoesView.as_view(), name="feed-home"),
     path("destaques/", views.DestaquesDiaView.as_view(), name="feed-destaques"),
