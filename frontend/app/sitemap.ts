@@ -2,6 +2,13 @@ import type { MetadataRoute } from "next";
 import { SITE_URL } from "@/lib/site";
 import { obterSitemapEntradas, type SitemapEntrada } from "@/lib/api";
 
+// Sem isso, o Next.js gera este arquivo uma vez no build (CI, sem API viva
+// — ver comentário de `app/paginas/[slug]/page.tsx`) e nunca mais busca a
+// API em produção: o fallback silencioso de `obterTodasEntradas()`, pensado
+// para uma falha passageira em runtime, acaba "vencendo" para sempre. Mesmo
+// padrão já usado por `app/rss/route.ts`.
+export const revalidate = 3600;
+
 const ROTAS_FIXAS = ["", "/editorias", "/ao-vivo", "/buscar", "/sobre", "/contato", "/termos", "/privacidade", "/cookies", "/arquivo", "/newsletter", "/categoria/politica", "/categoria/economia", "/categoria/tecnologia"];
 
 // M-02 (run 20261012-1806-monetizacao-sprint1): só notícias publicáveis E
