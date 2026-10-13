@@ -1068,3 +1068,55 @@ orientação do próprio contrato de review, que não exigia teste novo para
 esses dois).
 
 ---
+
+## Iteração 14 — 2026-10-13 — orchestrator (achado pós-merge: smoke test real em homolog)
+
+**O que foi feito:**
+Depois do merge do PR #78 em `develop` e do deploy automático de HOMOLOG,
+rodei um smoke test real contra `https://homolog.portal-noticias.com`
+(não só a suíte local) antes de seguir para a tag de produção. `GET
+/api/feed/sitemap/` respondia 200 com 11494 itens reais, mas
+`/sitemap.xml` só tinha as rotas fixas — o fix do Finding 1 (M-02, feito
+na Iteração 13) estava correto no backend, mas nunca chegava ao frontend
+em produção.
+
+**Por quê:**
+`frontend/app/sitemap.ts` busca a API dentro de um `try/catch` que cai
+para as rotas fixas em caso de falha — comportamento pensado para uma
+falha passageira em runtime. Sem `export const revalidate`, porém, o
+Next.js trata `sitemap.ts` como estático e gera o arquivo **uma única
+vez**, no build (`frontend-build` do CI, que não tem API viva — mesma
+situação já documentada em `app/paginas/[slug]/page.tsx`). O fallback de
+erro, pensado para ser temporário, "vencia" para sempre: nenhuma
+instância em produção jamais rebusca a API depois do build.
+
+**Arquivos tocados:**
+- `frontend/app/sitemap.ts` — `export const revalidate = 3600;` (mesmo
+  padrão já usado por `app/rss/route.ts`, `revalidate = 300`).
+- `frontend/testes/sitemap.test.mjs` — teste novo garantindo que o
+  módulo exporta `revalidate` numérico positivo. Os 2 testes existentes
+  mockam `fetch` diretamente na função e por isso nunca exerciam o
+  comportamento de cache estático do Next.js — não é uma falha deles,
+  é uma categoria de bug que teste de função pura não alcança.
+
+**Comandos executados / evidência:**
+```
+curl https://homolog.portal-noticias.com/api/feed/sitemap/ → 200, count:11494 (antes do fix)
+curl https://homolog.portal-noticias.com/sitemap.xml       → só rotas fixas (antes do fix)
+
+cd frontend && npm run typecheck → limpo
+npm test → 97 passed (96 + 1 novo), 0 fail
+```
+
+**Resultado:** Corrigido. Commit `f6026b5`. Pendente: abrir PR, mergear,
+confirmar em homolog de novo após o redeploy, e só então seguir para a
+tag de produção.
+
+**Notas fora do escopo:**
+Nenhuma — é uma correção direta do próprio M-02, encontrada por
+verificação em ambiente real (exatamente o tipo de lacuna que a suíte
+local, por mockar a API, não tinha como pegar). Registrado aqui em vez
+de simplesmente corrigido e esquecido, para manter o histórico coerente
+com o que de fato aconteceu.
+
+---
