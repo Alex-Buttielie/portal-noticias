@@ -496,3 +496,55 @@ nem corrigidas — fora do escopo de M-07, sinalizado aqui para o
 orchestrator/tester decidir se merece um item de limpeza separado.
 
 ---
+
+## Iteração 9 — 2026-10-12 — executor (M-08)
+
+**O que foi feito:**
+`LeituraPremium.tsx` ganhou um cartão discreto de CTA de assinatura, exibido
+uma única vez logo após o resumo em "30 segundos" (antes do corpo completo
+da matéria). Visível só para Free confirmado: usa a mesma regra de
+"Premium ou status ainda desconhecido" que `AdsSlot.tsx` já usa para decidir
+anúncio (fail-open — status desconhecido nunca é tratado como Free), extraída
+para `premiumOuStatusDesconhecido(isPremium, ativo)` em `lib/premium.ts` e
+testada sem DOM.
+
+**Por quê:**
+Critério de aceite 8 do implementation-contract.md; a leitura é o momento de
+maior intenção e não tinha nenhuma chamada para o Premium.
+
+**Arquivos tocados:**
+- `frontend/lib/premium.ts` — `premiumOuStatusDesconhecido()` (novo, função
+  pura).
+- `frontend/app/noticia/LeituraPremium.tsx` — `useAuth`/`usePremiumAtivo`
+  importados; cartão novo com `aria-label` no link e botão com alvo de
+  44px (`min-h-[44px]`), usando os tokens `--cor-premium*` já existentes.
+- `frontend/testes/premium-cta.test.mjs` (novo) — 4 casos: Premium (não
+  aparece mesmo com `ativo=true`), Free com status desconhecido (não
+  aparece — fail-open), Free com status conhecido (aparece), Premium com
+  status desconhecido (não aparece, dupla razão).
+
+**Decisão de copy (desvio do rascunho do plano, registrado por transparência):**
+O "Como" do item M-07/M-08 no plano sugere o texto "Leia sem anúncios e
+receba o resumo da manhã por e-mail". Conferi `backend/newsletter/` antes de
+usar essa frase: o resumo da manhã é uma preferência de newsletter
+disponível a qualquer inscrito (Free incluso) — só a newsletter
+"Personalizada" é exclusiva Premium (`RecursoGatedError` em
+`newsletter/services.py:350`). Usar a frase do rascunho prometeria um
+benefício Premium que o código não restringe a Premium. Troquei por "Leia
+sem anúncios e com alertas personalizados" — os dois benefícios já
+documentados como Premium em `PREMIUM_BENEFICIOS` (`app/planos/page.tsx`).
+Nenhum número ou claim novo inventado.
+
+**Comandos executados / evidência:**
+```
+cd frontend && npm run typecheck → limpo
+npm test → 84 passed, 0 fail (80 anteriores + 4 novos de premium-cta.test.mjs)
+node scripts/verificar-consentimento-anuncios.mjs → "P1-09 OK", exit 0
+npm run build → sucesso, todas as rotas
+```
+
+**Resultado:**
+Sucesso. Commit `cb3b683` —
+`monetizacao(M-08): CTA de assinatura dentro da leitura, so para Free`.
+
+---
