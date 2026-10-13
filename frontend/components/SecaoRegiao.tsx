@@ -15,6 +15,7 @@ import { carregarRegiao, salvarRegiao, limparRegiao, formatarRegiao, cidadesVizi
 import { CompartilharLocalizacao } from "@/components/CompartilharLocalizacao";
 import { trackLocationPermission, trackLocationSelected } from "@/lib/analytics";
 import { ConsentimentoLocal, lerRecusaLocal, limparRecusaLocal } from "@/components/ConsentimentoLocal";
+import { WidgetClima } from "@/components/WidgetClima";
 import { MapPin, Navigation, Clock3, Filter, ArrowUpDown, Search, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -113,7 +114,8 @@ export function SecaoRegiao({ feed }: { feed: FeedEntrada[] }) {
           <h2 className="flex flex-wrap items-center gap-2 text-base font-bold text-[var(--cor-texto)]"><MapPin className="h-4 w-4 text-[var(--cor-primaria)]" /> Perto de você — {formatarRegiao(regiao)} {regiao.bairro && <Badge variant="outline" className="border-[var(--cor-borda)] capitalize">{regiao.bairro}</Badge>}</h2>
           <p className="mt-1 text-sm text-[var(--cor-texto-suave)]">{vizinhas.length ? <>Inclui <span className="font-medium text-[var(--cor-texto)]">{vizinhas.slice(0, 3).join(", ")}</span> e arredores</> : "Região detectada — filtre por cidade, estado ou vizinhas."} • {itensRegiao.length} {itensRegiao.length === 1 ? "notícia" : "notícias"} próximas</p>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-start gap-2">
+          <WidgetClima regiao={regiao} />
           <Button variant="outline" onClick={() => setOpen(true)} className="min-h-[36px] gap-1.5 border-[var(--cor-borda)]"><MapPin className="h-4 w-4" /> Alterar região</Button>
           <Button variant="ghost" onClick={() => { limparRegiao(); setRegiao(null); }} className="min-h-[36px] gap-1.5"><X className="h-4 w-4" /> Limpar</Button>
         </div>

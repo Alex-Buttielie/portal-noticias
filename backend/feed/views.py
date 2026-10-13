@@ -463,3 +463,27 @@ class AfinidadeView(APIView):
             },
             status=status.HTTP_200_OK,
         )
+
+
+class FontesSeguidasView(APIView):
+    """GET/POST/DELETE /api/feed/fontes-seguidas/ — "Seguir fonte"
+    (inspirado no Google Notícias). Grátis, não gated — mesmo padrão de
+    `radar.LocalidadesSalvasView` (favoritar não é recurso Premium)."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        fontes = services.fontes_seguidas(request.user)
+        return Response([f.nome_fonte for f in fontes])
+
+    def post(self, request):
+        nome_fonte = (request.data.get("nome_fonte") or "").strip()
+        if not nome_fonte:
+            return Response({"detail": "nome_fonte é obrigatório."}, status=status.HTTP_400_BAD_REQUEST)
+        services.seguir_fonte(request.user, nome_fonte)
+        return Response(status=status.HTTP_201_CREATED)
+
+    def delete(self, request):
+        nome_fonte = (request.data.get("nome_fonte") or "").strip()
+        services.deixar_de_seguir_fonte(request.user, nome_fonte)
+        return Response(status=status.HTTP_204_NO_CONTENT)

@@ -59,6 +59,7 @@ jobs:
       GHCR_PULL_USER: ${{ secrets.GHCR_PULL_USER }}
       # Resend (P1-04): opcional. Ausente mantém DJANGO_EMAIL_BACKEND=console.
       RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+      BRAPI_API_KEY: ${{ secrets.BRAPI_API_KEY }}
       # AdSense (PROD_DECISOES.md item 3): CLIENT_ID é secret de
       # REPOSITÓRIO (não de Environment) de propósito — um job que chama
       # workflow reutilizável via `uses:` não pode ter `environment:` nele

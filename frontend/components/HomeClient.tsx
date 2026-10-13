@@ -25,6 +25,7 @@ import { HOME_CONFIG_PADRAO, obterHomeConfig, type HomeConfig } from "@/lib/edit
 import { hrefSubcategoria, subcategoriasCompletas } from "@/lib/categorias";
 import type { FeedEntrada } from "@/lib/api";
 import { Flame, Mail, Info, Crown, Bookmark } from "lucide-react";
+import { WidgetMercado } from "@/components/WidgetMercado";
 import { cn } from "@/lib/utils";
 
 const EDITORIAS = ["política", "economia", "tecnologia", "esportes", "cultura", "saúde", "mundo", "cidades"];
@@ -504,6 +505,8 @@ export function HomeClient({
 
           {/* M-06: home-sidebar-2 removido (2 slots retângulo consecutivos
               na sidebar); mantido home-sidebar. */}
+          <WidgetMercado />
+
           <AdsSlot id="home-sidebar" formato="retangulo" />
         </aside>
       </section>
