@@ -607,3 +607,131 @@ que o plano quer dizer com a frase; mesma convenção de filtro por nome que
 `app/planos/page.tsx` (M-07) já usa.
 
 ---
+
+## Iteração 11 — 2026-10-12/13 — executor (M-10, último item do Sprint 1)
+
+**O que foi feito:**
+Novo app Django `backend/patrocinio/`: modelo `Patrocinio` (anunciante,
+`criativo_url`, `texto_alt` — obrigatório, nunca inventado —, `url`,
+`posicao`, `data_inicio`, `data_fim`, `ativo`) com
+`Patrocinio.vigente_para_posicao(posicao)` (ativo E hoje dentro do período,
+desempate pelo `data_inicio` mais recente quando há mais de um vigente na
+mesma posição); admin; migration inicial; `GET /api/patrocinio/ativo/
+?posicao=...` público, com cache de app de 60s (mesmo desenho do cache de
+`feed/views.py`) — 200 com o patrocínio, 404 sem patrocínio/fora do
+período/`ativo=False`, 400 sem `posicao`; 10 testes de backend (datas,
+fronteira inclusiva, `ativo=False`, posição sem cadastro, desempate, cache
+do 200 e do 404), todos com dados marcados como teste (`"Anunciante de
+Teste"`, domínios `.invalid`) — nenhum preço/tabela comercial real.
+
+`backend/metricas/models.py`: `TIPO_CHOICES` ganhou `patrocinio_view`/
+`patrocinio_click` (migration `0003_alter_eventosite_tipo`, só choices —
+sem alteração de schema). O endpoint genérico `POST /api/metricas/eventos/`
+(`EventoIngestaoView._registrar_site`) já aceita qualquer tipo em
+`EventoSite.TIPOS_VALIDOS` — nenhuma view nova precisou ser escrita para a
+ingestão do evento, só os dois tipos novos na taxonomia (backend e
+frontend).
+
+`frontend/components/PatrocinioSlot.tsx` (novo): busca o patrocínio
+vigente da posição (`useQueryPatrocinioAtivo`, novo hook); sem patrocínio
+(404/erro/carregando), não renderiza nada. Com patrocínio: rótulo
+"Patrocinado" SEMPRE visível (não condicional a consentimento — é
+conteúdo de primeira parte, não rastreio), imagem com `alt` real
+(`texto_alt` do cadastro) e dimensões fixas (120×80, anti-CLS), link com
+`rel="sponsored nofollow noopener"` e `target="_blank"`. Impressão
+(`IntersectionObserver`, 25% visível, uma vez por montagem — mesmo padrão
+de `AnalyticsTracker.tsx`) e clique chamam `trackPatrocinioView`/
+`trackPatrocinioClick` (`lib/analytics.ts`), que só enviam com
+`permiteCategoria("analytics")` concedido — sem consentimento, o rótulo e
+o link continuam visíveis, só o REGISTRO do evento não acontece. Plugado
+em `app/radar/RadarClient.tsx` na posição `"radar"` — único ponto de
+montagem efetivo deste sprint (o plano também cita "newsletter", mas isso
+é explicitamente o escopo do M-16, Sprint 3: o corpo do e-mail é montado
+no backend (`newsletter/services.py`), não por um componente React, então
+não há o que montar aqui agora).
+
+**Por quê:**
+Critério de aceite 10 do implementation-contract.md; BRD §5 e §17 — receita
+direta sem depender de conta de AdSense nem de consentimento de anúncio.
+
+**Arquivos tocados:**
+- `backend/patrocinio/` (novo app completo: `__init__.py`, `apps.py`,
+  `models.py`, `admin.py`, `serializers.py`, `views.py`, `urls.py`,
+  `migrations/0001_initial.py`, `tests/test_patrocinio_ativo.py`).
+- `backend/config/settings.py` — `"patrocinio"` em `INSTALLED_APPS`.
+- `backend/config/urls.py` — `path("api/patrocinio/", include("patrocinio.urls"))`.
+- `backend/metricas/models.py` — 2 `TIPO_CHOICES` novos.
+- `backend/metricas/migrations/0003_alter_eventosite_tipo.py` (novo, gerado
+  por `makemigrations`).
+- `frontend/components/PatrocinioSlot.tsx` (novo).
+- `frontend/app/radar/RadarClient.tsx` — import + montagem.
+- `frontend/lib/analytics.ts` — `patrocinio_view`/`patrocinio_click` em
+  `TIPOS_EVENTO`; `trackPatrocinioView`/`trackPatrocinioClick`.
+- `frontend/lib/api.ts` — `PatrocinioAtivo`, `obterPatrocinioAtivo()`.
+- `frontend/lib/queries.ts`, `frontend/lib/query-keys.ts` —
+  `useQueryPatrocinioAtivo`.
+- `frontend/testes/patrocinio.test.mjs` (novo) — 8 testes: taxonomia de
+  evento, `montarCorpoEvento` preserva `categoria`/`extra` para os 2 tipos
+  novos, e 5 checks estáticos sobre o fonte de `PatrocinioSlot.tsx` (rótulo,
+  `rel`, `alt`+dimensões, "sem patrocínio não renderiza", tracking via
+  helper em vez de `fetch`/`sendBeacon` direto) — mesmo desenho das guardas
+  `verificar-consentimento-anuncios.mjs`/`verificar-eventos-analytics.mjs`
+  (projeto sem runner de renderização de componente, ver nota nesses
+  scripts e em `links-internos.test.mjs`).
+- `infra/nginx/portal-{prod,homolog,dev}.conf` — `patrocinio/ativo/`
+  acrescentado à allowlist de cache de borda já existente (mesma zona/TTL
+  de 45s, sem location nova), igual ao que M-02 fez para `sitemap`.
+
+**Comandos executados / evidência:**
+```
+cd backend && DJANGO_DEBUG=true <venv>/bin/python manage.py makemigrations patrocinio
+  → 1 migration (CreateModel Patrocinio)
+cd backend && DJANGO_DEBUG=true <venv>/bin/python manage.py makemigrations metricas
+  → 1 migration (AlterField tipo — só choices)
+cd backend && DJANGO_DEBUG=true <venv>/bin/python -m pytest patrocinio/ metricas/ -q
+  → 74 passed, 0 failed
+cd backend && DJANGO_DEBUG=true <venv>/bin/python manage.py check → sem issues
+cd backend && DJANGO_DEBUG=true <venv>/bin/python manage.py makemigrations --check --dry-run
+  → "No changes detected" (nenhuma migration faltando)
+
+cd frontend && npm run typecheck → limpo
+npm test → 96 passed, 0 fail (88 anteriores + 8 novos de patrocinio.test.mjs)
+node scripts/verificar-consentimento-anuncios.mjs → "P1-09 OK", exit 0
+node scripts/verificar-eventos-analytics.mjs → "P1-10 OK", exit 0
+  (205 fontes varridos, 0 violações — PatrocinioSlot.tsx não introduziu
+  nenhum envio de evento fora do portão de consentimento)
+npm run build → sucesso, todas as rotas (/radar 9.26 kB)
+
+Balanceamento de chaves `{`/`}` dos 3 arquivos nginx editados confirmado
+igual (0 de diferença) — sem `nginx -t` disponível neste ambiente para
+validação de sintaxe completa (mesma limitação já registrada para M-02).
+```
+
+**Resultado:**
+Sucesso. Commit `0a9e82d` —
+`monetizacao(M-10): patrocinio identificado (mecanismo), sem AdSense`.
+Último item do Sprint 1 (M-01 a M-10, todos implementados e comitados).
+
+**Notas:**
+- Nenhum preço, tabela comercial ou "o que é um espaço comercial" foi
+  definido ou inventado — exatamente o bloqueio de negócio já registrado
+  no próprio plano para este item ("Dependência: definir com o
+  responsável..."). Só o mecanismo foi construído, com dado de teste
+  claramente marcado como teste (`test_patrocinio_ativo.py`).
+- Mounting point único (Radar) nesta iteração — o plano também cita a
+  newsletter, mas essa integração é textualmente o escopo do M-16
+  (Sprint 3, fora deste contrato) por ser renderização server-side de
+  e-mail, não um componente React. Sinalizado aqui para não ser
+  confundido com item pendente desta run.
+- `nginx -t` não executado (binário não disponível neste worktree) —
+  validação feita por inspeção e balanceamento de chaves, mesma ressalva
+  já registrada para a mudança equivalente de M-02.
+- Suíte completa do backend (`pytest -q`, sem escopo) rodada de novo após
+  este item: **1731 passed, 13 failed, 2 skipped** — as mesmas 13 falhas
+  pré-existentes/ambientais já diagnosticadas e descartadas na Iteração 8
+  (settings de produção com SQLite + 2 arquivos com flakiness de ordem),
+  nenhuma nova. 1731 = 1721 (Iteração 8) + 10 testes novos de
+  `patrocinio/tests/test_patrocinio_ativo.py` (M-08/M-09 não adicionaram
+  teste de backend).
+
+---
