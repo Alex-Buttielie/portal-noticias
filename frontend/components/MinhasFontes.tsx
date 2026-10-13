@@ -4,25 +4,28 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { FONTES_CATALOGO, obterMinhasFontes, alternarFonte } from "@/lib/minhas-fontes";
+import { FONTES_CATALOGO, obterMinhasFontes, alternarFonte, sincronizarMinhasFontes } from "@/lib/minhas-fontes";
+import { useAuth } from "@/lib/auth-context";
 import { Newspaper, Plus, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export function MinhasFontes({ compact = false }: { compact?: boolean }) {
+  const { token } = useAuth();
   const [seguidas, setSeguidas] = useState<string[]>([]);
   const [nova, setNova] = useState("");
 
   useEffect(() => {
     setSeguidas(obterMinhasFontes());
-  }, []);
+    if (token) sincronizarMinhasFontes(token).then(setSeguidas);
+  }, [token]);
 
-  const toggle = (nome: string) => setSeguidas(alternarFonte(nome));
+  const toggle = (nome: string) => setSeguidas(alternarFonte(nome, token));
   const segue = (nome: string) => seguidas.some((f) => f.toLowerCase() === nome.toLowerCase());
 
   const adicionar = () => {
     const nome = nova.trim();
     if (!nome) return;
-    if (!segue(nome)) setSeguidas(alternarFonte(nome));
+    if (!segue(nome)) setSeguidas(alternarFonte(nome, token));
     setNova("");
   };
 

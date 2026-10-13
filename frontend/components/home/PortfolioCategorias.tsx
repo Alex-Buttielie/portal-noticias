@@ -76,62 +76,65 @@ export const PortfolioCategorias = memo(function PortfolioCategorias({
         </Link>
       </div>
 
-      {blocos.map((bloco) => {
-        const visiveis = expandidos[bloco.categoria] ?? porCategoria;
-        const lista = bloco.itens.slice(0, visiveis);
-        const restantes = bloco.total - lista.length;
-        return (
-          <div key={bloco.categoria} className="w-full min-w-0 space-y-3 overflow-hidden rounded-[var(--raio-lg)] border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] p-4 shadow-[var(--sombra-1)] md:p-5">
-            <div className="flex min-w-0 flex-wrap items-baseline justify-between gap-2">
-              <h3 className="min-w-0 break-words text-base font-bold capitalize text-[var(--cor-texto)]">
-                {bloco.categoria}{" "}
-                <span className="ml-1 rounded-full bg-[var(--cor-fundo-elevado)] px-2 py-0.5 text-xs font-semibold text-[var(--cor-texto-suave)]">
-                  {bloco.total}
-                </span>
-              </h3>
-              <p className="text-xs text-[var(--cor-texto-suave)]">{bloco.motivo}</p>
-            </div>
-            <div className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {lista.map((entrada) => (
-                <NewsCard
-                  key={`port-${bloco.categoria}-${entrada.tipo}-${entrada.id}`}
-                  entrada={entrada}
-                  variante="secundaria"
-                  salvo={salvos.has(`${entrada.tipo}-${entrada.id}`)}
-                  onToggleSalvar={onToggleSalvar}
-                />
-              ))}
-            </div>
-            <div className="flex flex-wrap items-center gap-2 border-t border-[var(--cor-borda)] pt-3 text-sm">
-              {restantes > 0 && (
-                <button
-                  type="button"
-                  onClick={() => alternar(bloco.categoria, bloco.total)}
-                  aria-expanded={visiveis >= bloco.total}
-                  className="rounded-full border border-[var(--cor-borda)] px-3 py-1.5 text-xs font-medium text-[var(--cor-texto)] hover:bg-[var(--cor-fundo-elevado)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cor-foco)]"
-                >
-                  Mostrar mais ({Math.min(passo, restantes)} de {restantes})
-                </button>
-              )}
-              {visiveis > porCategoria && (
-                <button
-                  type="button"
-                  onClick={() => setExpandidos((prev) => ({ ...prev, [bloco.categoria]: porCategoria }))}
-                  className="rounded-full border border-[var(--cor-borda)] px-3 py-1.5 text-xs font-medium text-[var(--cor-texto-suave)] hover:bg-[var(--cor-fundo-elevado)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cor-foco)]"
-                >
-                  Mostrar menos
-                </button>
-              )}
+      <div className="grid min-w-0 gap-4 md:grid-cols-2 xl:grid-cols-3">
+        {blocos.map((bloco) => {
+          const visiveis = expandidos[bloco.categoria] ?? porCategoria;
+          const lista = bloco.itens.slice(0, visiveis);
+          const restantes = bloco.total - lista.length;
+          return (
+            <div key={bloco.categoria} className="flex w-full min-w-0 flex-col overflow-hidden rounded-[var(--raio-lg)] border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] p-4 shadow-[var(--sombra-1)]">
               <Link
                 href={`/categoria/${encodeURIComponent(bloco.categoria)}`}
-                className="ml-auto inline-flex items-center gap-1 text-xs font-medium capitalize text-[var(--cor-primaria)] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cor-foco)]"
+                className="group/h mb-1 flex min-w-0 items-center justify-between gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cor-foco)] rounded-sm"
               >
-                Ver todas de {bloco.categoria} ({bloco.total}) →
+                <h3 className="min-w-0 truncate text-base font-bold capitalize text-[var(--cor-texto)] group-hover/h:text-[var(--cor-primaria)]">
+                  {bloco.categoria}
+                </h3>
+                <span className="shrink-0 text-[var(--cor-texto-suave)] group-hover/h:text-[var(--cor-primaria)]">›</span>
               </Link>
+              <p className="mb-1 text-xs text-[var(--cor-texto-suave)]">{bloco.motivo}</p>
+              <div className="min-w-0">
+                {lista.map((entrada) => (
+                  <NewsCard
+                    key={`port-${bloco.categoria}-${entrada.tipo}-${entrada.id}`}
+                    entrada={entrada}
+                    variante="secundaria"
+                    salvo={salvos.has(`${entrada.tipo}-${entrada.id}`)}
+                    onToggleSalvar={onToggleSalvar}
+                  />
+                ))}
+              </div>
+              <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-[var(--cor-borda)] pt-3 text-sm">
+                {restantes > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => alternar(bloco.categoria, bloco.total)}
+                    aria-expanded={visiveis >= bloco.total}
+                    className="rounded-full border border-[var(--cor-borda)] px-3 py-1.5 text-xs font-medium text-[var(--cor-texto)] hover:bg-[var(--cor-fundo-elevado)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cor-foco)]"
+                  >
+                    Mostrar mais ({Math.min(passo, restantes)} de {restantes})
+                  </button>
+                )}
+                {visiveis > porCategoria && (
+                  <button
+                    type="button"
+                    onClick={() => setExpandidos((prev) => ({ ...prev, [bloco.categoria]: porCategoria }))}
+                    className="rounded-full border border-[var(--cor-borda)] px-3 py-1.5 text-xs font-medium text-[var(--cor-texto-suave)] hover:bg-[var(--cor-fundo-elevado)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cor-foco)]"
+                  >
+                    Mostrar menos
+                  </button>
+                )}
+                <Link
+                  href={`/categoria/${encodeURIComponent(bloco.categoria)}`}
+                  className="ml-auto inline-flex items-center gap-1 text-xs font-medium capitalize text-[var(--cor-primaria)] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cor-foco)]"
+                >
+                  Ver todas ({bloco.total}) →
+                </Link>
+              </div>
             </div>
-          </div>
-        );
-      })}
+          );
+        })}
+      </div>
 
       {estados.length > 0 && (
         <nav aria-label="Veja mais por localidade" className="flex flex-wrap items-center gap-2 rounded-[var(--raio-lg)] border border-dashed border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] px-4 py-3">

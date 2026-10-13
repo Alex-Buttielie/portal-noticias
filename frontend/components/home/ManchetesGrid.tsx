@@ -12,7 +12,9 @@ interface ManchetesGridProps {
 }
 
 /**
- * Hierarquia editorial: 1 destaque + N secundárias em grid denso.
+ * Hierarquia editorial: 1 destaque (imagem grande) + N secundárias numa
+ * lista densa ao lado — padrão "Principais notícias" do Google Notícias
+ * (manchete + outras coberturas da rodada em linha, sem imagem dominante).
  * Card clicável, sem botões grandes. Quantidade configurável.
  */
 export const ManchetesGrid = memo(function ManchetesGrid({ itens, limiteSecundarias, salvos, onToggleSalvar }: ManchetesGridProps) {
@@ -32,26 +34,28 @@ export const ManchetesGrid = memo(function ManchetesGrid({ itens, limiteSecundar
 
   return (
     <section aria-label="Manchetes" className="space-y-4">
-      <NewsCard
-        entrada={destaque}
-        variante="destaque"
-        eager
-        salvo={salvos.has(`${destaque.tipo}-${destaque.id}`)}
-        onToggleSalvar={onToggleSalvar}
-      />
-      {secundarias.length > 0 && (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {secundarias.map((entrada) => (
-            <NewsCard
-              key={`${entrada.tipo}-${entrada.id}`}
-              entrada={entrada}
-              variante="secundaria"
-              salvo={salvos.has(`${entrada.tipo}-${entrada.id}`)}
-              onToggleSalvar={onToggleSalvar}
-            />
-          ))}
-        </div>
-      )}
+      <div className="grid gap-4 lg:grid-cols-[1.4fr_1fr] lg:items-stretch">
+        <NewsCard
+          entrada={destaque}
+          variante="destaque"
+          eager
+          salvo={salvos.has(`${destaque.tipo}-${destaque.id}`)}
+          onToggleSalvar={onToggleSalvar}
+        />
+        {secundarias.length > 0 && (
+          <div className="min-w-0 rounded-[var(--raio-lg)] border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] px-4">
+            {secundarias.map((entrada) => (
+              <NewsCard
+                key={`${entrada.tipo}-${entrada.id}`}
+                entrada={entrada}
+                variante="secundaria"
+                salvo={salvos.has(`${entrada.tipo}-${entrada.id}`)}
+                onToggleSalvar={onToggleSalvar}
+              />
+            ))}
+          </div>
+        )}
+      </div>
       <div className="flex flex-wrap items-center gap-2 text-sm">
         <Link
           href="/arquivo"

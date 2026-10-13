@@ -35,6 +35,7 @@ urlpatterns = [
     path("api/moderacao/", include("moderacao.urls")),
     path("api/radar/", include("radar.urls")),
     path("api/enderecos/", include("enderecos.urls")),
+    path("api/mercado/", include("mercado.urls")),
     path("api/newsletter/", include("newsletter.urls")),
     path("api/landing/", include("landing.urls")),
     # P1-15b — `POST /api/contato/`: entrega a mensagem do formulário de

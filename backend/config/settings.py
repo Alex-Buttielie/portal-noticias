@@ -269,6 +269,7 @@ INSTALLED_APPS = [
     "b2b",
     "metricas",
     "painel_admin",
+    "mercado",
 ]
 
 MIDDLEWARE = [
@@ -587,6 +588,14 @@ ENDERECOS_IBGE_BASE_URL = os.environ.get(
 ENDERECOS_UPSTREAM_TIMEOUT_SEGUNDOS = int(os.environ.get("ENDERECOS_UPSTREAM_TIMEOUT_SEGUNDOS", 8))
 ENDERECOS_CACHE_CEP_SEGUNDOS = int(os.environ.get("ENDERECOS_CACHE_CEP_SEGUNDOS", 86400))
 ENDERECOS_CACHE_IBGE_SEGUNDOS = int(os.environ.get("ENDERECOS_CACHE_IBGE_SEGUNDOS", 604800))
+
+# Mercado — proxy de cotações (`mercado/services.py`, brapi.dev). Sem
+# `BRAPI_API_KEY` o app fica inerte (ver `services.habilitado`), mesmo
+# padrão de "secret ausente = recurso desligado" do AdSense.
+BRAPI_API_KEY = os.environ.get("BRAPI_API_KEY", "")
+MERCADO_BRAPI_BASE_URL = os.environ.get("MERCADO_BRAPI_BASE_URL", "https://brapi.dev/api")
+MERCADO_UPSTREAM_TIMEOUT_SEGUNDOS = int(os.environ.get("MERCADO_UPSTREAM_TIMEOUT_SEGUNDOS", 8))
+MERCADO_CACHE_SEGUNDOS = int(os.environ.get("MERCADO_CACHE_SEGUNDOS", 900))
 
 
 # ---------------------------------------------------------------------------
