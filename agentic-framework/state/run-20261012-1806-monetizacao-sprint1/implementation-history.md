@@ -414,3 +414,85 @@ Sucesso. Commit `009f17c` —
 `monetizacao(M-06): reduz densidade de AdsSlot nas paginas`.
 
 ---
+
+## Iteração 8 — 2026-10-12 — executor (M-07, retomado após interrupção por rate limit)
+
+**O que foi feito:**
+Uma instância anterior desta mesma sessão foi interrompida por rate limit da
+API no meio de M-07, deixando trabalho não comitado: `frontend/app/planos/
+page.tsx` modificado e `frontend/lib/planos.ts` / `frontend/testes/
+planos.test.mjs` novos. Avaliei o diff e os 3 arquivos: a implementação
+estava coerente, correta e alinhada com a nota "[revalidado em 12/10/2026]"
+do plano — `calcularDestaquePlanos()` calcula custo por dia e economia a
+partir do preço/duração reais (nunca número fixo), a página passou de 1
+cartão fixo "premium" para 1 cartão por plano PAGO ativo, e os 5 testes
+cobrem 0/1/2/3 planos e preço não numérico. Decidi completar em vez de
+descartar. Faltava só a parte 1 do "Como" do item: cadastrar o plano
+semestral de verdade. Acrescentei:
+- `backend/assinatura/migrations/0003_seed_plano_semestral.py`: data
+  migration (`RunPython`, padrão já usado no projeto em
+  `gating/migrations/0002_seed_feature_limits.py` e
+  `catalogo_noticias/migrations/0008_seed_fontes_padrao.py`) que cadastra
+  "Premium Semestral" (R$20,00 / 180 dias / ativo) via `get_or_create` por
+  nome — idempotente, não duplica se já existir (ex.: cadastro manual prévio
+  pelo admin). Reversível (`remover`).
+
+**Por quê:**
+Critério de aceite 7 do implementation-contract.md; BRD §6 prevê semestral
+(R$20) e anual (R$30), e só o anual existia ativo no banco.
+
+**Arquivos tocados (herdados + novos desta iteração):**
+- `frontend/app/planos/page.tsx` (herdado, revisado e aceito como está)
+- `frontend/lib/planos.ts` (novo, herdado, revisado e aceito como está)
+- `frontend/testes/planos.test.mjs` (novo, herdado, revisado e aceito como está)
+- `backend/assinatura/migrations/0003_seed_plano_semestral.py` (novo, desta iteração)
+- `backend/assinatura/tests/test_sanity.py` (ajustado desta iteração: ver abaixo)
+
+**Efeito colateral encontrado e corrigido:**
+A data migration popula "Premium Semestral" em TODA base, incluindo a de
+teste (migrations rodam na criação do DB de teste). Isso quebrou
+`test_plano_ativo_aparece_na_listagem_publica`, que assumia banco de planos
+vazio (`assert nomes == {"Ativo"}`). Troquei para asserções de pertencimento
+(`"Ativo" in nomes` / `"Inativo" not in nomes`) — mais correto de qualquer
+forma, porque um banco de planos totalmente vazio fora do teste nunca é o
+caso real em dev/homolog/prod.
+
+**Comandos executados / evidência:**
+```
+cd backend && DJANGO_DEBUG=true <venv do checkout principal>/bin/python -m pytest assinatura/ -q
+→ 92 passed (antes da correção do teste: 1 failed por causa do seed —
+  corrigido, depois 92 passed)
+
+cd backend && DJANGO_DEBUG=true <venv>/bin/python -m pytest -q   (suíte completa)
+→ 1721 passed, 13 failed, 2 skipped
+  As 13 falhas não têm NENHUMA referência a `assinatura`/`Plan` (confirmado
+  com grep) e são pré-existentes/ambientais deste worktree, não causadas por
+  esta mudança:
+  - 11 em `config/tests/test_settings_producao.py`: `DJANGO_DB_ENGINE=
+    sqlite3 não é suportado com DEBUG=False` — este worktree roda com
+    SQLite (sem Postgres disponível, mesma situação documentada na
+    Iteração 1), e esses testes validam o comportamento de settings com
+    `DEBUG=False` em produção real (Postgres).
+  - 2 em `catalogo_noticias/tests/test_fallback_local.py::TestMetrica` e
+    1 em `b2b/tests/test_sanity.py`: passam quando rodados isolados
+    (`pytest <esses arquivos> -q` → só as 11 de settings_producao falham),
+    então são flakiness de ordem/poluição de estado entre testes já
+    existente no repositório, não relacionada a este item.
+
+cd frontend && npm run typecheck → limpo
+npm test → 80 passed, 0 fail (75 anteriores + 5 novos de planos.test.mjs)
+node scripts/verificar-consentimento-anuncios.mjs → "P1-09 OK", exit 0
+npm run build → sucesso, todas as rotas, /planos 9.35 kB
+```
+
+**Resultado:**
+Sucesso. Commit `7be9f72` —
+`monetizacao(M-07): plano semestral + destaque de economia real em /planos`.
+
+**Notas:**
+As 13 falhas pré-existentes da suíte completa do backend (settings de
+produção + flakiness de ordem em 2 arquivos) não foram investigadas a fundo
+nem corrigidas — fora do escopo de M-07, sinalizado aqui para o
+orchestrator/tester decidir se merece um item de limpeza separado.
+
+---
