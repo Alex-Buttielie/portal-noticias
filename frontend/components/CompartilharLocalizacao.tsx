@@ -58,6 +58,7 @@ export function CompartilharLocalizacao({
   compacto = false,
   ocultarCep = false,
   mostrarRecusa = true,
+  autoIniciar = false,
   className,
 }: {
   onRegiao: (r: Regiao) => void;
@@ -66,6 +67,12 @@ export function CompartilharLocalizacao({
   compacto?: boolean;
   ocultarCep?: boolean;
   mostrarRecusa?: boolean;
+  /** R-01 — quando `true`, já chama o fluxo real de geolocalização ao
+   * montar (sem esperar um clique no botão interno). Usado por
+   * `RadarLocalSimples`: o PRIMEIRO clique em "Detectar" monta este
+   * componente com `autoIniciar`, então o navegador já pede permissão
+   * nesse mesmo clique — nunca exige um segundo clique com o mesmo rótulo. */
+  autoIniciar?: boolean;
   className?: string;
 }) {
   const [fase, setFase] = useState<Fase>("ocioso");
@@ -78,6 +85,13 @@ export function CompartilharLocalizacao({
   useEffect(() => {
     if (fase !== "ocioso") tituloRef.current?.focus({ preventScroll: true });
   }, [fase]);
+
+  // R-01 — autoIniciar dispara o MESMO fluxo que o clique manual chamaria,
+  // uma única vez ao montar (nunca de novo em re-render).
+  useEffect(() => {
+    if (autoIniciar) void compartilhar();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function compartilhar() {
     setFase("localizando");

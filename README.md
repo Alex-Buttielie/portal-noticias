@@ -178,9 +178,12 @@ Detalhes de payload de cada endpoint podem ser consultados diretamente no códig
 
 | Método | Endpoint | O que faz |
 |---|---|---|
-| `GET` | `/api/radar/tendencias/` | Tendências de notícias por localização (parâmetros opcionais `pais`, `estado`, `cidade`). Público. |
-| `GET` | `/api/radar/evolucao/` | Evolução histórica do interesse por categoria/localidade. Recurso Premium (exige login e o recurso `radar_avancado` liberado no plano). |
+| `GET` | `/api/radar/tendencias/` | Tendências de notícias por localização (parâmetros opcionais `pais`, `estado` — sigla UF, nome do estado ou nome de cidade/"Cidade, UF" são resolvidos automaticamente para a UF correspondente — e `lat`/`lon`, quando a coordenada do usuário estiver disponível, para ordenar os assuntos em alta por proximidade). Público. Quando `estado` não é resolvível para nenhuma UF, a resposta vem vazia com `localidade.erro_localidade` preenchido, nunca um erro. |
+| `GET` | `/api/radar/noticias/` | Lista individual de notícias (foto, título, UF, categoria, data) para o grid do Radar, com os mesmos parâmetros de localização acima, mais `categoria`, `busca` (texto no título) e `periodo_dias`. Ordenada por proximidade (com `lat`/`lon`) ou recência. Público. |
+| `GET` | `/api/radar/evolucao/` | Evolução histórica do interesse por categoria/localidade (mesma resolução de `estado` acima). Recurso Premium (exige login e o recurso `radar_avancado` liberado no plano). |
 | `GET`/`POST`/`DELETE` | `/api/radar/localidades-salvas/` | Lista, salva ou remove localidades acompanhadas pelo usuário autenticado. |
+
+O parâmetro `cidade` foi removido (nunca era populado pela ingestão real — todo filtro por ele devolvia uma lista vazia). As duas views públicas (`tendencias`/`noticias`) usam o mesmo limite de requisições anônimas do módulo `enderecos` (`EnderecosAnonThrottle`, ver variável `THROTTLE_ENDERECOS_RATE`) sempre que o texto de `estado` não bate com nenhuma UF conhecida e precisa ser resolvido por geocodificação externa — isso evita que uma rajada de textos aleatórios gere uma chamada de rede por requisição.
 
 ### Endpoints disponíveis (módulo `newsletter`)
 
@@ -391,7 +394,7 @@ Requer Node.js 18 ou 20. O projeto usa Next.js 14 (App Router) + TypeScript + **
 | `/comunidade/nova` | Criação de um rascunho de publicação e envio para publicação (exige login como jornalista credenciado) |
 | `/comunidade/[id]` | Detalhe de uma publicação, comentários e edição pelo próprio autor |
 | `/autor/[id]` | Perfil público de um autor (jornalista credenciado): seguidores, seguir/deixar de seguir, lista de publicações |
-| `/radar` | Tendências de notícias por localização, evolução histórica (recurso Premium) e localidades salvas |
+| `/radar` | Grade de notícias por região (foto, título, UF, categoria, busca, filtro por UF/período e ordenação por proximidade ou recência), com abas de Tendências e Evolução histórica (recurso Premium) e localidades salvas |
 | `/empresa` | Painel B2B da organização: critérios de monitoramento, itens monitorados, resumo executivo e gestão de membros |
 | `/admin/metricas` | Painel agregado de métricas do produto (só admin) |
 | `/paginas/[slug]` | Páginas de conteúdo editorial publicadas pelo admin (ex.: política de moderação), por slug |

@@ -47,14 +47,137 @@ def test_tendencias_sem_filtro_agrega_por_categoria():
     assert "COBERTURA jornalística" in resultado["aviso_metodologia"]
 
 
-def test_tendencias_filtra_por_cidade():
-    _item("A", "esportes", cidade="São Paulo")
-    _item("B", "esportes", cidade="Rio de Janeiro")
+def test_tendencias_filtra_por_estado():
+    # R-02: `cidade` nunca é populada pela ingestão real — o filtro
+    # geográfico que de fato funciona é por `estado` (UF).
+    _item("A", "esportes", estado="SP")
+    _item("B", "esportes", estado="RJ")
 
-    resultado = services.tendencias(cidade="São Paulo")
+    resultado = services.tendencias(estado="SP")
 
     total = sum(a["numero_noticias"] for a in resultado["assuntos_em_alta"])
     assert total == 1
+    assert resultado["localidade"]["estado"] == "SP"
+
+
+def test_tendencias_resolve_estado_por_nome_de_cidade(monkeypatch):
+    # "Trindade" (cidade de GO) resolvida via enderecos.resolver_uf —
+    # mockado aqui porque a resolução real depende de rede (testada em
+    # enderecos/tests/test_enderecos.py).
+    from enderecos import services as enderecos_services
+
+    monkeypatch.setattr(enderecos_services, "resolver_uf", lambda texto: "GO" if texto == "Trindade" else None)
+    _item("A", "esportes", estado="GO")
+    _item("B", "esportes", estado="SP")
+
+    resultado = services.tendencias(estado="Trindade")
+
+    total = sum(a["numero_noticias"] for a in resultado["assuntos_em_alta"])
+    assert total == 1
+    assert resultado["localidade"]["estado"] == "GO"
+
+
+def test_tendencias_estado_nao_resolvivel_devolve_vazio_sem_erro(monkeypatch):
+    # Nunca 500, nunca estado inventado — vazio com `erro_localidade`.
+    # `resolver_uf` mockado para não depender de rede (o caso real de
+    # geocodificação falhando é testado em enderecos/tests/test_enderecos.py).
+    from enderecos import services as enderecos_services
+
+    monkeypatch.setattr(enderecos_services, "resolver_uf", lambda texto: None)
+    resultado = services.tendencias(estado="Localidade Que Não Existe De Verdade Nenhuma")
+
+    assert resultado["assuntos_em_alta"] == []
+    assert "erro_localidade" in resultado and resultado["erro_localidade"]
+
+
+def test_tendencias_ordena_por_distancia_quando_ha_coordenada(monkeypatch):
+    # Sem filtro de estado (recorte nacional): cada categoria tem itens em
+    # UFs diferentes — com lat/lon do usuário, a categoria cuja UF
+    # representante está mais próxima vem primeiro, mesmo tendo menos
+    # notícias/score do que a outra.
+    _item("A", "esportes", estado="SP")  # perto de SP
+    for i in range(3):
+        _item(f"B{i}", "politica", estado="AM")  # Manaus, longe de SP
+
+    lat_sp, lon_sp = -23.5505, -46.6333
+    resultado = services.tendencias(lat=lat_sp, lon=lon_sp)
+
+    categorias = [a["categoria"] for a in resultado["assuntos_em_alta"]]
+    assert categorias[0] == "esportes"
+    assert resultado["assuntos_em_alta"][0]["distancia_km"] is not None
+    assert resultado["assuntos_em_alta"][0]["distancia_km"] < resultado["assuntos_em_alta"][1]["distancia_km"]
+
+
+def test_tendencias_sem_coordenada_mantem_ordenacao_por_score():
+    _item("A", "esportes", estado="SP")
+    for i in range(3):
+        _item(f"B{i}", "politica", estado="AM")
+
+    resultado = services.tendencias()
+
+    # Sem lat/lon, não há `distancia_km` nos resultados (comportamento
+    # atual preservado).
+    assert all("distancia_km" not in a for a in resultado["assuntos_em_alta"])
+
+
+def test_evolucao_interesse_filtra_por_estado():
+    _item("A", "esportes", estado="SP")
+    _item("B", "esportes", estado="RJ")
+
+    resultado = services.evolucao_interesse(estado="SP")
+
+    assert sum(p["numero_noticias"] for p in resultado["serie"]) == 1
+
+
+def test_evolucao_interesse_estado_nao_resolvivel_devolve_serie_vazia(monkeypatch):
+    from enderecos import services as enderecos_services
+
+    monkeypatch.setattr(enderecos_services, "resolver_uf", lambda texto: None)
+    resultado = services.evolucao_interesse(estado="Localidade Que Não Existe De Verdade Nenhuma")
+    assert resultado["serie"] == []
+    assert resultado.get("erro_localidade")
+
+
+def test_noticias_regionais_filtra_por_estado_real():
+    _item("Notícia de SP", "esportes", estado="SP")
+    _item("Notícia do RJ", "esportes", estado="RJ")
+
+    resultado = services.noticias_regionais(estado="SP")
+
+    assert len(resultado["itens"]) == 1
+    assert resultado["itens"][0]["estado"] == "SP"
+    assert resultado["ordenado_por"] == "recencia"
+
+
+def test_noticias_regionais_busca_textual():
+    _item("Governo anuncia pacote econômico", "economia", estado="SP")
+    _item("Time vence partida decisiva", "esportes", estado="SP")
+
+    resultado = services.noticias_regionais(estado="SP", busca="pacote")
+
+    assert len(resultado["itens"]) == 1
+    assert "pacote" in resultado["itens"][0]["titulo"].lower()
+
+
+def test_noticias_regionais_ordena_por_distancia_com_coordenada():
+    _item("Notícia perto", "geral", estado="SP")
+    _item("Notícia longe", "geral", estado="AM")
+
+    lat_sp, lon_sp = -23.5505, -46.6333
+    resultado = services.noticias_regionais(lat=lat_sp, lon=lon_sp)
+
+    assert resultado["ordenado_por"] == "distancia"
+    assert resultado["itens"][0]["estado"] == "SP"
+    assert resultado["itens"][0]["distancia_km"] < resultado["itens"][1]["distancia_km"]
+
+
+def test_noticias_regionais_estado_nao_resolvivel_devolve_vazio_sem_erro(monkeypatch):
+    from enderecos import services as enderecos_services
+
+    monkeypatch.setattr(enderecos_services, "resolver_uf", lambda texto: None)
+    resultado = services.noticias_regionais(estado="Localidade Que Não Existe De Verdade Nenhuma")
+    assert resultado["itens"] == []
+    assert resultado.get("erro_localidade")
 
 
 def test_item_pendente_nao_conta_no_radar():

@@ -1,3 +1,5 @@
+from django.contrib.auth import password_validation
+from django.contrib.auth import get_user_model
 from rest_framework import serializers
 
 from assinatura.models import Plan, Subscription
@@ -6,8 +8,11 @@ from catalogo_noticias.providers.fallback_local import (
     motivo_fallback_local,
     origem_fallback_local,
 )
-from gating.models import FeatureLimit
+from gating.models import FeatureLimit, FeatureLimitAlteracaoLog
 from moderacao.models import AcaoModeracao, Denuncia
+from painel_admin.models import AuditoriaAdmin
+
+User = get_user_model()
 
 
 class UsuarioAdminSerializer(serializers.Serializer):
@@ -23,6 +28,60 @@ class UsuarioAdminSerializer(serializers.Serializer):
 class UsuarioUpdateSerializer(serializers.Serializer):
     papel = serializers.ChoiceField(choices=["free", "premium", "admin"], required=False)
     is_active = serializers.BooleanField(required=False)
+
+
+class UsuarioCriacaoSerializer(serializers.Serializer):
+    """
+    `POST /api/admin/usuarios/` — criação de usuário pelo admin (C-01).
+
+    Reaproveita a MESMA validação de e-mail único e senha forte que
+    `identidade.serializers.CadastroSerializer` usa no cadastro público
+    (`validate_senha` chama o mesmo `password_validation.validate_password`;
+    a checagem de duplicidade usa o mesmo `User.objects.normalize_email` +
+    `filter(email__iexact=...)`). Diferente do cadastro público, aqui a
+    duplicidade É informada ao chamador (400) — o admin não é um atacante
+    tentando enumerar a base, é quem está cadastrando a conta.
+    """
+
+    email = serializers.EmailField()
+    nome = serializers.CharField(required=False, allow_blank=True, default="")
+    senha = serializers.CharField(write_only=True, min_length=8)
+    papel = serializers.ChoiceField(choices=["free", "premium", "admin"], required=False, default="free")
+    is_active = serializers.BooleanField(required=False, default=True)
+
+    def validate_email(self, value):
+        normalizado = User.objects.normalize_email(value)
+        if User.objects.filter(email__iexact=normalizado).exists():
+            raise serializers.ValidationError("Já existe uma conta com este e-mail.")
+        return normalizado
+
+    def validate_senha(self, value):
+        password_validation.validate_password(value)
+        return value
+
+
+class AuditoriaAdminSerializer(serializers.ModelSerializer):
+    alterado_por_email = serializers.CharField(source="alterado_por.email", read_only=True, default=None)
+
+    class Meta:
+        model = AuditoriaAdmin
+        fields = ["id", "acao", "alvo_tipo", "alvo_id", "detalhe", "alterado_por_email", "criado_em"]
+
+
+class FeatureLimitAlteracaoLogSerializer(serializers.ModelSerializer):
+    alterado_por_email = serializers.CharField(source="alterado_por.email", read_only=True, default=None)
+
+    class Meta:
+        model = FeatureLimitAlteracaoLog
+        fields = [
+            "id",
+            "feature_limit_chave",
+            "plano",
+            "valor_anterior",
+            "valor_novo",
+            "alterado_por_email",
+            "alterado_em",
+        ]
 
 
 class FilaItemSerializer(serializers.Serializer):

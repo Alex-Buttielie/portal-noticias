@@ -1,3 +1,4 @@
+from django.db import IntegrityError
 from django.db.models import ProtectedError, Q
 from rest_framework import status
 from rest_framework.pagination import PageNumberPagination
@@ -13,22 +14,26 @@ from catalogo_noticias.providers.fallback_local import (
 )
 from gating.models import ConfiguracaoSistema, FeatureLimit, FeatureLimitAlteracaoLog
 from identidade.models import User
+from identidade.services import contar_usuarios_ativos_agora, criar_usuario_admin
 from moderacao.models import Denuncia
 from moderacao import services as moderacao_services
 from painel_admin.models import AuditoriaAdmin
 from painel_admin.permissions import IsAdmin404
 from painel_admin.serializers import (
     AssinaturaAdminSerializer,
+    AuditoriaAdminSerializer,
     DenunciaAdminSerializer,
     DenunciaAcaoSerializer,
     DestaqueEditorialAdminSerializer,
     FeatureLimitAdminSerializer,
+    FeatureLimitAlteracaoLogSerializer,
     FeatureLimitUpdateSerializer,
     FilaDecisaoSerializer,
     PlanAdminSerializer,
     PlanCreateSerializer,
     RegraCuradoriaAdminSerializer,
     UsuarioAdminSerializer,
+    UsuarioCriacaoSerializer,
     UsuarioUpdateSerializer,
 )
 from painel_admin.services import auditar, decidir_fila
@@ -73,6 +78,71 @@ class UsuarioListView(APIView):
             for u in page
         ]
         return paginator.get_paginated_response(data)
+
+    def post(self, request):
+        """C-01 — criação de usuário pelo admin.
+
+        Delega a criação real a `identidade.services.criar_usuario_admin`;
+        a validação de e-mail único/senha forte acontece em
+        `UsuarioCriacaoSerializer` (reaproveitando a mesma validação do
+        cadastro público — ver docstring da serializer).
+
+        code-review-contract.md (Finding 2): a checagem de duplicidade em
+        `UsuarioCriacaoSerializer.validate_email` e o `user.save()` de
+        `criar_usuario_admin` não são atômicos entre si — duas requisições
+        quase simultâneas com o mesmo e-mail podem ambas passar a
+        validação antes de qualquer uma comitar, e a segunda `save()`
+        colide com a constraint `unique=True` de `email`
+        (`django.db.IntegrityError`). Sem este `try/except`, isso vazava
+        como 500 genérico; agora devolve o mesmo 400 do caminho não-
+        concorrente.
+        """
+        ser = UsuarioCriacaoSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        d = ser.validated_data
+        try:
+            u = criar_usuario_admin(
+                email=d["email"],
+                senha=d["senha"],
+                nome=d.get("nome", ""),
+                papel=d.get("papel", User.PAPEL_FREE),
+                is_active=d.get("is_active", True),
+            )
+        except IntegrityError:
+            return Response(
+                {"email": ["Já existe uma conta com este e-mail."]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        auditar(
+            acao="usuario_create",
+            alvo_tipo="User",
+            alvo_id=u.id,
+            detalhe={"email": u.email, "papel": u.papel, "is_active": u.is_active},
+            alterado_por=request.user,
+        )
+        return Response(
+            {
+                "id": u.id,
+                "email": u.email,
+                "nome": u.nome,
+                "papel": u.papel,
+                "is_active": u.is_active,
+                "email_verificado": u.email_verificado,
+                "date_joined": u.date_joined,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class UsuariosAtivosAgoraView(APIView):
+    """C-07 — contagem de usuários com `last_seen` dentro da janela de
+    "ativo agora" (padrão: 5 minutos, ver `identidade.services`).
+    """
+
+    permission_classes = [IsAuthenticated, IsAdmin404]
+
+    def get(self, request):
+        return Response({"ativos_agora": contar_usuarios_ativos_agora()})
 
 
 class UsuarioDetailView(APIView):
@@ -266,6 +336,83 @@ class LimiteDetailView(APIView):
         )
         auditar(acao="limite_update", alvo_tipo="FeatureLimit", alvo_id=lim.id, detalhe={"chave": lim.chave, "plano": lim.plano, "anterior": anterior, "novo": lim.valor}, alterado_por=request.user)
         return Response(FeatureLimitAdminSerializer(lim).data)
+
+
+class FeatureLimitAlteracaoLogListView(APIView):
+    """C-06 — leitura (só leitura; o registro é feito por
+    `LimiteDetailView.patch`) do histórico de alterações de `FeatureLimit`.
+    """
+
+    permission_classes = [IsAuthenticated, IsAdmin404]
+
+    def get(self, request):
+        qs = FeatureLimitAlteracaoLog.objects.select_related("alterado_por").order_by("-alterado_em")
+        chave = request.query_params.get("chave")
+        if chave:
+            qs = qs.filter(feature_limit_chave=chave)
+        plano = request.query_params.get("plano")
+        if plano in ("free", "premium"):
+            qs = qs.filter(plano=plano)
+        return _paginate(request, qs, FeatureLimitAlteracaoLogSerializer)
+
+
+class AuditoriaAdminListView(APIView):
+    """C-05 — leitura paginada/filtrável de `AuditoriaAdmin` (histórico de
+    ações administrativas), exibida na Central (aba Histórico de
+    `/admin/robos` e dashboard raiz).
+    """
+
+    permission_classes = [IsAuthenticated, IsAdmin404]
+
+    def get(self, request):
+        qs = AuditoriaAdmin.objects.select_related("alterado_por").order_by("-criado_em")
+        acao = request.query_params.get("acao")
+        if acao:
+            qs = qs.filter(acao=acao)
+        alvo_tipo = request.query_params.get("alvo_tipo")
+        if alvo_tipo:
+            qs = qs.filter(alvo_tipo=alvo_tipo)
+        return _paginate(request, qs, AuditoriaAdminSerializer)
+
+
+class AtividadeRecenteView(APIView):
+    """C-07 — "Atividade recente" do dashboard raiz, mesclando
+    `AuditoriaAdmin` (ações administrativas) e `RegistroExecucaoIngestao`
+    (execuções dos robôs) por timestamp — nenhum dos dois é fabricado, os
+    dois já existiam; esta view só combina o que é real.
+    """
+
+    permission_classes = [IsAuthenticated, IsAdmin404]
+
+    def get(self, request):
+        from catalogo_noticias.models import RegistroExecucaoIngestao
+
+        limite = int(request.query_params.get("limite", 10))
+        limite = max(1, min(limite, 50))
+
+        eventos = []
+        for a in AuditoriaAdmin.objects.select_related("alterado_por").order_by("-criado_em")[:limite]:
+            eventos.append(
+                {
+                    "tipo": "auditoria",
+                    "timestamp": a.criado_em,
+                    "titulo": f"{a.acao} · {a.alvo_tipo}#{a.alvo_id}",
+                    "usuario_email": a.alterado_por.email if a.alterado_por_id else None,
+                    "detalhe": a.detalhe,
+                }
+            )
+        for ex in RegistroExecucaoIngestao.objects.order_by("-executado_em")[:limite]:
+            eventos.append(
+                {
+                    "tipo": "ingestao",
+                    "timestamp": ex.executado_em,
+                    "titulo": "Ingestão falhou" if ex.falhou else f"Ingestão: {ex.total_itens_ingeridos} itens",
+                    "usuario_email": None,
+                    "detalhe": {"falhou": ex.falhou} if ex.falhou else {"total_itens_ingeridos": ex.total_itens_ingeridos, "total_grupos_formados": ex.total_grupos_formados},
+                }
+            )
+        eventos.sort(key=lambda e: e["timestamp"], reverse=True)
+        return Response(eventos[:limite])
 
 
 class AssinaturaListView(APIView):

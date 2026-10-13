@@ -93,10 +93,27 @@ export const PortfolioCategorias = memo(function PortfolioCategorias({
                 <span className="shrink-0 text-[var(--cor-texto-suave)] group-hover/h:text-[var(--cor-primaria)]">›</span>
               </Link>
               <p className="mb-1 text-xs text-[var(--cor-texto-suave)]">{bloco.motivo}</p>
-              <div className="min-w-0">
+              {/* H-03: no mobile (sem espaço para o thumbnail fixo de
+                  112px da lista densa), 2 colunas com a variante "grade"
+                  compacta; a partir de md volta à lista densa de sempre.
+                  Duas árvores CSS-condicionais (`md:hidden`/`hidden md:block`)
+                  em vez de trocar a variante via JS — evita hydration
+                  mismatch entre SSR e cliente por causa de media query. */}
+              <div className="grid min-w-0 grid-cols-2 gap-3 md:hidden">
                 {lista.map((entrada) => (
                   <NewsCard
-                    key={`port-${bloco.categoria}-${entrada.tipo}-${entrada.id}`}
+                    key={`port-grade-${bloco.categoria}-${entrada.tipo}-${entrada.id}`}
+                    entrada={entrada}
+                    variante="grade"
+                    salvo={salvos.has(`${entrada.tipo}-${entrada.id}`)}
+                    onToggleSalvar={onToggleSalvar}
+                  />
+                ))}
+              </div>
+              <div className="hidden min-w-0 md:block">
+                {lista.map((entrada) => (
+                  <NewsCard
+                    key={`port-lista-${bloco.categoria}-${entrada.tipo}-${entrada.id}`}
                     entrada={entrada}
                     variante="secundaria"
                     salvo={salvos.has(`${entrada.tipo}-${entrada.id}`)}

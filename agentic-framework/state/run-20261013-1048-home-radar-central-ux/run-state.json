@@ -1,0 +1,37 @@
+{
+  "run_id": "20261013-1048-home-radar-central-ux",
+  "task_title": "Home (slider/responsividade), Radar funcional por estado e melhorias da Central (usuários/robôs/histórico/configurações/métricas)",
+  "status": "closed",
+  "current_phase": "done",
+  "iteration_count": 1,
+  "max_iterations": 3,
+  "requested_by": "usuario (buttielle3@gmail.com) via sessao principal",
+  "source_spec": null,
+  "phases": {
+    "planning": { "status": "done", "agent": "orchestrator", "execution_mode": "delegated", "started_at": "2026-10-13T10:48:00-03:00", "finished_at": "2026-10-13T11:20:00-03:00", "notes": "Escopo fechado com o usuario em chat; item de logos reais de fonte descartado por risco de marca. task-plan.md e implementation-contract.md preenchidos, validados contra contract-checklist.md." },
+    "implementation": { "status": "done", "agent": "executor", "execution_mode": "delegated", "started_at": "2026-10-13T11:20:00-03:00", "finished_at": "2026-10-13T12:40:00-03:00", "notes": "3 chamadas ao executor: Bloco H (Home, iteração 1), Bloco R (Radar, iteração 2), Bloco C (Central, iteração 3 — interrompida por rate limit a meio caminho e retomada com sucesso via SendMessage). Todas com build/typecheck/lint/testes passando; falhas pré-existentes e não relacionadas confirmadas via git stash em cada bloco." },
+    "testing": { "status": "done", "agent": "tester", "execution_mode": "delegated", "started_at": "2026-10-13T12:40:00-03:00", "finished_at": "2026-10-13T13:10:00-03:00", "notes": "PASSED. 13/13 criterios atendidos. Regressao zero confirmada via git stash independente (1715 passed/19 failed sem a mudanca == 1787 passed/19 failed com a mudanca, mesma lista de 19 falhas pre-existentes). Cobertura >=89% em todos os apps tocados. 2 observacoes nao-bloqueantes: criterio 4 sem teste de DOM (lib de teste nao instalada, validado por leitura de codigo) e criterios 2/3/9 validados por revisao estatica de CSS (sem browser disponivel no ambiente do tester)." },
+    "review": { "status": "done", "agent": "reviewer", "execution_mode": "delegated", "started_at": "2026-10-13T13:55:00-03:00", "finished_at": "2026-10-13T14:15:00-03:00", "notes": "2a rodada: veredito final approve. Finding 1 (major, throttle) e Finding 2 (minor, TOCTOU) confirmados resolvidos de forma independente (inclusive teste de regressao do throttle via monkeypatch). Finding 3 (minor, teste DOM) aceito como follow-up nao bloqueante. Zero findings novos. (1a rodada, 2026-10-13T13:10 a 13:30: changes_requested, 1 major + 2 minor.)" },
+    "remediation": { "status": "done", "agent": "remediator", "execution_mode": "delegated", "started_at": "2026-10-13T13:30:00-03:00", "finished_at": "2026-10-13T13:55:00-03:00", "notes": "Finding 1 (major, throttle Nominatim no Radar) e Finding 2 (minor, TOCTOU criacao usuario) resolvidos com teste novo cada. Finding 3 (minor, teste de DOM) deferido como follow-up documentado (exigiria nova dependencia de teste, fora de escopo). Revalidacao: 335 passed/0 failed nos apps tocados; suite completa 1792 passed/19 failed (mesmas 19 pre-existentes) — zero regressao." },
+    "documentation": { "status": "done", "agent": "documenter", "execution_mode": "delegated", "started_at": "2026-10-13T14:15:00-03:00", "finished_at": "2026-10-13T14:30:00-03:00", "notes": "README.md atualizado (endpoints radar, pagina /radar). Demais docs (ARCHITECTURE.md, painel_admin, home) deliberadamente nao tocados com justificativa registrada em documentation-update.md. Sem CHANGELOG no projeto." },
+    "closing": { "status": "done", "agent": "historian", "execution_mode": "delegated", "started_at": "2026-10-13T14:30:00-03:00", "finished_at": "2026-10-13T14:45:00-03:00", "notes": "implementation-history.md confirmado completo e cronologico (6 iteracoes, sem lacunas). report.md e a linha em HISTORY.md ficaram bloqueados pela guarda de ferramenta do historian (Write recusa arquivos de 'report'); conteudo entregue via SubagentHandback para o orchestrator persistir report.md e a linha do HISTORY.md." }
+  },
+  "findings": { "blocker": 0, "major": 1, "minor": 2, "nit": 0, "resolved": 2 },
+  "artifacts": {
+    "task_plan": "task-plan.md",
+    "implementation_contract": "implementation-contract.md"
+  },
+  "blocked_reason": null,
+  "follow_ups": [
+    "Finding 3 (minor, nao bloqueante): falta teste de integracao/DOM contando ocorrencias do aviso de fallback em frontend/app/noticia/LeituraPremium.tsx (exigiria @testing-library/react+jsdom, decisao de nova dependencia de teste a cargo do orchestrator).",
+    "Validacao visual real em navegador dos criterios 2/3/9 (responsividade 375px) — validados so por revisao estatica de CSS, sem browser/preview disponivel nos ambientes de tester/reviewer desta execucao.",
+    "para_voce_regional/ParaVoceRegionalView (GET /api/radar/para-voce/) continua aceitando parametro cidade como no-op silencioso e sem consumidor no frontend — candidato a limpeza/remocao ou integracao ao novo grid do Radar.",
+    "Lacuna de documentacao do modulo painel_admin: README nunca documentou os ~16 endpoints do modulo nem a maioria das paginas /admin/* (so /admin/metricas aparece) — candidato a run de documentacao dedicado.",
+    "ARCHITECTURE.md permanece dessincronizado de modulos implementados depois dele (comunidade/credenciamento/b2b/moderacao) — pendencia de longa data, reconfirmada pelo documenter, nao resolvida nesta execucao.",
+    "b2b/tests/test_sanity.py::test_criterio_casa_com_itens_publicaveis e flaky/order-dependent (pre-existente, nao causado por este run) — candidato a item de hardening de testes.",
+    "Cobertura de painel_admin/views.py isolado em 74-75% (abaixo de 80%), embora o app agregado esteja em 89.4% (>=80%) — ambiguidade de leitura do criterio de aceite 13 (por app vs por arquivo) a decidir pelo orchestrator.",
+    "frontend/components/RadarLocalSimples.tsx documentado como tocado na Iteracao 2 do executor mas nao encontrado na lista 'M' do git status disponivel nesta sessao do historian (sem acesso a Bash/git para investigar) — recomendado confirmar com git status/diff real antes de commitar."
+  ],
+  "created_at": "2026-10-13T10:48:00-03:00",
+  "updated_at": "2026-10-13T14:45:00-03:00"
+}

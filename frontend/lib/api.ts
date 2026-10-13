@@ -483,6 +483,8 @@ export interface FeedEntrada {
   // FRENTE 3 — autor/colunista creditado no RSS (best-effort). Preferido a
   // nome_fonte na linha de autoria; nunca inventado.
   autor?: string;
+  // H-07 — ver `FonteDetalhe.resumo_e_fallback`.
+  resumo_e_fallback?: boolean;
 }
 
 export interface FeedResposta {
@@ -569,6 +571,11 @@ export interface FonteDetalhe {
   imagem_url?: string;
   // M-01 (run 20261012-1806-monetizacao-sprint1): `conteudo` (texto raspado)
   // não existe mais no JSON público — ver backend/feed/services.py.
+  // H-07 (run 20261013-1048-home-radar-central-ux) — true quando `resumo` é
+  // o texto fixo do fallback local (sem resumo editorial). O frontend usa
+  // isto para mostrar o aviso no máximo uma vez por página, em vez de
+  // repeti-lo a cada ocorrência do resumo.
+  resumo_e_fallback?: boolean;
 }
 
 export interface FeedDetalhe {
@@ -1195,18 +1202,29 @@ export interface AssuntoEmAlta {
   crescimento_24h?: number;
   buscas_relacionadas?: number;
   score?: number;
+  // R-02 — UF do item mais recente da categoria (representante) e, quando
+  // `lat`/`lon` foram enviados, distância Haversine (km) até essa UF —
+  // usada para ordenar por proximidade em vez de score.
+  estado?: string | null;
+  distancia_km?: number | null;
 }
 
 export interface RadarTendencias {
   aviso_metodologia: string;
-  localidade: { pais: string | null; estado: string | null; cidade: string | null };
+  // R-02 — `cidade` saiu: nunca é populada pela ingestão real (0% de
+  // cobertura medida). `estado` é o recorte regional real disponível.
+  localidade: { pais: string | null; estado: string | null };
   assuntos_em_alta: AssuntoEmAlta[];
+  // Presente (e não vazio) quando `estado` foi enviado mas não pôde ser
+  // resolvido para uma UF — nunca um erro HTTP, nunca estado inventado.
+  erro_localidade?: string;
 }
 
 export interface RadarEvolucao {
   aviso_metodologia: string;
   categoria: string | null;
   serie: { dia: string; numero_noticias: number }[];
+  erro_localidade?: string;
 }
 
 export interface LocalidadeSalva {
@@ -1215,30 +1233,76 @@ export interface LocalidadeSalva {
   cidade: string;
 }
 
-export function obterTendenciasRadar(params: {
+/** R-02 — filtros comuns do Radar: `estado` aceita texto livre (sigla UF,
+ * nome do estado ou de uma cidade — ex. "Trindade" resolve para "GO" no
+ * backend); `lat`/`lon`, quando vierem de `Regiao`, habilitam a ordenação
+ * por proximidade (distância Haversine até a UF) em vez de recência/score. */
+export interface FiltrosLocalidadeRadar {
   pais?: string;
   estado?: string;
-  cidade?: string;
-}): Promise<RadarTendencias> {
+  lat?: number;
+  lon?: number;
+}
+
+function querystringLocalidadeRadar(params: FiltrosLocalidadeRadar): URLSearchParams {
   const query = new URLSearchParams();
   if (params.pais) query.set("pais", params.pais);
   if (params.estado) query.set("estado", params.estado);
-  if (params.cidade) query.set("cidade", params.cidade);
-  const qs = query.toString();
+  if (typeof params.lat === "number" && Number.isFinite(params.lat)) query.set("lat", String(params.lat));
+  if (typeof params.lon === "number" && Number.isFinite(params.lon)) query.set("lon", String(params.lon));
+  return query;
+}
+
+export function obterTendenciasRadar(params: FiltrosLocalidadeRadar): Promise<RadarTendencias> {
+  const qs = querystringLocalidadeRadar(params).toString();
   return request(`/api/radar/tendencias/${qs ? `?${qs}` : ""}`, { method: "GET" });
 }
 
 export function obterEvolucaoRadar(
   token: string,
-  params: { categoria?: string; pais?: string; estado?: string; cidade?: string }
+  params: FiltrosLocalidadeRadar & { categoria?: string }
 ): Promise<RadarEvolucao> {
-  const query = new URLSearchParams();
+  const query = querystringLocalidadeRadar(params);
   if (params.categoria) query.set("categoria", params.categoria);
-  if (params.pais) query.set("pais", params.pais);
-  if (params.estado) query.set("estado", params.estado);
-  if (params.cidade) query.set("cidade", params.cidade);
   const qs = query.toString();
   return request(`/api/radar/evolucao/${qs ? `?${qs}` : ""}`, { method: "GET" }, token);
+}
+
+/** R-03 — item do grid estilo marketplace (foto + título + UF + tempo +
+ * categoria), devolvido por `GET /api/radar/noticias/`. */
+export interface RadarNoticiaItem {
+  id: number;
+  tipo: "cluster" | "item";
+  cluster_id: number | null;
+  titulo: string;
+  categoria: string;
+  estado: string | null;
+  pais: string | null;
+  timestamp: string;
+  imagem_url?: string;
+  nome_fonte?: string;
+  /** Distância (km) até a UF do item — só quando `lat`/`lon` foram enviados. */
+  distancia_km: number | null;
+}
+
+export interface RadarNoticias {
+  aviso_metodologia: string;
+  localidade: { pais: string | null; estado: string | null };
+  itens: RadarNoticiaItem[];
+  ordenado_por: "distancia" | "recencia";
+  erro_localidade?: string;
+}
+
+export function obterNoticiasRadar(
+  params: FiltrosLocalidadeRadar & { categoria?: string; busca?: string; periodo_dias?: number; limite?: number }
+): Promise<RadarNoticias> {
+  const query = querystringLocalidadeRadar(params);
+  if (params.categoria) query.set("categoria", params.categoria);
+  if (params.busca) query.set("busca", params.busca);
+  if (params.periodo_dias) query.set("periodo_dias", String(params.periodo_dias));
+  if (params.limite) query.set("limite", String(params.limite));
+  const qs = query.toString();
+  return request(`/api/radar/noticias/${qs ? `?${qs}` : ""}`, { method: "GET" });
 }
 
 export function obterLocalidadesSalvas(token: string): Promise<LocalidadeSalva[]> {
@@ -1597,6 +1661,17 @@ export function adminListarUsuarios(token: string, params: { search?: string; pa
 export function adminAtualizarUsuario(token: string, id: number, dados: { papel?: string; is_active?: boolean }): Promise<AdminUsuario> {
   return request(`/api/admin/usuarios/${id}/`, { method: "PATCH", body: JSON.stringify(dados) }, token);
 }
+/** C-01 — criação de usuário pelo admin. */
+export function adminCriarUsuario(
+  token: string,
+  dados: { email: string; nome?: string; senha: string; papel?: "free" | "premium" | "admin"; is_active?: boolean }
+): Promise<AdminUsuario> {
+  return request("/api/admin/usuarios/", { method: "POST", body: JSON.stringify(dados) }, token);
+}
+/** C-07 — quantos usuários têm `last_seen` dentro da janela de "ativo agora". */
+export function adminUsuariosAtivosAgora(token: string): Promise<{ ativos_agora: number }> {
+  return request("/api/admin/usuarios/ativos-agora/", { method: "GET" }, token);
+}
 export function adminListarFila(token: string, params: { status?: string; page?: number } = {}): Promise<Paginated<AdminFilaItem>> {
   const q = new URLSearchParams();
   if (params.status) q.set("status", params.status);
@@ -1660,6 +1735,9 @@ export interface ExecucaoRobo {
   id: number; executado_em: string; itens_por_fonte: Record<string, number>; erros_por_fonte: Record<string, string>;
   total_itens_ingeridos: number; total_grupos_formados: number; total_duplicatas_agrupadas: number;
   chamadas_summarization_provider: number; tokens_utilizados_summarization: number | null; custo_estimado_summarization_usd: number | null;
+  /** C-05 — execução que lançou exceção não isolada (fora do pipeline por item/grupo). */
+  falhou: boolean;
+  erro_falha: string;
 }
 export function robosListarFontes(token: string): Promise<FonteRobo[]> { return request("/api/admin/robos/fontes/", { method: "GET" }, token); }
 export function robosCriarFonte(token: string, dados: { nome: string; url: string; ativo?: boolean; categoria_padrao?: string }): Promise<FonteRobo> {
@@ -1675,6 +1753,65 @@ export function robosSalvarConfig(token: string, dados: Partial<ConfigRobo>): Pr
 }
 export function robosListarExecucoes(token: string): Promise<ExecucaoRobo[]> { return request("/api/admin/robos/execucoes/", { method: "GET" }, token); }
 export function robosExecutar(token: string): Promise<{ detail: string; request_id: string }> { return request("/api/admin/robos/executar/", { method: "POST" }, token); }
+
+// ---------------------------------------------------------------------------
+// C-05/C-06 — histórico administrativo: auditoria de ações e alterações de
+// limites (leitura — a escrita continua acontecendo nos endpoints que já
+// existiam: adminAtualizarUsuario, adminAtualizarLimite, etc.).
+// ---------------------------------------------------------------------------
+
+export interface AuditoriaAdminEntrada {
+  id: number;
+  acao: string;
+  alvo_tipo: string;
+  alvo_id: string;
+  detalhe: Record<string, unknown>;
+  alterado_por_email: string | null;
+  criado_em: string;
+}
+export function adminListarAuditoria(
+  token: string,
+  params: { acao?: string; alvo_tipo?: string; page?: number } = {}
+): Promise<Paginated<AuditoriaAdminEntrada>> {
+  const q = new URLSearchParams();
+  if (params.acao) q.set("acao", params.acao);
+  if (params.alvo_tipo) q.set("alvo_tipo", params.alvo_tipo);
+  if (params.page) q.set("page", String(params.page));
+  const qs = q.toString();
+  return request(`/api/admin/auditoria/${qs ? `?${qs}` : ""}`, { method: "GET" }, token);
+}
+
+export interface FeatureLimitAlteracaoLogEntrada {
+  id: number;
+  feature_limit_chave: string;
+  plano: string;
+  valor_anterior: string;
+  valor_novo: string;
+  alterado_por_email: string | null;
+  alterado_em: string;
+}
+export function adminListarHistoricoLimites(
+  token: string,
+  params: { chave?: string; plano?: string; page?: number } = {}
+): Promise<Paginated<FeatureLimitAlteracaoLogEntrada>> {
+  const q = new URLSearchParams();
+  if (params.chave) q.set("chave", params.chave);
+  if (params.plano) q.set("plano", params.plano);
+  if (params.page) q.set("page", String(params.page));
+  const qs = q.toString();
+  return request(`/api/admin/limites/historico/${qs ? `?${qs}` : ""}`, { method: "GET" }, token);
+}
+
+export interface AtividadeRecenteEntrada {
+  tipo: "auditoria" | "ingestao";
+  timestamp: string;
+  titulo: string;
+  usuario_email: string | null;
+  detalhe: Record<string, unknown>;
+}
+export function adminAtividadeRecente(token: string, limite = 10): Promise<AtividadeRecenteEntrada[]> {
+  return request(`/api/admin/atividade-recente/?limite=${limite}`, { method: "GET" }, token);
+}
 
 // ---------------------------------------------------------------------------
 // gating/sistema — flag Premium (fail-open: desligada = tudo liberado).

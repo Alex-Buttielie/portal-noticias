@@ -14,12 +14,14 @@ import {
   useQueryAdminFila,
   useQueryAdminUsuarios,
   useQueryAdminAssinaturas,
+  useQueryAdminAtividadeRecente,
   useQueryAdminFontes,
   useQueryAdminRoboConfig,
   useQueryAdminPlanos,
   useQueryAdminDenuncias,
+  useQueryAdminUsuariosAtivosAgora,
 } from "@/lib/queries";
-import { formatarDataPorExtenso, formatarNumeroPtBR } from "@/lib/datas";
+import { formatarDataHoraCompacta, formatarDataPorExtenso, formatarNumeroPtBR } from "@/lib/datas";
 import Link from "next/link";
 import {
   LayoutDashboard,
@@ -44,6 +46,9 @@ import {
   Play,
   Plus,
   FileText,
+  UserCheck,
+  ShieldAlert as ShieldAlertActivity,
+  XCircle,
 } from "lucide-react";
 
 type Stats = {
@@ -54,6 +59,7 @@ type Stats = {
   roboAtivo: boolean | null;
   planos: number | null;
   denuncias: number | null;
+  ativosAgora: number | null;
 };
 
 const MODULOS_BASE = [
@@ -150,6 +156,8 @@ export default function Page() {
   const roboConfigQuery = useQueryAdminRoboConfig({ token, usuarioId });
   const planosQuery = useQueryAdminPlanos({ token, usuarioId });
   const denunciasQuery = useQueryAdminDenuncias({ token, usuarioId, filtros: { status: "pendente" }, habilitada: true });
+  const ativosAgoraQuery = useQueryAdminUsuariosAtivosAgora({ token, usuarioId });
+  const atividadeQuery = useQueryAdminAtividadeRecente({ token, usuarioId });
 
   const stats: Stats = {
     pendentes: filaQuery.data?.count ?? filaQuery.data?.results.length ?? null,
@@ -159,6 +167,7 @@ export default function Page() {
     roboAtivo: roboConfigQuery.data?.ativo ?? null,
     planos: planosQuery.data?.count ?? (planosQuery.data?.results as unknown as unknown[] | undefined)?.length ?? null,
     denuncias: denunciasQuery.data?.count ?? denunciasQuery.data?.results.length ?? null,
+    ativosAgora: ativosAgoraQuery.data?.ativos_agora ?? null,
   };
   const loadingStats =
     filaQuery.isLoading ||
@@ -201,6 +210,10 @@ export default function Page() {
     planos: stats.planos ?? 3,
     denuncias: stats.denuncias ?? 4,
     roboAtivo: stats.roboAtivo ?? true,
+    // C-07 — diferente dos demais fallbacks acima (números fixos para o
+    // esqueleto visual pré-existente), 0 aqui é um valor HONESTO possível
+    // (zero usuários ativos agora é um estado real, não inventado).
+    ativosAgora: stats.ativosAgora ?? 0,
   };
 
   if (carregando)
@@ -273,6 +286,10 @@ export default function Page() {
                     <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] px-2.5 py-1 text-xs font-medium text-[var(--cor-texto)]">
                       <Crown className="h-3.5 w-3.5 text-[var(--cor-alerta)]" />
                       {v.assinaturas} assinaturas ativas
+                    </span>
+                    <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] px-2.5 py-1 text-xs font-medium text-[var(--cor-texto)]" title="Usuários com atividade nos últimos 5 minutos">
+                      <UserCheck className="h-3.5 w-3.5 text-[var(--cor-sucesso)]" />
+                      {v.ativosAgora} ativos agora
                     </span>
                   </>
                 )}
@@ -443,18 +460,51 @@ export default function Page() {
             </div>
             <Separator className="my-4 bg-[var(--cor-borda)]" />
             <div className="relative ml-3 border-l border-[var(--cor-borda)] pl-6">
-              <div className="space-y-5">
-                {/* P0-08: esta linha do tempo era totalmente fictícia — manchetes
-                    aprovadas, cadastros, pagamentos e renovações inventados, com
-                    valores e horários que pareciam reais. Substituída por um
-                    estado vazio honesto; a atividade real deve vir da API. */}
+              {/* C-07 — antes era um `EstadoVazio` fixo (P0-08: a linha do
+                  tempo fictícia anterior foi removida nesta mesma run
+                  anterior, sem nenhum evento real no lugar). Agora mescla
+                  `AuditoriaAdmin` + `RegistroExecucaoIngestao` via
+                  `GET /api/admin/atividade-recente/` — nada fabricado;
+                  quando não há evento nenhum, o estado vazio honesto
+                  continua existindo. */}
+              {atividadeQuery.isLoading ? (
+                <div className="space-y-3">
+                  <Skeleton className="h-10 w-full" />
+                  <Skeleton className="h-10 w-full" />
+                  <Skeleton className="h-10 w-full" />
+                </div>
+              ) : atividadeQuery.isError ? (
+                <p className="text-sm text-[var(--cor-erro)]">{atividadeQuery.error instanceof Error ? atividadeQuery.error.message : "Falha ao carregar atividade recente."}</p>
+              ) : !(atividadeQuery.data?.length) ? (
                 <EstadoVazio
                   className="border-dashed"
-                  titulo="Nenhuma atividade registrada hoje"
-                  descricao="A Central ainda não retornou eventos para o dia. Nenhum evento foi fabricado para preencher a linha do tempo."
+                  titulo="Nenhuma atividade registrada ainda"
+                  descricao="A Central ainda não retornou eventos. Nenhum evento foi fabricado para preencher a linha do tempo."
                   acao={{ rotulo: "Ver métricas", href: "/admin/metricas" }}
                 />
-              </div>
+              ) : (
+                <div className="space-y-4">
+                  {atividadeQuery.data.map((ev, i) => {
+                    const falhou = ev.tipo === "ingestao" && Boolean((ev.detalhe as { falhou?: boolean }).falhou);
+                    const Icone = ev.tipo === "ingestao" ? (falhou ? XCircle : Bot) : ShieldAlertActivity;
+                    const cor = falhou ? "var(--cor-erro)" : ev.tipo === "ingestao" ? "var(--cor-neon-ciano)" : "var(--cor-primaria)";
+                    return (
+                      <div key={`${ev.tipo}-${i}`} className="relative flex items-start gap-3">
+                        <span className="absolute -left-[31px] flex h-5 w-5 items-center justify-center rounded-full border-2 border-[var(--cor-fundo-card)]" style={{ background: cor }}>
+                          <Icone className="h-3 w-3 text-white" />
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium text-[var(--cor-texto)]">{ev.titulo}</p>
+                          <p className="text-xs text-[var(--cor-texto-suave)]">
+                            {ev.usuario_email ? `${ev.usuario_email} · ` : ""}
+                            {formatarDataHoraCompacta(ev.timestamp)}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
             <div className="mt-5 flex gap-2">
               <Button asChild variant="outline" size="sm" className="border-[var(--cor-borda)]">

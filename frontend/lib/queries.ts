@@ -2,7 +2,18 @@
 
 import { useQuery, type QueryClient } from "@tanstack/react-query";
 import * as api from "@/lib/api";
-import { queryKeys, type FiltrosAdminAssinaturas, type FiltrosAdminDenuncias, type FiltrosEvolucaoRadar, type FiltrosPublicacoesComunidade, type FiltrosRadar } from "@/lib/query-keys";
+import {
+  queryKeys,
+  type FiltrosAdminAssinaturas,
+  type FiltrosAdminAuditoria,
+  type FiltrosAdminDenuncias,
+  type FiltrosAdminHistoricoLimites,
+  type FiltrosAdminUsuarios,
+  type FiltrosEvolucaoRadar,
+  type FiltrosNoticiasRadar,
+  type FiltrosPublicacoesComunidade,
+  type FiltrosRadar,
+} from "@/lib/query-keys";
 
 const STALE_TIME_PUBLICO_MS = 60_000;
 const STALE_TIME_PRIVADO_MS = 15_000;
@@ -150,6 +161,26 @@ export function useQueryRadarEvolucao(input: {
     queryFn: () => api.obterEvolucaoRadar(input.token ?? "", input.filtros),
     enabled: Boolean(input.token && input.usuarioId > 0),
     staleTime: STALE_TIME_PRIVADO_MS,
+  });
+}
+
+/** R-03 — grid de notícias do Radar (`GET /api/radar/noticias/`). Público;
+ * `filtros.lat`/`filtros.lon` (quando houver `Regiao` detectada) habilitam
+ * ordenação por proximidade no backend. */
+export function useQueryNoticiasRadar(filtros: FiltrosNoticiasRadar) {
+  return useQuery({
+    queryKey: queryKeys.radar.noticias(filtros),
+    queryFn: () =>
+      api.obterNoticiasRadar({
+        pais: filtros.pais,
+        estado: filtros.estado,
+        lat: filtros.lat,
+        lon: filtros.lon,
+        categoria: filtros.categoria,
+        busca: filtros.busca,
+        periodo_dias: filtros.periodoDias,
+      }),
+    staleTime: STALE_TIME_PUBLICO_MS,
   });
 }
 
@@ -312,18 +343,93 @@ export function useQueryAdminUsuarios(input: {
   usuarioId: number;
   /** null = ainda não buscou — a tela espera o clique em "Buscar". */
   busca: string | null;
+  /** C-01 — filtro por papel (free/premium/admin), além da busca textual. */
+  papel?: string | null;
+  /** C-01 — paginação real (o backend já suporta `?page=`). */
+  page?: number;
   /** Gate adicional da tela (só carregar após a busca ser submetida). */
   habilitada: boolean;
 }) {
+  const filtros: FiltrosAdminUsuarios = { busca: input.busca, papel: input.papel, page: input.page };
   return useQuery({
-    queryKey: queryKeys.admin.usuarios(input.busca),
+    queryKey: queryKeys.admin.usuarios(filtros),
     queryFn: () =>
       api.adminListarUsuarios(input.token ?? "", {
         search: input.busca || undefined,
+        papel: input.papel || undefined,
+        page: input.page,
       }),
     enabled: input.habilitada && habilitadoAdmin(input.token, input.usuarioId),
     staleTime: STALE_TIME_DECISAO_MS,
     placeholderData: (anterior) => anterior,
+  });
+}
+
+/** C-07 — contagem de usuários "ativos agora" (dashboard raiz). */
+export function useQueryAdminUsuariosAtivosAgora(input: {
+  token: string | null;
+  usuarioId: number;
+}) {
+  return useQuery({
+    queryKey: queryKeys.admin.usuariosAtivosAgora(),
+    queryFn: () => api.adminUsuariosAtivosAgora(input.token ?? ""),
+    enabled: habilitadoAdmin(input.token, input.usuarioId),
+    staleTime: STALE_TIME_DECISAO_MS,
+  });
+}
+
+/** C-05 — histórico de ações administrativas (AuditoriaAdmin), leitura. */
+export function useQueryAdminAuditoria(input: {
+  token: string | null;
+  usuarioId: number;
+  filtros: FiltrosAdminAuditoria;
+  habilitada: boolean;
+}) {
+  return useQuery({
+    queryKey: queryKeys.admin.auditoria(input.filtros),
+    queryFn: () =>
+      api.adminListarAuditoria(input.token ?? "", {
+        acao: input.filtros.acao || undefined,
+        alvo_tipo: input.filtros.alvoTipo || undefined,
+        page: input.filtros.page,
+      }),
+    enabled: input.habilitada && habilitadoAdmin(input.token, input.usuarioId),
+    staleTime: STALE_TIME_DECISAO_MS,
+    placeholderData: (anterior) => anterior,
+  });
+}
+
+/** C-06 — histórico de alterações de FeatureLimit, leitura. */
+export function useQueryAdminHistoricoLimites(input: {
+  token: string | null;
+  usuarioId: number;
+  filtros: FiltrosAdminHistoricoLimites;
+  habilitada: boolean;
+}) {
+  return useQuery({
+    queryKey: queryKeys.admin.historicoLimites(input.filtros),
+    queryFn: () =>
+      api.adminListarHistoricoLimites(input.token ?? "", {
+        chave: input.filtros.chave || undefined,
+        plano: input.filtros.plano || undefined,
+        page: input.filtros.page,
+      }),
+    enabled: input.habilitada && habilitadoAdmin(input.token, input.usuarioId),
+    staleTime: STALE_TIME_DECISAO_MS,
+    placeholderData: (anterior) => anterior,
+  });
+}
+
+/** C-07 — "Atividade recente" do dashboard raiz (AuditoriaAdmin + RegistroExecucaoIngestao mesclados). */
+export function useQueryAdminAtividadeRecente(input: {
+  token: string | null;
+  usuarioId: number;
+}) {
+  return useQuery({
+    queryKey: queryKeys.admin.atividadeRecente(),
+    queryFn: () => api.adminAtividadeRecente(input.token ?? ""),
+    enabled: habilitadoAdmin(input.token, input.usuarioId),
+    staleTime: STALE_TIME_DECISAO_MS,
   });
 }
 

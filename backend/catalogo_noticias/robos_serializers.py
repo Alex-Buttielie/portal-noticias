@@ -91,4 +91,6 @@ class RegistroExecucaoIngestaoSerializer(serializers.ModelSerializer):
             "chamadas_summarization_provider",
             "tokens_utilizados_summarization",
             "custo_estimado_summarization_usd",
+            "falhou",
+            "erro_falha",
         ]
