@@ -972,3 +972,99 @@ commit-base antes do sprint). Frontend: 96 testes passando, `typecheck` e
 violações.
 
 ---
+
+## Iteração 13 — 2026-10-13 — remediator (correção dos 3 findings do reviewer)
+
+**O que foi feito:**
+O `reviewer` devolveu `changes_requested` (1 major, 1 minor, 1 nit, ver
+`code-review-contract.md`). Corrigi os 3, eu mesmo (sem delegar ao
+`executor` — os 3 eram fixes pontuais e de baixo risco).
+
+**Finding 1 (major) — `entradas_sitemap()` limitado à janela de 72h do
+feed:**
+`backend/feed/services.py`: `itens_publicaveis()` ganhou o parâmetro
+`aplicar_janela: bool = True` (default preserva 100% do comportamento
+atual de `FeedListView`/`urgentes()`/`mais_lidas()`/`HomeSecoesView`/
+`DestaquesDiaView` — nenhum desses callers passa o argumento, todos
+continuam com a janela de `FEED_JANELA_HORAS`). `entradas_sitemap()`
+passou a chamar `itens_publicaveis(aplicar_janela=False)`, preservando
+`.only(*CAMPOS_LISTA_FEED)`/`select_related("cluster")` e a paginação
+(`SitemapView`/`SitemapPagination`, 500/página, inalterada) — só o corte
+de tempo saiu da query do sitemap, nada mais. Adicionei 2 testes em
+`backend/feed/tests/test_m02_sitemap.py`
+(`test_servico_inclui_noticia_mais_antiga_que_a_janela_do_feed` e
+`test_endpoint_lista_noticia_mais_antiga_que_a_janela_do_feed`) cobrindo
+exatamente o cenário de falha do finding: notícia com `timestamp_ingestao`
+retroagido 96h (via `.update()`, já que o campo é `auto_now_add=True` e
+não aceita valor no `create()`), publicável, com resumo — aparece no
+serviço e no endpoint `GET /api/feed/sitemap/`.
+
+**Finding 2 (minor) — idempotência do seed do plano semestral:**
+`backend/assinatura/migrations/0003_seed_plano_semestral.py`: comentário
+da migration agora documenta explicitamente que `get_or_create(nome=
+"Premium Semestral")` só é idempotente por correspondência exata de nome
+(`Plan.nome` não tem `unique=True`), e recomenda checagem
+`Plan.objects.filter(nome__icontains=...)` antes do deploy caso o time
+cadastre planos manualmente pelo admin antes de futuras migrations de
+seed. Nenhum código de produção alterado (o reviewer classificou como
+"nenhuma ação obrigatória agora" — documentar a premissa era a sugestão
+mais barata e correta).
+
+**Finding 3 (nit) — TTL de cache do patrocínio divergente do feed:**
+`backend/patrocinio/views.py`: `_TTL_SEGUNDOS = 60` (literal próprio,
+comentário dizia "mesmo desenho" do cache de `feed/views.py` mas o valor
+era diferente) substituído por `_ttl_patrocinio()`, que lê a mesma
+`settings.FEED_CACHE_TTL_SEGUNDOS` (45s) usada por
+`feed/views.py._ttl_feed()` e pela mesma allowlist de cache de borda do
+nginx — alinha o comentário ao valor real, elimina a divergência de
+~105s vs. ~45-90s de pior caso de defasagem descrita no finding.
+
+**Comandos executados / evidência (minhas, antes do commit):**
+```
+cd backend && DJANGO_DEBUG=true <venv do checkout principal>/bin/python -m pytest feed/ patrocinio/ assinatura/ -q
+→ 168 passed (inclui os 2 testes novos do Finding 1)
+
+cd backend && DJANGO_DEBUG=true <venv>/bin/python -m pytest -q   (suíte completa)
+→ 13 failed, 1735 passed, 2 skipped
+  As 13 falhas são EXATAMENTE as mesmas pré-existentes já diagnosticadas
+  pelo tester na Iteração 12 (mesmos nomes de teste, confirmado por
+  comparação direta) — nenhuma falha nova. 1735 = 1733 (Iteração 12) + 2
+  novos deste fix.
+
+cd frontend && npm run typecheck → limpo
+npm test → 96 passed, 0 fail
+npm run build → sucesso, todas as rotas
+node scripts/verificar-consentimento-anuncios.mjs → "P1-09 OK", 205
+  fontes, 22 autotestes, 0 violações
+node scripts/verificar-eventos-analytics.mjs → "P1-10 OK", 205 fontes,
+  24 autotestes, 0 violações
+```
+
+**Revalidação independente pelo `tester` (Finding 1, delegada via
+`Agent(subagent_type: "tester")`):**
+PASS. Leu o código de `itens_publicaveis()`/`entradas_sitemap()` e
+confirmou que `.only()`/`select_related`/paginação não foram afetados e
+que nenhum outro caller de `itens_publicaveis()` teve comportamento
+alterado. Rodou os 2 testes novos (passaram) e escreveu um teste de
+regressão ad-hoc próprio (não commitado) confirmando que
+`itens_publicaveis()` default/`aplicar_janela=True` e `GET /api/feed/`
+(feed de lista normal) CONTINUAM excluindo a notícia de 96h — só o
+sitemap passou a incluí-la. Suíte `feed/` completa: 64 passed (62 +
+2 novos). Frontend: 96 passed, 0 fail. Veredito do tester: "Finding 1 =
+RESOLVIDO, sem regressão em `feed/` nem no frontend."
+
+**Resultado:** Sucesso nos 3 findings. Commits:
+- `7d73a70` — `fix(monetizacao): sitemap cobre acervo inteiro, nao so a janela de 72h do feed` (Finding 1)
+- `c3bbddf` — `docs(monetizacao): documenta premissa de idempotencia do seed do plano semestral` (Finding 2)
+- `63a908d` — `fix(monetizacao): alinha TTL de cache do patrocinio ao do feed (45s)` (Finding 3)
+
+**Notas:**
+Nenhuma mudança de escopo fora dos 3 findings. Nenhum dos 3 exigiu
+delegação ao `executor` — todos foram fixes pontuais e de baixo risco,
+aplicados diretamente pelo remediator e revalidados (Finding 1 por teste
+automatizado próprio + pelo `tester` de forma independente; Findings 2/3
+por releitura do trecho corrigido + suíte dos módulos afetados, conforme
+orientação do próprio contrato de review, que não exigia teste novo para
+esses dois).
+
+---
