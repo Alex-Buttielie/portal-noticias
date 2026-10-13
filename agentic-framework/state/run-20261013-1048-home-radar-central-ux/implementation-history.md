@@ -520,3 +520,31 @@ Lidos `implementation-contract.md`, `implementation-history.md` (Iterações 1-5
 - `agentic-framework/state/run-20261013-1048-home-radar-central-ux/implementation-history.md` (esta entrada)
 
 **Resultado:** Documentação do projeto sincronizada com o comportamento real e já validado (tester: PASSED; reviewer: approve) do Bloco R (Radar) — o único bloco cujas mudanças cruzavam a fronteira de API/página já documentada no README. Blocos H e C não geraram edição de documentação, por decisão explícita e justificada (ver acima e `documentation-update.md`), não por omissão.
+
+## Iteração 7 — 2026-10-13 — orchestrator/sessão principal (correção pós-fechamento, achada pelo CI)
+
+**O que foi feito:**
+Corrigido `backend/catalogo_noticias/robos_views.py::_executar_ingestao_em_background` — removidas as chamadas a `close_old_connections()` do início/fim da função e movidas para um novo wrapper `_executar_ingestao_thread`, usado só pela `threading.Thread` real em `ExecutarRoboView.post`.
+
+**Por quê:**
+O run já estava `closed`, mas o push para `feature/home-radar-central-ux` disparou o CI real (Postgres via container), e o job `backend-tests` falhou: `psycopg2.InterfaceError: connection already closed` / `django.db.utils.InterfaceError: connection already closed` ao rodar `catalogo_noticias/tests/test_robos_falha_persistida.py::test_falha_na_ingestao_cria_registro_falhou_true`. Nem o executor, nem o tester, nem os dois reviewers pegaram isso porque todos rodaram contra SQLite local, que não reproduz esse comportamento de conexão. Causa raiz: `close_old_connections()` (pré-existente, seguro quando a função roda numa thread daemon de verdade) interagia mal com o `.create()` novo do C-05 quando a função é chamada SINCRONAMENTE — exatamente como o teste novo faz, por design ("chama direto, sem thread, para ser rápido e determinístico") — derrubando a conexão compartilhada com a transação do teste antes do INSERT de falha rodar.
+
+**Arquivos tocados:**
+- backend/catalogo_noticias/robos_views.py
+
+**Comandos executados / evidência:**
+```
+cd backend && .venv/bin/python -m pytest -q catalogo_noticias/tests/test_robos_falha_persistida.py catalogo_noticias/tests/test_robos_admin.py
+→ 14 passed
+cd backend && .venv/bin/python -m pytest -q catalogo_noticias/
+→ 3 failed (as mesmas 3 pré-existentes documentadas desde a Iteração 1), 269 passed
+cd backend && .venv/bin/python manage.py check
+→ System check identified no issues
+```
+Validação definitiva (Postgres real) pendente de confirmação via novo run do CI após o push (commit 5b1b82e) — ver o workflow "Deploy DEV" do PR #84.
+
+**Resultado:**
+Correção aplicada e commitada (`5b1b82e`). Comportamento de produção inalterado (a thread real continua fazendo `close_old_connections()` antes/depois, exatamente como antes) — só a função testável deixou de ter esse efeito colateral quando chamada fora de uma thread.
+
+**Notas fora do escopo:**
+Nenhuma — correção pontual, mesmo arquivo/função já tocada pelo Bloco C.
