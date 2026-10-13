@@ -8,7 +8,10 @@ notícia marcada `noindex`.
 
 from __future__ import annotations
 
+from datetime import timedelta
+
 import pytest
+from django.utils import timezone
 from rest_framework.test import APIClient
 
 from catalogo_noticias.models import NewsCluster, NewsItem
@@ -93,6 +96,57 @@ def test_endpoint_nao_lista_noticia_sem_resumo():
     assert resposta.status_code == 200
     ids = {e["id"] for e in resposta.data["results"]}
     assert sem_resumo.id not in ids
+
+
+def test_servico_inclui_noticia_mais_antiga_que_a_janela_do_feed():
+    """
+    Remediação do Finding 1 (major) do code-review-contract.md desta run:
+    `entradas_sitemap()` reaproveitava `itens_publicaveis()`, que corta por
+    `timestamp_ingestao__gte = agora - FEED_JANELA_HORAS` (72h em
+    produção) — uma notícia publicável e indexável com mais de 3 dias
+    nunca aparecia no sitemap, contradizendo o próprio objetivo do M-02
+    (dar alcance orgânico ao acervo). Este teste cobre exatamente o
+    cenário de falha descrito no finding.
+    """
+    from feed import services
+
+    antiga = _news_item(
+        url_fonte_original="https://g1/antiga-m02",
+        resumo_proprio="Resumo autoral de notícia antiga, mas publicável.",
+    )
+    # `timestamp_ingestao` é `auto_now_add=True` — só pode ser retroagido
+    # via `.update()` depois da criação (o `save()` ignoraria o valor
+    # passado no `create()`).
+    NewsItem.objects.filter(pk=antiga.id).update(
+        timestamp_ingestao=timezone.now() - timedelta(hours=96)
+    )
+
+    entradas = services.entradas_sitemap()
+    ids = {e["id"] for e in entradas}
+
+    assert antiga.id in ids
+
+
+def test_endpoint_lista_noticia_mais_antiga_que_a_janela_do_feed():
+    """Mesmo cenário acima, mas batendo no endpoint HTTP real (não só no
+    service) — o que o critério de aceite 3/M-02 do
+    implementation-contract.md exige ("dado um conjunto de notícias
+    publicáveis... /sitemap.xml é gerado... só as publicáveis e
+    indexáveis aparecem")."""
+    antiga = _news_item(
+        url_fonte_original="https://g1/antiga-endpoint-m02",
+        resumo_proprio="Resumo autoral de notícia antiga, mas publicável.",
+    )
+    NewsItem.objects.filter(pk=antiga.id).update(
+        timestamp_ingestao=timezone.now() - timedelta(hours=96)
+    )
+    client = APIClient()
+
+    resposta = client.get("/api/feed/sitemap/")
+
+    assert resposta.status_code == 200
+    ids = {e["id"] for e in resposta.data["results"]}
+    assert antiga.id in ids
 
 
 def test_endpoint_respeita_page_size(settings):
