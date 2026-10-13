@@ -77,7 +77,7 @@ export function Header() {
                   <p className="text-xs font-semibold tracking-widest text-[var(--cor-texto-suave)]">NAVEGUE POR ASSUNTO</p>
                   <Link href="/editorias" onClick={()=>setMenuEd(false)} className="text-xs font-medium text-[var(--cor-primaria)] hover:underline">Ver todas →</Link>
                 </div>
-                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
                   {CATEGORIAS.map((c)=>(
                     <div key={c.slug} className="min-w-0">
                       <Link href={`/categoria/${encodeURIComponent(c.slug)}`} onClick={()=>setMenuEd(false)} className="text-sm font-bold capitalize text-[var(--cor-texto)] hover:text-[var(--cor-primaria)] hover:underline">{c.nome}</Link>
