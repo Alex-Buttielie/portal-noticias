@@ -43,7 +43,7 @@ export const ManchetesGrid = memo(function ManchetesGrid({ itens, limiteSecundar
 
   return (
     <section aria-label="Manchetes" className="space-y-4">
-      <div className="grid gap-4 lg:grid-cols-[1.4fr_1fr] lg:items-stretch">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1.4fr_1fr] lg:items-stretch">
         <ManchetePrincipalSlider
           itens={slidesDestaque}
           salvos={salvos}

@@ -76,7 +76,7 @@ export const PortfolioCategorias = memo(function PortfolioCategorias({
         </Link>
       </div>
 
-      <div className="grid min-w-0 gap-4 md:grid-cols-2 xl:grid-cols-3">
+      <div className="grid min-w-0 grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
         {blocos.map((bloco) => {
           const visiveis = expandidos[bloco.categoria] ?? porCategoria;
           const lista = bloco.itens.slice(0, visiveis);
@@ -93,13 +93,17 @@ export const PortfolioCategorias = memo(function PortfolioCategorias({
                 <span className="shrink-0 text-[var(--cor-texto-suave)] group-hover/h:text-[var(--cor-primaria)]">›</span>
               </Link>
               <p className="mb-1 text-xs text-[var(--cor-texto-suave)]">{bloco.motivo}</p>
-              {/* H-03: no mobile (sem espaço para o thumbnail fixo de
-                  112px da lista densa), 2 colunas com a variante "grade"
-                  compacta; a partir de md volta à lista densa de sempre.
+              {/* No mobile (sem espaço para o thumbnail fixo de 112px da
+                  lista densa), 1 notícia por linha com a variante "grade"
+                  compacta (imagem no topo), ocupando a largura inteira do
+                  card — a versão em 2 colunas ainda estourava a tela em
+                  dispositivos reais (classe `grid` do pai sem coluna base
+                  deixava o layout inteiro largo demais, forçando o usuário
+                  a dar zoom); a partir de md volta à lista densa de sempre.
                   Duas árvores CSS-condicionais (`md:hidden`/`hidden md:block`)
                   em vez de trocar a variante via JS — evita hydration
                   mismatch entre SSR e cliente por causa de media query. */}
-              <div className="grid min-w-0 grid-cols-2 gap-3 md:hidden">
+              <div className="grid min-w-0 grid-cols-1 gap-3 md:hidden">
                 {lista.map((entrada) => (
                   <NewsCard
                     key={`port-grade-${bloco.categoria}-${entrada.tipo}-${entrada.id}`}

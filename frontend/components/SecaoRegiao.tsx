@@ -128,7 +128,7 @@ export function SecaoRegiao({ feed }: { feed: FeedEntrada[] }) {
         <span className="ml-auto hidden items-center gap-1 text-xs text-[var(--cor-texto-suave)] md:inline-flex"><Navigation className="h-3 w-3" /> {regiao.cidade} • {regiao.estado} {regiao.cep && `• ${regiao.cep}`}</span>
       </div>
 
-      <div className="grid gap-3 md:grid-cols-[1fr_180px_180px]">
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_180px_180px]">
         <div className="relative">
           <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-[var(--cor-texto-suave)]" />
           <Input value={buscaLocal} onChange={(e) => setBuscaLocal(e.target.value)} placeholder="Filtrar por título ou resumo…" className="h-9 bg-[var(--cor-fundo-card)] pl-8" aria-label="Filtrar notícias da região" />
@@ -155,7 +155,7 @@ export function SecaoRegiao({ feed }: { feed: FeedEntrada[] }) {
         <>
           {heroLocal && (
             <Card className="group overflow-hidden border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] transition hover:shadow-[var(--sombra-2)]">
-              <div className="grid md:grid-cols-[1.4fr_0.9fr]">
+              <div className="grid grid-cols-1 md:grid-cols-[1.4fr_0.9fr]">
                 <Link href={`/noticia/${heroLocal.id}`} className="block aspect-[16/9] overflow-hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cor-foco)]">
                   <ImagemNoticia src={heroLocal.imagem_url} seed={`${heroLocal.categoria || "geral"}-${heroLocal.id}`} alt={heroLocal.titulo} className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.02]" />
                 </Link>
@@ -174,7 +174,7 @@ export function SecaoRegiao({ feed }: { feed: FeedEntrada[] }) {
               </div>
             </Card>
           )}
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {resto.map((n) => (
               <Card key={`reg-${n.tipo}-${n.id}`} className="group overflow-hidden border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] hover:shadow-[var(--sombra-2)] hover:-translate-y-0.5 transition-all">
                 <Link href={`/noticia/${n.id}`} className="block aspect-[16/9] overflow-hidden bg-[var(--cor-fundo-elevado)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cor-foco)]">
