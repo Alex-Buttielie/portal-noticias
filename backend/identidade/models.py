@@ -85,6 +85,17 @@ class User(AbstractBaseUser, PermissionsMixin):
     is_staff = models.BooleanField(default=False)
     date_joined = models.DateTimeField(default=timezone.now)
 
+    # "Ativos agora" na Central (implementation-contract.md run
+    # 20261013-1048-home-radar-central-ux, Bloco C, C-07). Atualizado por
+    # `identidade.services.atualizar_last_seen`, chamado por
+    # `identidade.middleware.AtualizarUltimoAcessoMiddleware` em toda
+    # requisição autenticada — com throttle (só grava UPDATE se passaram
+    # >= LAST_SEEN_THROTTLE_SEGUNDOS desde o valor anterior), para não gerar
+    # um UPDATE por requisição (restrição de performance do contrato).
+    # Nunca usado para checar permissão/feature — isso é sempre
+    # `gating.services`; este campo é só telemetria de atividade.
+    last_seen = models.DateTimeField(null=True, blank=True)
+
     # Troca obrigatória no primeiro login — usada para contas criadas por
     # carga administrativa (senha inicial conhecida pela equipe) e para todo
     # cadastro via `/api/auth/cadastro/`. Enquanto True, o frontend direciona

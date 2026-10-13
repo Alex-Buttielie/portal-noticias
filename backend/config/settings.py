@@ -300,6 +300,13 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "allauth.account.middleware.AccountMiddleware",
+    # "Ativos agora" na Central (implementation-contract.md run
+    # 20261013-1048-home-radar-central-ux, Bloco C, C-07). Grava
+    # `User.last_seen` com throttle (ver identidade/services.py) depois de
+    # cada resposta — precisa vir depois de AuthenticationMiddleware, mas a
+    # resolução real de `request.user` para views DRF acontece dentro do
+    # próprio `get_response()` (ver docstring do middleware).
+    "identidade.middleware.AtualizarUltimoAcessoMiddleware",
 ]
 
 ROOT_URLCONF = "config.urls"

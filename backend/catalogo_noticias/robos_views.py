@@ -13,10 +13,14 @@ def _executar_ingestao_em_background(rid: str) -> None:
     """Roda `executar_ingestao()` fora do ciclo da requisição.
 
     O endpoint responde 202 antes; o SUCESSO fica registrado em
-    `RegistroExecucaoIngestao` (visível em GET /execucoes/). A FALHA não é
-    persistida no banco — `executar_ingestao()` só grava o registro quando
-    conclui — e por isso vai para o log com traceback e o `request_id`, que
-    é o caminho de investigação hoje. Persistir a falha no banco é backlog.
+    `RegistroExecucaoIngestao` (visível em GET /execucoes/). C-05
+    (implementation-contract.md run 20261013-1048-home-radar-central-ux):
+    a FALHA (exceção não isolada por `executar_ingestao()` — erro de
+    infra, não um item/grupo individual) também é persistida, como um
+    `RegistroExecucaoIngestao` com `falhou=True`/`erro_falha` preenchido —
+    antes desta run, só ia para o log (com traceback e `request_id`, que
+    continuam sendo o caminho de investigação profunda; aqui só garante que
+    a FALHA aparece em algum lugar da Central, não só no log do servidor).
     Conexões de banco por thread: o Django abre/fecha automaticamente por
     thread; `close_old_connections()` no início evita reutilizar conexão
     stale do pool do worker.
@@ -37,6 +41,17 @@ def _executar_ingestao_em_background(rid: str) -> None:
         tb = traceback.format_exc()
         detalhe = str(exc).strip() or f"{exc.__class__.__name__} sem mensagem"
         _log.exception("[%s] Falha em executar_ingestao (background): %s\n%s", rid, detalhe, tb)
+        try:
+            RegistroExecucaoIngestao.objects.create(
+                falhou=True,
+                # Trunca para não depender do tamanho exato da coluna
+                # (TextField não tem limite real no Postgres, mas um
+                # traceback inteiro na listagem da Central não ajuda quem
+                # está triando — o log do servidor tem a versão completa).
+                erro_falha=f"[{rid}] {detalhe}\n{tb}"[:4000],
+            )
+        except Exception:
+            _log.exception("[%s] Falha ao persistir o registro de FALHA da ingestão.", rid)
     else:
         _log.info(
             "[%s] Ingestão em background ok registro=%s itens=%s grupos=%s",

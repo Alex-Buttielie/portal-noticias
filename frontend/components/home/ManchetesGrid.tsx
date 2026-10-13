@@ -3,6 +3,11 @@ import { memo } from "react";
 import Link from "next/link";
 import type { FeedEntrada } from "@/lib/api";
 import { NewsCard } from "./NewsCard";
+import { ManchetePrincipalSlider } from "./ManchetePrincipalSlider";
+
+/** Quantas manchetes entram no slider de destaque (H-01) — sugestão do
+ * contrato (3-5), limitada também pelo total disponível. */
+const MAX_SLIDES_DESTAQUE = 5;
 
 interface ManchetesGridProps {
   itens: FeedEntrada[];
@@ -28,18 +33,20 @@ export const ManchetesGrid = memo(function ManchetesGrid({ itens, limiteSecundar
       </div>
     );
   }
-  const [destaque, ...resto] = itens;
+  // H-01: as primeiras N manchetes giram no slider de destaque; o restante
+  // segue para a lista densa de secundárias, sem repetir nenhuma entrada.
+  const totalSlides = Math.max(1, Math.min(MAX_SLIDES_DESTAQUE, itens.length));
+  const slidesDestaque = itens.slice(0, totalSlides);
+  const resto = itens.slice(totalSlides);
   const secundarias = resto.slice(0, limiteSecundarias);
   const excedentes = resto.length - secundarias.length;
 
   return (
     <section aria-label="Manchetes" className="space-y-4">
       <div className="grid gap-4 lg:grid-cols-[1.4fr_1fr] lg:items-stretch">
-        <NewsCard
-          entrada={destaque}
-          variante="destaque"
-          eager
-          salvo={salvos.has(`${destaque.tipo}-${destaque.id}`)}
+        <ManchetePrincipalSlider
+          itens={slidesDestaque}
+          salvos={salvos}
           onToggleSalvar={onToggleSalvar}
         />
         {secundarias.length > 0 && (

@@ -1,6 +1,21 @@
 from rest_framework import serializers
 
 
+# H-07 (run 20261013-1048-home-radar-central-ux): campo booleano calculado
+# em `feed/services.py` (NÃO aqui) a partir de
+# `catalogo_noticias.providers.fallback_local.origem_fallback_local`, sobre
+# `NewsItem.tags` do item representante — nunca inventado, nunca derivado
+# de comparação de string com o texto fixo (que poderia divergir se o texto
+# mudar). `default=False`: dados antigos/dicts que não passaram pelo cálculo
+# (ex. outros callers de teste) continuam válidos sem o campo.
+_AJUDA_RESUMO_E_FALLBACK = (
+    "True quando o resumo exibido é o texto fixo gerado pelo fallback local "
+    "(sem resumo editorial) — usado pelo frontend para mostrar o aviso no "
+    "máximo uma vez por página, em vez de repeti-lo em cada ocorrência do "
+    "resumo (lead, preview truncado, lista por fonte)."
+)
+
+
 class FeedEntrySerializer(serializers.Serializer):
     tipo = serializers.ChoiceField(choices=["cluster", "item"])
     id = serializers.IntegerField()
@@ -28,6 +43,8 @@ class FeedEntrySerializer(serializers.Serializer):
     # exclusivo_forcado). Vazio = sem override; o frontend mantém a regra
     # local de derivar selo do dado quando vazio.
     selo_editorial = serializers.CharField(allow_blank=True, required=False, default="")
+    # H-07 — ver `_AJUDA_RESUMO_E_FALLBACK` acima.
+    resumo_e_fallback = serializers.BooleanField(required=False, default=False, help_text=_AJUDA_RESUMO_E_FALLBACK)
 
 
 class FonteDetalheSerializer(serializers.Serializer):
@@ -38,6 +55,8 @@ class FonteDetalheSerializer(serializers.Serializer):
     # SEMPRE truncado + crédito + link para a original (BRD secao 18).
     conteudo = serializers.CharField(allow_blank=True, required=False, default="")
     imagem_url = serializers.URLField(allow_blank=True, required=False, default="")
+    # H-07 — ver `_AJUDA_RESUMO_E_FALLBACK` acima.
+    resumo_e_fallback = serializers.BooleanField(required=False, default=False, help_text=_AJUDA_RESUMO_E_FALLBACK)
 
 
 class FeedDetalheSerializer(serializers.Serializer):
@@ -71,6 +90,8 @@ class SecaoHomeSerializer(serializers.Serializer):
     score = serializers.FloatField(required=False, default=0.0)
     motivo = serializers.CharField(allow_blank=True, required=False, default="")
     override = serializers.CharField(allow_blank=True, required=False, default=None)
+    # H-07 — ver `_AJUDA_RESUMO_E_FALLBACK` acima.
+    resumo_e_fallback = serializers.BooleanField(required=False, default=False, help_text=_AJUDA_RESUMO_E_FALLBACK)
 
 
 class ResultadoBuscaSerializer(SecaoHomeSerializer):

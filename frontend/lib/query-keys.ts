@@ -4,11 +4,21 @@ const AMBIENTE_QUERY =
 export interface FiltrosRadar {
   pais?: string;
   estado?: string;
-  cidade?: string;
+  // R-02 — coordenada do usuário (quando disponível em `Regiao`), usada
+  // para ordenar por proximidade; não altera o RECORTE (`estado`), só a
+  // ordem dos resultados — por isso entra na chave de cache.
+  lat?: number;
+  lon?: number;
 }
 
 export interface FiltrosEvolucaoRadar extends FiltrosRadar {
   categoria?: string;
+}
+
+export interface FiltrosNoticiasRadar extends FiltrosRadar {
+  categoria?: string;
+  busca?: string;
+  periodoDias?: number;
 }
 
 export interface FiltrosPublicacoesComunidade {
@@ -28,6 +38,24 @@ export interface FiltrosAdminDenuncias {
   status?: string | null;
 }
 
+export interface FiltrosAdminUsuarios {
+  busca?: string | null;
+  papel?: string | null;
+  page?: number;
+}
+
+export interface FiltrosAdminAuditoria {
+  acao?: string | null;
+  alvoTipo?: string | null;
+  page?: number;
+}
+
+export interface FiltrosAdminHistoricoLimites {
+  chave?: string | null;
+  plano?: string | null;
+  page?: number;
+}
+
 function textoNormalizado(valor: string | null | undefined): string {
   return valor?.trim().toLowerCase() ?? "";
 }
@@ -36,11 +64,19 @@ function idNormalizado(valor: number): number {
   return Number.isSafeInteger(valor) && valor > 0 ? valor : 0;
 }
 
+function coordenadaNormalizada(valor: number | undefined): number {
+  // R-02 — arredonda a 2 casas (~1km) antes de entrar na chave de cache: a
+  // ordenação por distância é por UF (capital), então jitter de GPS na 3ª
+  // casa decimal não deveria gerar uma query nova.
+  return typeof valor === "number" && Number.isFinite(valor) ? Math.round(valor * 100) / 100 : 0;
+}
+
 function filtrosLocalidade(filtros: FiltrosRadar) {
   return {
     pais: textoNormalizado(filtros.pais),
     estado: textoNormalizado(filtros.estado),
-    cidade: textoNormalizado(filtros.cidade),
+    lat: coordenadaNormalizada(filtros.lat),
+    lon: coordenadaNormalizada(filtros.lon),
   };
 }
 
@@ -122,6 +158,19 @@ export const queryKeys = {
             ...filtrosLocalidade(filtros),
             categoria: textoNormalizado(filtros.categoria),
           },
+        },
+      ] as const,
+    noticias: (filtros: FiltrosNoticiasRadar = {}) =>
+      [
+        "publico",
+        AMBIENTE_QUERY,
+        "radar",
+        "noticias",
+        {
+          ...filtrosLocalidade(filtros),
+          categoria: textoNormalizado(filtros.categoria),
+          busca: textoNormalizado(filtros.busca),
+          periodoDias: Number.isSafeInteger(filtros.periodoDias) && (filtros.periodoDias ?? 0) > 0 ? filtros.periodoDias : 0,
         },
       ] as const,
     localidadesSalvas: (usuarioId: number) =>
@@ -225,14 +274,20 @@ export const queryKeys = {
       ] as const,
     usuariosRaiz: () =>
       ["privado", AMBIENTE_QUERY, "admin", "usuarios"] as const,
-    usuarios: (busca: string | null) =>
+    usuarios: (filtros: FiltrosAdminUsuarios = {}) =>
       [
         "privado",
         AMBIENTE_QUERY,
         "admin",
         "usuarios",
-        { busca: busca === null ? null : textoNormalizado(busca) },
+        {
+          busca: filtros.busca == null ? null : textoNormalizado(filtros.busca),
+          papel: filtros.papel == null ? null : textoNormalizado(filtros.papel),
+          page: Math.max(1, Math.trunc(filtros.page ?? 1)),
+        },
       ] as const,
+    usuariosAtivosAgora: () =>
+      ["privado", AMBIENTE_QUERY, "admin", "usuarios-ativos-agora"] as const,
     assinaturasRaiz: () =>
       ["privado", AMBIENTE_QUERY, "admin", "assinaturas"] as const,
     assinaturas: (filtros: FiltrosAdminAssinaturas = {}) =>
@@ -284,5 +339,35 @@ export const queryKeys = {
     regras: () =>
       ["privado", AMBIENTE_QUERY, "admin", "regras-curadoria"] as const,
     sistema: () => ["privado", AMBIENTE_QUERY, "admin", "sistema"] as const,
+    auditoriaRaiz: () =>
+      ["privado", AMBIENTE_QUERY, "admin", "auditoria"] as const,
+    auditoria: (filtros: FiltrosAdminAuditoria = {}) =>
+      [
+        "privado",
+        AMBIENTE_QUERY,
+        "admin",
+        "auditoria",
+        {
+          acao: filtros.acao == null ? null : textoNormalizado(filtros.acao),
+          alvoTipo: filtros.alvoTipo == null ? null : textoNormalizado(filtros.alvoTipo),
+          page: Math.max(1, Math.trunc(filtros.page ?? 1)),
+        },
+      ] as const,
+    historicoLimitesRaiz: () =>
+      ["privado", AMBIENTE_QUERY, "admin", "historico-limites"] as const,
+    historicoLimites: (filtros: FiltrosAdminHistoricoLimites = {}) =>
+      [
+        "privado",
+        AMBIENTE_QUERY,
+        "admin",
+        "historico-limites",
+        {
+          chave: filtros.chave == null ? null : textoNormalizado(filtros.chave),
+          plano: filtros.plano == null ? null : textoNormalizado(filtros.plano),
+          page: Math.max(1, Math.trunc(filtros.page ?? 1)),
+        },
+      ] as const,
+    atividadeRecente: () =>
+      ["privado", AMBIENTE_QUERY, "admin", "atividade-recente"] as const,
   },
 } as const;

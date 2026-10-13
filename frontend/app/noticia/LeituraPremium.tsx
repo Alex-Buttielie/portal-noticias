@@ -12,7 +12,7 @@ import { Voltar } from "./[id]/voltar";
 import { ImagemNoticia } from "@/components/ImagemNoticia";
 import { temImagemReal } from "@/lib/imagens";
 import type { FeedDetalhe } from "@/lib/api";
-import { Clock3, MapPin, ListChecks, MessageSquare, Printer, ALargeSmall, ChevronRight } from "lucide-react";
+import { Clock3, MapPin, ListChecks, MessageSquare, Printer, ALargeSmall, ChevronRight, Info } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatarDataHoraPorExtenso } from "@/lib/datas";
 import { LinkFonte, HostnameFonte } from "@/components/LinkFonte";
@@ -59,6 +59,15 @@ export function LeituraPremium({
   }, []);
 
   const bullets = useMemo(() => frasesResumo(d.fontes[0]?.resumo || ""), [d]);
+  // H-07: o aviso de fallback (run 20261013-1048-home-radar-central-ux) só
+  // pode aparecer UMA VEZ na página inteira — antes disso o mesmo texto
+  // fixo repetia em até 4 lugares (lead, "Em 30 segundos", resumo completo
+  // com drop-cap e a lista por fonte) quando o resumo não tinha sido
+  // gerado. `resumo_e_fallback` vem calculado pelo backend
+  // (`feed/services.py`) a partir das tags do `NewsItem` — nunca
+  // comparação de string aqui.
+  const resumoPrincipalEhFallback = Boolean(d.fontes[0]?.resumo_e_fallback);
+  const avisoFallback = resumoPrincipalEhFallback ? d.fontes[0]?.resumo || "" : "";
   const minutos = useMemo(
     () => tempoLeitura([d.titulo, ...d.fontes.map((f) => f.resumo || "")].join(" ")),
     [d]
@@ -104,7 +113,17 @@ export function LeituraPremium({
         </div>
 
         <h1 className="text-balance font-serif text-3xl font-bold leading-[1.15] tracking-tight text-[var(--cor-texto)] md:text-4xl">{d.titulo}</h1>
-        <p className="text-pretty text-base leading-relaxed text-[var(--cor-texto-suave)]">{d.fontes[0]?.resumo?.slice(0, 180)}{(d.fontes[0]?.resumo?.length || 0) > 180 ? "…" : ""}</p>
+        {resumoPrincipalEhFallback ? (
+          // Nota única, pequena e discreta — substitui TODAS as outras
+          // ocorrências do mesmo aviso que existiam na página (lead,
+          // "Em 30 segundos", resumo completo, lista por fonte).
+          <p className="flex items-start gap-1.5 text-xs leading-relaxed text-[var(--cor-texto-suave)]">
+            <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+            <span>{avisoFallback}</span>
+          </p>
+        ) : (
+          <p className="text-pretty text-base leading-relaxed text-[var(--cor-texto-suave)]">{d.fontes[0]?.resumo?.slice(0, 180)}{(d.fontes[0]?.resumo?.length || 0) > 180 ? "…" : ""}</p>
+        )}
 
         <div className="group relative overflow-hidden rounded-[var(--raio-lg)] border border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] shadow-[var(--sombra-2)]">
           <div className="relative aspect-[16/9] overflow-hidden">
@@ -136,14 +155,23 @@ export function LeituraPremium({
         <Card className="overflow-hidden border-[var(--cor-primaria)] bg-[var(--cor-fundo-card)] shadow-[var(--sombra-1)]">
           <CardContent className="p-5">
             <h2 className="flex items-center gap-2 text-sm font-bold tracking-tight text-[var(--cor-texto)]"><ListChecks className="h-4 w-4 text-[var(--cor-primaria)]" /> Em 30 segundos</h2>
-            <ul className="mt-3 space-y-2">
-              {bullets.map((b, i) => (
-                <li key={i} className="flex gap-2.5 text-sm leading-relaxed text-[var(--cor-texto)]">
-                  <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--cor-primaria-suave)] text-xs font-bold text-[var(--cor-primaria)]">{i + 1}</span>
-                  <span>{b}</span>
-                </li>
-              ))}
-            </ul>
+            {resumoPrincipalEhFallback ? (
+              // Sem resumo editorial, bullets dessa caixa seriam só o
+              // mesmo aviso partido em frases — repetição, não um resumo
+              // real. O aviso já apareceu uma vez perto do título.
+              <p className="mt-3 text-sm leading-relaxed text-[var(--cor-texto-suave)]">
+                Resumo rápido indisponível para esta matéria — veja as fontes abaixo.
+              </p>
+            ) : (
+              <ul className="mt-3 space-y-2">
+                {bullets.map((b, i) => (
+                  <li key={i} className="flex gap-2.5 text-sm leading-relaxed text-[var(--cor-texto)]">
+                    <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--cor-primaria-suave)] text-xs font-bold text-[var(--cor-primaria)]">{i + 1}</span>
+                    <span>{b}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
             <div className="mt-4 flex flex-wrap gap-2 text-xs">
               <a href="#resumo-completo" className="rounded-full border border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] px-3 py-1.5 font-medium text-[var(--cor-texto)] hover:bg-[var(--cor-primaria-suave)] hover:text-[var(--cor-primaria)]">Resumo</a>
               <a href="#fontes" className="rounded-full border border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] px-3 py-1.5 font-medium text-[var(--cor-texto)] hover:bg-[var(--cor-primaria-suave)] hover:text-[var(--cor-primaria)]">Fontes ({d.fontes.length})</a>
@@ -155,9 +183,19 @@ export function LeituraPremium({
         <Card className="border-[var(--cor-borda)] bg-[var(--cor-fundo-card)]">
           <CardContent id="resumo-completo" className={cn("scroll-mt-24 p-5 md:p-6", fonteGrande ? "text-lg" : "text-base")}>
             <div className={cn("space-y-4 leading-relaxed text-[var(--cor-texto)]", fonteGrande ? "leading-loose" : "leading-relaxed")}>
-              <p className="text-pretty first-letter:float-left first-letter:mr-2 first-letter:font-serif first-letter:text-5xl first-letter:font-bold first-letter:leading-[0.9] first-letter:text-[var(--cor-primaria)]">{d.fontes[0]?.resumo}</p>
+              {resumoPrincipalEhFallback ? (
+                // O aviso já apareceu uma vez perto do título — aqui ele
+                // NÃO repete como lead com drop-cap (era exatamente essa
+                // apresentação, de um texto fixo de aviso, que fazia o
+                // aviso parecer o início real da matéria).
+                <p className="text-pretty text-sm text-[var(--cor-texto-suave)]">
+                  Leia o texto completo na fonte original abaixo.
+                </p>
+              ) : (
+                <p className="text-pretty first-letter:float-left first-letter:mr-2 first-letter:font-serif first-letter:text-5xl first-letter:font-bold first-letter:leading-[0.9] first-letter:text-[var(--cor-primaria)]">{d.fontes[0]?.resumo}</p>
+              )}
               {d.fontes.slice(1, 3).map((f, i) => (
-                f.resumo && f.resumo !== d.fontes[0]?.resumo ? (
+                f.resumo && !f.resumo_e_fallback && f.resumo !== d.fontes[0]?.resumo ? (
                   <blockquote key={i} className="rounded-[var(--raio-md)] border-l-4 border-[var(--cor-primaria)] bg-[var(--cor-fundo-elevado)] px-4 py-3">
                     <p className="text-pretty text-sm italic leading-relaxed text-[var(--cor-texto)]">“{f.resumo}”</p>
                     <cite className="mt-1 block text-xs not-italic text-[var(--cor-texto-suave)]">— {f.nome_fonte}</cite>
@@ -198,7 +236,9 @@ export function LeituraPremium({
                     <span className="text-xs text-[var(--cor-texto-suave)]">↗ <HostnameFonte url={f.url_fonte_original} /></span>
                     <LinkFonte url={f.url_fonte_original} prefixo="↗" className="ml-auto inline-flex min-h-[36px] items-center rounded-md border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] px-3 text-xs font-medium text-[var(--cor-texto)] hover:bg-[var(--cor-primaria-suave)] hover:text-[var(--cor-primaria)]">Abrir na fonte</LinkFonte>
                   </div>
-                  {f.resumo && <p className="mt-2 text-sm leading-relaxed text-[var(--cor-texto-suave)]">{f.resumo}</p>}
+                  {/* H-07: fonte com resumo de fallback não repete o aviso
+                      aqui — ele já apareceu uma vez perto do título. */}
+                  {f.resumo && !f.resumo_e_fallback && <p className="mt-2 text-sm leading-relaxed text-[var(--cor-texto-suave)]">{f.resumo}</p>}
                 </li>
               ))}
             </ul>

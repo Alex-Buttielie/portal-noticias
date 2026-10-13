@@ -18,6 +18,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import re
+import unicodedata
 
 import requests
 from django.conf import settings
@@ -26,6 +27,40 @@ from django.core.cache import cache
 from config.egress import EgressBloqueado, SessaoEgress
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# R-02 (run 20261013-1048-home-radar-central-ux) — resolução de UF a partir
+# de texto livre, usada pelo Radar (`backend/radar/services.py`) para
+# filtrar por estado em vez de `cidade` (sempre vazia na ingestão real).
+# ---------------------------------------------------------------------------
+
+#: Siglas das 26 UFs + Distrito Federal — geografia pública (divisão
+#: político-administrativa do Brasil), não fabricada pela aplicação.
+UF_SIGLAS = frozenset({
+    "AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA", "MT", "MS",
+    "MG", "PA", "PB", "PR", "PE", "PI", "RJ", "RN", "RS", "RO", "RR", "SC",
+    "SP", "SE", "TO",
+})
+
+#: Nome completo do estado (sem acento, minúsculo) -> sigla. Mesma fonte
+#: pública acima; usado para resolver "Goiás"/"Goias" -> "GO" sem precisar
+#: de uma chamada de rede para um dado que não muda.
+_NOMES_UF = {
+    "acre": "AC", "alagoas": "AL", "amapa": "AP", "amazonas": "AM",
+    "bahia": "BA", "ceara": "CE", "distrito federal": "DF",
+    "espirito santo": "ES", "goias": "GO", "maranhao": "MA",
+    "mato grosso": "MT", "mato grosso do sul": "MS", "minas gerais": "MG",
+    "para": "PA", "paraiba": "PB", "parana": "PR", "pernambuco": "PE",
+    "piaui": "PI", "rio de janeiro": "RJ", "rio grande do norte": "RN",
+    "rio grande do sul": "RS", "rondonia": "RO", "roraima": "RR",
+    "santa catarina": "SC", "sao paulo": "SP", "sergipe": "SE",
+    "tocantins": "TO",
+}
+
+
+def _sem_acentos(texto: str) -> str:
+    nfkd = unicodedata.normalize("NFKD", texto or "")
+    return "".join(c for c in nfkd if not unicodedata.combining(c))
 
 
 def _sessao() -> SessaoEgress:
@@ -257,6 +292,87 @@ def reverter_coordenadas(lat: float, lon: float) -> dict:
         )
     cache.set(chave, resultado, timeout=int(getattr(settings, "ENDERECOS_CACHE_IBGE_SEGUNDOS", 604800)))
     return resultado
+
+
+def _resolver_uf_por_geocoding(texto: str) -> str | None:
+    """Fallback para nome de cidade (ex. "Trindade" -> "GO"): mesma infra do
+    reverso de coordenadas (Nominatim via proxy com cache), só que para
+    frente (texto -> endereço) em vez de (lat/lon -> endereço). Nunca
+    levanta — qualquer falha de rede/parsing vira `None` (quem chama decide
+    "vazio com mensagem clara", nunca erro 500 nem estado inventado)."""
+    chave = f"enderecos:uf-textual:{hashlib.md5(texto.strip().lower().encode('utf-8')).hexdigest()}"
+    cached = cache.get(chave)
+    if cached is not None:
+        return cached or None
+    from urllib.parse import quote
+
+    url = f"{_base_nominatim()}/search?format=json&q={quote(texto)}&countrycodes=br&addressdetails=1&limit=1"
+    try:
+        with _sessao() as sessao:
+            resposta = sessao.get(
+                url,
+                timeout=_timeout(),
+                headers={"User-Agent": "BRDPortalNoticias/1.0 (+https://portal-noticias.com)", "Accept": "application/json"},
+            )
+    except EgressBloqueado as exc:
+        logger.error("enderecos resolver-uf bloqueado pela política de saída: %s", exc)
+        return None
+    except requests.RequestException as exc:
+        logger.warning("enderecos resolver-uf inalcançável: %s (%s)", url, exc)
+        return None
+    if resposta.status_code >= 400:
+        logger.warning("enderecos resolver-uf HTTP %s", resposta.status_code)
+        return None
+    try:
+        dados = resposta.json()
+    except ValueError:
+        return None
+    if not isinstance(dados, list) or not dados or not isinstance(dados[0], dict):
+        cache.set(chave, "", timeout=3600)
+        return None
+    endereco = dados[0].get("address", {})
+    if not isinstance(endereco, dict):
+        endereco = {}
+    sigla = (endereco.get("state_code") or "").strip().upper()
+    if sigla not in UF_SIGLAS:
+        sigla = _NOMES_UF.get(_sem_acentos(endereco.get("state") or "").strip().lower(), "")
+    if not sigla:
+        cache.set(chave, "", timeout=3600)
+        return None
+    cache.set(chave, sigla, timeout=int(getattr(settings, "ENDERECOS_CACHE_IBGE_SEGUNDOS", 604800)))
+    return sigla
+
+
+def resolver_uf(texto: str) -> str | None:
+    """Resolve texto livre (sigla UF, nome do estado, "Cidade, UF" ou nome
+    de cidade) para a sigla de 2 letras da UF correspondente.
+
+    Usado pelo Radar (R-02) para filtrar por `estado` em vez de `cidade`
+    (sempre vazia na ingestão real). Nunca inventa estado: retorna `None`
+    quando não há como resolver com confiança — quem chama decide o que
+    fazer (o Radar devolve vazio com mensagem clara, nunca erro 500).
+    """
+    bruto = (texto or "").strip()
+    if not bruto:
+        return None
+
+    cauda = bruto
+    if "," in bruto:
+        _, _, cauda = bruto.rpartition(",")
+        cauda = cauda.strip()
+
+    if re.fullmatch(r"[A-Za-z]{2}", cauda):
+        sigla = cauda.upper()
+        if sigla in UF_SIGLAS:
+            return sigla
+
+    nome_norm = _sem_acentos(cauda).strip().lower()
+    if nome_norm in _NOMES_UF:
+        return _NOMES_UF[nome_norm]
+
+    # Nem sigla, nem nome de estado — tenta como nome de cidade via
+    # geocodificação textual.
+    return _resolver_uf_por_geocoding(bruto)
 
 
 def _base_ipapi() -> str:

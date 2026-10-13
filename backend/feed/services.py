@@ -21,6 +21,7 @@ from django.db.models import Q, QuerySet
 from django.utils import timezone
 
 from catalogo_noticias.models import NewsCluster, NewsItem
+from catalogo_noticias.providers.fallback_local import origem_fallback_local
 
 STATUS_PUBLICAVEIS = [NewsItem.STATUS_NAO_APLICAVEL, NewsItem.STATUS_APROVADO]
 
@@ -44,6 +45,11 @@ CAMPOS_LISTA_FEED = (
     "cidade",
     "nome_fonte",
     "autor",
+    # H-07 (run 20261013-1048-home-radar-central-ux): `resumo_e_fallback`
+    # (abaixo, em `construir_feed_entries`) lê `item.tags` — sem esta
+    # entrada, a leitura é um campo DEFERRED e reintroduz N+1 (exatamente o
+    # aviso da regra acima).
+    "tags",
     "timestamp_publicacao_fonte",
     "timestamp_ingestao",
     "cluster",
@@ -141,6 +147,10 @@ def construir_feed_entries(itens: list[NewsItem]) -> list[dict]:
                 "nome_fonte": getattr(item, "nome_fonte", "") or "",
                 # FRENTE 3 — autor/colunista creditado no RSS (best-effort).
                 "autor": getattr(item, "autor", "") or "",
+                # H-07: o resumo acima ("resumo_proprio") pertence a ESTE
+                # item — então a flag de fallback tem de vir das tags
+                # DELE, nunca de outro item do mesmo cluster.
+                "resumo_e_fallback": origem_fallback_local(getattr(item, "tags", None)),
             }
         else:
             if item.urgente and not entradas[chave]["urgente"]:
@@ -236,6 +246,9 @@ def detalhe_cluster(cluster_id: int) -> dict | None:
                 "resumo": item.resumo_proprio,
                 "imagem_url": getattr(item, "imagem_url", "") or "",
                 "conteudo": (getattr(item, "conteudo_completo", "") or "")[:6000],
+                # H-07 — cada fonte tem sua PRÓPRIA flag (uma fonte pode ter
+                # fallback e outra não, dentro do mesmo cluster).
+                "resumo_e_fallback": origem_fallback_local(getattr(item, "tags", None)),
             }
             for item in itens
         ],
@@ -269,6 +282,8 @@ def detalhe_item(item_id: int) -> dict | None:
                 "resumo": item.resumo_proprio,
                 "imagem_url": getattr(item, "imagem_url", "") or "",
                 "conteudo": (getattr(item, "conteudo_completo", "") or "")[:6000],
+                # H-07 — ver nota equivalente em `detalhe_cluster`.
+                "resumo_e_fallback": origem_fallback_local(getattr(item, "tags", None)),
             }
         ],
     }

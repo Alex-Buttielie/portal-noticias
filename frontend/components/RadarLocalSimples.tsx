@@ -105,7 +105,14 @@ export default function RadarLocalSimples({ value, onChange }: Props) {
             <Button type="button" onClick={aplicarTexto} disabled={resolvendo} className="min-h-[44px] flex-1 bg-[var(--cor-primaria)] text-[var(--cor-texto-invertido)] sm:flex-none">
               {resolvendo ? "Buscando…" : "Aplicar"}
             </Button>
-            <Button type="button" variant="outline" onClick={() => setMostrarCompartilhar((v) => !v)} aria-expanded={mostrarCompartilhar} className="min-h-[44px] flex-1 border-[var(--cor-borda)] sm:flex-none">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setMostrarCompartilhar(true)}
+              disabled={mostrarCompartilhar}
+              aria-expanded={mostrarCompartilhar}
+              className="min-h-[44px] flex-1 border-[var(--cor-borda)] sm:flex-none"
+            >
               <MapPin className="mr-1.5 h-4 w-4" />Detectar
             </Button>
           </div>
@@ -118,7 +125,9 @@ export default function RadarLocalSimples({ value, onChange }: Props) {
 
       {mostrarCompartilhar && (
         <div className="rounded-[var(--raio-md)] border border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] px-3 py-1">
-          <CompartilharLocalizacao compacto ocultarCep mostrarRecusa={false} onRegiao={aoDetectar} />
+          {/* R-01 — autoIniciar: o clique em "Detectar" acima já chamou este
+           * fluxo real de geolocalização, sem exigir um segundo clique. */}
+          <CompartilharLocalizacao compacto ocultarCep mostrarRecusa={false} autoIniciar onRegiao={aoDetectar} />
         </div>
       )}
 
