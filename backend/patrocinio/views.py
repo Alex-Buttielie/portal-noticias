@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.core.cache import cache
 from rest_framework import status
 from rest_framework.permissions import AllowAny
@@ -7,12 +8,26 @@ from rest_framework.views import APIView
 from .models import Patrocinio
 from .serializers import PatrocinioAtivoSerializer
 
-# TTL curto: payload não varia por usuário (GET público), cacheável na
-# borda do nginx (ver infra/nginx/portal-*.conf, allowlist estendida nesta
-# run) e no cache de app, mesmo padrão de `feed/views.py` (TTL de poucos
-# segundos — qualquer alteração no admin aparece quase em tempo real, sem
-# sobrecarregar o banco a cada impressão).
-_TTL_SEGUNDOS = 60
+
+def _ttl_patrocinio() -> int:
+    """
+    TTL curto: payload não varia por usuário (GET público), cacheável na
+    borda do nginx (ver infra/nginx/portal-*.conf, allowlist estendida
+    nesta run) e no cache de app, MESMO TTL do cache de `feed/views.py`
+    (`settings.FEED_CACHE_TTL_SEGUNDOS`, 45s) — mesma zona/regra de cache
+    de borda do nginx usada pelas duas rotas, então os dois TTLs de app
+    precisam estar alinhados para o pior caso de defasagem ser o mesmo
+    (~45-90s, não ~105s). Remediação do Finding 3 (nit) do
+    code-review-contract.md desta run: o valor anterior (60s, literal
+    próprio) dizia no comentário "mesmo desenho" de `feed/views.py` mas
+    usava um número diferente — agora lê a mesma constante.
+    """
+    try:
+        return max(1, int(getattr(settings, "FEED_CACHE_TTL_SEGUNDOS", 45)))
+    except (TypeError, ValueError):
+        return 45
+
+
 CACHE_NAMESPACE = "patrocinio:v1"
 
 
@@ -40,9 +55,9 @@ class PatrocinioAtivoView(APIView):
 
         patrocinio = Patrocinio.vigente_para_posicao(posicao)
         if patrocinio is None:
-            cache.set(chave, {}, _TTL_SEGUNDOS)
+            cache.set(chave, {}, _ttl_patrocinio())
             return Response(status=status.HTTP_404_NOT_FOUND)
 
         dados = PatrocinioAtivoSerializer(patrocinio).data
-        cache.set(chave, dados, _TTL_SEGUNDOS)
+        cache.set(chave, dados, _ttl_patrocinio())
         return Response(dados)
