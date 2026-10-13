@@ -154,15 +154,19 @@ function escapaXml(s: string): string {
  */
 function texturaSvg(indice: number, lado: number, giro: number, cor: string): string {
   const comum = `id='p' width='${lado}' height='${lado}' patternUnits='userSpaceOnUse' patternTransform='rotate(${giro})'`;
+  // Opacidades um pouco mais fortes que a geração original (.13-.16): no
+  // card "destaque" da Home o placeholder ocupa boa parte da tela, e no
+  // tom sutil original lia como área vazia/quebrada em vez de textura de
+  // propósito — mesma paleta e geometria, só mais presente.
   switch (indice % 4) {
     case 0: // listras diagonais
-      return `<pattern ${comum}><path d='M0 ${Math.round(lado / 2)}h${lado}' stroke='${cor}' stroke-width='6' stroke-opacity='.14'/></pattern>`;
+      return `<pattern ${comum}><path d='M0 ${Math.round(lado / 2)}h${lado}' stroke='${cor}' stroke-width='6' stroke-opacity='.22'/></pattern>`;
     case 1: // pontos
-      return `<pattern ${comum}><circle cx='${Math.round(lado / 2)}' cy='${Math.round(lado / 2)}' r='5' fill='${cor}' fill-opacity='.14'/></pattern>`;
+      return `<pattern ${comum}><circle cx='${Math.round(lado / 2)}' cy='${Math.round(lado / 2)}' r='5' fill='${cor}' fill-opacity='.22'/></pattern>`;
     case 2: // faixas largas
-      return `<pattern ${comum}><rect width='${lado}' height='${Math.max(4, Math.round(lado / 4))}' fill='${cor}' fill-opacity='.13'/></pattern>`;
+      return `<pattern ${comum}><rect width='${lado}' height='${Math.max(4, Math.round(lado / 4))}' fill='${cor}' fill-opacity='.20'/></pattern>`;
     default: // anéis
-      return `<pattern ${comum}><circle cx='${Math.round(lado / 2)}' cy='${Math.round(lado / 2)}' r='${Math.round(lado / 3)}' fill='none' stroke='${cor}' stroke-opacity='.16' stroke-width='4'/></pattern>`;
+      return `<pattern ${comum}><circle cx='${Math.round(lado / 2)}' cy='${Math.round(lado / 2)}' r='${Math.round(lado / 3)}' fill='none' stroke='${cor}' stroke-opacity='.25' stroke-width='4'/></pattern>`;
   }
 }
 
@@ -194,7 +198,7 @@ export function placeholderSvg(identificador: string, categoria?: string): strin
     `<rect width='${L}' height='${A}' fill='url(#f)'/>` +
     `<rect width='${L}' height='${A}' fill='url(#p)'/>` +
     (letra
-      ? `<text x='400' y='252' fill='${c1}' fill-opacity='.32' font-family='Georgia,serif' ` +
+      ? `<text x='400' y='252' fill='${c1}' fill-opacity='.42' font-family='Georgia,serif' ` +
         `font-size='210' font-weight='700' text-anchor='middle'>${escapaXml(letra)}</text>`
       : "") +
     `</svg>`;
