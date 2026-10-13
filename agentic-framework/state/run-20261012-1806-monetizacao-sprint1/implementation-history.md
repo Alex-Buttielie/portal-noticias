@@ -548,3 +548,62 @@ Sucesso. Commit `cb3b683` —
 `monetizacao(M-08): CTA de assinatura dentro da leitura, so para Free`.
 
 ---
+
+## Iteração 10 — 2026-10-12 — executor (M-09)
+
+**O que foi feito:**
+Novo componente `frontend/components/CartaoPremium.tsx`: recebe `formato`,
+mostra o preço real do plano pago mais barato ativo (via novo
+`planoPagoMaisBarato()` em `lib/planos.ts`) e um link para `/planos`. Nunca
+usa as palavras "publicidade"/"AdSense". `AdsSlot.tsx` teve o TODO deixado
+pelo M-05 resolvido: o ramo "sem anúncio para mostrar em produção" (Free
+sem consentimento, ou sem publisher ID) agora renderiza
+`<CartaoPremium formato={formato} />` em vez de `null`. A altura mínima por
+formato (`ALTURA_FORMATO`) foi movida de dentro de `AdsSlot.tsx` para
+`lib/anuncios.ts` (exportada) para os dois componentes compartilharem o
+mesmo mapa sem duplicar nem arriscar divergência (evita CLS na troca entre
+anúncio real e o cartão).
+
+**Por quê:**
+Critério de aceite 9 do implementation-contract.md; liga M-05 a M-07 —
+o espaço que ficaria vazio vira oportunidade de conversão.
+
+**Arquivos tocados:**
+- `frontend/components/CartaoPremium.tsx` (novo).
+- `frontend/components/AdsSlot.tsx` — import de `CartaoPremium` e de
+  `ALTURA_FORMATO`; `ALTURA` local agora é um alias de `ALTURA_FORMATO`;
+  TODO do M-05 substituído pelo componente real. Confirmei que os 4 padrões
+  literais verificados pela regra estática R4
+  (`verificar-consentimento-anuncios.mjs`) continuam intactos — a mudança
+  foi só no ramo final, depois dos dois gates (`if (premiumGeral)`/
+  `if (podeExibir)`), igual à nota da Iteração 6.
+- `frontend/lib/anuncios.ts` — `ALTURA_FORMATO` (novo, exportado).
+- `frontend/lib/planos.ts` — `planoPagoMaisBarato(planosAtivos)` (novo):
+  filtra o `free` por nome e devolve o pago de menor preço numérico; `null`
+  sem nenhum pago válido.
+- `frontend/testes/planos.test.mjs` — 4 casos novos para
+  `planoPagoMaisBarato` (ignora free, só free ativo → null, lista vazia →
+  null, preço inválido ignorado e não vira o mais barato por engano).
+
+**Comandos executados / evidência:**
+```
+cd frontend && npm run typecheck → limpo
+npm test → 88 passed, 0 fail (84 anteriores + 4 novos de planoPagoMaisBarato)
+node scripts/verificar-consentimento-anuncios.mjs → "P1-09 OK", exit 0
+  (204 fontes varridos — 1 a mais que a Iteração 9, o novo CartaoPremium.tsx
+  entrou na varredura e não violou nenhuma regra)
+npm run build → sucesso, todas as rotas
+```
+
+**Resultado:**
+Sucesso. Commit `5cdd6a3` —
+`monetizacao(M-09): CartaoPremium substitui o espaco vazio de anuncio`.
+
+**Notas:**
+"o preço mais baixo ativo" do "Como" do plano foi interpretado como "o
+plano PAGO mais baixo" (exclui o `free`, preço R$0) — mostrar "a partir de
+R$0" num cartão que existe para vender Premium não faria sentido e não é o
+que o plano quer dizer com a frase; mesma convenção de filtro por nome que
+`app/planos/page.tsx` (M-07) já usa.
+
+---
