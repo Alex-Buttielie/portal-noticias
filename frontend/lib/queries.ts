@@ -21,6 +21,17 @@ export function useQueryPlanos() {
   });
 }
 
+/** M-10: patrocínio vigente para `posicao`, ou `null` (sem patrocínio —
+ *  nunca é erro, `PatrocinioSlot` simplesmente não renderiza nada). */
+export function useQueryPatrocinioAtivo(posicao: string) {
+  return useQuery({
+    queryKey: queryKeys.patrocinio.ativo(posicao),
+    queryFn: () => api.obterPatrocinioAtivo(posicao),
+    staleTime: STALE_TIME_PUBLICO_MS,
+    enabled: Boolean(posicao),
+  });
+}
+
 export function useQueryFeedUltimasNoticias(
   pageSize: number,
   inicial: api.FeedEntrada[],

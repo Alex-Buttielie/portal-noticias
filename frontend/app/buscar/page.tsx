@@ -143,8 +143,9 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ q
               parte do escopo do lote (que e conteudo ficticio, nao publicidade).
               A comportamento de anuncios e do item P1-09. Ver
               implementation-history.md, "Reposicao do AdsSlot in-feed da busca". */}
+          {/* M-06: densidade reduzida de 2 para 1 AdsSlot em /buscar —
+              buscar-horizontal removido; mantido buscar-infeed. */}
           <AdsSlot id="buscar-infeed" formato="in-feed" className="my-6" />
-          {itens.length > 6 && <AdsSlot id="buscar-horizontal" formato="horizontal" />}
         </div>
       )}
     </div>

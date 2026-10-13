@@ -19,6 +19,7 @@ from .serializers import (
     FeedEntrySerializer,
     ResultadoBuscaSerializer,
     SecaoHomeSerializer,
+    SitemapEntrySerializer,
 )
 
 
@@ -171,6 +172,42 @@ class MaisLidasView(APIView):
         dados = FeedEntrySerializer(entradas, many=True).data
         cache.set(chave, dados, _ttl_feed())
         return Response(dados)
+
+
+class SitemapPagination(PageNumberPagination):
+    """M-02: página maior que `FeedPagination` — é consumida só pelo
+    gerador de sitemap do Next (`frontend/app/sitemap.ts`), não por
+    scroll de usuário; menos idas e voltas para montar o sitemap inteiro."""
+
+    page_size = 500
+    page_size_query_param = "page_size"
+    max_page_size = 1000
+
+
+class SitemapView(APIView):
+    """
+    M-02 (run 20261012-1806-monetizacao-sprint1): lista paginada de
+    entradas publicáveis E indexáveis (com resumo próprio — ver M-03),
+    para `frontend/app/sitemap.ts` montar `/sitemap.xml`. GET público,
+    cacheável (allowlist de cache de borda do nginx, ver §0.1 do plano de
+    monetização) — payload não varia por usuário.
+    """
+
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        chave = _chave_cache_listagem(request, "sitemap")
+        em_cache = cache.get(chave)
+        if em_cache is not None:
+            return Response(em_cache)
+
+        entradas = services.entradas_sitemap()
+        paginator = SitemapPagination()
+        pagina = paginator.paginate_queryset(entradas, request, view=self)
+        serializer = SitemapEntrySerializer(pagina, many=True)
+        resposta = paginator.get_paginated_response(serializer.data)
+        cache.set(chave, resposta.data, _ttl_feed())
+        return resposta
 
 
 # ---------------------------------------------------------------------------

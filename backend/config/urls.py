@@ -45,6 +45,7 @@ urlpatterns = [
     path("api/contato/", include("contato.urls")),
     path("api/b2b/", include("b2b.urls")),
     path("api/metricas/", include("metricas.urls")),
+    path("api/patrocinio/", include("patrocinio.urls")),
     path("api/admin/", include("painel_admin.urls")),
     path("api/admin/robos/", include("catalogo_noticias.robos_urls")),
 ]
