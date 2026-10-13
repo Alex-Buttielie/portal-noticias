@@ -31,7 +31,13 @@ export function CartaoPremium({ formato, className }: { formato: FormatoAnuncio;
       )}
       style={{ minHeight: ALTURA_FORMATO[formato] }}
     >
-      <span className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--cor-premium)] text-[var(--cor-texto-invertido)]">
+      {/* `--cor-premium-hover` (não `--cor-premium`) aqui: achado do tester na
+          run 20261012-1806-monetizacao-sprint1 (Iteração 12) — o selo com
+          `--cor-premium` tinha contraste ~2,76:1 com o ícone no tema claro
+          (abaixo de 3:1). Com `--cor-premium-hover` sobe para ~4,62:1 no
+          claro e ~12,24:1 no escuro (calculado via fórmula WCAG), sem mudar
+          nenhum outro token do cartão. */}
+      <span className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--cor-premium-hover)] text-[var(--cor-texto-invertido)]">
         <Crown className="h-4 w-4" />
       </span>
       <p className="max-w-[28ch] text-balance text-sm font-medium leading-tight text-[var(--cor-texto)]">
