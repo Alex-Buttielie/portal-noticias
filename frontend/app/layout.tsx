@@ -23,6 +23,11 @@ export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   title: { default: SITE_NAME, template: `%s — ${SITE_NAME}` },
   description: SITE_DESCRIPTION,
+  // Canonical global (run 20261014-2113-correcao-seo, achado 1): vira o
+  // `<link rel="canonical">` de qualquer página que não declare o próprio
+  // `alternates.canonical` — combinado com `metadataBase` acima, resolve
+  // para a URL absoluta correta em cada rota.
+  alternates: { canonical: "/" },
   openGraph: { type: "website", locale: "pt_BR", siteName: SITE_NAME, title: SITE_NAME, description: SITE_DESCRIPTION, url: SITE_URL },
   robots: { index: true, follow: true },
   // Verificação de propriedade do AdSense via meta tag: AO CONTRÁRIO do

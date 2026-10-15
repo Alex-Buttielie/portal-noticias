@@ -4,7 +4,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { SITE_NAME } from "@/lib/site";
 import { CATEGORIAS, hrefSubcategoria } from "@/lib/categorias";
-export const metadata: Metadata = { title: `Editorias — ${SITE_NAME}`, description: `Todas as editorias do ${SITE_NAME}.` };
+export const metadata: Metadata = { title: `Editorias — ${SITE_NAME}`, description: `Todas as editorias do ${SITE_NAME}.`, alternates: { canonical: "/editorias" } };
 export default function Page() {
   return (
     <div className="space-y-6">

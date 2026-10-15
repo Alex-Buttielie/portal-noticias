@@ -108,7 +108,7 @@ export function SecaoColunistas({ colunistas }: { colunistas: Colunista[] }) {
             >
               <ImagemNoticia
                 seed={`col-${c.recente.id}`}
-                alt=""
+                alt={c.recente.titulo}
                 className="aspect-[16/9] w-full object-cover motion-safe:transition motion-safe:duration-300 group-hover:motion-safe:scale-[1.02]"
               />
             </Link>

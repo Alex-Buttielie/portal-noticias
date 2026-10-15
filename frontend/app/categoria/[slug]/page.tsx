@@ -19,7 +19,7 @@ import { JsonLd } from "@/components/JsonLd";
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
   const { slug: slugParam } = await params;
   const cat = decodeURIComponent(slugParam);
-  return { title: `${cat} — ${SITE_NAME}`, description: `Notícias de ${cat} no ${SITE_NAME}.`, openGraph: { title: `${cat} — ${SITE_NAME}`, url: `${SITE_URL}/categoria/${encodeURIComponent(cat)}` } };
+  return { title: `${cat} — ${SITE_NAME}`, description: `Notícias de ${cat} no ${SITE_NAME}.`, alternates: { canonical: `/categoria/${encodeURIComponent(cat)}` }, openGraph: { title: `${cat} — ${SITE_NAME}`, url: `${SITE_URL}/categoria/${encodeURIComponent(cat)}` } };
 }
 export function generateStaticParams() { return [{ slug: "politica" }, { slug: "economia" }, { slug: "tecnologia" }, { slug: "esportes" }, { slug: "cultura" }]; }
 export const revalidate = 60;

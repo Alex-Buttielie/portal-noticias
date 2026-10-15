@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SITE_NAME } from "@/lib/site";
 import NewsletterForm, { DescadastrarForm } from "./NewsletterForm";
-export const metadata: Metadata = { title: `Newsletter — ${SITE_NAME}`, description: `Assine a newsletter do ${SITE_NAME}.` };
+export const metadata: Metadata = { title: `Newsletter — ${SITE_NAME}`, description: `Assine a newsletter do ${SITE_NAME}.`, alternates: { canonical: "/newsletter" } };
 export default function Page() {
   return (
     <div className="mx-auto max-w-2xl space-y-4">

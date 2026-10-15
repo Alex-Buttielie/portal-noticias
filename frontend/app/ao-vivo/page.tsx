@@ -6,7 +6,7 @@ import { SITE_NAME } from "@/lib/site";
 import { obterUrgentes, type FeedEntrada } from "@/lib/api";
 import { formatarDataHoraCompacta } from "@/lib/datas";
 import { EstadoVazio } from "@/components/EstadoVazio";
-export const metadata: Metadata = { title: `Ao vivo — ${SITE_NAME}`, description: `Cobertura ao vivo no ${SITE_NAME} — urgentes em tempo real.` };
+export const metadata: Metadata = { title: `Ao vivo — ${SITE_NAME}`, description: `Cobertura ao vivo no ${SITE_NAME} — urgentes em tempo real.`, alternates: { canonical: "/ao-vivo" } };
 export const revalidate = 30;
 export default async function Page() {
   // P0-08: sem item urgente inventado. Falha/vazio => estado honesto.
