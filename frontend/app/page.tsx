@@ -10,6 +10,9 @@ import { EstadoVazio } from "@/components/EstadoVazio";
 export const metadata: Metadata = {
   title: SITE_NAME,
   description: SITE_DESCRIPTION,
+  // Explícito mesmo herdando do layout global (ver `app/layout.tsx`) — evita
+  // regressão silenciosa na home se o canonical global mudar algum dia.
+  alternates: { canonical: "/" },
 };
 
 export const revalidate = 60;
@@ -68,9 +71,16 @@ async function getData(): Promise<DadosHome> {
 
 export default async function Page() {
   const { feed, urg, maisLidas, destaques, colunistas } = await getData();
+  // H1 visualmente oculto (`sr-only`, mesmo padrão de NewsCard.tsx:329) —
+  // run 20261014-2113-correcao-seo, achado 2: a home não tinha nenhum H1.
+  // Texto natural (não disputa com o H2 "Destaques do dia" de DestaquesDia.tsx)
+  // presente nos dois caminhos de retorno (feed vazio e feed normal), para
+  // garantir exatamente um H1 em qualquer resposta de `GET /`.
+  const h1 = <h1 className="sr-only">Capa do {SITE_NAME} — últimas notícias e destaques do dia</h1>;
   if (!feed.length) {
     return (
       <div className="space-y-6">
+        {h1}
         <DestaquesDia destaques={destaques} />
         <EstadoVazio
           titulo="Nenhuma notícia disponível agora"
@@ -82,6 +92,7 @@ export default async function Page() {
   }
   return (
     <>
+      {h1}
       <DestaquesDia destaques={destaques} />
       <HomeClient feed={feed} urg={urg} maisLidas={maisLidas} colunistas={colunistas} />
     </>

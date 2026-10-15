@@ -13,7 +13,7 @@ import { sanitizarHtmlEditorial } from "@/lib/sanitizar-html";
 // P0-08: estado de indisponibilidade REAL quando o backend não responde —
 // em vez de inventar uma página para a tela não ficar vazia.
 import { EstadoVazio } from "@/components/EstadoVazio";
-export async function generateMetadata({params}:{params:Promise<{slug:string}>}): Promise<Metadata>{ const {slug}=await params; return { title: `${slug} - ${SITE_NAME}`, openGraph:{ title: slug, url: `${SITE_URL}/paginas/${slug}` } }; }
+export async function generateMetadata({params}:{params:Promise<{slug:string}>}): Promise<Metadata>{ const {slug}=await params; return { title: `${slug} - ${SITE_NAME}`, alternates: { canonical: `/paginas/${slug}` }, openGraph:{ title: slug, url: `${SITE_URL}/paginas/${slug}` } }; }
 // SEM `generateStaticParams` — e a remoção é deliberada.
 //
 // O que ele declarava era `[{slug:"termos"}, {slug:"sobre"}]`. MEDIDO nos

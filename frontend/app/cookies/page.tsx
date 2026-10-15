@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Card, CardContent } from "@/components/ui/card";
 import { SITE_NAME } from "@/lib/site";
-export const metadata: Metadata = { title: `Cookies — ${SITE_NAME}`, description: `Política de cookies do ${SITE_NAME}.` };
+export const metadata: Metadata = { title: `Cookies — ${SITE_NAME}`, description: `Política de cookies do ${SITE_NAME}.`, alternates: { canonical: "/cookies" } };
 export default function Page() {
   return (
     <div className="mx-auto max-w-3xl space-y-4">

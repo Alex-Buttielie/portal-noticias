@@ -8,7 +8,7 @@ import { formatarDataHoraCompacta } from "@/lib/datas";
 import { AdsSlot } from "@/components/AdsSlot";
 import { ImagemNoticia } from "@/components/ImagemNoticia";
 import { EstadoVazio } from "@/components/EstadoVazio";
-export const metadata: Metadata = { title: `Arquivo — ${SITE_NAME}`, description: `Arquivo de notícias do ${SITE_NAME}.` };
+export const metadata: Metadata = { title: `Arquivo — ${SITE_NAME}`, description: `Arquivo de notícias do ${SITE_NAME}.`, alternates: { canonical: "/arquivo" } };
 export const revalidate = 60;
 export default async function Page({ searchParams }: { searchParams: Promise<{ page?: string }> }) {
   const sp = await searchParams;
@@ -31,7 +31,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ p
         ) : itens.map((n)=>(
           <Link key={`${n.tipo}-${n.id}`} href={`/noticia/${n.id}`} className="flex gap-3 rounded-[var(--raio-lg)] border border-[var(--cor-borda)] bg-[var(--cor-fundo-card)] p-3 hover:bg-[var(--cor-primaria-suave)]">
             <span className="hidden aspect-[16/9] h-14 w-24 shrink-0 overflow-hidden rounded-md border border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] md:block" aria-hidden>
-              <ImagemNoticia src={n.imagem_url} seed={`${n.categoria || "geral"}-${n.id}`} alt="" sizes="192px" className="h-full w-full object-cover" />
+              <ImagemNoticia src={n.imagem_url} seed={`${n.categoria || "geral"}-${n.id}`} alt={n.titulo} sizes="192px" className="h-full w-full object-cover" />
             </span>
             <div className="min-w-0 flex-1"><div className="flex items-center gap-2"><Badge variant="outline" className="border-[var(--cor-borda)] capitalize text-xs">{n.categoria}</Badge>{n.urgente&&<Badge className="bg-[var(--cor-sinal)] text-[var(--cor-texto-invertido)] text-xs">urgente</Badge>}<span className="ml-auto text-xs text-[var(--cor-texto-suave)]">{formatarDataHoraCompacta(n.timestamp)}</span></div><p className="mt-1 line-clamp-2 font-semibold text-[var(--cor-texto)]">{n.titulo}</p><p className="line-clamp-1 text-sm text-[var(--cor-texto-suave)]">{n.resumo}</p></div>
           </Link>

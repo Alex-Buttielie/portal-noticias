@@ -17,9 +17,19 @@ export const SITE_DESCRIPTION =
 export const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000").replace(/\/$/, "");
 
 // Imagem padrão usada quando um conteúdo não tem imagem própria (ex.:
-// NewsItem não tem campo de imagem no modelo atual — ver
-// implementation-history.md desta run, "lacuna de conteúdo" registrada,
-// não corrigida aqui por estar fora de escopo — Não-objetivos: multimídia).
-// Placeholder de rascunho: precisa ser substituída por um asset visual real
-// desenhado antes de produção.
+// NewsItem não tem campo de imagem no modelo atual — "lacuna de conteúdo"
+// registrada, não corrigida aqui por estar fora de escopo — Não-objetivos:
+// multimídia).
+// ATENÇÃO: o arquivo `og-padrao.svg` NÃO EXISTE no projeto hoje — a pasta
+// `frontend/public/` nem existe (confirmado por busca no repositório, não é
+// suposição). Esta constante é usada hoje só nos dados estruturados
+// (JSON-LD, `lib/schema.ts`: `organizationJsonLd`/`newsArticleJsonLd`), que
+// portanto também referenciam um caminho inexistente; ela NÃO está ligada
+// ao `openGraph` do layout raiz, então nenhuma página emite `og:image`.
+// Além disso, mesmo que o arquivo existisse, SVG não é um formato aceito
+// como `og:image` pelos principais consumidores (Facebook/WhatsApp/
+// LinkedIn exigem PNG/JPG). É necessário produzir um asset de design real
+// (PNG/JPG, proporção 1200×630), publicá-lo em `frontend/public/` e então
+// trocar esta constante para apontar para ele e adicionar
+// `images: [IMAGEM_OG_PADRAO]` ao `openGraph` em `frontend/app/layout.tsx`.
 export const IMAGEM_OG_PADRAO = `${SITE_URL}/og-padrao.svg`;

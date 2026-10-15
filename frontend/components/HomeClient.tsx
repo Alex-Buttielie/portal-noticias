@@ -266,7 +266,7 @@ export function HomeClient({
                 <ImagemNoticia
                   src={u.imagem_url}
                   seed={`${u.categoria || "geral"}-${u.id}`}
-                  alt=""
+                  alt={u.titulo}
                   sizes="96px"
                   className="h-16 w-20 shrink-0 rounded-md object-cover"
                 />
@@ -390,7 +390,7 @@ export function HomeClient({
                       <ImagemNoticia
                         src={item.imagem_url}
                         seed={`${item.categoria || "geral"}-${item.id}`}
-                        alt=""
+                        alt={item.titulo}
                         sizes="64px"
                         className="h-12 w-16 shrink-0 rounded-[var(--raio-sm)] object-cover"
                       />

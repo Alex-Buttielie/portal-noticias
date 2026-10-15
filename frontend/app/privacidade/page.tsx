@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Card, CardContent } from "@/components/ui/card";
 import { SITE_NAME } from "@/lib/site";
-export const metadata: Metadata = { title: `Privacidade — ${SITE_NAME}`, description: `Política de privacidade do ${SITE_NAME} — LGPD.` };
+export const metadata: Metadata = { title: `Privacidade — ${SITE_NAME}`, description: `Política de privacidade do ${SITE_NAME} — LGPD.`, alternates: { canonical: "/privacidade" } };
 export default function Page() {
   return (
     <div className="mx-auto max-w-3xl space-y-4">

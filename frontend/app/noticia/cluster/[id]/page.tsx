@@ -8,7 +8,7 @@ import { LeituraPremium } from "../../LeituraPremium";
 import { NoticiaReporter } from "@/components/Reporters";
 import { CoberturaCompleta } from "@/components/CoberturaCompleta";
 import { JsonLd } from "@/components/JsonLd";
-export async function generateMetadata({params}:{params:Promise<{id:string}>}): Promise<Metadata>{ const {id}=await params; let t=`Cluster #${id} - ${SITE_NAME}`; try{ const d=await obterDetalheCluster(id); t=d.titulo;}catch{} return {title:t, openGraph:{url:`${SITE_URL}/noticia/cluster/${id}`}}; }
+export async function generateMetadata({params}:{params:Promise<{id:string}>}): Promise<Metadata>{ const {id}=await params; let t=`Cluster #${id} - ${SITE_NAME}`; try{ const d=await obterDetalheCluster(id); t=d.titulo;}catch{} return {title:t, alternates:{canonical:`/noticia/cluster/${id}`}, openGraph:{url:`${SITE_URL}/noticia/cluster/${id}`}}; }
 export function generateStaticParams(){ return [{id:"1"}]; }
 export const revalidate=60;
 // P0-08: sem "Fonte Exemplo" — cluster inexistente vira 404, não notícia fictícia.
