@@ -2,9 +2,14 @@
 
 > Gravado a pedido do Alex em 2026-09-17. Regra: **se precisar de qualquer
 > informação externa (chaves, contas, provedor, revisão), PERGUNTAR ao Alex
-> em vez de adivinhar.** Infra ativa: **PM2 + Nginx** na VPS, conforme
-> `CI-CD.md` e `infra/nginx/`; Docker + Caddy é a variante alternativa/local
-> documentada em `infra/DEPLOY.md`.
+> em vez de adivinhar.**
+>
+> **Corrigido em 2026-10-15** (reconfirmado por SSH): a linha original desta
+> nota ("Infra ativa: PM2 + Nginx") ficou desatualizada desde o cutover de
+> 2026-10-11 e nunca foi corrigida. Infra ativa hoje: **Docker Compose +
+> GHCR na aplicação, Nginx + Certbot na borda**, nos 3 ambientes — PM2 não
+> está mais instalado na VPS. `infra/docker-edge/` (Caddy compartilhado) é
+> código preparado, não ativado. Ver `CI-CD.md` para o estado completo.
 
 ## Ordem de execução
 

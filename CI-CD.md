@@ -32,9 +32,14 @@ o `verify` chamado pelo deploy cobre a tag e verifica seu SHA.
 > **[HISTÓRICO — substituído em 2026-10-11]** O bloco abaixo (preservado na
 > íntegra) descrevia o momento em que o cutover para Docker Compose + GHCR
 > já estava pronto no código, mas ainda não tinha sido aplicado na VPS. Esse
-> momento passou: o cutover foi **concluído de verdade** em DEV, HOMOLOG e
-> PROD em 2026-10-11 (ver bloco "Cutover concluído" logo abaixo, que é o
-> estado atual).
+> momento passou: o cutover da **aplicação** foi **concluído de verdade** em
+> DEV, HOMOLOG e PROD em 2026-10-11 (ver bloco "Cutover concluído" logo
+> abaixo, que é o estado atual) — mas a metade deste plano que previa trocar
+> a borda por um Caddy único compartilhado **nunca aconteceu**: a VPS
+> continua com Nginx + Certbot como borda real nos três ambientes
+> (reconfirmado por SSH em 2026-10-15). Onde o parágrafo abaixo descreve o
+> plano original ("...um Caddy único compartilhado substitui o Nginx..."),
+> trate como a intenção da época, não como o que está instalado hoje.
 >
 > **Cutover para Docker Compose + GHCR — pronto no código, NÃO ativo na VPS.**
 > O restante deste documento descreve a topologia **PM2 + Nginx**, que é a
@@ -61,8 +66,9 @@ o `verify` chamado pelo deploy cobre a tag e verifica seu SHA.
 > sem senha em DEV/HOMOLOG — ver a seção dedicada mais abaixo). Decisão
 > registrada ali, não um gap pendente.
 
-> **Cutover concluído (2026-10-11) — topologia ativa hoje.** Docker Compose +
-> GHCR é a infraestrutura real em DEV, HOMOLOG e PROD. A cada deploy, o job
+> **Cutover concluído (2026-10-11) — topologia ativa hoje, reconfirmada por
+> SSH em 2026-10-15.** Docker Compose + GHCR é a infraestrutura real da
+> **aplicação** em DEV, HOMOLOG e PROD. A cada deploy, o job
 > `build-and-push` do `deploy.yml` builda e publica as imagens em
 > `ghcr.io/alex-buttielie/portal-noticias-{backend,frontend}:<ambiente>-<sha>`,
 > e a VPS só executa `docker compose pull && up -d --remove-orphans` — sem
@@ -70,19 +76,44 @@ o `verify` chamado pelo deploy cobre a tag e verifica seu SHA.
 > `web`, via `backend/docker-entrypoint.sh`, a cada start). Cada ambiente
 > sobe 6 serviços pelo `docker-compose.yml` da raiz: `db` (Postgres,
 > volume próprio), `redis`, `web` (Django/gunicorn), `celery-worker`,
-> `celery-beat` e `frontend` (Next.js). TLS é automático, emitido e
-> renovado por um Caddy único compartilhado pelos três ambientes
-> (`infra/docker-edge/`), que substitui Nginx + Certbot. Confirmado ao vivo
-> em produção: 6 containers saudáveis, `https://portal-noticias.com`
-> respondendo 200 pelo domínio real, zero erro novo nos logs. O PM2 de
-> produção foi **parado, não removido** — mantido como fallback por um
-> período de observação; o `rollback.yml` roteia rollback de todos os
-> ambientes por Docker (o job `rollback-pm2` continua no arquivo com
-> `if: false`, inatingível, só como referência histórica). As seções
-> abaixo marcadas **[HISTÓRICO]** descrevem a topologia PM2 + Nginx que
-> rodou de verdade até essa data; permanecem no documento para quem
-> precisar entender o deploy anterior ou operar o fallback. Ver
-> `infra/DEPLOY.md` para o runbook completo da topologia Docker.
+> `celery-beat` e `frontend` (Next.js) — confirmado em 2026-10-15 via
+> `docker ps` na VPS (`portal-{dev,homolog,prod}-{web,frontend,celery-worker,celery-beat,db,redis}`,
+> todos `healthy`).
+>
+> **A borda (TLS + roteamento) nunca saiu do Nginx.** O corte para um Caddy
+> único compartilhado (`infra/docker-edge/`) — que o texto anterior desta
+> seção descrevia como já ativo — **não aconteceu de verdade**: confirmado
+> em 2026-10-15 via SSH que não há processo nem serviço Caddy na VPS
+> (`pgrep -a caddy` vazio, `systemctl is-active caddy` → `inactive`), e que
+> `systemctl is-active nginx` → `active`, com os vhosts por ambiente
+> (`/etc/nginx/sites-available/portal-{dev,homolog,prod}`) apontando para as
+> portas de loopback dos containers (ex.: `portal-prod` → `127.0.0.1:5103`),
+> TLS emitido por Certbot/Let's Encrypt (`/etc/letsencrypt/live/...`) — ver
+> seção *3A* de `infra/DEPLOY.md`, que descreve o caminho **real**, não um
+> fallback histórico. O diretório `infra/docker-edge/` existe no repositório
+> e está presente nos checkouts `/home/apps/portal-{dev,homolog,prod}` da
+> VPS (veio no `git clone`/`git reset --hard` de cada deploy), mas o Caddy em
+> si nunca foi instalado nem iniciado ali.
+>
+> **Decisão (2026-10-15):** `infra/docker-edge/` fica como *preparado, não
+> ativado* — código mantido no repositório para uma eventual migração futura
+> da borda de Nginx para Caddy, sem prazo definido; não há plano de
+> ativação em andamento. Ver `infra/docker-edge/CUTOVER-RUNBOOK.md` (também
+> corrigido nesta data) para o estado histórico da tentativa de cutover do
+> Caddy.
+>
+> Confirmado ao vivo em produção (2026-10-15): 6 containers saudáveis por
+> ambiente, `https://portal-noticias.com` respondendo 200 via Nginx, zero
+> erro novo nos logs. O PM2 **não está mais instalado** na VPS (confirmado
+> 2026-10-15: `pm2` não existe no `$PATH`) — não é mais um fallback
+> disponível, apesar do que o texto anterior desta seção dizia ("parado, não
+> removido"); o `rollback.yml` roteia rollback de todos os ambientes por
+> Docker (o job `rollback-pm2` continua no arquivo com `if: false`,
+> inatingível, só como referência histórica). As seções abaixo marcadas
+> **[HISTÓRICO]** descrevem a topologia PM2 + Nginx que rodou de verdade até
+> 2026-10-11; permanecem no documento para quem precisar entender o deploy
+> anterior — não há fallback PM2 operável hoje. Ver `infra/DEPLOY.md` para o
+> runbook completo da topologia Docker + Nginx.
 
 ### Ambientes na VPS (PM2 + Nginx — topologia histórica)
 

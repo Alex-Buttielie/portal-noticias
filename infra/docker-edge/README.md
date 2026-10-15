@@ -1,4 +1,11 @@
-# Caddy compartilhado (cutover Docker)
+# Caddy compartilhado (preparado, não ativado)
+
+> **Status (2026-10-15):** este Caddy nunca foi instalado/ativado na VPS —
+> confirmado por SSH (`pgrep -a caddy` vazio, `systemctl is-active caddy` →
+> `inactive`). A borda real dos três ambientes continua sendo o Nginx por
+> ambiente + Certbot (ver `CI-CD.md` e `infra/DEPLOY.md` §3A). Este
+> diretório fica como código preparado para uma eventual migração futura,
+> sem prazo definido — decisão do solicitante registrada em `CI-CD.md`.
 
 Único processo Caddy da VPS, compartilhado pelos três ambientes
 (dev/homolog/prod) — o mesmo papel que o Nginx único faz hoje

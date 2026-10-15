@@ -137,13 +137,18 @@ falsos-positivos documentados, credenciamento, moderação, gating). O que
 estava genuinamente ausente — e que esta seção define — é a **arquitetura
 de infraestrutura de produção**, que antes desta mudança não existia.
 
-### 9.2 Topologia ativa: Docker Compose + GHCR + Caddy
+### 9.2 Topologia ativa: Docker Compose + GHCR na aplicação, Nginx na borda
 
-> **Cutover concluído em 2026-10-11.** DEV, HOMOLOG e PROD rodam hoje em
-> Docker Compose, com imagens publicadas no GHCR a cada deploy e TLS
-> automático via Caddy. A topologia PM2 + Nginx descrita no restante desta
-> seção (preservada abaixo) rodou de verdade em produção até essa data e
-> agora é histórico — mantida como fallback (PM2 parado, não removido).
+> **Cutover concluído em 2026-10-11, borda reconfirmada por SSH em
+> 2026-10-15.** DEV, HOMOLOG e PROD rodam hoje a aplicação em Docker
+> Compose, com imagens publicadas no GHCR a cada deploy. **A borda
+> continua sendo o Nginx + Certbot de sempre** — o corte para um Caddy único
+> compartilhado (`infra/docker-edge/`) nunca foi ativado na VPS (confirmado:
+> nenhum processo/serviço Caddy rodando); esse diretório fica como
+> preparado, não ativado (ver `CI-CD.md`). A topologia PM2 + Nginx descrita
+> no restante desta seção (preservada abaixo) rodou de verdade em produção
+> até 2026-10-11 e agora é histórico — sem fallback operável: o PM2 não
+> está mais instalado na VPS.
 
 A cada deploy, o GitHub Actions builda e publica as imagens em
 `ghcr.io/alex-buttielie/portal-noticias-{backend,frontend}:<ambiente>-<sha>`,
@@ -152,12 +157,12 @@ fazendo pip/npm/venv/migrate manual (tudo roda dentro do container `web`, via
 `backend/docker-entrypoint.sh`, a cada start). Cada ambiente sobe 6 serviços
 pelo `docker-compose.yml` da raiz: `db` (PostgreSQL, volume próprio),
 `redis`, `web` (Gunicorn/Django), `celery-worker`, `celery-beat` e `frontend`
-(Next.js). Um Caddy único, compartilhado pelos três ambientes
-(`infra/docker-edge/`), termina TLS automaticamente (emissão e renovação sem
-intervenção manual) e substitui Nginx + Certbot.
+(Next.js). O Nginx por ambiente (`/etc/nginx/sites-available/portal-*`)
+termina TLS via Certbot/Let's Encrypt e roteia para as portas de loopback
+dos containers — exatamente como fazia antes do cutover da aplicação.
 
 ```
-Internet → Caddy compartilhado (infra/docker-edge/; TLS automático, 3 ambientes)
+Internet → Nginx por ambiente (TLS via Certbot/Let's Encrypt)
               → frontend (container Next.js)
               → web (container Gunicorn/Django, /api/)
                     → redis (container; cache + broker/result do Celery)

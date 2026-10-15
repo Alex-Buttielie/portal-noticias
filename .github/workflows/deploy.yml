@@ -5,23 +5,27 @@ name: Deploy portal (reutilizável)
 # trigger + parâmetros; o caller manual de rollback reutiliza este mesmo
 # caminho — qualquer correção aqui vale para os três ambientes de uma vez.
 #
-# CUTOVER (substitui a topologia PM2 + Nginx, agora histórica — ver
-# CI-CD.md/infra/DEPLOY.md). O que mudou, em uma tela:
+# CUTOVER (substitui PM2 por Docker Compose + GHCR na APLICAÇÃO; a borda
+# continua sendo o Nginx de sempre — ver CI-CD.md/infra/DEPLOY.md, reconfirmado
+# por SSH em 2026-10-15). O que mudou, em uma tela:
 # - as imagens são buildadas e publicadas no GHCR AQUI, no runner do GitHub
 #   (job build-and-push), nunca mais na VPS — zero pip/npm/venv por SSH;
 # - a VPS só faz `docker compose pull && up -d`; o rollback é repontar a
 #   mesma imagem de uma tag antiga, nunca rebuild (ver rollback.yml);
 # - `.env.production` ainda é criado UMA vez por ambiente (nunca
-#   sobrescrito), mas é mais simples: TLS é sempre automático (Caddy
-#   compartilhado, infra/docker-edge/), sem o antigo flag `tls_enabled`;
+#   sobrescrito); TLS continua pelo Certbot/Nginx de sempre (o flag antigo
+#   `tls_enabled` saiu porque TLS já está ativo nos três ambientes, não
+#   porque um Caddy assumiu — infra/docker-edge/ existe no repo mas não foi
+#   instalado/ativado na VPS);
 # - migrate/collectstatic/check acontecem DENTRO do container `web` a cada
 #   start (backend/docker-entrypoint.sh) — nenhum passo manual por SSH;
-# - não há mais PM2, release symlink nem systemd do Celery: os 6 serviços
+# - não há mais PM2 (nem o binário segue instalado na VPS), release symlink
+#   nem systemd do Celery: os 6 serviços
 #   (db/redis/web/celery-worker/celery-beat/frontend) são o
 #   docker-compose.yml da raiz, com restart policy e healthcheck próprios;
 # - `web`/`frontend` publicam só em 127.0.0.1 (loopback) — quem alcança de
-#   fora é o Caddy único e compartilhado dos três ambientes
-#   (infra/docker-edge/), não parte deste workflow;
+#   fora é o Nginx por ambiente (`/etc/nginx/sites-available/portal-*`,
+#   fora deste workflow), não o Caddy de infra/docker-edge/ (não ativado);
 # - `.deployed-sha` continua sendo a fronteira de recuperação, promovida só
 #   depois do probe pós-deploy (mesmo contrato de antes).
 #
@@ -402,9 +406,10 @@ jobs:
               exit 1
             fi
 
-            # `.env.production` criado UMA vez (nunca sobrescrito). TLS é
-            # sempre automático (Caddy compartilhado) — sem o antigo flag
-            # tls_enabled: os três cookies/redirect ficam sempre `true`.
+            # `.env.production` criado UMA vez (nunca sobrescrito). TLS já
+            # está ativo nos três ambientes via Certbot/Nginx (fora deste
+            # workflow) — sem o antigo flag tls_enabled: os três
+            # cookies/redirect ficam sempre `true`.
             if [ ! -f .env.production ]; then
               SECRET=$(python3 -c "import secrets;print(secrets.token_urlsafe(50))")
               ENV_TMP=".env.production.tmp.$$"
@@ -517,7 +522,7 @@ jobs:
               fi
             }
             # Probe pelo loopback, direto nos containers — não depende do
-            # Caddy compartilhado estar no ar nem do DNS externo. Mesma razão
+            # Nginx estar no ar nem do DNS externo. Mesma razão
             # do X-Forwarded-Proto do Nginx de antes: com
             # DJANGO_SECURE_SSL_REDIRECT=true (sempre, agora), um GET sem esse
             # header redirecionaria (301) em vez de responder 200.

@@ -15,16 +15,22 @@ Este repositório contém a documentação de negócio (`BRD_portal_noticias_ver
 
 ## Deploy e infraestrutura
 
-A topologia VPS ativa usa **Gunicorn + PM2 + Nginx**; os runbooks são
-`CI-CD.md` e `infra/DEPLOY.md`. O backup da topologia ativa usa
-`infra/backup/pg_backup_pm2.sh`; a seção 0 do runbook de infraestrutura cobre
-cron, S3 e restore, enquanto `infra/backup/pg_backup.sh` é exclusivo da variante
-Docker/Caddy. O Gunicorn usa uma configuração única em
+> **Corrigido em 2026-10-15** (reconfirmado por SSH): este parágrafo estava
+> desatualizado desde o cutover de 2026-10-11. A topologia VPS ativa hoje é
+> **Docker Compose + GHCR na aplicação, Nginx + Certbot na borda** — PM2 não
+> está mais instalado na VPS. O backup ativo usa `infra/backup/pg_backup.sh`
+> (confirmado pelo `crontab` real, rodando diariamente nos 3 ambientes);
+> `pg_backup_pm2.sh` é quem está obsoleto. Ver `CI-CD.md` para o estado
+> completo e `infra/DEPLOY.md` para o runbook.
+
+A topologia VPS usa **Gunicorn + Docker + Nginx**; os runbooks são
+`CI-CD.md` e `infra/DEPLOY.md`. O Gunicorn usa uma configuração única em
 `backend/gunicorn.conf.py`: `worker_class = gthread`, 2 workers × 4 threads e
-`timeout = 60` por padrão (ajustáveis por `GUNICORN_*`). O PM2 passa o caminho
-absoluto desse arquivo em `--config`, e o timeout pode ser reduzido para 45 s
-somente depois que o endpoint 202+background estiver no ref implantado,
-alterando Gunicorn e Nginx na mesma mudança.
+`timeout = 60` por padrão (ajustáveis por `GUNICORN_*`). O `CMD` do
+`backend/Dockerfile` chama `gunicorn config.wsgi:application` direto (o conf
+é carregado automaticamente, sem `--config` explícito) — o timeout pode ser
+reduzido para 45 s somente depois que o endpoint 202+background estiver no
+ref implantado, alterando Gunicorn e Nginx na mesma mudança.
 
 O Nginx comprime respostas, mantém conexões com o upstream, limita escritas
 públicas e usa cache curto de rotas GET públicas. `/static/` e somente
@@ -32,18 +38,18 @@ públicas e usa cache curto de rotas GET públicas. `/static/` e somente
 `/media/credenciamento/` **não** têm alias público e continuam disponíveis
 somente pela `DocumentoView` autenticada. A ativação dos includes de
 cache/rate na VPS segue a ordem include global no `http {}` → snippets/site →
-`nginx -t` → reload → restart da API no PM2.
+`nginx -t` → reload → restart do serviço `web` no Docker Compose.
 
-A topologia Docker/Caddy é alternativa, mas seu edge também é fail-closed:
-`/media/credenciamento` e seus descendentes retornam 404, somente
-`/media/public/*` é servido a partir de `/srv/media/public` e qualquer outro
-caminho sob `/media*` é fechado. Assim, a configuração versionada do Caddy não
-oferece um fallback para toda a árvore de mídia; consulte `infra/DEPLOY.md`
+`infra/docker-edge/` (Caddy compartilhado) existe no repositório como
+alternativa preparada, mas não ativada na VPS (ver `CI-CD.md`) — seu edge
+também é fail-closed: `/media/credenciamento` e seus descendentes retornam
+404, somente `/media/public/*` é servido a partir de `/srv/media/public` e
+qualquer outro caminho sob `/media*` é fechado. Consulte `infra/DEPLOY.md`
 antes de alterar essa política.
 
-**TLS:** os confs Nginx já suportam HTTPS via Certbot, mas a ativação exige
-seguir o runbook em `infra/DEPLOY.md`; produção hoje continua em HTTP até o
-certificado ser emitido e `tls_enabled` ser habilitado.
+**TLS:** os três ambientes já têm HTTPS ativo via Nginx + Certbot/Let's
+Encrypt (confirmado por SSH em 2026-10-15); ver `infra/DEPLOY.md` §3A para o
+runbook de emissão/renovação.
 
 ## Inicialização rápida (Windows/PowerShell)
 
