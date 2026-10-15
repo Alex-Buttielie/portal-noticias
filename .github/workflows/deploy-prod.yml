@@ -51,8 +51,9 @@ jobs:
       web_port: "3103"
       api_port: "5103"
       host: portal-noticias.com
-      # TLS automático (Caddy compartilhado, infra/docker-edge/) — sem o
-      # antigo flag `tls_enabled` da topologia PM2/Nginx+Certbot.
+      # TLS continua pelo Certbot/Nginx de sempre (infra/docker-edge/ existe
+      # no repo mas não foi ativado na VPS) — sem o antigo flag
+      # `tls_enabled` da topologia PM2, porque TLS já está ativo.
       allowed_hosts_extra: ",www.portal-noticias.com"
       db_name: brd_portal_prod
       db_user: portal_prod

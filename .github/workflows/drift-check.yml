@@ -35,7 +35,7 @@ jobs:
           - env_label: PROD
             app_dir: /home/apps/portal-prod
             host: portal-noticias.com
-            expected_runtime: pm2
+            expected_runtime: docker
             web_port: "3103"
             api_port: "5103"
     runs-on: ubuntu-latest

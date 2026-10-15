@@ -1,5 +1,17 @@
 # Provisionamento das filas (P1-03) — dependência humana, item P0-07
 
+> **[HISTÓRICO/SUPERADO — marcado em 2026-10-15]** Este arquivo descrevia o
+> provisionamento de `redis`/`celery-worker`/`celery-beat` como uma decisão
+> humana ainda pendente ("Decisão de supervisor ainda não tomada", systemd
+> vs. PM2). O cutover Docker de 2026-10-11 resolveu isso por outro caminho:
+> confirmado por SSH em 2026-10-15, `docker ps` mostra
+> `portal-{dev,homolog,prod}-{redis,celery-worker,celery-beat}-1` saudáveis
+> nos 3 ambientes, como serviços do `docker-compose.yml` da raiz (restart
+> policy própria do Compose, não systemd nem PM2 — nenhum dos dois está
+> instalado na VPS). Texto original preservado abaixo como registro
+> histórico de como o problema foi pensado antes do cutover; não siga os
+> passos abaixo para provisionar um ambiente novo.
+
 Este arquivo **não** é um tutorial. É a lista exata do que falta para a
 terceira parte do critério de saída do P1-03 — *"task registrada, consumida
 e **monitorada por ambiente**"* — virar verdade em DEV, HOMOLOG e PROD.

@@ -1,11 +1,31 @@
 # Runbook: ativação do cutover Docker em DEV
 
-> **Reescrito em 2026-10-11.** A versão anterior deste runbook assumia os 3
-> ambientes (DEV/HOMOLOG/PROD) migrando pra Docker. Isso não é mais o plano:
-> a PR #39 restaurou PM2+Nginx pra HOMOLOG/PROD de vez (`deploy-pm2.yml`,
-> incidente: HOMOLOG tinha ficado um `pull_request` de distância de um
-> `docker compose up` não preparado). **Só DEV vai pra Docker.** Este
-> runbook cobre um ambiente só.
+> **[HISTÓRICO/DESATUALIZADO — marcado em 2026-10-15, nunca atualizado desde
+> 2026-10-11]** Este runbook assumia, pela PR #39 (2026-10-10), que
+> HOMOLOG/PROD tinham voltado pra PM2+Nginx "de vez" e que só DEV iria pra
+> Docker. Isso valeu por pouquíssimo tempo: no mesmo dia 2026-10-11, PROD
+> completou a Fase E (inventário, backup, validação em paralelo, migração de
+> dados com gate de confirmação — ver comentário de
+> `.github/workflows/deploy-prod.yml`) e **também** foi cortado pra Docker;
+> HOMOLOG seguiu o mesmo caminho. Este documento nunca foi atualizado para
+> refletir isso. Reconfirmado por SSH em 2026-10-15: os 3 ambientes
+> (dev/homolog/prod) rodam a aplicação em containers Docker — ver o estado
+> real em `CI-CD.md` ("Cutover concluído").
+>
+> **A parte que segue correta:** a conclusão de que o Caddy compartilhado
+> deste diretório (`infra/docker-edge/`) não era necessário. Isso se
+> confirmou — e permanece verdade hoje: a borda dos 3 ambientes continua
+> sendo o Nginx (vhosts por ambiente + Certbot), nunca o Caddy daqui. Por
+> decisão do solicitante (2026-10-15), este diretório fica como "preparado,
+> não ativado" no repositório, sem plano de ativação definido.
+>
+> O passo a passo abaixo (escrito só para DEV, assumindo que HOMOLOG/PROD
+> ficariam em PM2 para sempre) está desatualizado como procedimento — DEV já
+> está em Docker há tempos e HOMOLOG/PROD também migraram por um caminho
+> diferente do descrito aqui (ver `agentic-framework/state/run-20260925-1433-go-live-producao/`
+> para o histórico real da migração de PROD). Preservado abaixo só como
+> referência histórica de como o cutover de DEV foi pensado originalmente;
+> não siga estes passos para provisionar um ambiente novo.
 
 ## O que muda nesta versão
 
