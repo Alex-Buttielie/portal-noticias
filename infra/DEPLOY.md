@@ -31,23 +31,36 @@
 > de infra (`docker-compose.yml` + `Caddyfile` na raiz do projeto). Faça uma
 > vez por VPS; deploys seguintes usam só a seção "Deploy de uma nova versão".
 
-> **Caminho ativo hoje (2026-10-11): Docker Compose + GHCR + Caddy.** O
-> cutover foi concluído em DEV, HOMOLOG e PROD. A cada deploy, o GitHub
-> Actions builda e publica as imagens em
+> **Caminho ativo hoje (2026-10-11 na aplicação; reconfirmado por SSH em
+> 2026-10-15): Docker Compose + GHCR na aplicação, Nginx + Certbot na
+> borda.** O cutover da aplicação foi concluído em DEV, HOMOLOG e PROD. A
+> cada deploy, o GitHub Actions builda e publica as imagens em
 > `ghcr.io/alex-buttielie/portal-noticias-{backend,frontend}:<ambiente>-<sha>`
 > e a VPS só roda `docker compose pull && up -d --remove-orphans` — sem SSH
 > fazendo pip/npm/venv/migrate manual (tudo roda dentro do container `web`
 > via `backend/docker-entrypoint.sh`). Cada ambiente sobe 6 serviços pelo
 > `docker-compose.yml` da raiz: `db` (Postgres), `redis`, `web`,
-> `celery-worker`, `celery-beat` e `frontend`. TLS é automático via um Caddy
-> único compartilhado pelos três ambientes (`infra/docker-edge/`),
-> substituindo Nginx + Certbot — não há mais emissão/renovação manual de
-> certificado. Confirmado ao vivo em produção: 6 containers saudáveis,
-> `https://portal-noticias.com` respondendo 200 pelo domínio real, zero erro
-> novo nos logs; o PM2 de produção foi parado, não removido (fallback por um
-> período de observação). As seções abaixo marcadas **[HISTÓRICO]** (seção 0
-> e a seção 3A de TLS manual via Certbot) descrevem a topologia PM2 + Nginx
-> anterior; permanecem no documento para quem precisar operar o fallback.
+> `celery-worker`, `celery-beat` e `frontend`.
+>
+> **O corte da borda para o Caddy compartilhado (`infra/docker-edge/`), que
+> esta seção chegou a descrever como já ativo, nunca aconteceu de verdade.**
+> Reconfirmado por SSH em 2026-10-15: não há processo nem serviço Caddy na
+> VPS (`pgrep -a caddy` vazio, `systemctl is-active caddy` → `inactive`);
+> `systemctl is-active nginx` → `active`, com os vhosts por ambiente
+> (`/etc/nginx/sites-available/portal-{dev,homolog,prod}`) apontando pras
+> portas de loopback dos containers, e TLS emitido/renovado por
+> Certbot/Let's Encrypt — exatamente o procedimento da seção **3A** abaixo,
+> que por isso deixou de estar marcada como `[HISTÓRICO]`: é o caminho real
+> hoje, não um fallback. `infra/docker-edge/` existe no repositório e nos
+> checkouts da VPS, mas fica como *preparado, não ativado* (decisão de
+> 2026-10-15, sem prazo de ativação) — ver `CI-CD.md` para o detalhe. Confirmado
+> ao vivo em produção: 6 containers saudáveis, `https://portal-noticias.com`
+> respondendo 200 via Nginx, zero erro novo nos logs; o PM2 **não está mais
+> instalado** na VPS (confirmado 2026-10-15) — não há fallback PM2 operável,
+> apesar do que esta seção dizia antes ("parado, não removido"). A seção 0
+> abaixo, marcada **[HISTÓRICO]**, descreve a topologia PM2 + Nginx
+> anterior; permanece no documento só para quem precisar entender o deploy
+> antigo.
 
 ## Atenção: limpeza manual de uma instância legada de ingestão
 
@@ -80,8 +93,11 @@ não deve ser interpretada como prova de que a VPS foi limpa.
 > `pg_backup_pm2.sh`. Texto original preservado abaixo para quem precisar
 > operar o fallback PM2.
 
-Esta seção prevalece sobre qualquer comando Docker/Caddy das seções seguintes.
-Os paths foram confirmados no deploy e no Django: o arquivo de ambiente é
+**[HISTÓRICO]** Esta seção descrevia o caminho que prevalecia sobre os
+comandos Docker das seções seguintes — isso só valia antes do cutover de
+2026-10-11. Hoje é o inverso: `infra/backup/pg_backup.sh` (Docker, seção 7)
+é o caminho real, confirmado pelo `crontab` da VPS. Os paths abaixo foram
+confirmados no deploy e no Django: o arquivo de ambiente é
 `/home/apps/portal-prod/backend/.env` e `MEDIA_ROOT` é
 `/home/apps/portal-prod/backend/media`. Se o layout mudar, passe
 `BACKUP_ENV_FILE`/`BACKUP_MEDIA_DIR` explicitamente; não adivinhe um path.
@@ -391,17 +407,17 @@ Backup do estado anterior a esta instalação:
 `/root/nginx-backup-20260924-165515/` (`nginx.conf`, `sites-available`,
 `sites-enabled`).
 
-## 3A. Ativando TLS (PM2 + Nginx) [HISTÓRICO]
+## 3A. Ativando TLS (Certbot + Nginx)
 
-> **[HISTÓRICO — substituído em 2026-10-11]** Esta seção descreve a
-> ativação manual de TLS via Certbot/Let's Encrypt (`certonly --webroot`)
-> para a topologia PM2 + Nginx, que rodou de verdade em produção até o
-> cutover de 2026-10-11. Hoje o TLS é automático: um Caddy único
-> compartilhado pelos três ambientes (`infra/docker-edge/`) emite e renova
-> o certificado sozinho, sem `certbot`, sem timer de renovação manual e sem
-> os três domínios/placeholders abaixo precisarem ser preenchidos à mão —
-> ver `infra/docker-edge/README.md`. Texto original preservado abaixo para
-> quem precisar operar o fallback PM2.
+> **Corrigido em 2026-10-15.** Esta seção foi marcada `[HISTÓRICO]` entre
+> 2026-10-11 e 2026-10-15, sob a premissa de que um Caddy único
+> compartilhado (`infra/docker-edge/`) teria substituído este procedimento.
+> Reconfirmado por SSH em 2026-10-15 que isso não aconteceu: não há Caddy
+> rodando na VPS, e o TLS dos três ambientes continua emitido e renovado
+> exatamente como descrito abaixo — Certbot/Let's Encrypt (`certonly
+> --webroot`) por cima do Nginx. `infra/docker-edge/` fica como preparado,
+> não ativado (ver `CI-CD.md`); se um dia a borda migrar para Caddy, esta
+> seção volta a ser histórica — até então, é o caminho real.
 
 Esta seção é o caminho da topologia ativa. **A emissão e o reload são ações
 humanas na VPS**; o repositório apenas deixa a configuração preparada. A
@@ -710,12 +726,15 @@ manualmente.
 docker compose --env-file .env.production exec web python manage.py createsuperuser
 ```
 
-## 7. Agendar backup diário — variante Docker/Caddy
+## 7. Agendar backup diário (Docker)
 
-Esta seção **não é o caminho da VPS ativa**. Para PostgreSQL nativo + PM2 +
-Nginx, use `pg_backup_pm2.sh` e o comando idempotente da seção 0. Um cron que
-chame `pg_backup.sh` numa máquina sem Docker Compose não faz um backup
-silencioso: o script sai com o código **3** e diz qual script usar.
+**Corrigido em 2026-10-15** — esta seção estava rotulada como "não é o
+caminho ativo", ao contrário do que o `crontab` real da VPS mostra: os três
+ambientes já rodam `pg_backup.sh` (este, variante Docker) diariamente às
+03h/03h02/03h04, com dumps recentes em `/var/backups/portal/`. `pg_backup_pm2.sh`
+é quem está obsoleto — PM2 não está mais instalado na VPS. Um cron que chame
+`pg_backup.sh` numa máquina sem Docker Compose não faz um backup silencioso:
+o script sai com o código **3** e diz qual script usar.
 
 ### 7.1 Destino local, criado uma vez
 

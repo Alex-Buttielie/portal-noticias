@@ -43,23 +43,35 @@ agendado no `CELERY_BEAT_SCHEDULE` como `metricas-expurgar-analytics` (P2-02). V
 
 ## O mapa do desenho
 
+> **Pendente de revisão (2026-10-15):** o diagrama abaixo ainda descreve
+> `frontend`/`api` como processos PM2 e o Alloy lendo `~/.pm2/logs/...`. Isso
+> está desatualizado desde o cutover de 2026-10-11 — PM2 não está mais
+> instalado na VPS, `frontend`/`web` são containers Docker (confirmado por
+> SSH) — mas a configuração real do Alloy (o que ele tail/scrape hoje para
+> logs de container) não foi reverificada nesta correção; trate os detalhes
+> de fonte de log abaixo como suspeitos até confirmar contra o `config.alloy`
+> real da VPS.
+
 ```
                     ┌──────────── VPS (uma por ambiente) ────────────┐
   browser ──HTTPS──► Nginx
-                        ├──► Next.js (PM2)                    frontend  310x
-                        └──► Gunicorn/Django                   api        510x
+                        ├──► Next.js (container Docker)        frontend  310x
+                        └──► Gunicorn/Django (container Docker)  api        510x
                                  │  /healthz  /livez  /readyz
                                  │  /health-detail  /metrics   (os 2 últimos
                                  │                          são autenticados)
-                                 ├──► PostgreSQL  (obrigatório)
-                                 └──► Redis ──► Celery worker / beat
+                                 ├──► PostgreSQL  (container, obrigatório)
+                                 └──► Redis ──► Celery worker / beat (containers)
 
                     Grafana Alloy (uma instância por ambiente)
                       ├── scrape  127.0.0.1:510x/metrics  (Bearer)
                       ├── scrape  a própria telemetria (job="alloy")
                       ├── tail     <log de acesso da borda>   [depende de
                       │                                      item de nginx]
-                      ├── tail     ~/.pm2/logs/portal-api-<env>-*.log
+                      ├── tail     <fonte de log do container `web`> [NÃO
+                      │             reverificado nesta correção — era
+                      │             ~/.pm2/logs/portal-api-<env>-*.log antes
+                      │             do cutover]
                       ├── tail     <saude_filas.jsonl>        [ver §6]
                       ├── journal  units celery-*/nginx (allowlist)
                       └──► Grafana Cloud: Loki (logs) + Mimir (métricas)
@@ -320,23 +332,29 @@ Nada abaixo pode ser feito por código, e nada aqui contém valor secreto:
 
 ### Dois pingeres que não existem (e por que isso importa)
 
+> **Corrigido em 2026-10-15** (reconfirmado por SSH): o `crontab` real da
+> VPS roda `infra/backup/pg_backup.sh` (Docker) diariamente nos 3 ambientes
+> — não `pg_backup_pm2.sh`. PM2 não está mais instalado. O parágrafo abaixo
+> tinha isso invertido desde o cutover de 2026-10-11.
+
 Os dois cron monitors de `checks.json` — backup e filas — precisam que alguém
 faça o ping depois do sucesso verificado. **Nenhum dos dois faz, na topologia
 ativa:**
 
-* `infra/backup/pg_backup_pm2.sh` **não** faz ping de heartbeat. Termina em
-  `log "backup concluído"` (linha 448) e sai. **Este é o script que a VPS usa.**
 * `manage.py saude_filas` não faz ping, e o wrapper de 5 min que o faria
   (e que também anexaria ao JSONL do Loki) não existe.
+* `infra/backup/pg_backup_pm2.sh` não faz ping de heartbeat — mas também não
+  é o script que a VPS usa; é código histórico da topologia PM2.
 
-A variante **Docker/Caddy já tem o pinger**: `infra/backup/pg_backup.sh` faz
-`curl --fail` para `$BACKUP_HEARTBEAT_URL` só depois de publicar o dump e a
-mídia e, havendo bucket, só depois de `head-object` confirmar os dois
+O script real, **`infra/backup/pg_backup.sh` (Docker)**, já tem o pinger:
+faz `curl --fail` para `$BACKUP_HEARTBEAT_URL` só depois de publicar o dump e
+a mídia e, havendo bucket, só depois de `head-object` confirmar os dois
 objetos — e **nunca** em caso de falha, porque a ausência de ping é justamente
 o sinal que abre o incidente. O comportamento está coberto por
-`infra/backup/testar-pg-backup.sh` §10. Como o cron monitor se chama
-`backup-diario-pm2` e a VPS é PM2, ele continua precisando do pinger do script
-PM2 para funcionar.
+`infra/backup/testar-pg-backup.sh` §10. Se o cron monitor cadastrado em
+`checks.json` ainda se chama `backup-diario-pm2`, esse nome está desatualizado
+e vale revisar — o que importa de verdade é apontar para o pinger do
+`pg_backup.sh`, que é quem roda na VPS.
 
 Cadastrar esses dois cron monitors sem o pinger é pior do que não cadastrar:
 eles ficariam em `desconhecido` desde o primeiro dia, disparando para o canal
