@@ -8,7 +8,11 @@ import { BuscarReporter } from "@/components/Reporters";
 import { buscarNoticias, historicoBusca, termosPopularesBusca, type ResultadoBusca } from "@/lib/api";
 import { CampoBusca, ListaResultados } from "./BuscaClient";
 
-export const metadata: Metadata = { title: `Buscar — ${SITE_NAME}`, description: `Busca no ${SITE_NAME}.` };
+// Canonical fixo em "/buscar" (sem querystring): resultados variam por `?q=`,
+// e apontar o canonical para a própria URL com query criaria uma página
+// "canônica" diferente por busca — prática não recomendada para páginas de
+// busca interna (evita duplicar sinal de indexação entre `?q=a` e `?q=b`).
+export const metadata: Metadata = { title: `Buscar — ${SITE_NAME}`, description: `Busca no ${SITE_NAME}.`, alternates: { canonical: "/buscar" } };
 export const revalidate = 0;
 
 export default async function Page({ searchParams }: { searchParams: Promise<{ q?: string }> }) {

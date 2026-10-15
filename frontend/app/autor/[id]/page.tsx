@@ -20,7 +20,7 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
     const p = await obterPerfilAutor(Number(idParam));
     if (p?.nome) nome = p.nome;
   } catch {}
-  return { title: `${nome} — Colunista — ${SITE_NAME}` };
+  return { title: `${nome} — Colunista — ${SITE_NAME}`, alternates: { canonical: `/autor/${idParam}` } };
 }
 
 export function generateStaticParams() {

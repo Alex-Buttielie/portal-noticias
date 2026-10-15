@@ -44,8 +44,37 @@
 		Referrer-Policy "strict-origin-when-cross-origin"
 		X-Frame-Options "DENY"
 		Permissions-Policy "geolocation=(), microphone=(), camera=()"
-		# HSTS já sai do Django (SECURE_HSTS_SECONDS, DEBUG=False) — não duplicar.
+		# run 20261014-2113-correcao-seo, achado 5: o HSTS do Django
+		# (SECURE_HSTS_SECONDS, DEBUG=False) só é enviado pelas rotas
+		# proxiadas para `web:8000` (/api/*, /livez, /readyz, /healthz,
+		# /health-detail, /metrics — ver `handle`s abaixo). TODO O RESTO,
+		# incluindo a home e qualquer página servida por `frontend:3000`
+		# (handle catch-all no fim deste bloco), NUNCA recebia HSTS. Por
+		# isso adicionamos aqui, no nível do site (sem `match`, aplica a
+		# toda resposta). Como este `header` roda em toda rota, incluindo
+		# as que passam pelo Django, o valor do Caddy (1 ano) é o que
+		# chega de fato ao cliente em TODAS as rotas — o HSTS do Django
+		# deixa de ser complementar e passa a ser redundante em
+		# `/api/*` etc. (`DJANGO_SECURE_HSTS_SECONDS`, se mudado, não
+		# tem mais efeito observável no header recebido pelo cliente).
+		# Não alterar `SECURE_HSTS_PRELOAD` (fica `False` — decisão
+		# separada, fora desta run).
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
 	}
+
+	# run 20261014-2113-correcao-seo, achado 6 (www -> apex): `DOMAIN_EXTRA`
+	# em produção inclui `, www.{domínio apex}` como um ALIAS do mesmo bloco
+	# de site (ver cabeçalho do arquivo) — sem isto, `www.` e o apex serviam
+	# o mesmo conteúdo em duas URLs diferentes (sinal de SEO duplicado, sem
+	# 301 nunca aplicado entre elas). Matcher + `redir` dentro do bloco único
+	# existente (padrão documentado pelo próprio Caddy para "www to non-www"
+	# sem duplicar blocos de site inteiros) — Caddy ordena `redir` antes do
+	# `handle` catch-all de qualquer forma, independente de onde esta linha
+	# apareça no arquivo; fica aqui, perto do `header`, só por legibilidade.
+	# Em DEV, `DOMAIN_EXTRA` é vazio e nenhuma requisição chega com Host
+	# `www.{$DOMAIN}` neste bloco — o matcher nunca casa, sem efeito.
+	@www host www.{$DOMAIN}
+	redir @www https://{$DOMAIN}{uri} permanent
 
 	encode zstd gzip
 

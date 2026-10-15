@@ -213,7 +213,7 @@ export const NewsCard = memo(function NewsCard({ entrada, variante = "secundaria
           <ImagemNoticia
             src={entrada.imagem_url}
             seed={`${entrada.categoria || "geral"}-${entrada.id}`}
-            alt=""
+            alt={entrada.titulo}
             eager={eager}
             sizes="50vw"
             className="aspect-[4/3] w-full object-cover motion-safe:transition motion-safe:duration-300 group-hover:motion-safe:scale-[1.02]"
@@ -272,7 +272,7 @@ export const NewsCard = memo(function NewsCard({ entrada, variante = "secundaria
         <ImagemNoticia
           src={entrada.imagem_url}
           seed={`${entrada.categoria || "geral"}-${entrada.id}`}
-          alt=""
+          alt={entrada.titulo}
           eager={eager}
           sizes="112px"
           className="h-20 w-28 shrink-0 rounded-[var(--raio-md)] object-cover"

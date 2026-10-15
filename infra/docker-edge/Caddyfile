@@ -34,6 +34,17 @@
 		Referrer-Policy "strict-origin-when-cross-origin"
 		X-Frame-Options "DENY"
 		Permissions-Policy "geolocation=(), microphone=(), camera=()"
+		# HSTS: este Caddy é quem responde de fato pelos 4 hostnames (ver
+		# cabeçalho do arquivo) — nenhum Django por trás destes domínios
+		# envia este header para as rotas servidas por `frontend` (só as
+		# poucas rotas via `/api/*` passam pelo Django). Sem isso aqui, a
+		# maior parte do site (incluindo a home) nunca recebia HSTS, mesmo
+		# com SECURE_HSTS_SECONDS configurado no Django (achado da auditoria
+		# de SEO externa que motivou este ajuste — run
+		# 20261014-2113-correcao-seo, replicado aqui do Caddyfile raiz após
+		# descobrir que aquele só roda com `--profile standalone`, não é o
+		# Caddy real da VPS).
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
 	}
 
 	encode zstd gzip
@@ -108,5 +119,13 @@ __DOMAIN_HOMOLOG__ {
 }
 
 __DOMAIN_PROD__, __DOMAIN_PROD_WWW__ {
+	# Redirect www -> apex (mesmo padrão de baixo risco já validado no
+	# Caddyfile raiz: matcher por host + redir dentro do bloco único
+	# existente, sem precisar separar __DOMAIN_PROD_WWW__ em bloco próprio
+	# e sem interferir na emissão do certificado TLS, que já cobre os dois
+	# hostnames por estarem listados juntos no endereço do site).
+	@www_prod host __DOMAIN_PROD_WWW__
+	redir @www_prod https://__DOMAIN_PROD__{uri} permanent
+
 	import rotas_comuns prod 5103 3103
 }

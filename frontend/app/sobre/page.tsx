@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Card, CardContent } from "@/components/ui/card";
 import { SITE_NAME, SITE_DESCRIPTION } from "@/lib/site";
-export const metadata: Metadata = { title: `Sobre — ${SITE_NAME}`, description: SITE_DESCRIPTION };
+export const metadata: Metadata = { title: `Sobre — ${SITE_NAME}`, description: SITE_DESCRIPTION, alternates: { canonical: "/sobre" } };
 export default function Page() {
   return (
     <div className="mx-auto max-w-3xl space-y-4">

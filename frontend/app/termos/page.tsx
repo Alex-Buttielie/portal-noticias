@@ -3,7 +3,7 @@ import Link from "next/link";
 import { Card, CardContent } from "@/components/ui/card";
 import { SITE_NAME } from "@/lib/site";
 import { formatarDataCurta } from "@/lib/datas";
-export const metadata: Metadata = { title: `Termos de uso — ${SITE_NAME}`, description: `Termos de uso do ${SITE_NAME}.` };
+export const metadata: Metadata = { title: `Termos de uso — ${SITE_NAME}`, description: `Termos de uso do ${SITE_NAME}.`, alternates: { canonical: "/termos" } };
 export default function Page() {
   return (
     <div className="mx-auto max-w-3xl space-y-4">

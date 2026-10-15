@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SITE_NAME } from "@/lib/site";
 import ContatoForm from "./ContatoForm";
-export const metadata: Metadata = { title: `Contato — ${SITE_NAME}`, description: `Fale com o ${SITE_NAME}.` };
+export const metadata: Metadata = { title: `Contato — ${SITE_NAME}`, description: `Fale com o ${SITE_NAME}.`, alternates: { canonical: "/contato" } };
 export default function Page() {
   return (
     <div className="mx-auto max-w-2xl space-y-4">

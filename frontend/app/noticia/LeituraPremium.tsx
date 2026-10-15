@@ -266,7 +266,7 @@ export function LeituraPremium({
                 {relacionados.slice(0, 6).map((r) => (
                   <Link key={r.id} href={`/noticia/${r.id}`} className="group flex gap-3 rounded-[var(--raio-md)] border border-[var(--cor-borda)] bg-[var(--cor-fundo-elevado)] p-2 transition hover:-translate-y-0.5 hover:shadow-[var(--sombra-1)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cor-foco)]">
                     <span className="block h-16 w-24 shrink-0 overflow-hidden rounded-md bg-[var(--cor-fundo-card)]">
-                      <ImagemNoticia src={r.imagem_url} seed={`${r.categoria}-${r.id}`} alt="" sizes="192px" className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.04]" />
+                      <ImagemNoticia src={r.imagem_url} seed={`${r.categoria}-${r.id}`} alt={r.titulo} sizes="192px" className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.04]" />
                     </span>
                     <span className="min-w-0">
                       <span className="block text-[11px] font-medium capitalize text-[var(--cor-primaria)]">{r.categoria}</span>
