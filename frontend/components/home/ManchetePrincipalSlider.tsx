@@ -78,7 +78,7 @@ export function ManchetePrincipalSlider({ itens, salvos, onToggleSalvar }: Manch
       role="region"
       aria-roledescription="carrossel"
       aria-label="Manchete principal"
-      className="flex h-full flex-col gap-2"
+      className="flex flex-col gap-2"
       onMouseEnter={() => setPausado(true)}
       onMouseLeave={() => setPausado(false)}
       onFocus={() => setPausado(true)}
