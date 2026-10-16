@@ -109,3 +109,56 @@ class EventoSite(models.Model):
 
     def __str__(self):
         return f"{self.tipo} {self.path or '-'} ({self.criado_em:%d/%m %H:%M})"
+
+
+def mascarar_ip(ip: str) -> str:
+    """Mascara um IP para exibição/armazenamento — o valor completo NUNCA
+    existe fora desta função: quem chama passa o IP cru e recebe só o
+    mascarado, que é o único valor que `AcessoIP.save()` vê.
+
+    IPv4: mantém os 2 primeiros octetos, mascara os 2 últimos
+    ("203.0.xxx.xxx") — o suficiente para reconhecer faixa/provedor sem
+    identificar o host. IPv6: mantém os 2 primeiros grupos. Entrada vazia ou
+    não reconhecida como IP vira string vazia (quem chama decide se grava).
+    """
+    ip = (ip or "").strip()
+    if not ip:
+        return ""
+    if ":" in ip:
+        grupos = [g for g in ip.split(":") if g][:2]
+        if not grupos:
+            return ""
+        return ":".join(grupos) + ":xxxx:xxxx"
+    partes = ip.split(".")
+    if len(partes) == 4 and all(p.isdigit() for p in partes):
+        return f"{partes[0]}.{partes[1]}.xxx.xxx"
+    return ""
+
+
+class AcessoIP(models.Model):
+    """Contagem de acessos ao site por IP MASCARADO.
+
+    Gravado só em `page_view` (ver `EventoIngestaoView._registrar_site`) —
+    mesmo portão de consentimento do resto de `EventoSite`: `track()` em
+    `frontend/lib/analytics.ts` é fail-closed sem `permiteCategoria
+    ("analytics")`, então esta tabela só recebe linha quando a mesma pessoa
+    que teria um `page_view` registrado também consentiu.
+
+    O IP completo nunca chega a existir aqui: `mascarar_ip()` corta os dois
+    últimos octetos/grupos ANTES do `.create()` — a mesma garantia de "sem
+    IP" do resto do módulo, só que aqui o residual mascarado tem valor de
+    produto (reconhecer padrão de acesso por faixa) que o resto da tabela
+    não precisa.
+    """
+
+    ip_mascarado = models.CharField(max_length=48, db_index=True)
+    criado_em = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        verbose_name = "acesso por IP"
+        verbose_name_plural = "acessos por IP"
+        ordering = ["-criado_em"]
+        indexes = [models.Index(fields=["ip_mascarado", "-criado_em"])]
+
+    def __str__(self):
+        return f"{self.ip_mascarado} ({self.criado_em:%d/%m %H:%M})"

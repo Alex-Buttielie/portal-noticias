@@ -24,6 +24,8 @@ from landing.models import InscricaoListaEspera
 from moderacao.models import AcaoModeracao, Denuncia
 from newsletter.models import InscricaoNewsletter
 
+from .models import AcessoIP
+
 User = get_user_model()
 
 
@@ -79,6 +81,32 @@ def _top_distribuicao(queryset, campo: str, limite: int = 6):
             top.append({"label": "Outros", "total": resto})
         return top
     return norm
+
+
+def ranking_acessos_ip(dias: int = 30, limite: int = 50) -> dict:
+    """Acessos ao site por IP MASCARADO, dos mais frequentes para os menos.
+
+    Fonte: `AcessoIP` (gravada só em `page_view` com consentimento de
+    analytics — ver docstring do modelo). `ip_mascarado` já chega mascarado
+    do `.create()`; esta função só agrupa e conta, nunca vê o IP completo
+    porque ele nunca existiu no banco.
+    """
+    dias = max(1, min(int(dias or 30), 90))
+    limite = max(1, min(int(limite or 50), 200))
+    corte = timezone.now() - timedelta(days=dias)
+    qs = (
+        AcessoIP.objects.filter(criado_em__gte=corte)
+        .values("ip_mascarado")
+        .annotate(total=Count("id"))
+        .order_by("-total")[:limite]
+    )
+    itens = [{"ip_mascarado": r["ip_mascarado"], "total": r["total"]} for r in qs]
+    return {
+        "periodo_dias": dias,
+        "ips_distintos": len(itens),
+        "acessos_total": sum(i["total"] for i in itens),
+        "itens": itens,
+    }
 
 
 def painel(dias: int = 30) -> dict:

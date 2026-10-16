@@ -552,6 +552,19 @@ export function useQueryAdminCentralInteligencia(input: {
   });
 }
 
+export function useQueryAdminAcessosIP(input: {
+  token: string | null;
+  usuarioId: number;
+  dias: number;
+}) {
+  return useQuery({
+    queryKey: queryKeys.admin.acessosIp(input.dias),
+    queryFn: () => api.obterAcessosIP(input.token ?? "", { dias: input.dias }),
+    enabled: habilitadoAdmin(input.token, input.usuarioId),
+    staleTime: STALE_TIME_DECISAO_MS,
+  });
+}
+
 export function useQueryAdminDestaques(input: {
   token: string | null;
   usuarioId: number;
