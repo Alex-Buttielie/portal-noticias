@@ -1942,6 +1942,26 @@ export function obterCentralInteligencia(
   return request(`/api/metricas/inteligencia/${qs ? `?${qs}` : ""}`, { method: "GET" }, token);
 }
 
+// Só admin. `ip_mascarado` já chega mascarado do backend (ver
+// `metricas/models.py::mascarar_ip`) — o IP completo nunca existe aqui.
+export interface AcessosIP {
+  periodo_dias: number;
+  ips_distintos: number;
+  acessos_total: number;
+  itens: { ip_mascarado: string; total: number }[];
+}
+
+export function obterAcessosIP(
+  token: string,
+  params: { dias?: number; limite?: number } = {}
+): Promise<AcessosIP> {
+  const q = new URLSearchParams();
+  if (params.dias) q.set("dias", String(params.dias));
+  if (params.limite) q.set("limite", String(params.limite));
+  const qs = q.toString();
+  return request(`/api/metricas/acessos-ip/${qs ? `?${qs}` : ""}`, { method: "GET" }, token);
+}
+
 export interface DestaqueEditorial {
   id: number;
   tipo: "destaque" | "manchete" | "bloqueio";

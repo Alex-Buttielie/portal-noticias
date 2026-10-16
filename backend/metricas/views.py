@@ -3,8 +3,10 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from config.proxies import get_ident
+
 from . import services
-from .models import EventoSite
+from .models import AcessoIP, EventoSite, mascarar_ip
 from .services_inteligencia import central_inteligencia
 
 
@@ -104,9 +106,23 @@ class EventoIngestaoView(APIView):
                 scroll_max_pct=min(100, max(0, int(dados.get("scroll_max_pct") or 0))),
                 extra=dados.get("extra") if isinstance(dados.get("extra"), dict) else {},
             )
+            if tipo == EventoSite.TIPO_PAGE_VIEW:
+                self._registrar_acesso_ip(request)
             return True
         except Exception:
             return False
+
+    def _registrar_acesso_ip(self, request) -> None:
+        """Conta o acesso por IP mascarado — nunca o IP completo (ver
+        docstring de `AcessoIP`). Best-effort: uma falha aqui não pode
+        derrubar o registro do `page_view`, que já terminou com sucesso.
+        """
+        try:
+            ip_mascarado = mascarar_ip(get_ident(request))
+            if ip_mascarado:
+                AcessoIP.objects.create(ip_mascarado=ip_mascarado)
+        except Exception:
+            pass
 
     def _rotear_feed(self, request, tipo, dados) -> bool:
         """Roteia para `feed` (fonte única). `search` usa `busca.registrar_busca`."""
@@ -197,4 +213,26 @@ class CentralInteligenciaView(APIView):
                 fim=request.query_params.get("fim"),
             )
         )
+
+
+class AcessosIPView(APIView):
+    """GET /api/metricas/acessos-ip/ — só admin.
+
+    Acessos ao site por IP mascarado, do mais ao menos frequente. Params:
+    `dias` (padrão 30, máx. 90) e `limite` (padrão 50, máx. 200).
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        if getattr(request.user, "papel", None) != "admin":
+            return Response(status=status.HTTP_403_FORBIDDEN)
+        dias = request.query_params.get("dias", 30)
+        limite = request.query_params.get("limite", 50)
+        try:
+            dias = int(dias)
+            limite = int(limite)
+        except (TypeError, ValueError):
+            return Response({"detail": "dias e limite devem ser inteiros."}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(services.ranking_acessos_ip(dias=dias, limite=limite))
 

@@ -25,6 +25,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/lib/auth-context";
 import {
+  useQueryAdminAcessosIP,
   useQueryAdminCentralInteligencia,
   useQueryAdminDestaques,
   useQueryAdminRegras,
@@ -229,6 +230,7 @@ export default function Page() {
 
   // --- Migração TanStack Query: Central, destaques e regras (staleTime 0 — decisão).
   const centralQuery = useQueryAdminCentralInteligencia({ token, usuarioId, periodo, inicio: inicio || null, fim: fim || null });
+  const acessosIpQuery = useQueryAdminAcessosIP({ token, usuarioId, dias: 30 });
   const destaquesQuery = useQueryAdminDestaques({ token, usuarioId });
   const regrasQuery = useQueryAdminRegras({ token, usuarioId });
 
@@ -395,6 +397,39 @@ export default function Page() {
           )}
           {!err && !data && !loading && (
             <p className="text-sm text-[var(--cor-texto-suave)]">Carregando a Central...</p>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card className="border-[var(--cor-borda)] bg-[var(--cor-fundo-card)]">
+        <CardHeader>
+          <CardTitle className="text-base">Acessos por IP (mascarado)</CardTitle>
+          <CardDescription className="text-[var(--cor-texto-suave)]">
+            Últimos 30 dias, do IP com mais acessos para o com menos. Só os dois primeiros blocos do IP são exibidos/gravados — o endereço completo nunca é armazenado.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {acessosIpQuery.isError ? (
+            <p className="rounded-md border border-[var(--cor-erro)] bg-[var(--cor-erro-suave)] px-3 py-2 text-sm text-[var(--cor-erro)]">
+              {acessosIpQuery.error?.message || "Falha ao carregar os acessos por IP."}
+            </p>
+          ) : acessosIpQuery.isLoading ? (
+            <p className="text-sm text-[var(--cor-texto-suave)]">Carregando...</p>
+          ) : (
+            <>
+              <p className="mb-2 text-xs text-[var(--cor-texto-suave)]">
+                {fmt(acessosIpQuery.data?.ips_distintos)} IPs distintos • {fmt(acessosIpQuery.data?.acessos_total)} acessos no período
+              </p>
+              <TabelaRank
+                titulo="Ranking de acessos"
+                colunas={["#", "IP (mascarado)", "Acessos"]}
+                linhas={(acessosIpQuery.data?.itens || []).map((it, idx) => ({
+                  "#": <span className="font-mono">{idx + 1}</span>,
+                  "IP (mascarado)": <span className="font-mono">{it.ip_mascarado}</span>,
+                  Acessos: <span className="font-mono">{fmt(it.total)}</span>,
+                }))}
+              />
+            </>
           )}
         </CardContent>
       </Card>

@@ -338,6 +338,8 @@ export const queryKeys = {
           fim: fim ? textoNormalizado(fim) : null,
         },
       ] as const,
+    acessosIp: (dias: number) =>
+      ["privado", AMBIENTE_QUERY, "admin", "acessos-ip", dias] as const,
     destaques: () =>
       ["privado", AMBIENTE_QUERY, "admin", "destaque-editoriais"] as const,
     regras: () =>
