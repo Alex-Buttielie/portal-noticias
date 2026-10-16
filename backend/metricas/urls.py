@@ -9,4 +9,5 @@ urlpatterns = [
     # FRENTE 6 — Central de Inteligência (ingestão pública + painel admin).
     path("eventos/", views.EventoIngestaoView.as_view(), name="eventos"),
     path("inteligencia/", views.CentralInteligenciaView.as_view(), name="inteligencia"),
+    path("acessos-ip/", views.AcessosIPView.as_view(), name="acessos-ip"),
 ]

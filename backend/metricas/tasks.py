@@ -5,14 +5,16 @@ Este módulo fecha a promessa de "12 meses, expurgo diário" da tabela de
 `infra/observability/README.md`: até ele existir, aquela linha era promessa
 sem código.
 
-O QUE É EXPURGADO, E POR QUE ESTES TRÊS MODELOS
------------------------------------------------
+O QUE É EXPURGADO, E POR QUE ESTES QUATRO MODELOS
+--------------------------------------------------
 Todos os eventos de analytics de produto que o portal grava, e que são
 comportamentais por definição (LGPD: dado de navegação, com `user`/`sessao`
-associados). São eles:
+associados, ou — no caso de `AcessoIP` — já mascarado na escrita). São eles:
 
 - `metricas.EventoSite` — o restante da taxonomia (page_view, category_view,
   location_selected, community_view...);
+- `metricas.AcessoIP` — contagem de acesso por IP MASCARADO, gravada junto
+  com `page_view` (ver docstring do modelo); nunca guarda o IP completo;
 - `feed.InteracaoNoticia` — view/click/read/save/share/search_click;
 - `feed.EventoBusca` — as buscas (inclui `query`, que é dado pessoal).
 
@@ -20,7 +22,7 @@ Os dois últimos são mantidos pelo app `feed` porque são a ÚNICA fonte de
 engajamento e de termos populares (ver `metricas/models.py`), mas continuam
 sendo analytics de produto: são atingidos pelo endpoint
 `POST /api/metricas/eventos/`. Nenhum outro modelo do portal tem FK para
-estes três (verificado: todos apontam para `catalogo_noticias`, nunca o
+estes quatro (verificado: todos apontam para `catalogo_noticias`, nunca o
 contrário), então apagar não cascateia para conteúdo.
 
 O QUE NÃO É EXPURGADO, E POR QUE
@@ -120,10 +122,11 @@ def modelos_de_evento() -> list[tuple[str, Any]]:
     """
     from feed.models import EventoBusca, InteracaoNoticia
 
-    from .models import EventoSite
+    from .models import AcessoIP, EventoSite
 
     return [
         ("metricas.EventoSite", EventoSite),
+        ("metricas.AcessoIP", AcessoIP),
         ("feed.InteracaoNoticia", InteracaoNoticia),
         ("feed.EventoBusca", EventoBusca),
     ]

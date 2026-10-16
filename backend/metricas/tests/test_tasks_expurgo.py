@@ -144,6 +144,7 @@ def test_expurga_eventos_brutos_anteriores_a_janela():
     assert _totais() == (2, 2, 2)
     assert resultado["removidos"] == {
         "metricas.EventoSite": 5,
+        "metricas.AcessoIP": 0,
         "feed.InteracaoNoticia": 5,
         "feed.EventoBusca": 5,
     }
@@ -220,11 +221,13 @@ def test_segunda_execucao_nao_remove_nem_muda_contagem():
     assert segunda["total_removido"] == 0
     assert segunda["removidos"] == {
         "metricas.EventoSite": 0,
+        "metricas.AcessoIP": 0,
         "feed.InteracaoNoticia": 0,
         "feed.EventoBusca": 0,
     }
     assert segunda["lotes"] == {
         "metricas.EventoSite": 0,
+        "metricas.AcessoIP": 0,
         "feed.InteracaoNoticia": 0,
         "feed.EventoBusca": 0,
     }
